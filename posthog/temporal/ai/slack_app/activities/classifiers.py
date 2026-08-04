@@ -1,6 +1,7 @@
 import re
 
 import structlog
+from openai.types.shared_params import ResponseFormatJSONSchema
 from pydantic import ValidationError
 from temporalio import activity
 
@@ -298,6 +299,36 @@ def classify_untagged_followup_activity(
     return False
 
 
+def _model_override_response_format(choices: tuple[ModelChoice, ...]) -> ResponseFormatJSONSchema:
+    """A strict JSON schema pinning the reply to the result shape.
+
+    The `model` enum is the point: it removes the classifier's ability to name a model
+    this workspace can't drive, which the prompt could only ask for and
+    ``find_model_choice`` could only catch after the fact.
+
+    `reasoning_effort` stays an unconstrained string. Which efforts are valid depends on
+    the model the run finally lands on, not on the catalogue-wide union, so it is settled
+    once where the preferences are resolved — constraining it here would move that
+    decision to the wrong place.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "slack_app_model_override",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "model": {"type": ["string", "null"], "enum": [*(c.model for c in choices), None]},
+                    "reasoning_effort": {"type": ["string", "null"]},
+                },
+                "required": ["model", "reasoning_effort"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def _render_model_catalogue(choices: tuple[ModelChoice, ...]) -> str:
     lines = []
     for choice in choices:
@@ -319,8 +350,8 @@ def classify_slack_app_model_override(
 
     The hard part is not spotting a model name; it is telling an instruction ("use
     fable for this") from subject matter ("add fable to the model picker"). The
-    prompt is built around that distinction, and the model may only answer with an id
-    from ``choices``.
+    prompt is built around that distinction, and the schema restricts the answer to an
+    id from ``choices``.
     """
     prompt = (
         "You are routing a Slack message addressed to the PostHog agent. Decide whether "
@@ -347,9 +378,8 @@ def classify_slack_app_model_override(
         "When you are unsure, answer with nulls — the author's saved default is the "
         "right thing to run.\n\n"
         f"Message: {event_text}\n\n"
-        "Respond with ONLY a JSON object, e.g. "
-        '{"model": "claude-fable-5", "reasoning_effort": "high"} '
-        'or {"model": null, "reasoning_effort": null}'
+        'Answer with the two fields, e.g. {"model": "claude-fable-5", "reasoning_effort": '
+        '"high"} or {"model": null, "reasoning_effort": null}'
     )
 
     try:
@@ -359,7 +389,11 @@ def classify_slack_app_model_override(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=128,
             temperature=0,
+            response_format=_model_override_response_format(choices),
         )
+        # Tolerant parse on top of the schema on purpose: the gateway fronts several
+        # providers and does not honour a response format identically on every route, so
+        # a reply that arrives fenced still lands rather than failing the mention.
         parsed = extract_json_object(response.choices[0].message.content or "")
         # The reply has the same shape as the result, so it parses straight into it —
         # but the model is still the classifier's word, not ours, until checked against

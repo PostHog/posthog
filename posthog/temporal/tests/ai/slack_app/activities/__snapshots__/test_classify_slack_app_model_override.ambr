@@ -27,6 +27,6 @@
   
   Message: use fable for this one and fix the checkout test
   
-  Respond with ONLY a JSON object, e.g. {"model": "claude-fable-5", "reasoning_effort": "high"} or {"model": null, "reasoning_effort": null}
+  Answer with the two fields, e.g. {"model": "claude-fable-5", "reasoning_effort": "high"} or {"model": null, "reasoning_effort": null}
   '''
 # ---

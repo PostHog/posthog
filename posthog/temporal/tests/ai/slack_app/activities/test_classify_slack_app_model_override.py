@@ -79,6 +79,33 @@ class TestClassifySlackAppModelOverride:
         ):
             assert classify_slack_app_model_override("use fable for this", CHOICES) is None
 
+    def test_reply_is_pinned_to_the_live_catalogue(self):
+        """The schema, not the prompt, is what stops the classifier naming a model this
+        workspace can't drive. Asking for it in prose was the old guarantee and it only
+        held as far as the model chose to cooperate; if the request stops carrying the
+        enum, `find_model_choice` silently becomes the only thing standing between a
+        hallucinated id and a dropped override.
+        """
+        fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
+        with patch(
+            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            return_value=fake_client,
+        ):
+            classify_slack_app_model_override("use fable for this", CHOICES)
+
+        kwargs = fake_client.chat.completions.create.call_args.kwargs
+        schema = kwargs["response_format"]["json_schema"]
+        assert schema["strict"] is True
+        assert schema["schema"]["properties"]["model"]["enum"] == [
+            "claude-opus-5",
+            "claude-fable-5",
+            "gpt-5.6-sol",
+            None,
+        ]
+        # Which efforts a model supports depends on the model the run lands on, so the
+        # effort is deliberately left open here and settled where preferences resolve.
+        assert "enum" not in schema["schema"]["properties"]["reasoning_effort"]
+
     def test_prompt_snapshot_matches(self, snapshot):
         """The prompt is the whole classifier — the catalogue it offers, the
         instruction-vs-subject-matter examples, and the reply contract. Pinning it means
