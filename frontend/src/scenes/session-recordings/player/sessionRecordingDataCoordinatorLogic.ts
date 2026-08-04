@@ -56,6 +56,11 @@ import { posthogTelemetry } from './snapshot-processing/process-all-snapshots'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
+// A player that hasn't reached fullyLoaded within this long is stalled, not just slow — long
+// enough to clear normal loading time for large recordings, short enough to catch a stuck player
+// before the user gives up.
+export const STALLED_LOAD_TIMEOUT_MS = 45000
+
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
     // allows disabling polling for new sources in tests
@@ -521,6 +526,17 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
     listeners(({ values, actions, props, cache }) => ({
         loadRecordingData: () => {
             actions.loadRecordingMeta()
+
+            // Success and known failures already report their own metric — this catches the rest:
+            // a player that never reaches fullyLoaded and never errors either, i.e. a silent stall.
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(() => {
+                    if (!values.fullyLoaded) {
+                        metricCount('replay_player_load_failures', 1, { kind: 'stalled' })
+                    }
+                }, STALLED_LOAD_TIMEOUT_MS)
+                return () => clearTimeout(timeoutId)
+            }, 'stalledLoadTimeout')
         },
 
         loadRecordingMetaSuccess: () => {

@@ -10,7 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
-import { HOMEPAGE_TAB_ID } from './constants'
+import { HOMEPAGE_MAX_LOGIC_PROPS, HOMEPAGE_TAB_ID } from './constants'
 
 describe('aiFirstHomepageLogic', () => {
     let logic: ReturnType<typeof aiFirstHomepageLogic.build>
@@ -49,5 +49,21 @@ describe('aiFirstHomepageLogic', () => {
 
         expect(maxLogic({ panelId: HOMEPAGE_TAB_ID }).values.question).toEqual('what is my dau')
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+    })
+
+    // Regression guard: the homepage chat renders inline (HomepageThread), so minting a conversation
+    // here must not navigate the browser to /ai — that would mount a second maxLogic instance which
+    // reads the freshly-minted id back off the URL and fetches it before the conversation exists
+    // server-side, causing a burst of 404s. This locks in HOMEPAGE_MAX_LOGIC_PROPS' `syncUrl: false`.
+    it('does not navigate to /ai when a conversation starts on the homepage', async () => {
+        router.actions.push(urls.projectHomepage())
+
+        const homepageMaxLogic = maxLogic(HOMEPAGE_MAX_LOGIC_PROPS)
+        homepageMaxLogic.mount()
+        homepageMaxLogic.actions.setConversationId(homepageMaxLogic.values.frontendConversationId)
+
+        expect(router.values.location.pathname.endsWith(urls.projectHomepage())).toBe(true)
+
+        homepageMaxLogic.unmount()
     })
 })

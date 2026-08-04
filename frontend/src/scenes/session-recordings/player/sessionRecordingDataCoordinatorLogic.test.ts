@@ -2,12 +2,16 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
+import posthog from 'posthog-js'
 
 import { processAllSnapshots, SnapshotSourceType, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
 import { dayjs } from 'lib/dayjs'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
-import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
+import {
+    sessionRecordingDataCoordinatorLogic,
+    STALLED_LOAD_TIMEOUT_MS,
+} from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingMetaLogic } from 'scenes/session-recordings/player/sessionRecordingMetaLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -262,6 +266,51 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
             }).toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
+        })
+    })
+
+    describe('stalled load detection', () => {
+        // Grabs the callback loadRecordingData scheduled for the stall check, instead of waiting
+        // out the real 45s timeout or fighting fake timers against the mocked network calls.
+        const getScheduledStallCallback = (setTimeoutSpy: jest.SpyInstance): (() => void) | undefined => {
+            const call = setTimeoutSpy.mock.calls.find(([, ms]) => ms === STALLED_LOAD_TIMEOUT_MS)
+            return call?.[0] as (() => void) | undefined
+        }
+
+        // Regression guard: a player that opens but never reaches fullyLoaded (and never errors
+        // either, so loadRecordingMetaFailure's own metric never fires) used to be invisible —
+        // `recording loaded` and its `replay_player_recordings_loaded` metric only cover success.
+        it('reports a stalled-load metric if fullyLoaded is never reached', () => {
+            const metricsCount = posthog.metrics!.count as jest.Mock
+            metricsCount.mockClear()
+            const setTimeoutSpy = jest.spyOn(global, 'setTimeout')
+
+            logic.actions.loadRecordingData()
+            getScheduledStallCallback(setTimeoutSpy)?.()
+
+            expect(logic.values.fullyLoaded).toBe(false)
+            expect(metricsCount).toHaveBeenCalledWith('replay_player_load_failures', 1, {
+                attributes: { kind: 'stalled' },
+            })
+            setTimeoutSpy.mockRestore()
+        })
+
+        it('does not report a stalled-load metric once the recording finishes loading', async () => {
+            const metricsCount = posthog.metrics!.count as jest.Mock
+            metricsCount.mockClear()
+            const setTimeoutSpy = jest.spyOn(global, 'setTimeout')
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingData()
+                logic.actions.loadSnapshots()
+            }).toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
+            getScheduledStallCallback(setTimeoutSpy)?.()
+
+            expect(logic.values.fullyLoaded).toBe(true)
+            expect(metricsCount).not.toHaveBeenCalledWith('replay_player_load_failures', 1, {
+                attributes: { kind: 'stalled' },
+            })
+            setTimeoutSpy.mockRestore()
         })
     })
 

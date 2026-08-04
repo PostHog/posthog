@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
-import { HOMEPAGE_TAB_ID } from './constants'
+import { HOMEPAGE_MAX_LOGIC_PROPS } from './constants'
 import { HomepageInput } from './HomepageInput'
 import { HomepageSearchResults } from './HomepageSearchResults'
 import { HomepageThread } from './HomepageThread'
@@ -22,7 +22,7 @@ function phaseAtLeast(current: string, target: string): boolean {
 
 export function AiFirstHomepage(): JSX.Element {
     const { mode, animationPhase, query, threadStarted } = useValues(aiFirstHomepageLogic)
-    const { conversationId } = useValues(maxLogic({ panelId: HOMEPAGE_TAB_ID }))
+    const { conversationId } = useValues(maxLogic(HOMEPAGE_MAX_LOGIC_PROPS))
 
     const isIdle = mode === 'idle'
     const isAi = mode === 'ai'
@@ -30,7 +30,7 @@ export function AiFirstHomepage(): JSX.Element {
     const isContent = animationPhase === 'content'
 
     return (
-        <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
+        <BindLogic logic={maxLogic} props={HOMEPAGE_MAX_LOGIC_PROPS}>
             <Search.Root
                 logicKey="homepage"
                 showAskAiLink={false}

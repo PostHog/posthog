@@ -9,12 +9,12 @@ import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { Thread } from 'scenes/max/Thread'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
-import { HOMEPAGE_TAB_ID } from './constants'
+import { HOMEPAGE_MAX_LOGIC_PROPS, HOMEPAGE_TAB_ID } from './constants'
 
 export function HomepageThread(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
-    const { threadLogicKey, conversation } = useValues(maxLogic({ panelId: HOMEPAGE_TAB_ID }))
-    const { askMax, setQuestion } = useActions(maxLogic({ panelId: HOMEPAGE_TAB_ID }))
+    const { threadLogicKey, conversation } = useValues(maxLogic(HOMEPAGE_MAX_LOGIC_PROPS))
+    const { askMax, setQuestion } = useActions(maxLogic(HOMEPAGE_MAX_LOGIC_PROPS))
 
     const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -43,7 +43,7 @@ export function HomepageThread(): JSX.Element {
     }
 
     return (
-        <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
+        <BindLogic logic={maxLogic} props={HOMEPAGE_MAX_LOGIC_PROPS}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <ScrollableShadows direction="vertical" styledScrollbars className="grow min-h-0" scrollRef={scrollRef}>
                     <ThreadAutoScroller>

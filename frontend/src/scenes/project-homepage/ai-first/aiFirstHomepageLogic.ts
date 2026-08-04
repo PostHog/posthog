@@ -31,7 +31,7 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Node } from '../../../queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '../../../types'
 import type { DashboardType, QueryBasedInsightModel } from '../../../types'
-import { HOMEPAGE_IDLE_DRAFT_KEY, HOMEPAGE_TAB_ID } from './constants'
+import { HOMEPAGE_IDLE_DRAFT_KEY, HOMEPAGE_MAX_LOGIC_PROPS, HOMEPAGE_TAB_ID } from './constants'
 
 export type HomepageMode = 'idle' | 'search' | 'ai'
 export type AnimationPhase = 'idle' | 'moving' | 'separator' | 'content'
@@ -205,7 +205,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     connect(() => ({
         values: [
-            maxLogic({ panelId: HOMEPAGE_TAB_ID }),
+            maxLogic(HOMEPAGE_MAX_LOGIC_PROPS),
             ['threadLogicKey', 'conversationId'],
             teamLogic,
             ['currentTeam'],
@@ -223,7 +223,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['featureFlags'],
         ],
         actions: [
-            maxLogic({ panelId: HOMEPAGE_TAB_ID }),
+            maxLogic(HOMEPAGE_MAX_LOGIC_PROPS),
             ['openConversation', 'startNewConversation', 'setQuestion'],
             handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }),
             ['enterHandsFree'],
