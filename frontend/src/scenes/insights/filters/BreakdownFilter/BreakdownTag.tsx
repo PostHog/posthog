@@ -21,12 +21,10 @@ import { BreakdownType, GroupTypeIndex } from '~/types'
 
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { BreakdownTagMenu } from './BreakdownTagMenu'
-import { TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
 import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
 type EditableBreakdownTagProps = {
-    taxonomicBreakdownLogicProps: TaxonomicBreakdownFilterLogicProps
     breakdown: string | number
     breakdownType: BreakdownType
     isTrends: boolean
@@ -35,7 +33,6 @@ type EditableBreakdownTagProps = {
 }
 
 export function EditableBreakdownTag({
-    taxonomicBreakdownLogicProps,
     breakdown,
     breakdownType,
     isTrends,
@@ -55,7 +52,6 @@ export function EditableBreakdownTag({
     return (
         <BindLogic logic={breakdownTagLogic} props={logicProps}>
             <TaxonomicBreakdownPopover
-                logicProps={taxonomicBreakdownLogicProps}
                 open={filterOpen}
                 setOpen={setFilterOpen}
                 breakdownValue={breakdown}
