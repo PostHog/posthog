@@ -70,5 +70,5 @@
 - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
-- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. It routes each fact to the form that reads fastest (bullet, table, diagram, screenshot, collapsed block), cuts what a reviewer doesn't need, holds what survives to one fact per bullet in under 25 words, and ends with a self-check to run before you create the PR. Bullets are for cutting to the facts that matter, not for restating a paragraph at greater length.
+- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: put each fact in the form that reads fastest (screenshot, diagram, table, bullet), cut what a reviewer doesn't need, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
 -->

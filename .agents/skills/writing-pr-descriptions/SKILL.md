@@ -27,9 +27,9 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 | Existing code a reviewer needs to see                                                | A line-range permalink, which GitHub renders as a snippet |
 | Test output, logs, long command transcripts                                          | A `<details>` block                                       |
 | A behavior change or a risk a reviewer must not miss                                 | `> [!WARNING]` or `> [!NOTE]`                             |
-| Anything else                                                                        | Bullets, under the shape rule in pass 2                   |
+| Anything else                                                                        | Bullets, under the shape rule in pass 3                   |
 
-No PR needs every form. A one-file fix is three bullets and nothing else. Reach for a form because it makes review faster, never as decoration. An empty section gets one bullet or "None".
+No PR needs every form. Reach for one because it makes review faster, never as decoration. An empty section gets one bullet or "None".
 
 ### Screenshots
 
@@ -50,9 +50,9 @@ Assign by role (`class NodeA,NodeB phBlue;`): `phBlue` agents and primary paths,
 
 ## Pass 2: cut
 
-One fact per bullet makes prose checkable. It does not make it shorter. Explode a dense paragraph into twelve bullets and you have moved the reviewer's cost, not removed it.
+One fact per bullet makes prose checkable. It does not make it shorter: a dense paragraph exploded into twelve bullets moves the reviewer's cost rather than removing it.
 
-So cut first, and shape only what survives. A fact that earns a line is one a reviewer needs to judge the change, approve it, or know what to watch after it ships.
+So cut first, and shape only what survives. A fact earns a line when a reviewer needs it to judge the change, approve it, or know what to watch after it ships.
 
 Delete:
 
@@ -70,7 +70,7 @@ Budget, as a ceiling and not a target:
 - A typical PR: Problem and Changes together fit in about 10 bullets.
 - Numbers, file paths and identifiers survive cutting. Adjectives and second explanations do not.
 
-The test: **the body must come out shorter than your first draft.** If it grew, you split without cutting. Go back.
+The test: **the body must come out shorter than your first draft.** Pass 4 checks it.
 
 ## Pass 3: shape what survives
 
@@ -99,9 +99,9 @@ This governs prose only. A table cell is not a sentence, and a diagram is not pr
 > - The span gets the job key `...:None`.
 > - Re-run recovery cannot join on that key.
 
-Note what the cut removed: the glob matching one artifact is the mechanism behind "in selective mode", and the reviewer reaches it from the diff. Note also what it kept: every identifier and every link in the chain a reviewer has to check.
+The cut removed the glob matching one artifact, which is the mechanism behind "in selective mode" and reachable from the diff. It kept every identifier, and every link in the chain a reviewer has to check.
 
-Copy the second one. It is shorter, not just flatter. Four bullets that restate the paragraph at greater length would be a worse description than the one you started with.
+Copy the second one. It is shorter, not just flatter.
 
 ### Other prose rules
 
@@ -130,6 +130,8 @@ Run this over the body you just wrote, before `gh pr create` or `gh pr edit`. Fi
 
 ## Background
 
-`references/examples.md` carries the ASD-STE100 rules this shape is adapted from, and merged PRs rewritten under it side by side. Read it for more worked examples, or when deciding whether to change these rules.
+`references/examples.md` runs two merged PRs through all four passes, with a table of what each cut removed and why. Read it when you want the rule applied end to end rather than to one sentence.
+
+[docs/internal/pr-description-voice-ste.md](../../../docs/internal/pr-description-voice-ste.md) is the decision record: where the shape comes from, how much of our existing prose it touches, and what other teams standardized on instead. Read it before changing these rules, not while writing a PR.
 
 Nothing here is enforced by a check. Pass 4 is the enforcement.

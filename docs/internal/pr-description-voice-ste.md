@@ -223,13 +223,18 @@ STE is the strictest way to get there, and the only one that also forbids the vo
 
 ## What shipped with this document
 
-Guidance, not a check, and no new skill. The rules live where an agent already looks before it opens a PR:
+Guidance, not a check. A skill, `/writing-pr-descriptions`, and one-line pointers to it:
 
-- `.github/pull_request_template.md`: the authoring rules now carry the style. This replaced the paragraph asking for "a crisp, direct Silicon Valley communication style" and a tone that is "light but substantive". STE has no tone, so the two could not both stay. An agent follows whichever it read last.
-- `AGENTS.md`: the PR descriptions section states the style in one line and links here.
+- `.agents/skills/writing-pr-descriptions/SKILL.md`: four passes, route then cut then shape then check. It holds the rules and the self-check.
+- `references/examples.md`: two merged PRs run through all four passes, with what each cut removed and why.
+- `.github/pull_request_template.md`: the authoring rules point at the skill. This replaced the paragraph asking for "a crisp, direct Silicon Valley communication style" and a tone that is "light but substantive". The shape rule has no tone, so the two could not both stay. An agent follows whichever it read last.
+- `AGENTS.md`: lists the skill under "Always invoke".
 
-Two rules matter more than the rest:
+Two earlier revisions were dropped: a CI check on PR bodies, and keeping the rule in the template alone. `AGENTS.md` can force a skill to load, and a self-check is a procedure an agent executes rather than an adjective it reads.
 
+Three rules matter more than the rest:
+
+- Cut before you split. The writing rules on their own made every rewrite longer.
 - Apply this to prose. Leave the tables, diagrams and links alone, and never dissolve one back into prose.
 - No PR needs every element. A one-file fix is a few bullets. A change to a flow earns a diagram. Form follows content.
 
