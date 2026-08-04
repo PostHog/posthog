@@ -383,8 +383,6 @@ export function CustomPropertyModal(): JSX.Element {
     const profileTargetAvailable = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES] || isProfileTarget
     const hasExistingSource = !!editingDefinition?.source
     const noViews = !savedQueriesLoading && materializedViews.length === 0
-    const isCanonical = !!editingDefinition?.is_canonical
-    const canonicalReason = 'PostHog sets this property automatically, so its name and type are fixed.'
 
     // While a workflow references the property it stays workflow-sourced no matter what is picked
     // here, so the other options are locked until it's removed from the workflow(s).
@@ -448,8 +446,8 @@ export function CustomPropertyModal(): JSX.Element {
                 enableFormOnSubmit
                 className="flex flex-col gap-4"
             >
-                <LemonField name="name" label="Name" help={isCanonical ? canonicalReason : undefined}>
-                    <LemonInput placeholder="e.g. ARR" autoFocus={!isCanonical} disabled={isCanonical} />
+                <LemonField name="name" label="Name">
+                    <LemonInput placeholder="e.g. ARR" autoFocus />
                 </LemonField>
                 <LemonField name="description" label="Description">
                     <LemonTextArea placeholder="Optional description" minRows={2} />
@@ -479,12 +477,8 @@ export function CustomPropertyModal(): JSX.Element {
                     person property is a raw $set value, so these are account-only. */}
                 {targetType === 'account' && (
                     <>
-                        <LemonField name="displayType" label="Type" help={isCanonical ? canonicalReason : undefined}>
-                            <LemonSelect
-                                options={DISPLAY_TYPE_OPTIONS}
-                                fullWidth
-                                disabledReason={isCanonical ? canonicalReason : undefined}
-                            />
+                        <LemonField name="displayType" label="Type">
+                            <LemonSelect options={DISPLAY_TYPE_OPTIONS} fullWidth />
                         </LemonField>
                         {showBigNumberSwitch && (
                             <LemonField name="isBigNumber">

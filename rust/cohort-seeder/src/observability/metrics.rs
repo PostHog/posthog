@@ -40,10 +40,14 @@ pub const RUNS_WITHOUT_CHUNKS: &str = "seeder_runs_without_chunks";
 pub const WINDOW_DAYS_MISMATCH: &str = "seeder_window_days_mismatch_total";
 pub const RUNS_PLANNING_STAMPED: &str = "seeder_runs_planning_stamped_total";
 pub const RUNS_PLANNING_WITHHELD: &str = "seeder_runs_planning_withheld_total";
+/// Reconcile dispatch attempts, labelled by bounded `outcome` and the run's `kind` (counter).
 pub const RECONCILE_DISPATCHES: &str = "seeder_reconcile_dispatches_total";
+/// Dispatch claims lost to a concurrent writer, labelled by the run's `kind` (counter).
 pub const RECONCILE_CAS_LOST: &str = "seeder_reconcile_cas_lost_total";
 pub const RECONCILE_RECORD_INVALID: &str = "seeder_reconcile_record_invalid_total";
 pub const RECONCILE_DISPATCHES_IN_FLIGHT: &str = "seeder_reconcile_dispatches_in_flight";
+/// Runs currently in the reconcile protocol, labelled by the run's `kind` (gauge). Published for
+/// every discovered kind each tick, zeroes included, so a drained kind does not freeze.
 pub const RUNS_RECONCILING: &str = "seeder_runs_reconciling";
 // Liveness, marker watcher, and observation.
 pub const RECONCILE_MARKERS_OBSERVED: &str = "seeder_reconcile_markers_observed_total";
@@ -51,16 +55,27 @@ pub const RECONCILE_MARKER_PARSE_FAILURES: &str = "seeder_reconcile_marker_parse
 pub const RECONCILE_MARKER_WATCH_LAG: &str = "seeder_reconcile_marker_watch_lag";
 pub const RECONCILE_LIVENESS_LAGGING_PARTITIONS: &str =
     "seeder_reconcile_liveness_lagging_partitions";
+/// Cohort participations settled complete, labelled by the run's `kind` (counter).
 pub const RECONCILE_COHORTS_COMPLETED: &str = "seeder_reconcile_cohorts_completed_total";
+/// Cohort participations terminally superseded while short, labelled by the run's `kind`
+/// (counter).
 pub const RECONCILE_COHORTS_PARTIAL: &str = "seeder_reconcile_cohorts_partial_total";
+/// Cohort participations short of their markers with the pinned shape unchanged — the retryable
+/// half of the split — labelled by the run's `kind` (counter).
 pub const RECONCILE_COHORTS_SHORTFALL: &str = "seeder_reconcile_cohorts_shortfall_total";
+/// Runs that settled without a single marker — the shape a processor that cannot decode the
+/// tile's kind produces — labelled by the run's `kind` (counter).
 pub const RECONCILE_ZERO_MARKER_RUNS: &str = "seeder_reconcile_zero_marker_runs_total";
+/// Runs the observation pass settled, labelled by the run's `kind` (counter).
 pub const RUNS_OBSERVED: &str = "seeder_runs_observed_total";
 pub const RECONCILE_WATCH_TRUNCATED: &str = "seeder_reconcile_watch_truncated_total";
 pub const RECONCILE_OBSERVATION_STALLED_AGE_SECONDS: &str =
     "seeder_reconcile_observation_stalled_age_seconds";
 pub const RECONCILE_OBSERVATION_PASS_SECONDS: &str = "seeder_reconcile_observation_pass_seconds";
 pub const RECONCILE_OBSERVE_ERRORS: &str = "seeder_reconcile_observe_errors_total";
+/// Reconciling runs with no usable dispatch record, labelled by the run's `kind` (gauge).
+/// Published for every discovered kind each tick, zeroes included, so a drained kind does not
+/// freeze at its last reading.
 pub const RECONCILE_RUNS_UNDISPATCHED: &str = "seeder_reconcile_runs_undispatched";
 // Person-property seed path.
 pub const PERSONS_SCANNED: &str = "seeder_persons_scanned_total";

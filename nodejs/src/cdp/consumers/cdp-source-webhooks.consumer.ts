@@ -23,6 +23,7 @@ import {
 } from '../types'
 import { logEntry } from '../utils'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
+import { mirrorCall, mirrorCompare } from '../utils/mirror-call'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 const DISALLOWED_HEADERS = [
@@ -432,7 +433,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         const [webhook, hogFunctionState] = await Promise.all([
             this.getWebhook(webhookId),
-            this.hogWatcher.getCachedEffectiveState(webhookId),
+            mirrorCompare(
+                'hog-watcher.getCachedEffectiveState',
+                () => this.hogWatcher.getCachedEffectiveState(webhookId),
+                () => this.hogWatcherMirror?.getCachedEffectiveState(webhookId)
+            ),
         ])
 
         if (!webhook) {
@@ -461,7 +466,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         void this.promiseScheduler.schedule(
             this.invocationResultsService.flush(),
-            this.hogWatcher.observeResultsBuffered(result)
+            this.hogWatcher.observeResultsBuffered(result),
+            mirrorCall('hog-watcher.observeResultsBuffered', () =>
+                this.hogWatcherMirror?.observeResultsBuffered(result)
+            )
         )
 
         return result

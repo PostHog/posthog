@@ -312,6 +312,17 @@ def validate_credentials(
     personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
 ) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
+    # A pasted clone URL (github.com/owner/repo.git) or a bare owner name otherwise reaches the API
+    # as a nonsense path, 404s, and gets reported as "not found or not accessible" — which points the
+    # user at permissions rather than the real problem, the identifier format. Catch the wrong shape
+    # before the request so the message names the fix.
+    repo = repository.strip()
+    if repo.count("/") != 1 or not all(repo.split("/")):
+        return (
+            False,
+            "Enter the repository as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
+        )
+
     url = f"{GITHUB_BASE_URL}/repos/{repository}"
     headers = _get_headers(personal_access_token, api_version=api_version)
 

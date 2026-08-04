@@ -24,6 +24,7 @@ import type {
 } from "@posthog/shared/domain-types";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
+import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
 import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifact";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
@@ -32,9 +33,6 @@ import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewTh
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
-import { navigateToShareTarget } from "@posthog/ui/utils/shareLinks";
-import { getPostHogUrl } from "@posthog/ui/utils/urls";
 import { type ReactNode, useMemo, useState } from "react";
 
 type ArtifactRow =
@@ -230,22 +228,7 @@ function PrRow({
 }
 
 function CanvasRow({ name, url }: { name: string; url: string | null }) {
-  const parsed = url ? parseHttpsUrl(url) : null;
-  const target = parsed ? parseShareLink(parsed.href) : null;
-  const open =
-    parsed && target
-      ? () => {
-          const currentPostHogUrl = getPostHogUrl("/");
-          const currentPostHogOrigin = currentPostHogUrl
-            ? parseHttpsUrl(currentPostHogUrl)?.origin
-            : null;
-          if (parsed.origin === currentPostHogOrigin) {
-            navigateToShareTarget(target);
-          } else {
-            openExternalUrl(parsed.href);
-          }
-        }
-      : undefined;
+  const open = canvasArtifactOpenHandler(url);
   return (
     <ArtifactListRow
       icon={iconForTemplate("", { size: 14, className: "text-violet-9" })}

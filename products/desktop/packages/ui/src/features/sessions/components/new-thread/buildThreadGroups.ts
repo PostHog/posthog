@@ -125,7 +125,11 @@ export function isGroupableItem(item: ConversationItem): boolean {
   return true;
 }
 
-function summarize(items: ConversationItem[]): GroupSummary {
+/**
+ * Tallies, icons, and live/done labels for a run of grouped items. Exported so the quill thread's
+ * `ToolGroup` reads the same counts this view does — one place decides what "ran 3 commands" means.
+ */
+export function summarize(items: ConversationItem[]): GroupSummary {
   const counts: GroupCounts = {
     execute: 0,
     read: 0,

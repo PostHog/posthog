@@ -62,7 +62,6 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
     is_slack_app_bot_prs_enabled,
     is_slack_app_oauth_enabled,
-    is_slack_app_queue_workflow_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
@@ -117,6 +116,7 @@ HANDLED_EVENT_TYPES = [
     "link_shared",
     "message",
     "member_joined_channel",
+    "team_join",
     "assistant_thread_started",
     "assistant_thread_context_changed",
     "app_home_opened",
@@ -133,10 +133,11 @@ SLACK_INTEGRATION_KIND = "slack"
 # fails with ``user_not_found``.
 SLACK_PLACEHOLDER_USER_ID = "U00"
 
-# Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
-# a near-simultaneous cross-region race during cutover. A real re-add after
-# this window should re-onboard — most likely the person forgot how it works.
-CHANNEL_ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
+# Onboarding-on-join dedupe TTL (channel and workspace joins): just long enough
+# to absorb Slack retries and a near-simultaneous cross-region race during
+# cutover. A real re-join after this window should re-onboard — most likely the
+# person forgot how it works.
+ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
 CHANNEL_ONBOARDING_DOCS_URL = "https://posthog.com/docs/slack-app"
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
@@ -1582,6 +1583,11 @@ _ASSISTANT_UNAVAILABLE = (
     "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
     "email matches your PostHog account and that a repo is connected, then try again."
 )
+_ASSISTANT_MEMBER_JOIN_WELCOME = (
+    ":wave: Welcome! I'm PostHog, an AI agent your team uses. DM me here to investigate issues "
+    "using your PostHog data or open PRs in your connected repos - you can also @mention me in "
+    "any channel."
+)
 
 
 def _assistant_event_fields(event: dict) -> tuple[str, str | None, str | None, str | None]:
@@ -2119,6 +2125,17 @@ def route_posthog_code_event_to_relevant_region(
             is_ext_shared_channel=is_ext_shared_channel,
         )
 
+    if event_type == "team_join":
+        return _route_team_join(
+            request,
+            event,
+            slack_team_id,
+            proxied=proxied,
+            other_domain=other_domain,
+            can_defer_to_other_region=can_defer_to_other_region,
+            incoming_host=incoming_host,
+        )
+
     # link_shared (unfurl) works with either integration kind.
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
     local_match = link_result.candidates[0] if link_result.candidates else None
@@ -2334,20 +2351,20 @@ def _channel_onboarding_cache_key(slack_team_id: str, channel_id: str) -> str:
     return f"slack_app:channel_onboarded:v1:{slack_team_id}:{channel_id}"
 
 
-def _claim_channel_onboarding(slack_team_id: str, channel_id: str) -> bool:
-    """Atomically claim the right to send the onboarding message.
+def _claim_once(cache_key: str) -> bool:
+    """Atomically claim a one-shot slot, e.g. the right to send an onboarding message.
 
     ``cache.add`` is the Django-blessed idempotency primitive: it returns True
     only if the key didn't already exist, so concurrent webhook deliveries
-    (Slack retries, two-region race during cutover) can't double-post.
+    (Slack retries, two-region race during cutover) can't double-post. Callers
+    release the slot with ``cache.delete`` when the claimed action fails, so
+    the next delivery gets another shot.
     """
-    return bool(
-        cache.add(
-            _channel_onboarding_cache_key(slack_team_id, channel_id),
-            True,
-            timeout=CHANNEL_ONBOARDING_DEDUPE_TTL_SECONDS,
-        )
-    )
+    return bool(cache.add(cache_key, True, timeout=ONBOARDING_DEDUPE_TTL_SECONDS))
+
+
+def _claim_channel_onboarding(slack_team_id: str, channel_id: str) -> bool:
+    return _claim_once(_channel_onboarding_cache_key(slack_team_id, channel_id))
 
 
 def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> None:
@@ -2414,6 +2431,88 @@ def _post_channel_onboarding_message(slack: SlackIntegration, integration: Integ
             integration_id=integration.id,
             slack_workspace_id=integration.integration_id,
             channel_id=channel_id,
+            exc_info=True,
+        )
+        return False
+
+
+def _route_team_join(
+    request: HttpRequest,
+    event: dict[str, Any],
+    slack_team_id: str,
+    *,
+    proxied: bool,
+    other_domain: str,
+    can_defer_to_other_region: bool,
+    incoming_host: str,
+) -> str:
+    """DM a personal welcome to a new workspace member, at most once.
+
+    Slack fires ``team_join`` for every account added to the workspace —
+    including bots and single/multi-channel guests, which we skip. Every full
+    member gets the DM: it grants no access on its own — the assistant
+    resolves and authorizes the user on every interaction, offering the
+    account-linking flow when their email doesn't match — so eligibility
+    sorts itself out on first use. The ``slack-app-assistant`` flag is the
+    per-install opt-in that keeps the DM dark for workspaces that haven't
+    enabled the assistant.
+    """
+    joiner = event.get("user") if isinstance(event.get("user"), dict) else None
+    slack_user_id = joiner.get("id") if joiner else None
+    if not joiner or not isinstance(slack_user_id, str):
+        return ROUTE_HANDLED_LOCALLY
+    if joiner.get("is_bot") or joiner.get("is_restricted") or joiner.get("is_ultra_restricted"):
+        return ROUTE_HANDLED_LOCALLY
+
+    workspace_result = load_integrations(slack_team_id=slack_team_id, kinds=[SLACK_INTEGRATION_KIND])
+    if not workspace_result.candidates:
+        return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+
+    if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
+        return _proxy_event_and_return_route(request, other_domain)
+
+    integration = next((c for c in workspace_result.candidates if is_slack_app_assistant_enabled(c.team)), None)
+    if integration is None:
+        return ROUTE_HANDLED_LOCALLY
+
+    if not _claim_once(_team_join_onboarding_cache_key(slack_team_id, slack_user_id)):
+        logger.info(
+            "slack_app_team_join_welcome_skipped_duplicate",
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+        )
+        return ROUTE_HANDLED_LOCALLY
+
+    if not _post_team_join_welcome(integration, slack_user_id):
+        # Release the dedupe slot so the next delivery gets another shot
+        # rather than being silently swallowed.
+        cache.delete(_team_join_onboarding_cache_key(slack_team_id, slack_user_id))
+
+    return ROUTE_HANDLED_LOCALLY
+
+
+def _team_join_onboarding_cache_key(slack_team_id: str, slack_user_id: str) -> str:
+    return f"slack_app:team_join_welcomed:v1:{slack_team_id}:{slack_user_id}"
+
+
+def _post_team_join_welcome(integration: Integration, slack_user_id: str) -> bool:
+    try:
+        SlackIntegration(integration).client.chat_postMessage(
+            channel=slack_user_id, text=_ASSISTANT_MEMBER_JOIN_WELCOME
+        )
+        logger.info(
+            "slack_app_team_join_welcome_posted",
+            integration_id=integration.id,
+            slack_workspace_id=integration.integration_id,
+            slack_user_id=slack_user_id,
+        )
+        return True
+    except Exception:
+        logger.warning(
+            "slack_app_team_join_welcome_post_failed",
+            integration_id=integration.id,
+            slack_workspace_id=integration.integration_id,
+            slack_user_id=slack_user_id,
             exc_info=True,
         )
         return False
@@ -2717,10 +2816,9 @@ def _start_mention_workflow(
         untagged_followup=untagged_followup,
         is_ext_shared_channel=is_ext_shared_channel,
     )
-    # Deriving the ID is free, the flag evaluation is remote — check in that
-    # order. Events without channel/ts fall back to the per-message workflow.
+    # Events without channel/ts fall back to the per-message workflow.
     queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)
-    if queue_workflow_id is not None and is_slack_app_queue_workflow_enabled(integration, slack_team_id):
+    if queue_workflow_id is not None:
         _start_posthog_code_workflow(
             SlackAppMentionWorkflow,
             SlackAppMentionWorkflowInputs(),
