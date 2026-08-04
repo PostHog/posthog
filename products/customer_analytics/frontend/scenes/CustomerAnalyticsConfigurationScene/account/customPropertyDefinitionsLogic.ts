@@ -189,6 +189,7 @@ export interface customPropertyDefinitionsLogicValues {
     definitionsLoading: boolean
     editingDefinition: CustomPropertyDefinitionApi | null
     editingReferences: readonly CustomPropertyReferenceApi[]
+    filteredDefinitions: CustomPropertyDefinitionApi[]
     isCustomPropertyFormSubmitting: boolean
     isCustomPropertyFormValid: boolean
     materializedViews: DataWarehouseSavedQuery[]
@@ -201,6 +202,7 @@ export interface customPropertyDefinitionsLogicValues {
     runsLoadingBySourceId: Record<string, boolean>
     savedQueries: DataWarehouseSavedQuery[]
     savedQueriesLoading: boolean
+    searchTerm: string
     selectedSourceColumns: string[]
     selectedTableColumns: WarehouseColumn[]
     selectedTableColumnsLoading: boolean
@@ -390,6 +392,9 @@ export interface customPropertyDefinitionsLogicActions {
     setEditingDefinition: (definition: CustomPropertyDefinitionApi) => {
         definition: CustomPropertyDefinitionApi
     }
+    setSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
     submitCustomPropertyForm: () => {
         value: boolean
     }
@@ -435,6 +440,10 @@ export interface customPropertyDefinitionsLogicMeta {
             customPropertyForm: CustomPropertyFormValues,
             personPropertyDefinitions: PropertyDefinition[]
         ) => (string | null)[]
+        filteredDefinitions: (
+            definitions: CustomPropertyDefinitionApi[],
+            searchTerm: string
+        ) => CustomPropertyDefinitionApi[]
         editingReferences: (
             definitions: CustomPropertyDefinitionApi[],
             editingDefinition: CustomPropertyDefinitionApi | null
@@ -473,6 +482,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         }),
         openEditModal: (definition: CustomPropertyDefinitionApi) => ({ definition }),
         closeModal: true,
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setEditingDefinition: (definition: CustomPropertyDefinitionApi) => ({ definition }),
         // Person sources only. triggerSync re-runs the underlying warehouse sync; triggerBackfill
         // starts a full-table backfill. add/removeTriggeringSource drive the per-row double-submit
@@ -494,6 +504,12 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         pollRunsStatus: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
     }),
     reducers({
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
         modalVisible: [
             false,
             {
@@ -866,6 +882,20 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     }
                     return null
                 })
+            },
+        ],
+        filteredDefinitions: [
+            (s) => [s.definitions, s.searchTerm],
+            (definitions: CustomPropertyDefinitionApi[], searchTerm: string): CustomPropertyDefinitionApi[] => {
+                const query = searchTerm.trim().toLowerCase()
+                if (!query) {
+                    return definitions
+                }
+                return definitions.filter(
+                    (definition) =>
+                        definition.name.toLowerCase().includes(query) ||
+                        definition.description?.toLowerCase().includes(query)
+                )
             },
         ],
         editingReferences: [

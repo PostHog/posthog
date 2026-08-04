@@ -292,8 +292,8 @@ class ExternalAccountSerializer(serializers.Serializer):
     )
     name = serializers.CharField(help_text="Human-readable account name.")
     properties = serializers.DictField(
-        child=serializers.JSONField(help_text="Property value: a string, a role-assignment object, or null."),
-        help_text="Typed account properties: role assignments (csm, account_executive, account_owner) and external-system ids.",
+        child=serializers.JSONField(help_text="Property value: a string or null."),
+        help_text="Typed account properties: external-system ids. Role assignments live under `relationships`.",
     )
     tags = serializers.ListField(
         child=serializers.CharField(), help_text="Tag names on the account, sorted alphabetically."

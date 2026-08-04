@@ -25,6 +25,7 @@ export interface AppView {
   type: AppViewType;
   taskId?: string;
   folderId?: string;
+  folderRepository?: string;
   pendingTaskKey?: string;
   taskInputRequestId?: string;
   initialPrompt?: string;
@@ -145,6 +146,7 @@ export function useAppView(): AppView {
       return {
         ...view,
         folderId: prefill.folderId,
+        folderRepository: prefill.folderRepository,
         initialPrompt: prefill.initialPrompt,
         initialCloudRepository: prefill.initialCloudRepository,
         initialModel: prefill.initialModel,

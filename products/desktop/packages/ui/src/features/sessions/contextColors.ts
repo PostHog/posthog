@@ -6,21 +6,28 @@ export interface CategoryStyle {
   color: string;
 }
 
+// Quill tokens, not Radix scale vars: the breakdown renders inside a quill
+// popover portal, which sits outside the Radix Themes scope those vars are
+// declared on and would draw the swatches as transparent.
 export const CONTEXT_CATEGORIES: readonly CategoryStyle[] = [
-  { key: "systemPrompt", label: "System prompt", color: "var(--gray-9)" },
-  { key: "tools", label: "Tools", color: "var(--violet-9)" },
-  { key: "rules", label: "Rules", color: "var(--green-9)" },
-  { key: "skills", label: "Skills", color: "var(--amber-9)" },
-  { key: "mcp", label: "MCP", color: "var(--pink-9)" },
-  { key: "subagents", label: "Subagents", color: "var(--blue-9)" },
-  { key: "conversation", label: "Conversation", color: "var(--orange-9)" },
+  {
+    key: "systemPrompt",
+    label: "System prompt",
+    color: "var(--muted-foreground)",
+  },
+  { key: "tools", label: "Tools", color: "var(--data-color-14)" },
+  { key: "rules", label: "Rules", color: "var(--data-color-7)" },
+  { key: "skills", label: "Skills", color: "var(--data-color-13)" },
+  { key: "mcp", label: "MCP", color: "var(--data-color-9)" },
+  { key: "subagents", label: "Subagents", color: "var(--data-color-8)" },
+  { key: "conversation", label: "Conversation", color: "var(--primary)" },
 ] as const;
 
 export function getOverallUsageColor(percentage: number): string {
-  if (percentage >= 90) return "var(--red-9)";
-  if (percentage >= 75) return "var(--orange-9)";
-  if (percentage >= 50) return "var(--amber-9)";
-  return "var(--green-9)";
+  if (percentage >= 90) return "var(--destructive-foreground)";
+  if (percentage >= 75) return "var(--data-color-12)";
+  if (percentage >= 50) return "var(--warning-foreground)";
+  return "var(--success-foreground)";
 }
 
 export function formatTokensCompact(tokens: number): string {

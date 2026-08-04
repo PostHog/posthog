@@ -4,7 +4,6 @@ import { JSONContent, TextSerializer } from '@tiptap/core'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import ExtensionDocument from '@tiptap/extension-document'
 import { Image } from '@tiptap/extension-image'
-import { Link } from '@tiptap/extension-link'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
@@ -28,6 +27,7 @@ import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopove
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
 import { EmojiSuggestionExtension } from 'lib/components/RichContentEditor/EmojiSuggestionExtension'
+import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
 import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { RichContentEditorType, RichContentNodeType, TTEditor } from 'lib/components/RichContentEditor/types'
@@ -177,7 +177,7 @@ const ImageExtension = Image.configure({
     allowBase64: false,
 })
 
-const LinkExtension = Link.configure({
+const SupportLinkExtension = LinkExtension.configure({
     openOnClick: false, // Don't open links when clicking in editor
     HTMLAttributes: {
         class: 'SupportEditor__link',
@@ -260,7 +260,7 @@ export const SUPPORT_EXTENSIONS = [
     }),
     Underline, // Cmd+U
     ImageExtension,
-    LinkExtension,
+    SupportLinkExtension,
     LinkOnPasteExtension,
     SupportCodeBlockExtension,
 ]
@@ -277,7 +277,7 @@ export const SUPPORT_PREVIEW_EXTENSIONS = [
     }),
     Underline,
     ImageExtension,
-    LinkExtension,
+    SupportLinkExtension,
     SupportCodeBlockExtension,
 ]
 

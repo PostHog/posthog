@@ -28,6 +28,9 @@ import psycopg
 from psycopg import sql
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from products.managed_warehouse.backend.facade import team_state as team_state_facade
+from products.warehouse_sources.backend.facade.duckgres import duckgres_data_imports_table_name_for_version
+
 if TYPE_CHECKING:
     from clickhouse_driver import Client
 
@@ -544,17 +547,13 @@ def duckgres_data_imports_schema(team_id: int) -> str:
 
 
 def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
-    """Resolve the duckgres table name the data-import copy workflow writes a schema's snapshot into.
+    """Resolve a data-import table name from the organization's control-plane naming policy."""
 
-    Must stay byte-identical to what the copy workflow computes so the reader resolves to the same
-    table the writer produced.
-    """
-    source_type = schema.source.source_type
-    prefix = schema.source.prefix
-    normalized_name = schema.normalized_name
-    return sanitize_ducklake_identifier(
-        f"{source_type}_{prefix}_{normalized_name}" if prefix else f"{source_type}_{normalized_name}",
-        default_prefix="data_import",
+    return duckgres_data_imports_table_name_for_version(
+        schema.source.source_type,
+        schema.source.prefix,
+        schema.normalized_name,
+        team_state_facade.data_imports_table_naming_version(schema.team_id),
     )
 
 
