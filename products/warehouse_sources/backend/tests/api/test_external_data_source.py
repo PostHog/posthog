@@ -2067,11 +2067,8 @@ class TestExternalDataSource(APIBaseTest):
     def test_create_external_data_source_bigquery_returns_400_on_credentials_rejected_during_schema_discovery(
         self, mock_capture_exception
     ):
-        # Credentials can pass the live validation above and still be rejected moments later when
-        # `get_schemas` opens its own BigQuery connection (e.g. a key rotated/revoked in between).
-        # That used to escape `_create_external_data_source` as an uncaught 500 and leave the row
-        # behind; it must now return a clean 400 with the row rolled back, without flooding error
-        # tracking for this expected, already-classified source error.
+        # `get_schemas` opens its own BigQuery connection, so credentials that passed the earlier
+        # live validation can still be rejected here (e.g. a key rotated/revoked in between).
         from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
             BIGQUERY_CREDENTIALS_REJECTED_ERROR,
             BigQueryCredentialsRejectedError,
@@ -2100,7 +2097,9 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "BigQuery",
                     "created_via": "web",
                     "payload": {
-                        "schemas": [],
+                        "schemas": [
+                            {"name": "my_table", "should_sync": True, "sync_type": "full_refresh"},
+                        ],
                         "dataset_id": "my_project.my_dataset",
                         "key_file": {
                             "project_id": "my_project",
