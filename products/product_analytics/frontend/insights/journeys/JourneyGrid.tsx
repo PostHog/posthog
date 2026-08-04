@@ -7,7 +7,14 @@ import { percentage } from 'lib/utils/numbers'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { midEllipsis, pluralize } from 'lib/utils/strings'
 
-import { JourneyGridModel, JourneyGridRow, JourneyGridRowKind, ribbonPath } from './journeyGridModel'
+import {
+    JourneyChainHighlight,
+    JourneyGridModel,
+    JourneyGridRibbon,
+    JourneyGridRow,
+    JourneyGridRowKind,
+    ribbonPath,
+} from './journeyGridModel'
 
 const CARD_WIDTH = 224
 const COLUMN_GAP = 104
@@ -19,6 +26,9 @@ const PORT_GAP = 2
 const MAX_RIBBON_THICKNESS = 36
 const MIN_RIBBON_THICKNESS = 2
 const MAX_LABEL_CHARS = 30
+const RIBBON_OPACITY = 0.15
+const RIBBON_OPACITY_ON_CHAIN = 0.4
+const RIBBON_OPACITY_DIMMED = 0.06
 
 interface CardGeometry {
     row: JourneyGridRow
@@ -28,11 +38,7 @@ interface CardGeometry {
 }
 
 interface RibbonGeometry {
-    key: string
-    sourceLabel: string
-    targetLabel: string
-    count: number
-    fractionOfSource: number
+    ribbon: JourneyGridRibbon
     thickness: number
     fromX: number
     fromY: number
@@ -48,10 +54,22 @@ export function JourneyGrid({
     model,
     isAnchored,
     nodeColor,
+    chainHighlight,
+    onCardClick,
+    onCardHover,
+    onRibbonClick,
+    onRibbonHover,
+    onGridLeave,
 }: {
     model: JourneyGridModel
     isAnchored: boolean
     nodeColor: string
+    chainHighlight?: JourneyChainHighlight | null
+    onCardClick?: (stepIndex: number, row: JourneyGridRow) => void
+    onCardHover?: (stepIndex: number, row: JourneyGridRow) => void
+    onRibbonClick?: (ribbon: JourneyGridRibbon) => void
+    onRibbonHover?: (ribbon: JourneyGridRibbon) => void
+    onGridLeave?: () => void
 }): JSX.Element {
     const { cards, ribbons, chartWidth, chartHeight } = useMemo(() => {
         const cardByKey = new Map<string, CardGeometry>()
@@ -92,11 +110,7 @@ export function JourneyGrid({
                 outCursor.set(sourceCardKey, (outCursor.get(sourceCardKey) ?? 0) + thickness + PORT_GAP)
                 inCursor.set(targetCardKey, (inCursor.get(targetCardKey) ?? 0) + thickness + PORT_GAP)
                 return {
-                    key: ribbon.key,
-                    sourceLabel: ribbon.sourceLabel,
-                    targetLabel: ribbon.targetLabel,
-                    count: ribbon.count,
-                    fractionOfSource: ribbon.fractionOfSource,
+                    ribbon,
                     thickness,
                     fromX: source.x + CARD_WIDTH,
                     fromY,
@@ -111,12 +125,19 @@ export function JourneyGrid({
         return { cards, ribbons, chartWidth, chartHeight }
     }, [model])
 
+    const ribbonOpacity = (ribbon: JourneyGridRibbon): number => {
+        if (!chainHighlight) {
+            return RIBBON_OPACITY
+        }
+        return chainHighlight.ribbonKeys.has(ribbon.key) ? RIBBON_OPACITY_ON_CHAIN : RIBBON_OPACITY_DIMMED
+    }
+
     return (
-        <div className="overflow-auto p-4" data-attr="journey-grid">
+        <div className="overflow-auto p-4" data-attr="journey-grid" onMouseLeave={onGridLeave}>
             {/* eslint-disable-next-line react/forbid-dom-props */}
             <div className="relative" style={{ width: chartWidth, height: chartHeight }}>
                 <svg width={chartWidth} height={chartHeight} className="absolute inset-0 pointer-events-none">
-                    {ribbons.map((ribbon) => (
+                    {ribbons.map(({ ribbon, thickness, fromX, fromY, toX, toY }) => (
                         <Tooltip
                             key={ribbon.key}
                             title={
@@ -132,17 +153,13 @@ export function JourneyGrid({
                             }
                         >
                             <path
-                                d={ribbonPath(
-                                    ribbon.fromX,
-                                    ribbon.fromY,
-                                    ribbon.thickness,
-                                    ribbon.toX,
-                                    ribbon.toY,
-                                    ribbon.thickness
-                                )}
+                                d={ribbonPath(fromX, fromY, thickness, toX, toY, thickness)}
                                 fill={nodeColor}
-                                opacity={0.15}
-                                className="pointer-events-auto hover:opacity-40 transition-opacity"
+                                opacity={ribbonOpacity(ribbon)}
+                                className="pointer-events-auto cursor-pointer hover:opacity-40 transition-opacity"
+                                data-attr="journey-grid-ribbon"
+                                onClick={() => onRibbonClick?.(ribbon)}
+                                onMouseEnter={() => onRibbonHover?.(ribbon)}
                             />
                         </Tooltip>
                     ))}
@@ -167,6 +184,14 @@ export function JourneyGrid({
                         y={y}
                         isAnchored={isAnchored}
                         nodeColor={nodeColor}
+                        chainCount={
+                            chainHighlight ? chainHighlight.countByCardKey[cardKey(stepIndex, row.key)] : undefined
+                        }
+                        dimmed={
+                            !!chainHighlight && chainHighlight.countByCardKey[cardKey(stepIndex, row.key)] === undefined
+                        }
+                        onClick={onCardClick ? () => onCardClick(stepIndex, row) : undefined}
+                        onMouseEnter={onCardHover ? () => onCardHover(stepIndex, row) : undefined}
                     />
                 ))}
             </div>
@@ -197,14 +222,24 @@ function JourneyCard({
     y,
     isAnchored,
     nodeColor,
+    chainCount,
+    dimmed,
+    onClick,
+    onMouseEnter,
 }: {
     row: JourneyGridRow
     x: number
     y: number
     isAnchored: boolean
     nodeColor: string
+    /** The active chain's count for this card; set only while the card is on the hovered chain. */
+    chainCount?: number
+    dimmed?: boolean
+    onClick?: () => void
+    onMouseEnter?: () => void
 }): JSX.Element {
     const styles = CARD_STYLES[row.kind]
+    const onChain = chainCount !== undefined
     const tooltip =
         row.kind === 'dropOff' ? (
             dropOffTooltip(isAnchored)
@@ -219,10 +254,32 @@ function JourneyCard({
 
     return (
         <div
-            className={`absolute rounded px-2 py-1.5 ${styles.container}`}
+            className={`absolute rounded px-2 py-1.5 transition-opacity ${styles.container} ${
+                onClick ? 'cursor-pointer' : ''
+            } ${dimmed ? 'opacity-40' : ''}`}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ left: x, top: y, width: CARD_WIDTH, height: CARD_HEIGHT }}
+            style={{
+                left: x,
+                top: y,
+                width: CARD_WIDTH,
+                height: CARD_HEIGHT,
+                ...(onChain ? { boxShadow: `0 0 0 2px ${nodeColor}` } : {}),
+            }}
             data-attr={styles.dataAttr}
+            role={onClick ? 'button' : undefined}
+            tabIndex={onClick ? 0 : undefined}
+            onClick={onClick}
+            onMouseEnter={onMouseEnter}
+            onKeyDown={
+                onClick
+                    ? (event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              onClick()
+                          }
+                      }
+                    : undefined
+            }
         >
             <Tooltip title={tooltip}>
                 <div className={`text-xs font-semibold truncate ${styles.text}`}>
@@ -230,8 +287,11 @@ function JourneyCard({
                 </div>
             </Tooltip>
             <div className="flex items-baseline gap-1.5 mt-0.5">
-                <span className={`text-sm font-semibold ${styles.text}`}>{humanFriendlyNumber(row.count)}</span>
-                <span className="text-xs text-secondary">{percentage(row.fraction, 1)}</span>
+                <span className={`text-sm font-semibold ${styles.text}`}>
+                    {humanFriendlyNumber(onChain ? chainCount : row.count)}
+                </span>
+                {!onChain && <span className="text-xs text-secondary">{percentage(row.fraction, 1)}</span>}
+                {onChain && <span className="text-xs text-secondary">on this path</span>}
             </div>
             {row.kind !== 'dropOff' && (
                 <LemonProgress
