@@ -569,11 +569,18 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         page_size=100,
         incremental_fields=[],
     ),
+    # Klaviyo requires a filter on coupon.id or profile.id on the flat /coupon-codes collection, so
+    # it can't be listed directly; fan out over /coupons and pull each coupon's codes instead.
     "coupon_codes": KlaviyoEndpointConfig(
         name="coupon_codes",
-        path="/coupon-codes",
+        path="/coupons/{coupon_id}/coupon-codes",
         page_size=100,
         incremental_fields=[],
+        fan_out=KlaviyoFanOutConfig(
+            parent_path="/coupons",
+            parent_page_size=100,
+            parent_id_column="coupon_id",
+        ),
     ),
     "tags": KlaviyoEndpointConfig(
         name="tags",
