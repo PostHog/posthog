@@ -18,7 +18,6 @@ import {
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useSpacesSidebarSelectionStore } from "@posthog/ui/features/canvas/stores/spacesSidebarSelectionStore";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
@@ -37,7 +36,7 @@ import { useMemo } from "react";
  * The static spaces nav: the shell keeps ChannelNav (the highlighted icon row).
  * Below it, Home / Tasks / Inbox as full-width items, then every starred space
  * with its tasks expanded inline, then an "Add space" toggle that renders all
- * project spaces as plain rows with a hover pin/star action, and Preview.
+ * project spaces as plain rows with a hover pin/star action.
  */
 export function SpacesSidebarNav() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -58,8 +57,6 @@ export function SpacesSidebarNav() {
 
   const openAddSpace = useSpacesSidebarStore((s) => s.openAddSpace);
   const toggleAddSpace = useSpacesSidebarStore((s) => s.toggleAddSpace);
-  const showPreview = useSpacesSidebarSelectionStore((s) => s.showPreview);
-  const togglePreview = useSpacesSidebarSelectionStore((s) => s.togglePreview);
 
   const allSpaces = useMemo(
     () => channels.filter((c) => c.name !== PERSONAL_CHANNEL_NAME),
@@ -236,37 +233,6 @@ export function SpacesSidebarNav() {
               </div>
             );
           })}
-
-        {/* Preview toggle */}
-        <div className="group/preview">
-          <SidebarItem
-            depth={0}
-            label={
-              <>
-                <CaretRightIcon
-                  size={12}
-                  className={cn(
-                    "mr-1 inline-block text-muted-foreground transition-transform",
-                    showPreview && "rotate-90",
-                  )}
-                />
-                Preview
-              </>
-            }
-            endContent={
-              <button
-                type="button"
-                aria-label="Preview options"
-                className="flex h-5 w-5 items-center justify-center rounded text-gray-10 opacity-0 transition-opacity hover:bg-(--gray-4) focus:opacity-100 group-hover/preview:opacity-100"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <PlusIcon size={12} />
-              </button>
-            }
-            onClick={togglePreview}
-            aria-expanded={showPreview}
-          />
-        </div>
       </div>
     </>
   );
