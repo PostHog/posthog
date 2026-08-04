@@ -8156,6 +8156,28 @@ export interface InsightViewedRequestApi {
     insight_ids: number[]
 }
 
+export interface PathsV2SegmentItemApi {
+    /** Event of the step source this path item belongs to. */
+    event: string
+    /**
+     * Label value from the source's naming property, after path cleaning. Null or omitted for sources without a naming property; an empty string means the property was missing on the event.
+     * @nullable
+     */
+    label?: string | null
+}
+
+export interface PathsV2SegmentToFunnelRequestApi {
+    /** The PathsV2Query the segment is displayed under (JSON object with kind `PathsV2Query`). Step sources, path cleaning, excluded items, date range, and the gap or conversion window are read from it, so the emitted funnel counts exactly what the chart shows. */
+    query: unknown
+    /** The segment's path items in displayed order. In open mode exactly two items - a single edge, source then target. In anchored mode the concrete chain as shown, starting at the anchor. */
+    items: PathsV2SegmentItemApi[]
+}
+
+export interface PathsV2SegmentToFunnelResponseApi {
+    /** The FunnelsQuery (JSON object with kind `FunnelsQuery`) that reproduces the segment's displayed unique-actor count exactly. Wrap it in an InsightVizNode to open it as a funnel insight. */
+    funnels_query: unknown
+}
+
 export type ColumnConfigurationsListParams = {
     /**
      * Number of results to return per page.
