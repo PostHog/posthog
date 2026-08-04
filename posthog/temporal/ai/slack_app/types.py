@@ -107,6 +107,30 @@ class SlackAppMessageReactionInput(BaseModel):
     message_ts: str
 
 
+class SlackAppModelOverrideInput(BaseModel):
+    """Single-argument input for the model-override classifier activity."""
+
+    integration_id: int
+    slack_team_id: str
+    user_id: int
+    event_text: str
+
+
+class SlackAppModelOverride(BaseModel):
+    """A per-task model choice read out of the mention text.
+
+    ``model`` is always a live catalogue id (the classifier picks from a list and
+    the activity drops anything that isn't on it); ``reasoning_effort`` is a known
+    effort value that still has to be checked against whichever model the task ends
+    up on. Either field may be absent — "run this with max effort" names no model,
+    "use fable" names no effort. The merge onto the resolved preferences happens at
+    the point of use, in ``apply_model_override``.
+    """
+
+    model: str | None = None
+    reasoning_effort: str | None = None
+
+
 @dataclass
 class PostHogCodeSlackMentionCommandWorkflowInputs:
     event: dict[str, Any]

@@ -1,7 +1,7 @@
 import re
 import uuid
 import textwrap
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import models
 
@@ -16,8 +16,11 @@ from posthog.temporal.ai.slack_app.attachments import (
     prepare_slack_file_artifacts,
 )
 from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
+from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.facade.slack_settings import AIPreferences
 
 logger = structlog.get_logger(__name__)
 
@@ -509,6 +512,43 @@ def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) ->
     return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
 
 
+def _announce_model_override(
+    slack: SlackIntegration,
+    integration: Integration,
+    *,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    run_prefs: "AIPreferences",
+) -> None:
+    """Tell the thread which model the mention just steered this task onto.
+
+    Its own message rather than a line in the agent's first reply: the agent's
+    output belongs to the agent, and a run's configuration is worth being able to
+    scroll back to. Best-effort — a failed post never fails the task.
+    """
+    from products.slack_app.backend.analytics import capture_slack_event
+    from products.slack_app.backend.facade.slack_settings import describe_preferences
+
+    try:
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=f"Running this one on {describe_preferences(run_prefs)}.",
+        )
+    except Exception:
+        logger.warning("slack_app_model_override_notice_failed", channel=channel, thread_ts=thread_ts)
+
+    capture_slack_event(
+        integration,
+        "slack_app_model_override_applied",
+        slack_user_id=slack_user_id,
+        runtime_adapter=run_prefs.runtime_adapter,
+        model=run_prefs.model,
+        reasoning_effort=run_prefs.reasoning_effort,
+    )
+
+
 @activity.defn
 @close_db_connections
 def create_posthog_code_task_for_repo_activity(
@@ -522,6 +562,7 @@ def create_posthog_code_task_for_repo_activity(
     repository: str | None,
     repo_research_task_id: str | None = None,
     repo_research_run_id: str | None = None,
+    model_override: SlackAppModelOverride | None = None,
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
@@ -637,15 +678,26 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.slack_settings import resolve_ai_preferences
+    from products.slack_app.backend.facade.slack_settings import (
+        AIPreferences,
+        apply_model_override,
+        resolve_ai_preferences,
+    )
 
     ai_prefs = resolve_ai_preferences(integration, slack_user_id)
 
     # `resolve_ai_preferences` guarantees runtime_adapter and model are set together,
-    # so falling back on both keeps the pair consistent — an explicit override wins,
-    # otherwise the Slack bot defaults to Opus 5.
-    runtime_adapter = ai_prefs.runtime_adapter or _SLACK_DEFAULT_RUNTIME_ADAPTER
-    model = ai_prefs.model or _SLACK_DEFAULT_MODEL
+    # so falling back on both keeps the pair consistent — a saved personal or
+    # workspace choice wins, otherwise the Slack bot defaults to Opus 5. A model
+    # named in the mention itself then overrides that for this one task.
+    base_prefs = AIPreferences(
+        runtime_adapter=ai_prefs.runtime_adapter or _SLACK_DEFAULT_RUNTIME_ADAPTER,
+        model=ai_prefs.model or _SLACK_DEFAULT_MODEL,
+        reasoning_effort=ai_prefs.reasoning_effort,
+    )
+    run_prefs = base_prefs
+    if model_override is not None:
+        run_prefs = apply_model_override(base_prefs, model_override.model, model_override.reasoning_effort)
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
@@ -675,9 +727,9 @@ def create_posthog_code_task_for_repo_activity(
             start_workflow=False,
             posthog_mcp_scopes="full",
             initial_permission_mode="bypassPermissions",
-            runtime_adapter=runtime_adapter,
-            model=model,
-            reasoning_effort=ai_prefs.reasoning_effort,
+            runtime_adapter=run_prefs.runtime_adapter,
+            model=run_prefs.model,
+            reasoning_effort=run_prefs.reasoning_effort,
             channel_id=personal_channel_id,
         )
     except Exception as e:
@@ -705,6 +757,19 @@ def create_posthog_code_task_for_repo_activity(
         channel=channel,
         thread_ts=thread_ts,
     )
+
+    # Only speak up when the override actually changed the run. A request we could
+    # not honour (an unavailable model, an effort this model doesn't support) falls
+    # back silently rather than explaining itself.
+    if run_prefs != base_prefs:
+        _announce_model_override(
+            slack,
+            integration,
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+            run_prefs=run_prefs,
+        )
 
     # 2. Create mapping BEFORE starting the workflow to avoid race condition
     # where the agent finishes and tries to relay before the mapping exists

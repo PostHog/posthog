@@ -115,7 +115,7 @@ EditScope = Literal["personal", "workspace"]
 
 # Runtime + effort labels are UI strings with no tasks-product equivalent.
 # Model display labels are computed from the model id on the fly via
-# `_format_model_id` so we never have to hand-maintain a model→label map.
+# `format_model_id` so we never have to hand-maintain a model→label map.
 RUNTIME_ADAPTER_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude (Anthropic)",
     "codex": "Codex (OpenAI)",
@@ -127,6 +127,7 @@ REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = {
     "high": "High",
     "xhigh": "Extra high",
     "max": "Max",
+    "ultracode": "Ultracode",
 }
 
 # Gateway `owned_by` → tasks RuntimeAdapter value. Other providers
@@ -139,7 +140,7 @@ _PROVIDER_TO_RUNTIME_ADAPTER: dict[str, str] = {
 _PROVIDER_PREFIXES = ("anthropic/", "openai/")
 
 
-def _format_model_id(model_id: str, *, owned_by: str) -> str:
+def format_model_id(model_id: str, *, owned_by: str) -> str:
     """OpenAI ids stay lowercase; Claude ids become `Claude Opus 4.8` etc."""
     clean = model_id
     for prefix in _PROVIDER_PREFIXES:
@@ -202,7 +203,7 @@ def get_picker_choices() -> tuple[PickerAdapter, ...]:
             for e in get_supported_reasoning_efforts(adapter_value, gm.id)
         )
         by_adapter.setdefault(adapter_value, []).append(
-            PickerModel(value=gm.id, label=_format_model_id(gm.id, owned_by=gm.owned_by), supported_efforts=efforts)
+            PickerModel(value=gm.id, label=format_model_id(gm.id, owned_by=gm.owned_by), supported_efforts=efforts)
         )
 
     return tuple(
@@ -544,7 +545,7 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
         ]
 
     runtime_label = _label(effective.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)
-    model_label = _format_model_id(effective.model, owned_by="") if effective.model else "—"
+    model_label = format_model_id(effective.model, owned_by="") if effective.model else "—"
     effort_part = (
         f" · Reasoning: *{_label(effective.reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
         if effective.reasoning_effort
@@ -1176,7 +1177,7 @@ def _row_summary(row: SlackSettings | None) -> str:
         return "_(none)_"
     owned_by = _provider_for_runtime_adapter(row.runtime_adapter)
     parts = [
-        f"*Model:* {_format_model_id(row.model, owned_by=owned_by)}",
+        f"*Model:* {format_model_id(row.model, owned_by=owned_by)}",
         f"*Runtime:* {_label(row.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}",
     ]
     if row.reasoning_effort:

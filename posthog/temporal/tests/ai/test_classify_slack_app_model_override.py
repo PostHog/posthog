@@ -1,0 +1,111 @@
+from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+
+from posthog.temporal.ai.slack_app.activities.classifiers import classify_slack_app_model_override
+
+from products.slack_app.backend.services.model_override import ModelChoice
+
+CHOICES = (
+    ModelChoice("claude", "claude-opus-5", "Claude Opus 5", ("low", "medium", "high", "max")),
+    ModelChoice("claude", "claude-fable-5", "Claude Fable 5", ("low", "medium", "high")),
+    ModelChoice("codex", "gpt-5.6-sol", "gpt-5.6-sol", ("low", "medium", "high", "max")),
+)
+
+
+class TestClassifySlackAppModelOverride:
+    @parameterized.expand(
+        [
+            (
+                "model_and_effort",
+                '{"override": true, "model": "claude-fable-5", "reasoning_effort": "high"}',
+                "claude-fable-5",
+                "high",
+            ),
+            (
+                "model_only",
+                '{"override": true, "model": "claude-fable-5", "reasoning_effort": null}',
+                "claude-fable-5",
+                None,
+            ),
+            # An effort can be asked for without naming a model; the model the run
+            # already had stays, and the merge happens at the point of use.
+            ("effort_only", '{"override": true, "model": null, "reasoning_effort": "max"}', None, "max"),
+            # Haiku replies are not reliably unfenced through the gateway.
+            (
+                "fenced_json",
+                '```json\n{"override": true, "model": "claude-fable-5", "reasoning_effort": null}\n```',
+                "claude-fable-5",
+                None,
+            ),
+            ("case_insensitive_id", '{"override": true, "model": "Claude-Fable-5"}', "claude-fable-5", None),
+        ]
+    )
+    def test_returns_requested_choice(self, _name, content, expected_model, expected_effort):
+        override = self._classify("use fable for this", content)
+        assert override is not None
+        assert override.model == expected_model
+        assert override.reasoning_effort == expected_effort
+
+    @parameterized.expand(
+        [
+            # The common case: a mention that merely names a model is not an instruction.
+            ("no_override", '{"override": false, "model": null, "reasoning_effort": null}'),
+            ("override_missing", "{}"),
+            # A model we can't drive is a hallucination or an unsupported ask; either
+            # way the run must fall back to the resolved preferences.
+            ("unknown_model", '{"override": true, "model": "gemini-3-pro", "reasoning_effort": null}'),
+            # An unknown effort with no model leaves nothing actionable behind.
+            ("unknown_effort_only", '{"override": true, "model": null, "reasoning_effort": "turbo"}'),
+            ("empty_reply", ""),
+            ("prose_reply", "I think they want fable."),
+            ("wrong_types", '{"override": true, "model": 5, "reasoning_effort": []}'),
+        ]
+    )
+    def test_returns_none(self, _name, content):
+        assert self._classify("use fable for this", content) is None
+
+    def test_keeps_the_model_when_only_the_effort_is_unknown(self):
+        """A junk effort must not throw away a model the author really did ask for."""
+        override = self._classify(
+            "use fable for this",
+            '{"override": true, "model": "claude-fable-5", "reasoning_effort": "turbo"}',
+        )
+        assert override is not None
+        assert override.model == "claude-fable-5"
+        assert override.reasoning_effort is None
+
+    def test_llm_failure_falls_back_to_no_override(self):
+        with patch(
+            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            side_effect=RuntimeError("boom"),
+        ):
+            assert classify_slack_app_model_override("use fable for this", CHOICES) is None
+
+    def test_prompt_offers_only_catalogue_models(self):
+        """The classifier picks from a list, so the list is what bounds it."""
+        fake_client = self._fake_client('{"override": false}')
+        with patch(
+            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            return_value=fake_client,
+        ):
+            classify_slack_app_model_override("use fable for this", CHOICES)
+
+        prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        for choice in CHOICES:
+            assert choice.model in prompt
+        assert "claude-sonnet-4-6" not in prompt
+
+    def _fake_client(self, content: str) -> MagicMock:
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content=content))]
+        client = MagicMock()
+        client.chat.completions.create.return_value = response
+        return client
+
+    def _classify(self, text: str, content: str):
+        with patch(
+            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            return_value=self._fake_client(content),
+        ):
+            return classify_slack_app_model_override(text, CHOICES)
