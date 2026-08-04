@@ -11,16 +11,23 @@ from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
-from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag, reconcile_dag_schedules
+from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
+from products.data_modeling.backend.logic.schedule_reconcile import (
+    convert_dag_to_tiers,
+    maybe_reconcile_dag,
+    reconcile_dag_schedules,
+)
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW
 from products.data_modeling.backend.test.helpers import (
+    no_existing_schedules,
     saved_query_node as _saved_query_node,
     table_node as _table_node,
     warehouse_source_node as _warehouse_source_node,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 
@@ -401,3 +408,47 @@ class TestMaybeReconcileDag(BaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
         capture.assert_called_once()
+
+
+@pytest.mark.django_db
+class TestPromoteDagViewNodesToMatview(BaseTest):
+    def _backed(self, dag, name, node_type):
+        node = _saved_query_node(self.team, dag, name, node_type)
+        saved_query = node.saved_query
+        assert saved_query is not None
+        saved_query.table = DataWarehouseTable.objects.create(team=self.team, name=f"{name}_tbl", format="Delta")
+        saved_query.save()
+        return node
+
+    def test_retypes_only_table_backed_view_nodes(self):
+        dag = DAG.get_or_create_default(self.team)
+        stranded = self._backed(dag, "stranded", NodeType.VIEW)
+        endpoint = self._backed(dag, "endpoint_backed", NodeType.ENDPOINT)
+        ephemeral = _saved_query_node(self.team, dag, "ephemeral", NodeType.VIEW)
+
+        assert promote_dag_view_nodes_to_matview(dag) == 1
+
+        for node in (stranded, endpoint, ephemeral):
+            node.refresh_from_db()
+        assert stranded.type == NodeType.MAT_VIEW
+        # A view with no backing table is a real ephemeral view; retyping it would schedule
+        # materializations for something that has nothing to materialize.
+        assert ephemeral.type == NodeType.VIEW
+        assert endpoint.type == NodeType.ENDPOINT
+
+    def test_conversion_to_tiers_repairs_stranded_nodes(self):
+        # The v1 sweep that follows conversion is what makes a view-typed node go dark, so the
+        # repair has to happen as part of converting, not on some later pass.
+        dag = DAG.get_or_create_default(self.team)
+        stranded = self._backed(dag, "stranded", NodeType.VIEW)
+        set_declared_target(stranded, M15)
+
+        with (
+            mock.patch(f"{RECONCILE}.sync_connect", return_value=no_existing_schedules()),
+            mock.patch(f"{RECONCILE}.async_connect", return_value=no_existing_schedules()),
+            mock.patch(f"{RECONCILE}.a_create_schedule"),
+        ):
+            convert_dag_to_tiers(dag)
+
+        stranded.refresh_from_db()
+        assert stranded.type == NodeType.MAT_VIEW
