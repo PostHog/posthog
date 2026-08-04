@@ -324,9 +324,6 @@ tools:
     comments-update:
         operation: comments_update
         enabled: false
-    data-freshness-retrieve:
-        operation: data_freshness_retrieve
-        enabled: false
     members-destroy:
         operation: members_destroy
         enabled: false
@@ -538,6 +535,9 @@ tools:
         enabled: false
     roles-update:
         operation: roles_update
+        enabled: false
+    teams-data-freshness-retrieve:
+        operation: teams_data_freshness_retrieve
         enabled: false
     user-home-settings-get:
         operation: user_home_settings_retrieve
