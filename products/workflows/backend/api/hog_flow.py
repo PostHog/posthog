@@ -58,6 +58,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
+    cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
     get_hog_flow_in_flight_count,
@@ -1187,6 +1188,44 @@ class HogFlowMaskingSerializer(serializers.Serializer):
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
         return super().validate(attrs)
+
+
+# Bounds one request's id list; mirrors the plugin server's own cap. Cancelling more than this
+# is a whole-workflow stop, which the same endpoint does with no ids at all.
+CANCEL_INVOCATIONS_MAX_IDS = 1000
+
+
+class HogFlowCancelInvocationsRequestSerializer(serializers.Serializer):
+    """Stop in-flight runs of a workflow. Omit both fields to stop every run of the workflow."""
+
+    parent_run_id = serializers.UUIDField(
+        required=False,
+        help_text="Restrict the cancellation to the children of this batch run.",
+    )
+    invocation_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        allow_empty=False,
+        max_length=CANCEL_INVOCATIONS_MAX_IDS,
+        help_text=(
+            f"Restrict the cancellation to these invocation IDs. Capped at {CANCEL_INVOCATIONS_MAX_IDS} per request."
+        ),
+    )
+
+
+class HogFlowCancelInvocationsResponseSerializer(serializers.Serializer):
+    cancelled_count = serializers.IntegerField(
+        help_text="Runs that were stopped. They will never resume or send anything further."
+    )
+    running_count = serializers.IntegerField(
+        help_text=(
+            "Runs that were mid-step and could not be stopped safely. They pause again within "
+            "seconds, so repeat the request to catch them."
+        )
+    )
+    detail = serializers.CharField(
+        required=False, help_text="Error detail from the workflow engine when the request failed."
+    )
 
 
 @extend_schema_field(HogFunctionFiltersSerializer)
@@ -2463,6 +2502,7 @@ class HogFlowViewSet(
         "schedule_detail",
         "bulk_delete",
         "rerun",
+        "cancel_invocations",
         "graph",
         "action_email",
         "publish",
@@ -2626,6 +2666,56 @@ class HogFlowViewSet(
             )
 
         return Response(res.json())
+
+    @extend_schema(
+        request=HogFlowCancelInvocationsRequestSerializer,
+        responses={
+            200: HogFlowCancelInvocationsResponseSerializer,
+            400: HogFlowCancelInvocationsResponseSerializer,
+        },
+    )
+    @action(detail=True, methods=["POST"])
+    def cancel_invocations(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Stop this workflow's in-flight runs.
+
+        Scope the stop with `parent_run_id` (one batch run's children) or `invocation_ids`;
+        send an empty body to stop every run of the workflow. Cancelled runs never resume, so
+        a run parked on a multi-day wait stops instead of waking up days later and sending.
+
+        Runs a worker is mid-step on come back as `running_count` instead of being cancelled —
+        stopping them under the worker would race its side effects. They park again within
+        seconds, so repeat the request until `running_count` is 0.
+        """
+        hog_flow = self.get_object()
+
+        serializer = HogFlowCancelInvocationsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        parent_run_id = serializer.validated_data.get("parent_run_id")
+        invocation_ids = serializer.validated_data.get("invocation_ids")
+
+        res = cancel_hog_flow_invocations(
+            team_id=self.team_id,
+            hog_flow_id=str(hog_flow.id),
+            parent_run_id=str(parent_run_id) if parent_run_id else None,
+            invocation_ids=[str(invocation_id) for invocation_id in invocation_ids] if invocation_ids else None,
+        )
+
+        if res.status_code != 200:
+            return Response(
+                {"cancelled_count": 0, "running_count": 0, "detail": res.text},
+                status=res.status_code,
+            )
+
+        body = res.json()
+        log_activity_from_viewset(
+            self,
+            hog_flow,
+            name=hog_flow.name,
+            detail_type="standard",
+            activity="cancelled_invocations",
+        )
+        return Response(body)
 
     def _emit_resource_edited(self, instance: HogFlow) -> None:
         # Realtime "edited elsewhere" signal so an open builder (or another tab) can refresh instead of

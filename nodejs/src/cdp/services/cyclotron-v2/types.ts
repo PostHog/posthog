@@ -125,6 +125,21 @@ export type CyclotronV2RescheduleParkedResult = {
     sweepUntil: Date
 }
 
+export type CyclotronV2CancelJobsOptions = {
+    teamId: number
+    functionId: string
+    /** Limit the cancellation to one batch run's children. */
+    parentRunId?: string
+    /** Limit the cancellation to these job ids (an invocation id is its job id). */
+    jobIds?: string[]
+}
+
+export type CyclotronV2CancelJobsResult = {
+    cancelled: number
+    /** Jobs a worker was mid-step on, left alone. They re-park shortly, so a repeat call gets them. */
+    skippedRunning: number
+}
+
 /**
  * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
  * on the interface (testable, mockable) without pulling the full manager
@@ -143,6 +158,7 @@ export interface CyclotronV2InFlightCounts {
 export interface CyclotronV2JobProducer {
     createJob(input: CyclotronV2JobInit): Promise<string>
     countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts>
+    cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     disconnect(): Promise<void>
 }

@@ -122,6 +122,32 @@ def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Res
     )
 
 
+def cancel_hog_flow_invocations(
+    team_id: int,
+    hog_flow_id: str,
+    parent_run_id: Optional[str] = None,
+    invocation_ids: Optional[list[str]] = None,
+) -> requests.Response:
+    """Stop a workflow's in-flight runs.
+
+    Scope with `parent_run_id` (one batch run's children) or `invocation_ids` (specific runs);
+    omit both to stop every run of the workflow. Runs a worker is mid-step on are reported back
+    as `running_count` rather than cancelled — they re-park within seconds, so a repeat call
+    catches them. The timeout keeps a slow chunked sweep from pinning the calling request thread.
+    """
+    payload: dict = {}
+    if parent_run_id:
+        payload["parent_run_id"] = parent_run_id
+    if invocation_ids:
+        payload["invocation_ids"] = invocation_ids
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/cancel_invocations",
+        json=payload,
+        headers=get_internal_api_headers(),
+        timeout=30,
+    )
+
+
 def _mint_reschedule_parked_jwt(team_id: int, hog_flow_id: str) -> str:
     """Short-lived scoped JWT for one reschedule_parked call — a leaked token can only sweep this
     one team + workflow. Signed with the dedicated key (never INTERNAL_API_SECRET / SECRET_KEY /

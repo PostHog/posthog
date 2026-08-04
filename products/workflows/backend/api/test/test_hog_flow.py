@@ -26,6 +26,7 @@ from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.api.hog_flow import (
+    CANCEL_INVOCATIONS_MAX_IDS,
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
@@ -3872,6 +3873,71 @@ class TestHogFlowAPI(APIBaseTest):
         serializer.is_valid()
 
         assert "type" not in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("whole_workflow", {}, {}),
+            (
+                "one_batch_run",
+                {"parent_run_id": "018f0000-0000-0000-0000-00000000000a"},
+                {"parent_run_id": "018f0000-0000-0000-0000-00000000000a", "invocation_ids": None},
+            ),
+            (
+                "specific_runs",
+                {"invocation_ids": ["018f0000-0000-0000-0000-00000000000b"]},
+                {"parent_run_id": None, "invocation_ids": ["018f0000-0000-0000-0000-00000000000b"]},
+            ),
+        ]
+    )
+    def test_cancel_invocations_forwards_the_requested_scope(self, _name, body, expected_extra):
+        # A scope that gets dropped on the way to the engine turns "stop this one broadcast" into
+        # "stop every run of this workflow", which is unrecoverable.
+        flow_id = self._create_simple_flow()
+
+        with patch("products.workflows.backend.api.hog_flow.cancel_hog_flow_invocations") as mock_cancel:
+            mock_cancel.return_value = MagicMock(
+                status_code=200, json=lambda: {"cancelled_count": 3, "running_count": 1}
+            )
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/cancel_invocations/", data=body
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"cancelled_count": 3, "running_count": 1}
+        assert mock_cancel.call_args.kwargs == {
+            "team_id": self.team.id,
+            "hog_flow_id": str(flow_id),
+            "parent_run_id": None,
+            "invocation_ids": None,
+            **expected_extra,
+        }
+
+    def test_cancel_invocations_rejects_more_ids_than_the_cap(self):
+        flow_id = self._create_simple_flow()
+        too_many = [f"018f0000-0000-0000-0000-{index:012d}" for index in range(CANCEL_INVOCATIONS_MAX_IDS + 1)]
+
+        with patch("products.workflows.backend.api.hog_flow.cancel_hog_flow_invocations") as mock_cancel:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/cancel_invocations/",
+                data={"invocation_ids": too_many},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        mock_cancel.assert_not_called()
+
+    def test_cancel_invocations_surfaces_engine_failure(self):
+        # The caller is mid-incident: a failed stop has to read as failed, not as "0 runs cancelled".
+        flow_id = self._create_simple_flow()
+
+        with patch("products.workflows.backend.api.hog_flow.cancel_hog_flow_invocations") as mock_cancel:
+            mock_cancel.return_value = MagicMock(status_code=503, text="Cyclotron producer not initialized")
+
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/cancel_invocations/")
+
+        assert response.status_code == 503, response.json()
+        assert response.json()["cancelled_count"] == 0
+        assert "Cyclotron producer not initialized" in response.json()["detail"]
 
 
 class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):

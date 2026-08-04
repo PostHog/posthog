@@ -95,6 +95,11 @@ function sanitizeContentType(contentType: string | undefined, fallback: string):
 // actual send target — see `canDedupeByEmail`.
 const DEFAULT_EMAIL_TO_TEMPLATE_RE = /^\s*\{\{\s*person\.properties\.email\s*\}\}\s*$/
 
+// Bounds one cancel request's id list so a caller can't hand us an unbounded ANY() array. Well
+// above the invocations table's page size; cancelling more than this is a whole-workflow stop,
+// which the same endpoint does without ids.
+const CANCEL_INVOCATIONS_MAX_IDS = 1000
+
 function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
     if (!Array.isArray(hogFlow.actions)) {
         return false
@@ -258,6 +263,10 @@ export class CdpApi {
         )
         router.post('/api/projects/:team_id/hog_flows/:id/rerun', asyncHandler(this.postRerunInvocations('hog_flow')))
         router.get('/api/projects/:team_id/hog_flows/:id/in_flight_count', asyncHandler(this.getHogFlowInFlightCount))
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/cancel_invocations',
+            asyncHandler(this.postHogFlowCancelInvocations)
+        )
         router.post(
             '/api/projects/:team_id/hog_flows/:id/reschedule_parked',
             asyncHandler(this.postHogFlowRescheduleParked)
@@ -995,6 +1004,60 @@ export class CdpApi {
             })
         } catch (e) {
             logger.error('Error counting in-flight hog flow jobs', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    // Stop this workflow's in-flight runs. Pausing a workflow only stops new entries; runs already
+    // parked on a wait stay in the queue until their wake time, so without this there is no way to
+    // end a misfiring flow during an incident.
+    private postHogFlowCancelInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+
+            const { team_id, id } = req.params
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            const body = req.body ?? {}
+            const parentRunId = typeof body.parent_run_id === 'string' ? body.parent_run_id : undefined
+            const invocationIds = body.invocation_ids
+            if (invocationIds !== undefined) {
+                if (
+                    !Array.isArray(invocationIds) ||
+                    invocationIds.length === 0 ||
+                    invocationIds.length > CANCEL_INVOCATIONS_MAX_IDS ||
+                    !invocationIds.every((invocationId: unknown) => typeof invocationId === 'string' && !!invocationId)
+                ) {
+                    return res.status(400).json({
+                        error: `invocation_ids must be a non-empty array of up to ${CANCEL_INVOCATIONS_MAX_IDS} strings`,
+                    })
+                }
+            }
+
+            const result = await this.batchResolverProducer.cancelJobs({
+                teamId: team.id,
+                functionId: id,
+                parentRunId,
+                jobIds: invocationIds,
+            })
+
+            return res.json({ cancelled_count: result.cancelled, running_count: result.skippedRunning })
+        } catch (e) {
+            logger.error('Error cancelling in-flight hog flow jobs', {
                 error: e instanceof Error ? e.message : String(e),
             })
             return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })

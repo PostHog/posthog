@@ -7,6 +7,8 @@ import { logger } from '~/common/utils/logger'
 import { sleep } from '~/common/utils/utils'
 
 import {
+    CyclotronV2CancelJobsOptions,
+    CyclotronV2CancelJobsResult,
     CyclotronV2InFlightCounts,
     CyclotronV2JobInit,
     CyclotronV2JobInitSchema,
@@ -89,6 +91,17 @@ const rescheduleFailureCounter = new Counter({
     help: 'Failed reschedule sweep slices, split by kind=logical|transient.',
     labelNames: ['kind'] as const,
 })
+
+const cancelJobsCounter = new Counter({
+    name: 'cdp_cyclotron_v2_jobs_cancelled',
+    help: 'In-flight cyclotron jobs cancelled on request (stopping a workflow mid-run).',
+})
+
+// One cancel call touches at most CANCEL_CHUNK_SIZE * CANCEL_MAX_CHUNKS_PER_CALL rows, which
+// covers any realistic workflow backlog in a single request. Chunking keeps each statement's
+// lock footprint small; a caller that somehow exceeds the ceiling just calls again.
+const CANCEL_CHUNK_SIZE = 5_000
+const CANCEL_MAX_CHUNKS_PER_CALL = 20
 
 /**
  * Thrown when an `overwriteExisting` createJob / bulkCreateJobs hits a row
@@ -458,6 +471,89 @@ export class CyclotronV2Manager {
             }
         }
         return { count, byAction, positionUnknown }
+    }
+
+    /**
+     * Cancel a function's in-flight jobs so they never run again.
+     *
+     * Only rows the queue still owns and no worker holds ('available' — parked waits, delays,
+     * and queued-but-not-yet-picked-up runs) are cancelled. A 'running' row is locked by a
+     * worker mid-step: flipping its status here would either be clobbered by that worker's
+     * next `WHERE lock_id` write or race its side effects, so those are counted and left
+     * alone. They re-park as 'available' within seconds, so a repeat call catches them —
+     * `skippedRunning` is what tells the caller a repeat is worth making.
+     *
+     * Chunked with `SKIP LOCKED` so a large backlog doesn't hold one long transaction.
+     */
+    async cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult> {
+        const { teamId, functionId, parentRunId, jobIds } = options
+        if (jobIds && jobIds.length === 0) {
+            return { cancelled: 0, skippedRunning: 0 }
+        }
+
+        const scope: string[] = []
+        const params: any[] = [teamId, functionId]
+        if (parentRunId) {
+            params.push(parentRunId)
+            scope.push(`AND parent_run_id = $${params.length}`)
+        }
+        if (jobIds) {
+            params.push(jobIds)
+            scope.push(`AND id = ANY($${params.length}::uuid[])`)
+        }
+        const scopeSql = scope.join('\n              ')
+        const countParams = [...params]
+        params.push(CANCEL_CHUNK_SIZE)
+        const limitPlaceholder = `$${params.length}`
+
+        try {
+            let cancelled = 0
+            for (let chunk = 0; chunk < CANCEL_MAX_CHUNKS_PER_CALL; chunk++) {
+                const result = await this.pool.query(
+                    `WITH candidates AS (
+                        SELECT id FROM cyclotron_jobs
+                        WHERE team_id = $1 AND function_id = $2 AND status = 'available'
+                              ${scopeSql}
+                        LIMIT ${limitPlaceholder}
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE cyclotron_jobs j
+                    SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
+                        last_transition = NOW(), transition_count = j.transition_count + 1,
+                        janitor_touch_count = 0
+                    FROM candidates c
+                    WHERE j.id = c.id`,
+                    params
+                )
+                cancelled += result.rowCount ?? 0
+                if ((result.rowCount ?? 0) < CANCEL_CHUNK_SIZE) {
+                    break
+                }
+            }
+
+            const runningResult = await this.pool.query<{ count: number }>(
+                `SELECT COUNT(*)::int AS count FROM cyclotron_jobs
+                 WHERE team_id = $1 AND function_id = $2 AND status = 'running'
+                       ${scopeSql}`,
+                countParams
+            )
+            const skippedRunning = runningResult.rows[0].count
+
+            cancelJobsCounter.inc(cancelled)
+            logger.info('Cancelled in-flight cyclotron jobs', {
+                teamId,
+                functionId,
+                parentRunId,
+                jobIds: jobIds?.length,
+                cancelled,
+                skippedRunning,
+            })
+
+            return { cancelled, skippedRunning }
+        } catch (err) {
+            dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
+            throw err
+        }
     }
 
     /**
