@@ -635,12 +635,7 @@ def create_posthog_code_task_for_repo_activity(
 
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
-    run_prefs = resolve_run_preferences(
-        integration,
-        slack_user_id,
-        override_model=model_override.model if model_override else None,
-        override_effort=model_override.reasoning_effort if model_override else None,
-    )
+    run_prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.

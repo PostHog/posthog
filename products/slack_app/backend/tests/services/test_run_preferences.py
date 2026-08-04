@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import pytest
 from unittest.mock import patch
 
@@ -30,6 +32,14 @@ def catalogue():
         yield
 
 
+@dataclass
+class _Override:
+    """Stands in for the Temporal payload the activity returns."""
+
+    model: str | None = None
+    reasoning_effort: str | None = None
+
+
 def _resolve(saved: AIPreferences, override_model=None, override_effort=None):
     """Resolve with `resolve_ai_preferences` stubbed, so these stay unit tests over the
     precedence rules rather than over the settings rows."""
@@ -37,8 +47,7 @@ def _resolve(saved: AIPreferences, override_model=None, override_effort=None):
         return resolve_run_preferences(
             integration=None,  # type: ignore[arg-type]
             slack_user_id="U1",
-            override_model=override_model,
-            override_effort=override_effort,
+            override=_Override(model=override_model, reasoning_effort=override_effort),
         )
 
 

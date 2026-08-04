@@ -16,18 +16,15 @@ itself would refuse.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from products.slack_app.backend.services.model_catalogue import (
     ModelChoice,
     available_model_choices,
+    filter_unsupported_effort,
     runtime_adapter_for,
 )
-from products.slack_app.backend.services.slack_settings import (
-    AIPreferences,
-    filter_unsupported_effort,
-    resolve_ai_preferences,
-)
+from products.slack_app.backend.services.slack_settings import AIPreferences, resolve_ai_preferences
 
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
@@ -36,6 +33,14 @@ if TYPE_CHECKING:
 # Chosen here rather than left to the agent server so the App Home card and the run
 # itself agree on what "unset" means.
 SLACK_DEFAULT_MODEL = "claude-opus-5"
+
+
+class ModelOverride(Protocol):
+    """What a mention asked for. Structural so the Temporal payload satisfies it
+    without this module importing anything from `posthog/temporal/`."""
+
+    model: str | None
+    reasoning_effort: str | None
 
 
 def _coherent_preferences(
@@ -61,8 +66,7 @@ def resolve_run_preferences(
     integration: Integration,
     slack_user_id: str | None,
     *,
-    override_model: str | None = None,
-    override_effort: str | None = None,
+    override: ModelOverride | None = None,
 ) -> AIPreferences:
     """Resolve the full chain for one Slack-triggered run.
 
@@ -76,6 +80,9 @@ def resolve_run_preferences(
     hasn't enabled `slack-app-home`, so there the chain is the Slack default plus
     whatever the mention asked for.
     """
+    override_model = override.model if override else None
+    override_effort = override.reasoning_effort if override else None
+
     if override_model:
         # Only a model named in the mention needs the catalogue, and the saved rows
         # can't influence the result, so neither is read on the other paths.

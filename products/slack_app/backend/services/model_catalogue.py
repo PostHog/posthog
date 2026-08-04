@@ -117,6 +117,20 @@ def runtime_adapter_for(model: str | None) -> str | None:
     return None
 
 
+def filter_unsupported_effort(runtime_adapter: str | None, model: str | None, effort: str | None) -> str | None:
+    """Drop an effort the given model doesn't support (e.g. a user saved `high` on a
+    thinking model and then picked a non-thinking one).
+
+    The single answer to "is this effort legal for this pair" — the stored-row resolver
+    in `slack_settings` and the run resolver in `run_preferences` both route through it.
+    """
+    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts  # noqa: PLC0415
+
+    if not effort:
+        return None
+    return effort if effort in {e.value for e in get_supported_reasoning_efforts(runtime_adapter, model)} else None
+
+
 def format_model_id(model_id: str) -> str:
     """Turn a gateway model id into a display name: `Claude Opus 4.8`, `GPT-5.6 Sol`.
 
@@ -170,6 +184,7 @@ __all__ = [
     "ModelChoice",
     "available_model_choices",
     "describe_run_model",
+    "filter_unsupported_effort",
     "format_model_id",
     "label_for",
     "runtime_adapter_for",

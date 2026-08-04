@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from django.db.models import Q
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled
+from products.slack_app.backend.services.model_catalogue import filter_unsupported_effort
 
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
@@ -114,21 +115,6 @@ def resolve_ai_preferences(integration: Integration, slack_user_id: str | None) 
     )
 
 
-def filter_unsupported_effort(runtime_adapter: str | None, model: str | None, effort: str | None) -> str | None:
-    """Drop an effort the given model doesn't support (e.g. a user saved `high` on a
-    thinking model and then picked a non-thinking one).
-
-    The single answer to "is this effort legal for this pair" — both the stored-row
-    resolver here and `run_preferences` route through it.
-    """
-    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts
-
-    if not effort:
-        return None
-    supported = {e.value for e in get_supported_reasoning_efforts(runtime_adapter, model)}
-    return effort if effort in supported else None
-
-
 def build_ai_preferences_payload(
     runtime_adapter: str | None,
     model: str | None,
@@ -192,7 +178,6 @@ def validate_ai_preferences(
 
 __all__ = [
     "AIPreferences",
-    "filter_unsupported_effort",
     "build_ai_preferences_payload",
     "resolve_ai_preferences",
     "validate_ai_preferences",
