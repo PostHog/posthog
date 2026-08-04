@@ -201,7 +201,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     {config.values.map((value, index) => (
                         <div
                             key={`${value.field.id}-${index}`}
-                            className="flex w-full min-w-0 items-center gap-2 rounded border bg-primary p-2"
+                            className="flex w-full min-w-0 items-center gap-2 rounded"
                         >
                             <LemonSelect
                                 value={value.aggregation}
@@ -260,10 +260,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                             filter.operator
                         )
                         return (
-                            <div
-                                key={filter.field.id}
-                                className="flex w-full min-w-0 items-center gap-2 rounded border bg-primary p-2"
-                            >
+                            <div key={filter.field.id} className="flex w-full min-w-0 items-center gap-2 rounded">
                                 <ExpressionEditorButton
                                     value={filter.field.expression}
                                     field={filter.field}
@@ -338,7 +335,7 @@ function FieldExpressionEditor({
     onRemove: () => void
 }): JSX.Element {
     return (
-        <div className="flex w-full min-w-0 items-center gap-2 rounded border bg-primary p-2">
+        <div className="flex w-full min-w-0 items-center gap-2 rounded">
             <ExpressionEditorButton
                 value={field.expression}
                 field={field}
