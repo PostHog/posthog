@@ -1,4 +1,8 @@
-import { FileTextIcon, SparkleIcon } from "@phosphor-icons/react";
+import {
+  FileTextIcon,
+  GitBranchIcon,
+  SparkleIcon,
+} from "@phosphor-icons/react";
 import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
@@ -11,9 +15,13 @@ import {
   Button as QuillButton,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import type { TaskChannel } from "@posthog/shared/domain-types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
+import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
@@ -21,6 +29,10 @@ import {
   useFolderInstructionsMutations,
   useFolderInstructionsVersions,
 } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
+import {
+  useTaskChannels,
+  useUpdateTaskChannelRepositories,
+} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
@@ -68,6 +80,8 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const channelName =
     channels.find((c) => c.id === channelId)?.name ??
     (spacesLayout ? "Space" : "Channel");
+  const { channels: taskChannels } = useTaskChannels();
+  const taskChannel = taskChannels.find((channel) => channel.id === channelId);
 
   const {
     data: latest,
@@ -194,6 +208,9 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           </PageHeaderHeading>
         </PageHeader>
       )}
+      {spacesLayout && taskChannel ? (
+        <SpaceRepositories channel={taskChannel} />
+      ) : null}
       <Flex
         align="center"
         justify="between"
@@ -354,6 +371,41 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
         </Box>
       </ScrollArea>
     </Flex>
+  );
+}
+
+function SpaceRepositories({ channel }: { channel: TaskChannel }) {
+  const update = useUpdateTaskChannelRepositories();
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const canEdit = currentUser?.id === channel.created_by?.id;
+
+  return (
+    <div className="flex shrink-0 flex-col gap-2 border-b border-b-(--gray-5) px-4 py-3">
+      <div className="flex items-center gap-2">
+        <GitBranchIcon size={15} className="text-muted-foreground" />
+        <span className="font-medium text-[13px]">Repositories</span>
+        {update.isPending ? (
+          <Spinner size="1" />
+        ) : update.error ? (
+          <span className="text-[12px] text-red-11">
+            Couldn't save. Try again.
+          </span>
+        ) : null}
+      </div>
+      <RepositoriesField
+        selected={channel.repositories ?? []}
+        integrationId={channel.github_integration ?? null}
+        disabled={!canEdit || update.isPending}
+        onChange={(repositories, githubIntegration) =>
+          update.mutate({
+            channelId: channel.id,
+            githubIntegration,
+            repositories,
+          })
+        }
+      />
+    </div>
   );
 }
 
