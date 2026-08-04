@@ -52,9 +52,10 @@ pub trait RecentlySeenStore: Send + Sync {
 pub async fn build_store(config: &Config) -> Result<Arc<dyn RecentlySeenStore>> {
     match config.recent_ids_store.to_lowercase().as_str() {
         "dynamodb" => Ok(Arc::new(build_dynamodb_store(config).await?)),
-        "memory" => Ok(Arc::new(InMemoryStore::new(Duration::seconds(
-            config.recent_ids_ttl_seconds,
-        )))),
+        "memory" => Ok(Arc::new(InMemoryStore::new(
+            Duration::seconds(config.recent_ids_ttl_seconds),
+            config.recent_ids_memory_max_capacity,
+        ))),
         other => {
             error!("Unknown RECENT_IDS_STORE '{other}'");
             Err(anyhow::anyhow!("Unknown RECENT_IDS_STORE '{other}'"))
@@ -89,7 +90,7 @@ mod tests {
 
     #[tokio::test]
     async fn records_and_looks_up_emit_times_scoped_by_team() {
-        let store = InMemoryStore::new(Duration::seconds(604800));
+        let store = InMemoryStore::new(Duration::seconds(604800), 100);
         let ts = Utc::now();
         store
             .record(&[SeenRecord {
@@ -112,7 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn distinguishes_same_id_across_dimensions() {
-        let store = InMemoryStore::new(Duration::seconds(604800));
+        let store = InMemoryStore::new(Duration::seconds(604800), 100);
         let ts = Utc::now();
         let signals_doc = key("dup");
         let mut error_doc = key("dup");
@@ -136,7 +137,7 @@ mod tests {
 
     #[tokio::test]
     async fn ttl_starts_when_record_is_observed() {
-        let store = InMemoryStore::new(Duration::seconds(604800));
+        let store = InMemoryStore::new(Duration::seconds(604800), 100);
         let stale = Utc::now() - chrono::Duration::weeks(1) - chrono::Duration::hours(1);
         store
             .record(&[SeenRecord {
@@ -152,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn expired_records_are_not_returned() {
-        let store = InMemoryStore::new(Duration::seconds(-1));
+        let store = InMemoryStore::new(Duration::seconds(-1), 100);
         store
             .record(&[SeenRecord {
                 team_id: 1,

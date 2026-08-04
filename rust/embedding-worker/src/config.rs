@@ -66,6 +66,9 @@ pub struct Config {
     #[envconfig(from = "RECENT_IDS_TTL_SECONDS", default = "604800")]
     pub recent_ids_ttl_seconds: i64,
 
+    #[envconfig(from = "RECENT_IDS_MEMORY_MAX_CAPACITY", default = "100000")]
+    pub recent_ids_memory_max_capacity: u64,
+
     // Optional region override for the DynamoDB client. Falls back to the standard AWS
     // provider chain when unset.
     #[envconfig(from = "RECENT_IDS_AWS_REGION")]

@@ -1,40 +1,34 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration as StdDuration};
 
 use axum::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use tokio::sync::Mutex;
+use moka::sync::Cache;
 
 use crate::recently_seen::{DocumentKey, RecentlySeenStore, SeenRecord};
 
-// (emitted_at, expires_at), keyed by the team and document identity.
-type Entries = HashMap<(i32, DocumentKey), (DateTime<Utc>, DateTime<Utc>)>;
+type Entries = Cache<(i32, DocumentKey), DateTime<Utc>>;
 
 pub struct InMemoryStore {
-    ttl: Duration,
-    entries: Mutex<Entries>,
+    entries: Entries,
 }
 
 impl InMemoryStore {
-    pub fn new(ttl: Duration) -> Self {
+    pub fn new(ttl: Duration, max_capacity: u64) -> Self {
         Self {
-            ttl,
-            entries: Mutex::new(HashMap::new()),
+            entries: Cache::builder()
+                .max_capacity(max_capacity)
+                .time_to_live(ttl.to_std().unwrap_or(StdDuration::ZERO))
+                .build(),
         }
-    }
-
-    fn ttl_chrono(&self) -> Duration {
-        self.ttl
     }
 }
 
 #[async_trait]
 impl RecentlySeenStore for InMemoryStore {
     async fn record(&self, documents: &[SeenRecord]) {
-        let ttl = self.ttl_chrono();
-        let expires_at = Utc::now() + ttl;
-        let mut entries = self.entries.lock().await;
         for doc in documents {
-            entries.insert((doc.team_id, doc.key.clone()), (doc.emitted_at, expires_at));
+            self.entries
+                .insert((doc.team_id, doc.key.clone()), doc.emitted_at);
         }
     }
 
@@ -43,15 +37,42 @@ impl RecentlySeenStore for InMemoryStore {
         team_id: i32,
         keys: Vec<DocumentKey>,
     ) -> HashMap<DocumentKey, Option<DateTime<Utc>>> {
-        let now = Utc::now();
-        let mut entries = self.entries.lock().await;
-        // Opportunistically drop expired entries so a long-lived dev process can't grow unbounded.
-        entries.retain(|_, (_, expires_at)| *expires_at > now);
         keys.into_iter()
             .map(|key| {
-                let emitted = entries.get(&(team_id, key.clone())).map(|(ts, _)| *ts);
+                let emitted = self.entries.get(&(team_id, key.clone()));
                 (key, emitted)
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(id: &str) -> SeenRecord {
+        SeenRecord {
+            team_id: 1,
+            key: DocumentKey {
+                product: "signals".to_string(),
+                document_type: "signal".to_string(),
+                rendering: "plain".to_string(),
+                document_id: id.to_string(),
+            },
+            emitted_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn evicts_entries_when_capacity_is_reached() {
+        let store = InMemoryStore::new(Duration::hours(1), 1);
+        let first = record("first");
+        let second = record("second");
+
+        store.record(&[first.clone(), second.clone()]).await;
+        store.entries.run_pending_tasks();
+
+        let results = store.lookup(1, vec![first.key, second.key]).await;
+        assert_eq!(results.values().filter(|value| value.is_some()).count(), 1);
     }
 }
