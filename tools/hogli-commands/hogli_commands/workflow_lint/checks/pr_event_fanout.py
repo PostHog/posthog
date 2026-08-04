@@ -25,13 +25,13 @@ PR_EVENT_FANOUT_BUDGET: Mapping[str, int] = {
     "closed": 3,
     "converted_to_draft": 1,
     "edited": 3,
-    "labeled": 10,
+    "labeled": 7,
     "opened": 28,
     "ready_for_review": 11,
     "reopened": 24,
     "review_requested": 1,
     "synchronize": 28,
-    "unlabeled": 7,
+    "unlabeled": 4,
 }
 
 
