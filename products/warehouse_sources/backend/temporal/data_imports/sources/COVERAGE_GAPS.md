@@ -496,7 +496,8 @@ Seventeen tables (10 API endpoints plus 7 webhook event streams) and one of our 
 
 ### Postmark — needs confirmation
 
-Five tables. Delivery config is present, engagement is not.
+Five tables. Delivery config is present, engagement is not. `bounces` also accepts pushed rows
+through the Webhooks API (Bounce and SpamComplaint triggers).
 
 - [ ] Opens and clicks per message.
 - [ ] Outbound overview stats (sends, bounce rate, open rate, spam complaints).
