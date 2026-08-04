@@ -1,6 +1,9 @@
 import { Button, cn } from "@posthog/quill";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
-import { ChannelTabs } from "@posthog/ui/features/canvas/components/ChannelTabs";
+import {
+  ChannelPageTabs,
+  ChannelTabs,
+} from "@posthog/ui/features/canvas/components/ChannelTabs";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import {
   type ChannelPageKey,
@@ -15,10 +18,10 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 
 // The shared channel header. Every space scene renders the same breadcrumb —
 // the root segment is identical whether or not there's a leaf, so the space
-// name doesn't change size between the space home and its sub-pages. Both
-// layouts carry the section tab strip (the new one trails it after the
-// breadcrumb, Feed included). Starring lives on the sidebar back row and the
-// channel list, not here.
+// name doesn't change size between the space home and its sub-pages. Under the
+// channels layout the page switcher is a row of line tabs beneath the space
+// name (matching Inbox/Activity); the legacy header keeps its button strip.
+// Starring lives on the sidebar back row and the channel list, not here.
 export function ChannelHeader({
   channelId,
   page,
@@ -42,17 +45,22 @@ export function ChannelHeader({
   // layout flag graduates.
   if (!channelsLayout) return <LegacyChannelHeader channelId={channelId} />;
 
+  // Two rows: the breadcrumb keeps the header bar's usual height, and the
+  // page tabs sit beneath it, left-aligned with the space name. The static
+  // sidebar's rows only fold their task lists, so this switcher is the one
+  // way between a space's pages.
   return (
-    <ChannelBreadcrumb
-      channelName={channelName ?? "Space"}
-      channelId={channelId}
-      leafIcon={page ? channelPageIcon(page, { size: 12 }) : undefined}
-      leafLabel={page ? channelPageLabel(page) : undefined}
-      // The static sidebar's rows only fold their task lists, so the space's
-      // pages need a switcher in the main view — the same strip the legacy
-      // header carries, with Feed leading back to the root.
-      trailing={<ChannelTabs channelId={channelId} includeHome />}
-    />
+    <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex h-10 min-w-0 items-center">
+        <ChannelBreadcrumb
+          channelName={channelName ?? "Space"}
+          channelId={channelId}
+          leafIcon={page ? channelPageIcon(page, { size: 12 }) : undefined}
+          leafLabel={page ? channelPageLabel(page) : undefined}
+        />
+      </div>
+      <ChannelPageTabs channelId={channelId} page={page} />
+    </div>
   );
 }
 

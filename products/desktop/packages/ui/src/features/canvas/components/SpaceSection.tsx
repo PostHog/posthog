@@ -1,4 +1,4 @@
-import { CaretRightIcon, GearSixIcon } from "@phosphor-icons/react";
+import { CaretRightIcon, GearSixIcon, PlusIcon } from "@phosphor-icons/react";
 import { isOwnedBy } from "@posthog/core/canvas/channelItems";
 import { Button, cn, Skeleton } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -10,12 +10,14 @@ import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadC
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
+import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
+import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { type Ref, useMemo, useState } from "react";
 
 const RECENTS_CAP = 10;
 
@@ -30,7 +32,18 @@ const RECENTS_CAP = 10;
  * Expand state is local view state in `spacesSidebarStore`; the space's
  * presence in the sidebar is its star, managed from the All spaces directory.
  */
-export function SpaceSection({ channel }: { channel: Channel }) {
+export function SpaceSection({
+  channel,
+  dragHandleRef,
+}: {
+  channel: Channel;
+  /**
+   * From the sortable wrapper (SpacesSidebarNav): binding the header row as
+   * the drag handle keeps the task rows free for their own native drag (into
+   * the Command Center) without dnd-kit swallowing it.
+   */
+  dragHandleRef?: Ref<HTMLButtonElement>;
+}) {
   const open = useSpacesSidebarStore((s) => !!s.openSections[channel.id]);
   const toggle = useSpacesSidebarStore((s) => s.toggle);
   const onlyMine = useSpacesSidebarStore((s) => s.onlyMyTasks);
@@ -110,6 +123,7 @@ export function SpaceSection({ channel }: { channel: Channel }) {
     <div>
       <div className="group/space relative">
         <Button
+          ref={dragHandleRef}
           variant="default"
           left
           aria-expanded={open}
@@ -166,6 +180,21 @@ export function SpaceSection({ channel }: { channel: Channel }) {
           groups' trees (pl-5). */}
       {open && (
         <div className="flex flex-col gap-px pb-1 pl-5">
+          {/* Creating is the list's first move, so it leads the list — filed
+              straight into this space, like the Fab's New task with a channel. */}
+          <SidebarItem
+            depth={0}
+            icon={<PlusIcon size={14} className="text-muted-foreground" />}
+            label={<span className="text-muted-foreground">New session</span>}
+            onClick={() => {
+              track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                action_type: "new_task_open",
+                surface: "sidebar",
+                channel_id: channel.id,
+              });
+              openTaskInput({ channelId: channel.id });
+            }}
+          />
           {isLoading && sectionItems.length === 0 ? (
             <div className="flex flex-col gap-2 px-2 py-2">
               <Skeleton className="h-3 w-3/4" />
@@ -177,49 +206,57 @@ export function SpaceSection({ channel }: { channel: Channel }) {
             </div>
           ) : (
             <>
-              {sectionItems.map((item) => (
-                <ChannelItemRow
-                  key={item.key}
-                  item={item}
-                  channelId={channel.id}
-                  isActive={item.key === activeKey}
-                  actions={actions}
-                  isEditing={item.kind === "task" && editingTaskId === item.id}
-                  onRename={
-                    item.kind === "task"
-                      ? () => setEditingTaskId(item.id)
-                      : undefined
-                  }
-                  onAddToCommandCenter={
-                    item.kind === "task" &&
-                    !commandCenterCells.includes(item.id)
-                      ? commandCenterAssigner(item.id)
-                      : undefined
-                  }
-                  onEditSubmit={
-                    item.kind === "task"
-                      ? async (newTitle) => {
-                          setEditingTaskId(null);
-                          try {
-                            await renameTask({
-                              taskId: item.id,
-                              currentTitle: item.title,
-                              newTitle,
-                            });
-                          } catch (error) {
-                            toast.error("Couldn't rename task", {
-                              description:
-                                error instanceof Error
-                                  ? error.message
-                                  : String(error),
-                            });
+              {/* A five-row window (rows are ~26px + the px gaps); the rest of
+                  the capped list scrolls within it, View all stays put below.
+                  The right padding keeps the rows' trailing badges clear of
+                  the overlay scrollbar instead of drawn over by it. */}
+              <div className="flex max-h-[134px] flex-col gap-px overflow-y-auto pr-1">
+                {sectionItems.map((item) => (
+                  <ChannelItemRow
+                    key={item.key}
+                    item={item}
+                    channelId={channel.id}
+                    isActive={item.key === activeKey}
+                    actions={actions}
+                    isEditing={
+                      item.kind === "task" && editingTaskId === item.id
+                    }
+                    onRename={
+                      item.kind === "task"
+                        ? () => setEditingTaskId(item.id)
+                        : undefined
+                    }
+                    onAddToCommandCenter={
+                      item.kind === "task" &&
+                      !commandCenterCells.includes(item.id)
+                        ? commandCenterAssigner(item.id)
+                        : undefined
+                    }
+                    onEditSubmit={
+                      item.kind === "task"
+                        ? async (newTitle) => {
+                            setEditingTaskId(null);
+                            try {
+                              await renameTask({
+                                taskId: item.id,
+                                currentTitle: item.title,
+                                newTitle,
+                              });
+                            } catch (error) {
+                              toast.error("Couldn't rename task", {
+                                description:
+                                  error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                              });
+                            }
                           }
-                        }
-                      : undefined
-                  }
-                  onEditCancel={() => setEditingTaskId(null)}
-                />
-              ))}
+                        : undefined
+                    }
+                    onEditCancel={() => setEditingTaskId(null)}
+                  />
+                ))}
+              </div>
               {/* The list is a cap, not the whole story — the rest live on the
                   space's Recents page. */}
               {overflowCount > 0 && (

@@ -282,6 +282,17 @@ export function ChannelItemRow({
               draggable={item.kind === "task"}
               onDragStart={handleDragStart}
               onClick={() => actions.open(item)}
+              // Tasks drag into the Command Center grid, which accepts this
+              // payload type — same contract as the code sidebar's TaskItem.
+              draggable={item.kind === "task"}
+              onDragStart={
+                item.kind === "task"
+                  ? (e) => {
+                      e.dataTransfer.setData("text/x-task-id", item.id);
+                      e.dataTransfer.effectAllowed = "copy";
+                    }
+                  : undefined
+              }
               endContent={
                 <span className={TRAILING_CLASS}>
                   {/* Badges take the timestamp's slot on a task row: the row's

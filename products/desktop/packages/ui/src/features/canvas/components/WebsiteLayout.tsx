@@ -270,12 +270,15 @@ export function WebsiteLayout() {
         <Flex
           align="center"
           gap="2"
-          className="h-10 shrink-0 border-gray-6 border-b px-3"
+          // min-height, not height: channel scenes render a second row of page
+          // tabs under the breadcrumb (ChannelHeader), while single-row
+          // headers keep the usual 40px bar.
+          className="min-h-10 shrink-0 border-gray-6 border-b px-3"
         >
           <Flex
             align="center"
             justify="between"
-            className="h-full min-w-0 flex-1 overflow-hidden"
+            className="min-w-0 flex-1 overflow-hidden"
           >
             {headerContent}
           </Flex>
