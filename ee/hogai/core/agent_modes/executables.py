@@ -380,6 +380,25 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
 
 class AgentToolsExecutable(BaseAgentLoopExecutable):
+    def _capture_max_tool_error_event(
+        self, config: RunnableConfig, *, tool_name: str, error_type: str, retry_strategy: str, error: Exception
+    ) -> None:
+        user_distinct_id = self._get_user_distinct_id(config)
+        if not user_distinct_id:
+            return
+        posthoganalytics.capture(
+            distinct_id=user_distinct_id,
+            event="max_tool_error",
+            properties={
+                **self._get_debug_props(config),
+                "tool_name": tool_name,
+                "error_type": error_type,
+                "retry_strategy": retry_strategy,
+                "error_message": str(error),
+            },
+            groups=groups(None, self._team),
+        )
+
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         reset_state = PartialAssistantState(root_tool_call_id=None)
@@ -490,21 +509,20 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                 },
             )
 
-            if user_distinct_id:
-                posthoganalytics.capture(
-                    distinct_id=user_distinct_id,
-                    event="max_tool_error",
-                    properties={
-                        **self._get_debug_props(config),
-                        "tool_name": tool_call.name,
-                        "error_type": e.__class__.__name__,
-                        "retry_strategy": e.retry_strategy,
-                        "error_message": str(e),
-                    },
-                    groups=groups(None, self._team),
-                )
+            self._capture_max_tool_error_event(
+                config,
+                tool_name=tool_call.name,
+                error_type=e.__class__.__name__,
+                retry_strategy=e.retry_strategy,
+                error=e,
+            )
 
-            content = f"Tool failed: {e.to_summary()}.{e.retry_hint}"
+            # Drop the exception class name here — it's an implementation detail that leaks into
+            # the thread when the model relays a tool failure to the user, e.g. "MaxToolRetryableError: ...".
+            error_message = str(e).strip()
+            if len(error_message) > 500:
+                error_message = error_message[:500] + "…"
+            content = f"Tool failed: {error_message}.{e.retry_hint}"
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
@@ -519,10 +537,19 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             capture_exception(
                 e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
             )
+            self._capture_max_tool_error_event(
+                config, tool_name=tool_call.name, error_type=e.__class__.__name__, retry_strategy="adjusted", error=e
+            )
+            # Field paths only — pydantic's full str(e) dump (types, input values, doc links) is
+            # internal detail that shouldn't reach the user if the model relays it verbatim.
+            invalid_fields = ", ".join(".".join(str(part) for part in err["loc"]) for err in e.errors())
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content="There was a validation error calling the tool: " + str(e),
+                        content=(
+                            f"The tool call had invalid arguments ({invalid_fields}) and did not run. "
+                            "Review the tool's parameters and retry with corrected arguments."
+                        ),
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
                     )
@@ -537,10 +564,17 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             capture_exception(
                 e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
             )
+            self._capture_max_tool_error_event(
+                config, tool_name=tool_call.name, error_type=e.__class__.__name__, retry_strategy="unknown", error=e
+            )
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+                        content=(
+                            "The tool encountered an unexpected error and did not complete. Do not immediately "
+                            "retry the tool call. Tell the user, in plain language, that this action failed, and "
+                            "offer to try again only if they ask."
+                        ),
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
                     )

@@ -1012,6 +1012,8 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.messages[0].tool_call_id, "tool-123")
         self.assertIn("Invalid entity kind", result.messages[0].content)
         self.assertIn("retry with adjusted inputs", result.messages[0].content.lower())
+        # The exception class name is internal detail and must not leak into the thread content.
+        self.assertNotIn("MaxToolRetryableError", result.messages[0].content)
 
     @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_transient_error_returns_error_with_once_retry_hint(self, read_taxonomy_mock):
@@ -1042,10 +1044,11 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("Rate limit exceeded", result.messages[0].content)
         self.assertIn("retry this operation once without changes", result.messages[0].content.lower())
 
+    @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
     @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
-    async def test_generic_exception_returns_internal_error_message(self, read_taxonomy_mock):
-        """Test that generic exceptions are caught and return internal error message."""
-        read_taxonomy_mock.side_effect = RuntimeError("Unexpected internal error")
+    async def test_generic_exception_returns_internal_error_message(self, read_taxonomy_mock, capture_mock):
+        """Test that generic exceptions are caught and return internal error message, without leaking exception details."""
+        read_taxonomy_mock.side_effect = RuntimeError("Unexpected internal error: secret_config_value=123")
 
         node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(
@@ -1061,15 +1064,24 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="tool-123",
         )
 
-        result = await node.arun(state, {})
+        config = RunnableConfig(configurable={"distinct_id": "test-user-123"})
+        result = await node.arun(state, config)
 
         self.assertIsInstance(result, PartialAssistantState)
         assert result is not None
         self.assertEqual(len(result.messages), 1)
         assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-        self.assertIn("internal error", result.messages[0].content.lower())
+        self.assertIn("unexpected error", result.messages[0].content.lower())
         self.assertIn("do not immediately retry", result.messages[0].content.lower())
+        # The raw exception message must never reach the thread content.
+        self.assertNotIn("RuntimeError", result.messages[0].content)
+        self.assertNotIn("secret_config_value", result.messages[0].content)
+
+        error_event = next(c for c in capture_mock.call_args_list if c.kwargs.get("event") == "max_tool_error")
+        self.assertEqual(error_event.kwargs["properties"]["tool_name"], "read_taxonomy")
+        self.assertEqual(error_event.kwargs["properties"]["error_type"], "RuntimeError")
+        self.assertIn("secret_config_value", error_event.kwargs["properties"]["error_message"])
 
     @parameterized.expand(
         [
@@ -1110,9 +1122,10 @@ class TestRootNodeTools(BaseTest):
             self.assertEqual(call_kwargs["properties"]["retry_strategy"], expected_strategy)
             self.assertEqual(call_kwargs["properties"]["tool"], "read_taxonomy")
 
+    @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
     @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
-    async def test_validation_error_returns_error_message(self, read_taxonomy_mock):
-        """Test that pydantic ValidationError is caught and converted to tool message."""
+    async def test_validation_error_returns_error_message(self, read_taxonomy_mock, capture_mock):
+        """Test that pydantic ValidationError is caught and converted to a plain-language tool message."""
         from pydantic import ValidationError as PydanticValidationError
 
         read_taxonomy_mock.side_effect = PydanticValidationError.from_exception_data(
@@ -1140,16 +1153,20 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="tool-123",
         )
 
+        config = RunnableConfig(configurable={"distinct_id": "test-user-123"})
         with patch("ee.hogai.core.agent_modes.executables.capture_exception") as mock_capture:
-            result = await node.arun(state, {})
+            result = await node.arun(state, config)
 
             self.assertIsInstance(result, PartialAssistantState)
             assert result is not None
             self.assertEqual(len(result.messages), 1)
             assert isinstance(result.messages[0], AssistantToolCallMessage)
             self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-            self.assertIn("validation error", result.messages[0].content.lower())
-            self.assertIn("field required", result.messages[0].content.lower())
+            self.assertIn("invalid arguments", result.messages[0].content.lower())
+            self.assertIn("query.kind", result.messages[0].content)
+            # Pydantic's raw dump (types, input values, doc links) must not reach the thread content.
+            self.assertNotIn("For further information", result.messages[0].content)
+            self.assertNotIn("input_value", result.messages[0].content)
 
             # Verify exception was captured
             mock_capture.assert_called_once()
@@ -1157,3 +1174,8 @@ class TestRootNodeTools(BaseTest):
             from pydantic import ValidationError as PydanticValidationError
 
             self.assertIsInstance(captured_error, PydanticValidationError)
+
+        error_event = next(c for c in capture_mock.call_args_list if c.kwargs.get("event") == "max_tool_error")
+        self.assertEqual(error_event.kwargs["properties"]["tool_name"], "read_taxonomy")
+        self.assertEqual(error_event.kwargs["properties"]["error_type"], "ValidationError")
+        self.assertEqual(error_event.kwargs["properties"]["retry_strategy"], "adjusted")
