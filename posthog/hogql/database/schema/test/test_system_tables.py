@@ -108,6 +108,8 @@ TEAM_ID_FILTER_PATTERNS = {
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
     "_ticket_assignments": "system__support_tickets.team_id",
+    # Roles scope one level deeper, through the assignments that reference them
+    "_ticket_assignee_roles": "system__support_tickets.team_id",
 }
 
 
@@ -146,6 +148,8 @@ class TestSystemTablesTeamScoping(BaseTest):
             "_ticket_tagged_items",
             # Hidden table backing system.support_tickets.assignee; covered by TestSystemTicketAssignmentLazyJoin.
             "_ticket_assignments",
+            # Hidden table backing the assignee role_name resolution; covered by TestSystemTicketAssignmentLazyJoin.
+            "_ticket_assignee_roles",
             # information_schema is a namespace of virtual catalog tables (tables/columns/
             # relationships/data_types) computed per-query from the caller's own Database object,
             # so it has no team_id column to isolate; behaviour is covered by TestInformationSchema.
@@ -1001,6 +1005,31 @@ class TestSystemTicketAssignmentLazyJoin(NonAtomicBaseTest):
         )
 
         assert response.results == [(None, None)]
+
+    def test_assignee_role_name_resolves_for_role_assignee(self):
+        self.role = Role.objects.create(name="Team Support", organization=self.organization)
+        ticket = _create_support_ticket(self.team, "role")
+        TicketAssignment.objects.create(ticket=ticket, role=self.role)
+
+        response = execute_hogql_query(
+            f"SELECT assignee.role_name FROM system.support_tickets WHERE id = '{ticket.id}'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results[0][0] == "Team Support"
+
+    def test_assignee_role_name_null_for_user_assignee(self):
+        ticket = _create_support_ticket(self.team, "user")
+        TicketAssignment.objects.create(ticket=ticket, user=self.user)
+
+        response = execute_hogql_query(
+            f"SELECT assignee.role_name FROM system.support_tickets WHERE id = '{ticket.id}'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results[0][0] is None
 
     def test_assignee_lazy_join_isolated_per_team(self):
         other_ticket = _create_support_ticket(self.other_team, "theirs")
