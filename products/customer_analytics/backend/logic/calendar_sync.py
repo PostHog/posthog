@@ -121,11 +121,13 @@ def _process_events(team: Team, events: list[dict], internal_domain: str, counts
         if event.get("status") == "cancelled":
             _mark_cancelled(team, event, counts)
             continue
-        if event.get("visibility") in ("private", "confidential"):
-            counts.skipped += 1
-            continue
-        parsed = _parse_event(event, internal_domain)
+        parsed = (
+            None if event.get("visibility") in ("private", "confidential") else _parse_event(event, internal_domain)
+        )
         if parsed is None:
+            # A stored event that stopped passing the filters (made private, external
+            # attendee removed) must disappear, not linger with stale data.
+            _delete_filtered_out(team, event)
             counts.skipped += 1
             continue
         to_upsert.append(parsed)
@@ -222,6 +224,15 @@ def _upsert_meeting(team: Team, parsed: dict, account: Account | None) -> None:
                 "is_organizer": participant["is_organizer"],
             },
         )
+
+
+def _delete_filtered_out(team: Team, event: dict) -> None:
+    ical_uid = event.get("iCalUID")
+    if not ical_uid:
+        return
+    Meeting.objects.for_team(team.id).filter(
+        ical_uid=ical_uid, recurrence_instance_id=_recurrence_instance_id(event)
+    ).delete()
 
 
 def _mark_cancelled(team: Team, event: dict, counts: CalendarSyncCounts) -> None:
