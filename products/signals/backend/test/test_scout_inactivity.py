@@ -14,6 +14,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.inactivity import (
+    ESTABLISHED_REPORT_AGE,
     INACTIVITY_WINDOW,
     MIN_RUNS_IN_WINDOW,
     WARNING_GRACE,
@@ -65,14 +66,20 @@ class TestScoutInactivitySweep(BaseTest):
             runs.append(run)
         return runs
 
-    def _report(self) -> SignalReport:
-        return SignalReport.objects.create(team=self.team, title="A report", summary="Something")
+    def _report(self, *, age: timedelta = ESTABLISHED_REPORT_AGE + timedelta(days=3)) -> SignalReport:
+        report = SignalReport.objects.create(team=self.team, title="A report", summary="Something")
+        SignalReport.objects.filter(pk=report.pk).update(created_at=self.now - age)
+        return report
 
     def _silent_runs(self, config: SignalScoutConfig | None = None) -> None:
         # Recent enough that the runs stay inside the assessment window at the post-grace pause
         # sweep too (the transition helper stamps wall-clock time, so tests sweep a little past
         # the exact grace boundary — see `_pause_time`).
         self._runs(MIN_RUNS_IN_WINDOW, age=INACTIVITY_WINDOW / 4, config=config)
+
+    def _emitting_runs(self, report: SignalReport, config: SignalScoutConfig | None = None) -> None:
+        self._runs(MIN_RUNS_IN_WINDOW - 1, age=INACTIVITY_WINDOW / 4, config=config)
+        self._runs(1, age=INACTIVITY_WINDOW / 4, config=config, emitted_report_ids=[str(report.id)])
 
     @property
     def _pause_time(self) -> Any:
@@ -81,17 +88,20 @@ class TestScoutInactivitySweep(BaseTest):
     def _reload(self) -> SignalScoutConfig:
         return SignalScoutConfig.all_teams.get(pk=self.config.pk)
 
-    def test_silent_scout_is_warned_then_paused_after_the_grace_period(self) -> None:
-        self._silent_runs()
+    def test_an_emitting_scout_nobody_acts_on_is_paused_as_ignored(self) -> None:
+        # The headline rule: emission is not evidence of value, so a scout filing reports nobody
+        # acts on must not read as productive just because it keeps filing.
+        self._emitting_runs(self._report())
 
         outcome = sweep_inactive_scouts(now=self.now)
         warned = self._reload()
         assert [c.pk for c in outcome.warned] == [self.config.pk]
+        assert outcome.had_output[self.config.pk] is True
         assert warned.enabled is True
         assert warned.status == SignalScoutConfig.Status.PENDING_PAUSE
-        assert warned.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
+        assert warned.pause_reason == SignalScoutConfig.PauseReason.IGNORED
 
-        # Still silent a day later: warned, not yet due to pause.
+        # Still unconsumed a day later: warned, not yet due to pause.
         assert not sweep_inactive_scouts(now=self.now + timedelta(days=1)).paused
 
         outcome = sweep_inactive_scouts(now=self._pause_time)
@@ -99,11 +109,27 @@ class TestScoutInactivitySweep(BaseTest):
         assert [c.pk for c in outcome.paused] == [self.config.pk]
         assert paused.enabled is False
         assert paused.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
-        assert paused.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
+        assert paused.pause_reason == SignalScoutConfig.PauseReason.IGNORED
+
+    def test_a_silent_scout_is_flagged_but_never_paused(self) -> None:
+        # A watch scout that only speaks when something is wrong looks exactly like this, so
+        # silence warns (the badge asks a human to look) but must never advance to a pause.
+        self._silent_runs()
+
+        outcome = sweep_inactive_scouts(now=self.now)
+        warned = self._reload()
+        assert [c.pk for c in outcome.warned] == [self.config.pk]
+        assert outcome.had_output[self.config.pk] is False
+        assert warned.status == SignalScoutConfig.Status.PENDING_PAUSE
+        assert warned.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
+
+        outcome = sweep_inactive_scouts(now=self._pause_time)
+        still_warned = self._reload()
+        assert outcome.paused == []
+        assert still_warned.enabled is True
+        assert still_warned.status == SignalScoutConfig.Status.PENDING_PAUSE
 
     def test_a_scout_whose_older_reports_went_unread_is_paused_as_ignored(self) -> None:
-        # Separated from `no_output` because the two want different fixes: retune a scout whose
-        # reports nobody picks up, retire one that never finds anything.
         report = self._report()
         self._runs(1, age=INACTIVITY_WINDOW + timedelta(days=5), emitted_report_ids=[str(report.id)])
         self._silent_runs()
@@ -116,53 +142,65 @@ class TestScoutInactivitySweep(BaseTest):
         assert paused.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
         assert paused.pause_reason == SignalScoutConfig.PauseReason.IGNORED
 
-    def test_sweep_transitions_are_activity_logged_without_pinning_them_on_a_user(self) -> None:
+    def test_a_legacy_no_output_warning_is_reclassified_with_a_fresh_grace(self) -> None:
+        # Rows warned `no_output` under the pre-consumption rule (or by an earlier sweep, before
+        # their reports established) get rescheduled as `ignored` rather than paused off the old
+        # warning's clock, so the "pauses in a week" promise stays honest.
+        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(
+            status=SignalScoutConfig.Status.PENDING_PAUSE,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+            status_changed_at=self.now - WARNING_GRACE - timedelta(days=1),
+        )
+        report = self._report()
+        self._runs(1, age=INACTIVITY_WINDOW + timedelta(days=5), emitted_report_ids=[str(report.id)])
         self._silent_runs()
-        ActivityLog.objects.filter(scope="SignalScoutConfig").delete()
 
-        sweep_inactive_scouts(now=self.now)
-        sweep_inactive_scouts(now=self._pause_time)
+        outcome = sweep_inactive_scouts(now=self.now)
+        reclassified = self._reload()
+        assert [c.pk for c in outcome.warned] == [self.config.pk]
+        assert outcome.paused == []
+        assert reclassified.status == SignalScoutConfig.Status.PENDING_PAUSE
+        assert reclassified.pause_reason == SignalScoutConfig.PauseReason.IGNORED
 
-        entries = list(ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(self.config.id)))
-        assert len(entries) == 2
-        for entry in entries:
-            assert entry.user is None
-            detail = entry.detail or {}
-            assert detail.get("trigger", {}).get("job_type") == "signals_scout_inactivity_sweep"
+        # The old warning's elapsed time doesn't count toward the new reason's grace.
+        assert sweep_inactive_scouts(now=self.now + timedelta(days=1)).paused == []
+        assert [c.pk for c in sweep_inactive_scouts(now=self._pause_time).paused] == [self.config.pk]
 
-    @parameterized.expand(
-        [
-            ("findings", {"emitted_finding_ids": ["finding-1"], "emitted_count": 1}),
-            ("reports", {"emitted_report_ids": ["a3f0a1de-0000-4000-8000-000000000001"]}),
-            ("edits", {"edited_report_ids": ["a3f0a1de-0000-4000-8000-000000000002"]}),
-        ]
-    )
-    def test_output_on_any_emit_channel_keeps_a_scout_running(self, _name: str, output: dict) -> None:
-        # `emitted_count` covers only `emit_finding`, so judging on it alone would read every
-        # report-channel scout as silent and pause it.
-        self._runs(MIN_RUNS_IN_WINDOW - 1, age=INACTIVITY_WINDOW / 2)
-        self._runs(1, age=INACTIVITY_WINDOW / 2, **output)
+    def test_an_ignored_warning_whose_evidence_aged_out_downgrades_instead_of_stranding(self) -> None:
+        # Once warned `ignored`, the pause re-derives its evidence each sweep. If the touching
+        # runs age past the lookback before the grace elapses, the scout must not pause off stale
+        # grounds, and must not freeze in `pending_pause` forever either: it downgrades to the
+        # badge-only `no_output` warning.
+        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(
+            status=SignalScoutConfig.Status.PENDING_PAUSE,
+            pause_reason=SignalScoutConfig.PauseReason.IGNORED,
+            status_changed_at=self.now - WARNING_GRACE - timedelta(days=1),
+        )
+        self._silent_runs()
 
         outcome = sweep_inactive_scouts(now=self.now)
 
-        assert outcome.warned == []
-        assert self._reload().status == SignalScoutConfig.Status.ACTIVE
+        downgraded = self._reload()
+        assert outcome.paused == []
+        assert [c.pk for c in outcome.warned] == [self.config.pk]
+        assert downgraded.status == SignalScoutConfig.Status.PENDING_PAUSE
+        assert downgraded.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
+        assert sweep_inactive_scouts(now=self._pause_time).paused == []
 
     @parameterized.expand(
         [
             ("log_artefact", SignalReportArtefact.ArtefactType.NOTE, None),
             ("dismissal_artefact", SignalReportArtefact.ArtefactType.DISMISSAL, None),
-            ("user_driven_status", None, SignalReport.Status.SUPPRESSED),
+            # `resolved` includes the GitHub webhook's resolve-on-merge, which is how a merged PR
+            # counts as consumption even when the merge never touched the app.
+            ("resolved_status", None, SignalReport.Status.RESOLVED),
         ]
     )
-    def test_engagement_with_an_older_report_keeps_a_silent_scout_running(
+    def test_engagement_with_a_report_keeps_a_scout_running(
         self, _name: str, artefact_type: str | None, report_status: str | None
     ) -> None:
         report = self._report()
-        # Authored before the window, so the run itself is no longer output — only what happened to
-        # the report since counts.
-        self._runs(1, age=INACTIVITY_WINDOW + timedelta(days=5), emitted_report_ids=[str(report.id)])
-        self._silent_runs()
+        self._emitting_runs(report)
         if artefact_type is not None:
             SignalReportArtefact.objects.create(
                 team=self.team, report=report, type=artefact_type, content="{}", created_by=self.user
@@ -177,6 +215,21 @@ class TestScoutInactivitySweep(BaseTest):
         assert outcome.warned == []
         assert self._reload().status == SignalScoutConfig.Status.ACTIVE
 
+    def test_a_webhook_suppressed_report_is_not_engagement(self) -> None:
+        # The GitHub webhook suppresses a report whose PR closed unmerged, which a stale-bot can
+        # do with no human in the loop; counting it would keep zombie scouts alive. A human
+        # archive leaves a DISMISSAL artefact, covered above.
+        report = self._report()
+        self._emitting_runs(report)
+        SignalReport.objects.filter(pk=report.pk).update(
+            status=SignalReport.Status.SUPPRESSED, updated_at=self.now - timedelta(days=1)
+        )
+
+        outcome = sweep_inactive_scouts(now=self.now)
+
+        assert [c.pk for c in outcome.warned] == [self.config.pk]
+        assert self._reload().pause_reason == SignalScoutConfig.PauseReason.IGNORED
+
     @parameterized.expand(
         [
             # A pipeline assessment, never a person's work.
@@ -188,8 +241,7 @@ class TestScoutInactivitySweep(BaseTest):
     )
     def test_pipeline_artefacts_are_not_engagement(self, _name: str, artefact_type: str) -> None:
         report = self._report()
-        self._runs(1, age=INACTIVITY_WINDOW + timedelta(days=5), emitted_report_ids=[str(report.id)])
-        self._silent_runs()
+        self._emitting_runs(report)
         SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
@@ -198,6 +250,60 @@ class TestScoutInactivitySweep(BaseTest):
         )
 
         assert [c.pk for c in sweep_inactive_scouts(now=self.now).warned] == [self.config.pk]
+
+    def test_a_scout_whose_reports_are_all_fresh_is_not_judged(self) -> None:
+        # A report younger than ESTABLISHED_REPORT_AGE hasn't been ignored, it just hasn't been
+        # seen yet.
+        self._emitting_runs(self._report(age=timedelta(days=2)))
+
+        outcome = sweep_inactive_scouts(now=self.now)
+
+        assert outcome.warned == []
+        assert self._reload().status == SignalScoutConfig.Status.ACTIVE
+
+    @parameterized.expand(
+        [
+            ("findings_only", {"emitted_finding_ids": ["finding-1"], "emitted_count": 1}),
+            # A report id with no report row behind it (a deleted or foreign-team report) must not
+            # crash the assessment or count against the scout.
+            ("dangling_report_id", {"emitted_report_ids": ["a3f0a1de-0000-4000-8000-000000000001"]}),
+        ]
+    )
+    def test_output_without_judgeable_reports_keeps_a_scout_running(self, _name: str, output: dict) -> None:
+        self._runs(MIN_RUNS_IN_WINDOW - 1, age=INACTIVITY_WINDOW / 2)
+        self._runs(1, age=INACTIVITY_WINDOW / 2, **output)
+
+        outcome = sweep_inactive_scouts(now=self.now)
+
+        assert outcome.warned == []
+        assert self._reload().status == SignalScoutConfig.Status.ACTIVE
+
+    def test_a_slack_routed_scout_is_not_judged_on_report_consumption(self) -> None:
+        # Slack output is consumed in Slack, where no evidence flows back, so the unconsumed
+        # verdict cannot be trusted for these scouts.
+        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(
+            output_destinations={"slack": {"integration_id": 1, "channel": "C123"}}
+        )
+        self._emitting_runs(self._report())
+
+        outcome = sweep_inactive_scouts(now=self.now)
+
+        assert outcome.warned == []
+        assert self._reload().status == SignalScoutConfig.Status.ACTIVE
+
+    def test_sweep_transitions_are_activity_logged_without_pinning_them_on_a_user(self) -> None:
+        self._emitting_runs(self._report())
+        ActivityLog.objects.filter(scope="SignalScoutConfig").delete()
+
+        sweep_inactive_scouts(now=self.now)
+        sweep_inactive_scouts(now=self._pause_time)
+
+        entries = list(ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(self.config.id)))
+        assert len(entries) == 2
+        for entry in entries:
+            assert entry.user is None
+            detail = entry.detail or {}
+            assert detail.get("trigger", {}).get("job_type") == "signals_scout_inactivity_sweep"
 
     def test_a_scout_that_recovers_loses_its_warning(self) -> None:
         self._silent_runs()
@@ -211,6 +317,25 @@ class TestScoutInactivitySweep(BaseTest):
         assert recovered.status == SignalScoutConfig.Status.ACTIVE
         assert recovered.pause_reason is None
         assert recovered.enabled is True
+
+    def test_an_ignored_warning_is_cleared_by_engagement(self) -> None:
+        report = self._report()
+        self._emitting_runs(report)
+        sweep_inactive_scouts(now=self.now)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.DISMISSAL,
+            content="{}",
+            created_by=self.user,
+        )
+
+        outcome = sweep_inactive_scouts(now=self.now + timedelta(days=1))
+
+        recovered = self._reload()
+        assert outcome.recovered == 1
+        assert recovered.status == SignalScoutConfig.Status.ACTIVE
+        assert recovered.pause_reason is None
 
     @parameterized.expand(
         [
@@ -229,7 +354,7 @@ class TestScoutInactivitySweep(BaseTest):
     )
     def test_scouts_the_sweep_must_not_touch(self, _name: str, overrides: dict) -> None:
         SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(**overrides)
-        self._silent_runs()
+        self._emitting_runs(self._report())
 
         outcome = sweep_inactive_scouts(now=self.now)
 
@@ -238,7 +363,7 @@ class TestScoutInactivitySweep(BaseTest):
 
     def test_a_cold_start_scout_is_left_alone(self) -> None:
         SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(created_at=self.now - timedelta(days=1))
-        self._silent_runs()
+        self._emitting_runs(self._report())
 
         assert sweep_inactive_scouts(now=self.now).warned == []
 
@@ -251,8 +376,8 @@ class TestScoutInactivitySweep(BaseTest):
 
     def test_a_resumed_scout_gets_a_full_fresh_window(self) -> None:
         # A human re-enable re-anchors `in_cold_start_grace` via `status_changed_at`, so the sweep
-        # must not judge the resumed scout on the same silent runs that got it paused.
-        self._silent_runs()
+        # must not judge the resumed scout on the same unconsumed reports that got it paused.
+        self._emitting_runs(self._report())
         sweep_inactive_scouts(now=self.now)
         sweep_inactive_scouts(now=self._pause_time)
         resumed_at = timezone.now()
@@ -285,7 +410,7 @@ class TestScoutInactivitySweep(BaseTest):
         # Configs are re-reconciled on every coordinator tick; a pause that gets quietly re-enabled
         # there would put the scout straight back on the schedule.
         LLMSkill.objects.create(team=self.team, name=SKILL, description="Quiet", body="Look around")
-        self._silent_runs()
+        self._emitting_runs(self._report())
         sweep_inactive_scouts(now=self.now)
         sweep_inactive_scouts(now=self._pause_time)
 

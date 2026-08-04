@@ -32,7 +32,6 @@ FACADE_MODULES = [
     "products.tasks.backend.facade.temporal",
     "products.tasks.backend.facade.max_tools",
     "products.tasks.backend.facade.webhooks",
-    "products.tasks.backend.facade.file_system",
 ]
 
 
@@ -549,6 +548,67 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(env_id_2, env_id)
         env.refresh_from_db()
         self.assertFalse(env.private)
+
+    def test_upsert_internal_sandbox_env_never_adopts_user_created_row(self):
+        # Users can create environments with arbitrary names through the sandbox environment
+        # API. Adopting a same-named user row would carry its custom image / env vars into an
+        # internal run holding the run's tokens — so provisioning must create its own internal
+        # row alongside and leave the user's row untouched (not deleted, not converted).
+        user_env = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="SIGNALS_X",
+            internal=False,
+            environment_variables={"EXFIL_TARGET": "https://attacker.example"},
+        )
+
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.FULL)
+
+        self.assertNotEqual(str(env_id), str(user_env.id))
+        env = SandboxEnvironment.objects.get(id=env_id)
+        self.assertTrue(env.internal)
+        # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
+        self.assertFalse(env.environment_variables)
+        user_env.refresh_from_db()
+        self.assertFalse(user_env.internal)
+        self.assertEqual(user_env.environment_variables, {"EXFIL_TARGET": "https://attacker.example"})
+
+    def test_upsert_internal_sandbox_env_dedupes_only_internal_duplicates(self):
+        # Concurrent upserts can double-insert (no unique constraint on (team, name)). The
+        # dedupe must keep the oldest INTERNAL row, reassert policy on it, and never treat a
+        # same-named user-created row as a duplicate to delete.
+        user_env = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=False)
+        first = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=True)
+        second = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=True)
+        # Pin an unambiguous creation order so keeper selection is deterministic.
+        SandboxEnvironment.objects.filter(id=first.id).update(created_at=django_timezone.now() - timedelta(minutes=1))
+
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.FULL)
+
+        self.assertEqual(str(env_id), str(first.id))
+        self.assertFalse(SandboxEnvironment.objects.filter(id=second.id).exists())
+        self.assertTrue(SandboxEnvironment.objects.filter(id=user_env.id).exists())
+        first.refresh_from_db()
+        self.assertEqual(first.network_access_level, SandboxEnvironment.NetworkAccessLevel.FULL.value)
+
+    def test_upsert_internal_sandbox_env_scrubs_execution_fields(self):
+        # Reasserting policy must cover the whole execution surface: env vars / repositories
+        # set on the internal row between calls (however they got there) are cleared, so they
+        # can never ride into the next internally provisioned run.
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED)
+        env = SandboxEnvironment.objects.get(id=env_id)
+        env.environment_variables = {"INJECTED": "value"}
+        env.repositories = ["attacker/repo"]
+        env.save(update_fields=["environment_variables", "repositories"])
+
+        env_id_2 = facade.upsert_internal_sandbox_env(
+            self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+        )
+
+        self.assertEqual(env_id_2, env_id)
+        env.refresh_from_db()
+        # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
+        self.assertFalse(env.environment_variables)
+        self.assertEqual(env.repositories, [])
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_returns_contract(self, _mock_workflow):

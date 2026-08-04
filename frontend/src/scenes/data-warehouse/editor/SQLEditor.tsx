@@ -365,9 +365,15 @@ function AccessControlModal(): JSX.Element | null {
             resource={editingAccessControlObject.resource}
             resource_id={editingAccessControlObject.resourceId}
             title={editingAccessControlObject.name}
-            description={`Control who can query this ${
-                editingAccessControlObject.resource === AccessControlResourceType.WarehouseTable ? 'table' : 'view'
-            }. Users without access won't see it and queries referencing it will fail for them.`}
+            description={
+                editingAccessControlObject.resource === AccessControlResourceType.ExternalDataSource
+                    ? 'Control who can manage this source. Access set here also applies to its tables, unless a table has access rules of its own.'
+                    : `Control who can query this ${
+                          editingAccessControlObject.resource === AccessControlResourceType.WarehouseTable
+                              ? 'table'
+                              : 'view'
+                      }. Users without access won't see it and queries referencing it will fail for them.`
+            }
         />
     )
 }
@@ -388,7 +394,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     } = useValues(sqlEditorLogic)
     const { openHistoryModal } = useActions(editorSceneLogic)
     const {
-        updateView,
+        reviewViewUpdate,
         updateInsight,
         closeEditingObject,
         saveAsInsight,
@@ -614,7 +620,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     <LemonButton
                                         onClick={() =>
-                                            updateView({
+                                            reviewViewUpdate({
                                                 id: editingView.id,
                                                 query: {
                                                     ...sourceQuery.source,

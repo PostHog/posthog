@@ -551,6 +551,9 @@ def pause_inactive_signal_scouts() -> None:
                         "skill_name": config.skill_name,
                         "run_interval_minutes": config.run_interval_minutes,
                         "pause_reason": config.pause_reason,
+                        # Splits noisy-but-unconsumed from silent in the read-back; the two
+                        # cohorts need different fixes (retune vs refocus).
+                        "had_output": outcome.had_output.get(config.pk),
                     },
                     groups=groups(organization=organization),
                 )

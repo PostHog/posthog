@@ -24,6 +24,7 @@ import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
 import { InboxUsageWidget } from './InboxUsageWidget'
+import { InstallationSetupSection } from './InstallationSetupSection'
 
 type WidgetTone = 'todo' | 'done' | 'neutral'
 /** Visual weight reflecting how important / frequently edited a part of the setup is. */
@@ -196,7 +197,7 @@ function ScoutTroopWidget(): JSX.Element {
             tone={hasAny ? 'done' : 'todo'}
             loading={scoutConfigs === null}
             status={hasAny ? `${enabledCount} on patrol` : 'No scouts running'}
-            description="Scheduled agents that sweep this project on a cadence and report findings."
+            description="Scheduled agents that sweep this project on a cadence and report signals."
             onClick={() => openSetupModal('scout-troop')}
         />
     )
@@ -294,7 +295,7 @@ function NotificationsWidget(): JSX.Element {
 
 /** Section heading styled like a LemonTabs label (same 14px scale, tertiary color) so the
  * rail reads as a sibling of the tab bar rather than a louder header. */
-function SetupSection({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
+export function SetupSection({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
     return (
         <div className="flex flex-col">
             <h4 className="text-sm font-medium text-tertiary mt-0 mb-3.5">{title}</h4>
@@ -315,13 +316,13 @@ const SETUP_MODALS: Record<
     },
     'scout-troop': {
         title: 'Scout troop',
-        description: 'Scheduled agents that sweep this project on a cadence and emit findings to your inbox.',
+        description: 'Scheduled agents that sweep this project on a cadence and emit signals to your inbox.',
         width: 760,
         body: <ScoutsFleetSection />,
     },
     slack: {
         title: 'Notifications',
-        description: 'Get pinged in Slack when you’re a suggested reviewer on a new inbox item.',
+        description: 'Get pinged in Slack when you’re a suggested reviewer on a new report.',
         width: 560,
         body: <SlackNotificationsSection />,
     },
@@ -371,6 +372,7 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
                 layout === 'stacked' ? 'mx-auto w-full max-w-2xl px-6 py-6' : 'px-4 py-3'
             )}
         >
+            <InstallationSetupSection />
             <SetupSection title="Agents">
                 <SignalSourcesWidget />
                 <ScoutTroopWidget />

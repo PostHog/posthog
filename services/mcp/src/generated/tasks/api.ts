@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -265,11 +265,11 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
         context_target: zod
             .union([
                 zod.object({
-                    folder_id: zod.string().describe('Desktop folder id of the context this loop is attached to.'),
+                    channel_id: zod.string().describe('Id of the channel (context) this loop is attached to.'),
                     name: zod
                         .string()
                         .max(loopsCreateBodyContextTargetOneNameMax)
-                        .describe('Context (channel) name, used to file runs into its feed.'),
+                        .describe("Display name of the context, shown in the loop's publish prompt."),
                     outputs: zod
                         .object({
                             post_to_feed: zod
@@ -580,11 +580,11 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
         context_target: zod
             .union([
                 zod.object({
-                    folder_id: zod.string().describe('Desktop folder id of the context this loop is attached to.'),
+                    channel_id: zod.string().describe('Id of the channel (context) this loop is attached to.'),
                     name: zod
                         .string()
                         .max(loopsPartialUpdateBodyContextTargetOneNameMax)
-                        .describe('Context (channel) name, used to file runs into its feed.'),
+                        .describe("Display name of the context, shown in the loop's publish prompt."),
                     outputs: zod
                         .object({
                             post_to_feed: zod
@@ -735,6 +735,74 @@ export const LoopsRunsRetrieveQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * All live public channels plus the requester's personal #me channel (created on first list).
+ * @summary List channels
+ */
+export const TaskChannelsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const TaskChannelsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Returns the existing public channel with the (normalized) name, creating it if needed.
+ * @summary Resolve or create a public channel
+ */
+export const TaskChannelsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const taskChannelsCreateBodyNameMax = 128
+
+export const TaskChannelsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(taskChannelsCreateBodyNameMax)
+            .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+    })
+    .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
+
+/**
+ * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
+ * provisions the requester's personal "#me" channel; creation is resolve-or-create
+ * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * @summary Get a channel
+ */
+export const TaskChannelsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * The channel's latest CONTEXT.md instructions. A channel with no published instructions reads as a blank version 0 — publish against base_version 0 to create version 1.
+ * @summary Get channel instructions
+ */
+export const TaskChannelsInstructionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
  * @summary List tasks
  */
@@ -818,6 +886,10 @@ export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
 
+export const tasksCreateBodyRepositoriesItemMax = 255
+
+export const tasksCreateBodyRepositoriesMax = 10
+
 export const tasksCreateBodySignalReportTaskRelationshipMax = 200
 
 export const tasksCreateBodyBranchMax = 255
@@ -872,6 +944,11 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .max(tasksCreateBodyRepositoryMax)
             .nullish()
             .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        repositories: zod
+            .array(zod.string().max(tasksCreateBodyRepositoriesItemMax))
+            .max(tasksCreateBodyRepositoriesMax)
+            .optional()
+            .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
         github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
         github_user_integration: zod
             .string()
