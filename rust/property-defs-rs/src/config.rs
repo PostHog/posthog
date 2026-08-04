@@ -55,6 +55,11 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub compaction_batch_size: usize,
 
+    // How long a producer's compaction batch may sit before it is flushed regardless of size.
+    // Bounds how stale the tail of a partition's updates can get once its traffic stops.
+    #[envconfig(default = "10")]
+    pub producer_drain_interval_secs: u64,
+
     // Workers send updates back to the main thread over a channel,
     // which has a depth of this many slots. If the main thread slows,
     // which usually means if postgres is slow, the workers will block
