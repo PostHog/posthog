@@ -152,6 +152,17 @@ def _select_from_is_pivot(select_from: "ast.JoinExpr | None") -> bool:
     return select_from is not None and isinstance(select_from.table, ast.PivotExpr)
 
 
+_BARE_IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+
+
+def _unresolved_field_hint(name: str) -> str:
+    """`"foo-bar"` lexes as a quoted identifier (matching ClickHouse), so a double-quoted string
+    literal ends up here as an unresolvable field name with no clue that quoting was the problem."""
+    if _BARE_IDENTIFIER.match(name):
+        return ""
+    return ". If you meant a string, use single quotes (e.g. 'value') — double quotes are for identifiers"
+
+
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
         return ast.UnknownType()
@@ -2288,6 +2299,7 @@ class Resolver(CloningVisitor):
 
             suggestions = suggest_field_names(scope, name, self.context)
             suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+            suggestion_suffix += _unresolved_field_hint(name)
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #

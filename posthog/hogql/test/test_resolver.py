@@ -437,6 +437,24 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
         self.assertEqual(str(context.exception), "Unable to resolve field: missing")
 
+    def test_resolve_unresolved_double_quoted_string_hints_at_quoting(self):
+        # Double quotes lex as a quoted identifier (ClickHouse-compatible), so a string typed
+        # with double quotes fails as an unresolved field with no clue that quoting is the issue.
+        expr = self._select('SELECT "happ-traco" FROM events')
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(
+            str(context.exception),
+            "Unable to resolve field: happ-traco. If you meant a string, use single quotes "
+            "(e.g. 'value') — double quotes are for identifiers",
+        )
+
+    def test_resolve_unresolved_bare_field_has_no_quoting_hint(self):
+        expr = self._select("SELECT missing FROM events")
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(str(context.exception), "Unable to resolve field: missing")
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias_inside_subquery(self):
         expr = self._select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")

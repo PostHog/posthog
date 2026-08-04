@@ -12,6 +12,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
     CHQueryErrorCorruptedParquetMetadata,
+    CHQueryErrorIllegalTypeOfArgument,
     CHQueryErrorTableIsReadOnly,
     CHQueryErrorTooManyBytes,
     ExposedCHQueryError,
@@ -182,3 +183,22 @@ class TestArgumentCountErrorsAreUserFacing(TestCase):
         wrapped = wrap_clickhouse_query_error(server_error)
         assert isinstance(wrapped, ExposedCHQueryError)
         assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+
+class TestIllegalTypeOfArgumentSynthesizedInHint(TestCase):
+    def test_message_naming_function_in_gets_synthesized_in_note(self) -> None:
+        server_error = ServerException(
+            "DB::Exception: Illegal type String of second argument of function in. Stack trace: ...", code=43
+        )
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, CHQueryErrorIllegalTypeOfArgument)
+        message = str(wrapped)
+        assert "wasn't written in your query" in message
+
+    def test_message_without_in_function_has_no_note(self) -> None:
+        server_error = ServerException(
+            "DB::Exception: Illegal type String of argument of function plus. Stack trace: ...", code=43
+        )
+        wrapped = wrap_clickhouse_query_error(server_error)
+        message = str(wrapped)
+        assert "wasn't written in your query" not in message

@@ -253,8 +253,24 @@ class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
 
 
 # User query errors - these are errors caused by user input/queries
+_SYNTHESIZED_IN_CALL = re.compile(r"\bfunction in\b", re.IGNORECASE)
+
+
 class CHQueryErrorIllegalTypeOfArgument(ExposedCHQueryError):
-    pass
+    """ClickHouse ILLEGAL_TYPE_OF_ARGUMENT (code 43). HogQL synthesizes bare `in(...)` calls for
+    things like cohort membership and person-property lazy joins that never appear in the user's
+    own query, so a type mismatch there names an `IN` the user can't find. Flag it rather than
+    passing the raw ClickHouse text through unexplained."""
+
+    def __str__(self) -> str:
+        message = super().__str__()
+        if _SYNTHESIZED_IN_CALL.search(message):
+            message += (
+                "\n\nNote: the `in(...)` above wasn't written in your query — HogQL generates it "
+                "internally (for example from a cohort filter or a person property lookup), so it "
+                "won't appear in your SQL. The type mismatch still points to the real value causing it."
+            )
+        return message
 
 
 class CHQueryErrorNoCommonType(ExposedCHQueryError):
