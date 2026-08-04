@@ -1,6 +1,7 @@
 import {
   CalendarBlank,
   Clock,
+  DotsThreeVertical,
   GithubLogo,
   Globe,
   Plus,
@@ -34,7 +35,7 @@ import {
   formatScheduleTimestamp,
   systemTimezone,
 } from "@posthog/ui/primitives/timezone";
-import { Box, Checkbox, Flex, IconButton, Text } from "@radix-ui/themes";
+import { Box, Checkbox, Flex, Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 import {
   compileCronSchedule,
@@ -224,15 +225,15 @@ function TriggerCard({
   return (
     <Flex
       direction="column"
-      className="overflow-hidden rounded-(--radius-3) border border-border bg-(--gray-1)"
+      className="overflow-hidden rounded-(--radius-2) border border-border bg-(--gray-1)"
     >
-      <Flex align="center" gap="3" className="px-4 py-3">
+      <Flex align="center" gap="2.5" className="px-3 py-2.5">
         <Flex
           align="center"
           justify="center"
-          className="size-8 shrink-0 rounded-(--radius-2) bg-(--gray-3)"
+          className="size-6 shrink-0 rounded-(--radius-1) bg-(--gray-3)"
         >
-          <Icon size={16} className="text-gray-11" />
+          <Icon size={14} className="text-gray-11" />
         </Flex>
         <Flex direction="column" className="min-w-0 flex-1">
           <Text className="font-medium text-[13px] text-gray-12">
@@ -248,20 +249,41 @@ function TriggerCard({
           disabled={disabled}
           aria-label={trigger.enabled ? "Disable trigger" : "Enable trigger"}
         />
-        <IconButton
-          variant="ghost"
-          color="gray"
-          size="1"
-          aria-label="Remove trigger"
-          disabled={disabled}
-          onClick={onRemove}
-        >
-          <Trash size={15} />
-        </IconButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="link-muted"
+                size="sm"
+                disabled={disabled}
+                aria-label="Trigger actions"
+                className="text-gray-10"
+              >
+                <DotsThreeVertical size={16} weight="bold" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+            <DropdownMenuItem
+              onClick={onRemove}
+              render={
+                <ItemMenuItem size="xs" className="w-full text-(--red-11)">
+                  <ItemMedia variant="icon" className="mt-2 ml-2">
+                    <Trash size={15} />
+                  </ItemMedia>
+                  <ItemContent variant="menuItem">
+                    <ItemTitle>Remove trigger</ItemTitle>
+                  </ItemContent>
+                </ItemMenuItem>
+              }
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
       </Flex>
 
       <Box
-        className={`border-border border-t px-4 py-4 ${
+        className={`border-border border-t px-3 py-3 ${
           trigger.enabled ? "" : "opacity-60"
         }`}
       >
