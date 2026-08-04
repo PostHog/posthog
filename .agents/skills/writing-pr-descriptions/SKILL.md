@@ -78,10 +78,12 @@ The shape is checkable. Tone is not, which is why this skill does not ask for on
 
 1. One fact per bullet.
 2. Sentences under 25 words.
-3. Active voice, with a stated subject.
-4. Simple tenses. No idioms, no understatement, no jokes.
+3. Active voice, with a stated subject. Use the passive only where the actor is genuinely unknown or irrelevant.
+4. Simple tenses. No perfect or progressive forms: "the builder took entry 1", not "the builder has been taking entry 1".
 5. The same word for the same thing, every time. Never vary for style.
 6. Keep the articles. "The job downloads the artifact", not "job downloads artifact".
+7. Noun strings of at most three words. "The flag evaluation column codec" becomes "the codec on the flag evaluation column".
+8. No idioms, no figurative language, no jokes.
 
 A reviewer scans, stops, checks one claim, moves on. A sentence that packs four facts into three clauses makes them hold all four to check any one. Split it.
 
@@ -119,19 +121,22 @@ Run this over the body you just wrote, before `gh pr create` or `gh pr edit`. Fi
 2. Read each bullet and name the reader who needs it. Delete the ones you cannot.
 3. Read each bullet alone. Does it state one fact? If it states two, split it.
 4. Count the words in the longest sentence. Over 25, split it.
-5. Find every sentence without a subject doing something. Rewrite it in active voice.
-6. Does the PR change anything a person sees? If yes, is a screenshot in the body?
-7. Does it change a flow or topology? If yes, are the before and after diagrams there?
-8. Is any comparison sitting in prose that belongs in a table?
-9. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
-10. Does the body claim manual testing that did not happen? Delete it.
-11. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
-12. Read the first three bullets only. Do they tell a reviewer what changed and why? If not, reorder.
+5. Find every passive sentence. Rewrite it in active voice, unless the actor is genuinely unknown.
+6. Find every noun string longer than three words. Break it with a preposition.
+7. Does the PR change anything a person sees? If yes, is a screenshot in the body?
+8. Does it change a flow or topology? If yes, are the before and after diagrams there?
+9. Is any comparison sitting in prose that belongs in a table?
+10. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
+11. Does the body claim manual testing that did not happen? Delete it.
+12. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+13. Read the first three bullets only. Do they tell a reviewer what changed and why? If not, reorder.
 
 ## Background
 
 `references/examples.md` runs two merged PRs through all four passes, with a table of what each cut removed and why. Read it when you want the rule applied end to end rather than to one sentence.
 
-The shape rule adapts the writing rules of ASD-STE100 Simplified Technical English. Its other half, a closed dictionary of approved words, is licensed and deliberately not part of this: vocabulary stays a judgment call.
+Pass 3 adapts a subset of the 53 writing rules in [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org/) (Issue 9, January 2025). The 25-word ceiling is the standard's limit for descriptive text; it caps procedural text at 20, which a PR body rarely contains. Rule 1 is our own: STE writes "one instruction per sentence" for procedures and "one topic per paragraph" for descriptions, and a bullet sits between the two.
+
+The other half of the standard, a dictionary of roughly 900 approved words each carrying one meaning, is licensed and deliberately not part of this. Vocabulary stays a judgment call.
 
 Nothing here is enforced by a check. Pass 4 is the enforcement.
