@@ -194,7 +194,12 @@ def _execute_and_serialize_insight_query(
             insight,
             team=team,
             dashboard=dashboard,
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            # The screenshot forces a fresh calculation (image_exporter uses
+            # CALCULATE_BLOCKING_ALWAYS), so reusing a cache here let the delivered numbers
+            # disagree with the image beside them. A scheduled report is also the one moment
+            # where the current value is the whole point — a SQL insight's cache counts as
+            # fresh for five minutes, which is enough to send a stale countdown.
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             user=user,
             query_override=query_json,
         )
