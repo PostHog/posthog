@@ -39,7 +39,7 @@ from products.data_warehouse.backend.presentation.managed_warehouse_data_status 
     ManagedWarehouseSourceSchemasQuerySerializer,
     ManagedWarehouseSourceSchemasResponseSerializer,
 )
-from products.data_warehouse.backend.presentation.views import managed_warehouse
+from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
@@ -1028,7 +1028,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_data_status(self, request: Request, **kwargs) -> Response:
         """Get events, persons, and imported source readiness for the managed warehouse."""
-        return Response(get_managed_warehouse_data_status(self.team_id))
+        return Response(get_managed_warehouse_data_status(self.team_id, user_access_control=self.user_access_control))
 
     @validated_request(
         query_serializer=ManagedWarehouseSourceSchemasQuerySerializer,
@@ -1045,7 +1045,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_source_schemas(self, request: Request, **kwargs) -> Response:
         source_id = str(request.validated_query_data["source_id"])
-        return Response({"schemas": get_source_schema_statuses(self.team_id, source_id)})
+        return Response(
+            {
+                "schemas": get_source_schema_statuses(
+                    self.team_id, source_id, user_access_control=self.user_access_control
+                )
+            }
+        )
 
     @extend_schema(
         responses={

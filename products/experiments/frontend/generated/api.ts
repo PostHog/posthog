@@ -22,6 +22,8 @@ import type {
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
+    ExperimentSessionBucketRequestApi,
+    ExperimentSessionBucketResponseApi,
     ExperimentSessionContextResponseApi,
     ExperimentSessionContextsRequestApi,
     ExperimentSessionContextsResponseApi,
@@ -862,6 +864,37 @@ export const experimentsResumeCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsSessionBucketsCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/session_buckets/`
+}
+
+/**
+ * Session recordings of this experiment matching a bucket.
+ *
+ * Answers the questions a recordings query can't express on its own — "fired any of these
+ * metrics", "fired none of them", "entered the funnel but never completed it in this
+ * session" — by returning a bounded, most-recent-first list of session IDs to pass back as
+ * a recordings query's session_ids. POST because the metric list doesn't fit a query
+ * string; the endpoint only reads.
+ *
+ * Session-scoped and goal-free: the set describes what happened in each session, while the
+ * experiment analysis counts per person over the whole run window. A session can be in the
+ * drop-off bucket while the same person converts in a later one.
+ */
+export const experimentsSessionBucketsCreate = async (
+    projectId: string,
+    id: number,
+    experimentSessionBucketRequestApi: ExperimentSessionBucketRequestApi,
+    options?: RequestInit
+): Promise<ExperimentSessionBucketResponseApi> => {
+    return apiMutator<ExperimentSessionBucketResponseApi>(getExperimentsSessionBucketsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSessionBucketRequestApi),
     })
 }
 
