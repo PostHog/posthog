@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * Emit a dorny/paths-filter filter (YAML on stdout) that excludes the Node-only
+ * Emit a paths-filter filter (YAML on stdout) that excludes the Node-only
  * product workspaces from frontend / storybook CI gating.
  *
  * Why: the frontend and storybook gates match all product code with a broad
  * `products/**\/*.ts(x)` rule (correctly — product frontend doesn't always live
  * under `frontend/`; see products/games, products/data_warehouse,
  * products/ai_observability/shared). That broad rule also matches product dirs
- * that are their own Node services (e.g. products/agent_platform/services) — they
- * have their own CI (ci-agents.yml), no stories, and nothing in the bundle, so a
- * PR touching only them should skip frontend/storybook CI.
+ * that are their own Node services — they have their own CI, no stories, and
+ * nothing in the bundle, so a PR touching only them should skip
+ * frontend/storybook CI.
  *
  * Those Node dirs are exactly the product paths that declare nested pnpm
  * workspaces in pnpm-workspace.yaml — `products/<...>/*` entries deeper than the
@@ -17,11 +17,14 @@
  * exclusion from there means a new product's services/ are excluded automatically
  * once added to the workspace file — no product names hardcoded in the workflows.
  *
- * Output (fed into dorny `filters:` with `predicate-quantifier: every`, so the
- * filter is true only when some changed file lives OUTSIDE every excluded dir):
+ * Output — an exclude-only filter that is true only when some changed file lives
+ * OUTSIDE every excluded dir. ci-storybook.yml and ci-frontend.yml feed it to the
+ * vendored .github/actions/paths-filter (include-exclude matching), where every
+ * `!` pattern vetoes and a filter with no positive includes matches any
+ * non-excluded file:
  *   outside_node_product_workspaces:
- *     - '!products/agent_platform/packages/**'
- *     - '!products/agent_platform/services/**'
+ *     - '!products/<product>/packages/**'
+ *     - '!products/<product>/services/**'
  */
 
 const fs = require('fs')

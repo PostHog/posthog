@@ -5,8 +5,7 @@ import psycopg
 from psycopg import sql
 from psycopg.pq import TransactionStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
@@ -14,7 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+    RedshiftSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
     RedshiftColumn,
     RedshiftImplementation,
@@ -357,6 +359,21 @@ class TestGetRowsToSync:
         cursor.execute.side_effect = RuntimeError("temporary file size exceeds temp_file_limit")
         with pytest.raises(TemporaryFileSizeExceedsLimitException):
             impl.get_rows_to_sync(cursor, self._inner(), None, logger)
+
+    def test_permission_denied_on_materialized_view_is_not_reported(self, impl, cursor, logger):
+        # A materialized view's base relation can be denied even when the view itself is
+        # selectable. That's an expected customer permission-config issue, not an actionable bug —
+        # row-count estimation is best-effort (the caller defaults to 0), so skip gracefully
+        # without reporting the non-actionable error to error tracking (the source of the reported
+        # noise).
+        cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege(
+            'permission denied for materialized view base relation "Payment_Actions"'
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
+        mock_capture.assert_not_called()
 
 
 class TestFetchTableStats:
@@ -836,6 +853,17 @@ class TestRedshiftSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
 
+    def test_permission_denied_raw_message_is_non_retryable(self):
+        # The activity-level check matches the raw `str(exception)`, which for a psycopg
+        # `InsufficientPrivilege` never contains the class name — only the `InsufficientPrivilege`
+        # key (which only matches once Temporal's `ApplicationError` wraps the failure with the
+        # class name) would miss this, letting the activity burn its full retry budget on a
+        # permission denial that can't resolve itself.
+        error_msg = 'permission denied for materialized view base relation "Payment_Actions"'
+        non_retryable = RedshiftSource().get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable
+
 
 class TestRedshiftValidateCredentials:
     def test_server_without_ssl_returns_friendly_error_without_capturing(self, mocker):
@@ -1074,3 +1102,16 @@ class TestConnect:
         assert kwargs["keepalives_interval"] == 10
         assert kwargs["keepalives_count"] == 3
         assert kwargs["tcp_user_timeout"] == 60000
+
+
+class TestGetConnectionMetadata:
+    # Source creation looks this method up by name (duck-typed) and silently persists {} when
+    # it's absent — which left direct Redshift connections labeled as Postgres in the SQL editor.
+    @pytest.mark.parametrize(
+        "schema,expected_schema",
+        [("public", "public"), ("", None), (None, None)],
+    )
+    def test_reports_redshift_engine_without_connecting(self, schema, expected_schema):
+        metadata = RedshiftSource().get_connection_metadata(_make_config(schema=schema), team_id=1)
+
+        assert metadata == {"engine": "redshift", "database": "dev", "schema": expected_schema}

@@ -143,14 +143,9 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub backend_keepalive_timeout_secs: u64,
 
-    /// Maximum gRPC message size to encode (send), in bytes.
-    /// Applied to the router's gRPC server and its backend clients (replica, leader).
-    /// Defaults to 128 MiB.
-    #[envconfig(default = "134217728")]
-    pub grpc_max_send_message_size: usize,
-
-    /// Maximum gRPC message size to decode (receive), in bytes.
-    /// Applied to the router's gRPC server and its backend clients (replica, leader).
+    /// Maximum request body size the proxy will collect before forwarding,
+    /// in bytes. Oversized requests are rejected with RESOURCE_EXHAUSTED.
+    /// Responses stream through unbounded (see `response_size_warn_bytes`).
     #[envconfig(default = "134217728")]
     pub grpc_max_recv_message_size: usize,
 
@@ -170,15 +165,56 @@ pub struct Config {
     #[envconfig(default = "router-0")]
     pub pod_name: String,
 
-    #[envconfig(default = "30")]
+    /// Registration lease TTL. A crashed router stays in every freeze
+    /// quorum until this expires, stalling any handoff frozen in that
+    /// window — keep it short. Graceful exits deregister immediately.
+    #[envconfig(default = "10")]
     pub lease_ttl: i64,
 
-    #[envconfig(default = "10")]
+    #[envconfig(default = "3")]
     pub heartbeat_interval_secs: u64,
 
-    /// Leader gRPC port used when resolving pod names to addresses
-    #[envconfig(default = "50053")]
-    pub leader_port: u16,
+    /// Fail the coordination run when the handoff watch loop makes no
+    /// progress for this long, so the router deregisters and restarts as
+    /// a healthy participant instead of wedging freeze quorums while its
+    /// lease stays alive. `0` disables the watchdog.
+    #[envconfig(default = "60")]
+    pub router_participant_stall_secs: u64,
+
+    /// How often the routing table re-derives stash, table, and drain
+    /// state from a fresh etcd snapshot, independent of watch events.
+    #[envconfig(default = "5")]
+    pub router_reconcile_secs: u64,
+
+    /// How many consecutive reconcile-pass failures the routing table
+    /// tolerates before failing the run. A failed pass only means the
+    /// router stays as stale as the previous tick — the watch-driven
+    /// steady state — so brief etcd blips must not be fatal; sustained
+    /// outage is already handled by lease self-fencing. The budget
+    /// bounds the partial-failure mode where snapshot reads fail while
+    /// the lease stays healthy, which would otherwise silently degrade
+    /// the liveness the reconcile provides.
+    #[envconfig(default = "12")]
+    pub router_reconcile_failure_budget: u32,
+
+    /// How many consecutive coordination-attempt failures the routing
+    /// table's run supervisor tolerates (rebuilding coordination in
+    /// place while the data plane keeps serving) before giving up and
+    /// letting the process restart. A healthy attempt resets the count.
+    #[envconfig(default = "10")]
+    pub router_run_retry_budget: u32,
+
+    /// Base backoff in milliseconds between coordination attempts;
+    /// doubles per consecutive failure up to a fixed cap.
+    #[envconfig(default = "500")]
+    pub router_run_retry_backoff_ms: u64,
+
+    /// How long a handoff may sit in Warming before the coordinator
+    /// cancels it by replacement. Warming replays the partition's
+    /// changelog, so its budget is far above the general handoff
+    /// deadline; `0` disables it.
+    #[envconfig(default = "1800")]
+    pub coordinator_warming_deadline_secs: u64,
 
     /// Maximum number of stashed write requests held per partition while
     /// a handoff is in progress. Excess requests return UNAVAILABLE and
@@ -214,21 +250,52 @@ pub struct Config {
     pub stash_drain_concurrency: usize,
 
     // ── coordinator (leader election among router-leader pods) ───
-    /// Lease TTL for the coordinator leader election
-    #[envconfig(default = "15")]
+    /// Whether this leader-mode router campaigns for the coordinator
+    /// election. Disabled, the router still registers in the routing
+    /// table, serves traffic, and acks freezes — it just never
+    /// coordinates. Production leaves this on everywhere; the test
+    /// harness disables it on its traffic router so chaos targeting
+    /// "the coordinator" can never land on the traffic path.
+    #[envconfig(default = "true")]
+    pub coordinator_enabled: bool,
+
+    /// Lease TTL for the coordinator leader election. A crashed leader
+    /// blocks every handoff until this expires and a survivor's campaign
+    /// fires, so the worst-case coordinator outage is roughly this plus
+    /// the election retry interval. Graceful exits revoke the lease and
+    /// fail over immediately.
+    #[envconfig(default = "5")]
     pub coordinator_lease_ttl: i64,
 
-    /// Keepalive interval for the coordinator lease
-    #[envconfig(default = "5")]
+    /// Keepalive interval for the coordinator lease. Several attempts
+    /// must fit inside the TTL; a keepalive that reports the lease gone
+    /// makes the leader abdicate.
+    #[envconfig(default = "1")]
     pub coordinator_keepalive_secs: u64,
 
-    /// Retry interval when coordinator fails to acquire leadership
-    #[envconfig(default = "5")]
+    /// Retry interval between a standby candidate's election campaigns.
+    #[envconfig(default = "1")]
     pub coordinator_election_retry_secs: u64,
 
     /// Debounce interval (ms) for batching pod events before rebalancing
     #[envconfig(default = "1000")]
     pub coordinator_rebalance_debounce_ms: u64,
+
+    /// How often the coordinator re-evaluates in-flight handoffs
+    /// regardless of watch events — the liveness backstop for state
+    /// changes that fire no event (e.g. router departures) and for
+    /// events missed before a watch attaches.
+    #[envconfig(default = "5")]
+    pub coordinator_reconcile_secs: u64,
+
+    /// How long a handoff may run before the coordinator cancels it so a
+    /// later plan can retry. The backstop for a handoff that can never
+    /// satisfy its quorum: nothing else removes one whose new owner is
+    /// alive, and an in-flight handoff pins its partition, so without
+    /// this it waits for a human. Sized well above healthy handoffs,
+    /// which complete in seconds.
+    #[envconfig(default = "120")]
+    pub coordinator_handoff_deadline_secs: u64,
 
     // ── K8s awareness (leader mode only) ────────────────────────
     /// Enable K8s-aware departure classification for smarter rebalancing.
@@ -419,6 +486,27 @@ impl Config {
 
     pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {
         Duration::from_millis(self.coordinator_rebalance_debounce_ms)
+    }
+
+    pub fn coordinator_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_reconcile_secs)
+    }
+
+    pub fn coordinator_handoff_deadline(&self) -> Duration {
+        Duration::from_secs(self.coordinator_handoff_deadline_secs)
+    }
+
+    pub fn router_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(self.router_reconcile_secs)
+    }
+
+    pub fn coordinator_warming_deadline(&self) -> Duration {
+        Duration::from_secs(self.coordinator_warming_deadline_secs)
+    }
+
+    pub fn participant_stall_threshold(&self) -> Option<Duration> {
+        (self.router_participant_stall_secs > 0)
+            .then(|| Duration::from_secs(self.router_participant_stall_secs))
     }
 
     pub fn stash_max_wait(&self) -> Duration {

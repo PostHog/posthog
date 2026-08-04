@@ -9,6 +9,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { SpanTreeNode } from '~/queries/schema/schema-general'
 
+import { CHANGE_THRESHOLD, MIN_BASELINE_COUNT } from './compareUtils'
 import { formatDuration } from './TraceWaterfallView'
 
 interface TreeNode {
@@ -215,14 +216,19 @@ function deltaColor(current: SpanTreeNode | null, previous: SpanTreeNode | null)
     if (previous.p50_duration_nano === 0) {
         return 'rgba(168, 168, 168, 0.6)'
     }
+    // Same low-sample noise guard as the compare table's classification, so a node the table
+    // calls unchanged can't render as a deep-red regression here.
+    if (Math.min(current.count, previous.count) < MIN_BASELINE_COUNT) {
+        return 'rgba(120, 150, 200, 0.45)'
+    }
     const ratio = current.p50_duration_nano / previous.p50_duration_nano
-    if (ratio > 1.2) {
+    if (ratio > 1 + CHANGE_THRESHOLD) {
         // Worse: red intensity scales with magnitude.
-        const intensity = Math.min(0.85, 0.35 + (ratio - 1.2) * 0.5)
+        const intensity = Math.min(0.85, 0.35 + (ratio - (1 + CHANGE_THRESHOLD)) * 0.5)
         return `rgba(220, 80, 80, ${intensity})`
     }
-    if (ratio < 0.8) {
-        const intensity = Math.min(0.85, 0.35 + (0.8 - ratio) * 0.5)
+    if (ratio < 1 - CHANGE_THRESHOLD) {
+        const intensity = Math.min(0.85, 0.35 + (1 - CHANGE_THRESHOLD - ratio) * 0.5)
         return `rgba(80, 180, 100, ${intensity})`
     }
     return 'rgba(120, 150, 200, 0.45)'

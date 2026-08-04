@@ -18,6 +18,7 @@ export const FEATURE_FLAG_TESTING_RESOURCE_URI = 'ui://posthog/feature-flag-test
 export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
 export const INVITE_EMAIL_PREVIEW_RESOURCE_URI = 'ui://posthog/invite-email-preview.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
+export const LOOPS_REVIEW_RESOURCE_URI = 'ui://posthog/loops-review.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 export const RENDER_UI_RESOURCE_URI = 'ui://posthog/render-ui.html'
 export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
@@ -51,6 +52,7 @@ export type UiAppKey =
     | 'insight-actors'
     | 'invite-email-preview'
     | 'llm-costs'
+    | 'loops-review'
     | 'query-results'
     | 'render-ui'
     | 'session-recording'
@@ -84,6 +86,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'insight-actors': INSIGHT_ACTORS_RESOURCE_URI,
     'invite-email-preview': INVITE_EMAIL_PREVIEW_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
+    'loops-review': LOOPS_REVIEW_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
     'render-ui': RENDER_UI_RESOURCE_URI,
     'session-recording': SESSION_RECORDING_RESOURCE_URI,
@@ -100,8 +103,8 @@ export const URI_MAP: Record<UiAppKey, string> = {
 }
 
 /**
- * App keys with a generated detail/list view that the `render-ui` umbrella tool
- * can render. Excludes custom apps, which have no convention view component.
+ * App keys with a reusable view that the `render-ui` umbrella tool can render.
+ * Custom apps are included only when they explicitly configure `render_ui`.
  */
 export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'action',
@@ -121,6 +124,7 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'insight-actors',
     'invite-email-preview',
     'llm-costs',
+    'query-results',
     'session-recording',
     'session-summary',
     'survey',
@@ -246,6 +250,12 @@ export const UI_APPS: Array<{
         uri: LLM_COSTS_RESOURCE_URI,
         description: 'Llm Costs detail view',
         appDir: 'generated/llm-costs',
+    },
+    {
+        name: 'PostHog Loop Review',
+        uri: LOOPS_REVIEW_RESOURCE_URI,
+        description: 'Review card for a loop before creation, with a Create loop action.',
+        appDir: 'loops-review',
     },
     {
         name: 'Query Results',

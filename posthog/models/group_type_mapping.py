@@ -44,6 +44,17 @@ GROUP_TYPES_FETCH_FAILURES = Counter(
     labelnames=["operation", "source", "error_type"],
 )
 
+# A project the eventual (replica) batch read returned empty for despite a populated
+# last-known-good. The `outcome` records what the strong (primary) re-read found:
+# "primary_had_rows" (replica silently dropped it, corrected), "confirmed_empty"
+# (genuinely empty now), or "primary_unavailable_used_stale" (primary read failed,
+# served last-known-good rather than an unconfirmed empty).
+GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES = Counter(
+    "posthog_group_types_replica_empty_discrepancies",
+    "Projects the eventual batch read returned empty for despite a populated last-known-good",
+    labelnames=["operation", "outcome"],
+)
+
 
 class GroupTypesUnavailable(HyperCacheDependencyUnavailable):
     """Raised by the batch fetch when group types cannot be loaded and no
@@ -184,11 +195,15 @@ def get_group_types_for_project(project_id: int, *, caller_tag: str | None = Non
     if cached is not None:
         return cached
 
+    def _fetch() -> list[dict[str, Any]]:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        return _fetch_group_types_via_personhog(require_personhog_client(), project_id)
+
     try:
-        client = require_personhog_client()
         result = personhog_call(
             "get_group_types_for_project",
-            lambda: _fetch_group_types_via_personhog(client, project_id),
+            _fetch,
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_project'}",
             reraise_as=DatabaseError,
         )
@@ -223,11 +238,16 @@ def _fetch_group_types_for_team_via_personhog(client: PersonHogClient, team_id: 
 
 def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> list[dict[str, Any]]:
     """Fetch group types for a team via personhog."""
+
+    def _fetch() -> list[dict[str, Any]]:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        return _fetch_group_types_for_team_via_personhog(require_personhog_client(), team_id)
+
     try:
-        client = require_personhog_client()
         return personhog_call(
             "get_group_types_for_team",
-            lambda: _fetch_group_types_for_team_via_personhog(client, team_id),
+            _fetch,
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_team'}",
             reraise_as=DatabaseError,
         )
@@ -242,15 +262,19 @@ def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> 
 
 
 def _fetch_group_types_for_projects_via_personhog(
-    client: PersonHogClient, project_ids: list[int]
+    client: PersonHogClient, project_ids: list[int], *, consistency: ReadConsistency = "eventual"
 ) -> dict[int, list[dict[str, Any]]]:
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdsRequest
 
+    read_options = consistency_to_read_options(consistency)
     result: dict[int, list[dict[str, Any]]] = {}
     for i in range(0, len(project_ids), settings.PERSONHOG_BATCH_SIZE):
         resp = client.get_group_type_mappings_by_project_ids(
-            GetGroupTypeMappingsByProjectIdsRequest(project_ids=project_ids[i : i + settings.PERSONHOG_BATCH_SIZE])
+            GetGroupTypeMappingsByProjectIdsRequest(
+                project_ids=project_ids[i : i + settings.PERSONHOG_BATCH_SIZE],
+                read_options=read_options,
+            )
         )
         for batch in resp.results:
             mappings = [proto_group_type_mapping_to_dict(m) for m in batch.mappings]
@@ -338,18 +362,94 @@ def _recover_projects_from_stale_or_fail(project_ids: list[int], exc: DatabaseEr
     return recovered
 
 
+def _reconfirm_emptied_projects_against_primary(
+    result: dict[int, list[dict[str, Any]]], project_ids: list[int], *, caller_tag: str | None = None
+) -> dict[int, list[dict[str, Any]]]:
+    """Guard against a lagging or inconsistent replica silently dropping a project's
+    group types.
+
+    The batch fetch reads at eventual consistency (the replica pool), which can return
+    an empty mapping for a project that authoritatively has group types. That silent
+    empty is what makes the downstream flag-cache write try to erase a populated
+    mapping. When a project reads empty but has a populated last-known-good (stale key),
+    re-read just those projects from the primary at strong consistency and trust that
+    answer — the primary is authoritative for both "was dropped" and "genuinely empty
+    now" (e.g. the last group type was deleted).
+
+    Projects that read empty with no last-known-good are treated as genuinely having no
+    group types (the common case). They are not re-confirmed, so this adds no primary
+    load on the hot path unless a real drop is detected. The write-side guard remains the
+    backstop for that cold-cache edge. When the primary confirms a project is genuinely
+    empty, its stale key is cleared so a later outage can't resurrect the deleted data
+    and so the project stops being flagged as a suspect on every subsequent read.
+    """
+    suspect_stale: dict[int, list[dict[str, Any]]] = {}
+    for pid in project_ids:
+        if result.get(pid):
+            continue
+        stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
+        if stale is not None:
+            suspect_stale[pid] = stale
+    if not suspect_stale:
+        return result
+
+    suspect_ids = list(suspect_stale.keys())
+
+    try:
+        client = require_personhog_client()
+        confirmed = personhog_call(
+            "get_group_types_for_projects_reconfirm",
+            lambda: _fetch_group_types_for_projects_via_personhog(client, suspect_ids, consistency="strong"),
+            caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_projects'}/reconfirm",
+            reraise_as=DatabaseError,
+        )
+    except DatabaseError:
+        # Primary confirmation failed. Serve each project's last-known-good rather than
+        # the replica's unconfirmed empty, so we never hand back a silent [] over data
+        # we know was populated.
+        for pid, stale in suspect_stale.items():
+            result[pid] = stale
+            GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
+                operation="get_group_types_for_projects", outcome="primary_unavailable_used_stale"
+            ).inc()
+        return result
+
+    for pid in suspect_ids:
+        primary_rows = confirmed.get(pid) or []
+        if primary_rows:
+            result[pid] = primary_rows
+            GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
+                operation="get_group_types_for_projects", outcome="primary_had_rows"
+            ).inc()
+            logger.warning(
+                "group_types_replica_returned_empty_primary_had_rows",
+                project_id=pid,
+                row_count=len(primary_rows),
+            )
+        else:
+            safe_cache_delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
+            GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
+                operation="get_group_types_for_projects", outcome="confirmed_empty"
+            ).inc()
+    return result
+
+
 def get_group_types_for_projects(
     project_ids: list[int], *, caller_tag: str | None = None
 ) -> dict[int, list[dict[str, Any]]]:
     """Batch fetch group types for multiple projects via personhog, falling back to
     the per-project stale cache on failure.
 
+    The batch read is at eventual consistency; any project that reads empty despite a
+    populated last-known-good is re-confirmed against the primary so a lagging replica
+    cannot silently return an empty mapping for a project that has group types.
+
     Raises GroupTypesUnavailable if personhog is unavailable and any requested
     project has no cached last-known-good, rather than returning an all-empty
     mapping. Callers must handle that case.
     """
 
-    def _fn() -> dict[int, list[dict[str, Any]]]:
+    def _fetch() -> dict[int, list[dict[str, Any]]]:
         client = require_personhog_client()
         result = _fetch_group_types_for_projects_via_personhog(client, project_ids)
         for pid in project_ids:
@@ -359,13 +459,14 @@ def get_group_types_for_projects(
     try:
         result = personhog_call(
             "get_group_types_for_projects",
-            _fn,
+            _fetch,
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_projects'}",
             reraise_as=DatabaseError,
         )
     except DatabaseError as exc:
         return _recover_projects_from_stale_or_fail(project_ids, exc)
 
+    result = _reconfirm_emptied_projects_against_primary(result, project_ids, caller_tag=caller_tag)
     _populate_projects_stale_cache(result)
     return result
 
@@ -374,14 +475,18 @@ def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list
     """Count group type mappings per team via personhog."""
     from posthog.personhog_client.proto import CountGroupTypeMappingsRequest
 
+    def _fetch() -> list[dict[str, int]]:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        return [
+            {"team_id": c.team_id, "total": c.count}
+            for c in require_personhog_client().count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
+        ]
+
     try:
-        client = require_personhog_client()
         return personhog_call(
             "count_group_type_mappings_per_team",
-            lambda: [
-                {"team_id": c.team_id, "total": c.count}
-                for c in client.count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
-            ],
+            _fetch,
             caller_tag=f"group_type_mapping/{caller_tag or 'count_group_type_mappings_per_team'}",
             reraise_as=DatabaseError,
         )
@@ -464,10 +569,11 @@ def _fetch_group_types_for_project_direct(
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
-    client = require_personhog_client()
-    return personhog_call(
-        "get_group_types_for_project_direct",
-        lambda: sorted(
+    def _fetch() -> list[dict[str, Any]]:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        client = require_personhog_client()
+        return sorted(
             [
                 proto_group_type_mapping_to_dict(m)
                 for m in client.get_group_type_mappings_by_project_id(
@@ -478,7 +584,11 @@ def _fetch_group_types_for_project_direct(
                 ).mappings
             ],
             key=lambda d: d["group_type_index"],
-        ),
+        )
+
+    return personhog_call(
+        "get_group_types_for_project_direct",
+        _fetch,
         caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_project_direct'}",
         reraise_as=DatabaseError,
     )

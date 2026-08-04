@@ -417,6 +417,15 @@ def _assert_user_can_read_source_for_copy(*, user: User, source_team: Team) -> N
     list=extend_schema(
         parameters=[
             OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. Full-text search across template name, tags, and description, ranked by relevance. "
+                    "Use it to find templates for a topic (e.g. `retention`, `revenue`, `product analytics`)."
+                ),
+            ),
+            OpenApiParameter(
                 "ordering",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,

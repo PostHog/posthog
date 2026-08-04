@@ -414,8 +414,8 @@ def _header_blocks() -> list[dict]:
 def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> list[dict]:
     """Headline that shows which model is actually running, and why.
 
-    When nothing is set the agent-server picks its own default — we don't
-    know which one, so don't lie. Just say so and let the user override.
+    When nothing is set the Slack bot defaults to Opus 5 (pinned in the task
+    creation activity); the user can still override it here.
     """
     header = _section_title(
         "🤖 AI model",
@@ -430,7 +430,7 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Inheriting PostHog Code's default — pick personal or workspace settings to override.",
+                    "text": "Defaulting to Opus 5. Pick personal or workspace settings to override.",
                 },
             },
             source_blurb,
@@ -1217,7 +1217,6 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 
 
 def _get_slack_integration(slack_team_id: str) -> Integration | None:
-
     if not slack_team_id:
         return None
     return (
@@ -1228,7 +1227,6 @@ def _get_slack_integration(slack_team_id: str) -> Integration | None:
 
 
 def _load_rows(integration: Integration, slack_user_id: str) -> tuple[SlackSettings | None, SlackSettings | None]:
-
     user_row = SlackSettings.objects.filter(
         slack_workspace_id=integration.integration_id,
         slack_user_id=slack_user_id,
@@ -1251,7 +1249,6 @@ def _row_to_settings(row: SlackSettings | None) -> AIPreferences:
 
 
 def _is_admin(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
-
     try:
         return is_slack_workspace_admin(slack, integration, slack_user_id)
     except Exception:

@@ -3,7 +3,7 @@ import type { Page } from 'puppeteer'
 import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
 import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 
-import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { RasterizationError, toRasterizationErrorCode } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
 import { BlockProxy } from './block-proxy'
@@ -49,8 +49,13 @@ export class PlayerController {
         return this.capturePage.page
     }
 
+    get fatalError(): RasterizationError | null {
+        return this.capturePage.fatalError
+    }
+
     private toError(err: { code: string; message: string; retryable: boolean }): RasterizationError {
-        return new RasterizationError(`[${err.code}] ${err.message}`, err.retryable, err.code)
+        // The code is browser-supplied — clamp it to the known set so downstream labels stay bounded.
+        return new RasterizationError(`[${err.code}] ${err.message}`, err.retryable, toRasterizationErrorCode(err.code))
     }
 
     private rejectWithError(err: { code: string; message: string; retryable: boolean }): void {

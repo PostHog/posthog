@@ -170,6 +170,28 @@ def test_readyz_accepts_role_worker_and_filters_by_relevant_services(client: Cli
 
 
 @pytest.mark.django_db
+def test_readyz_accepts_role_streaming_and_stays_ready_without_postgres(client: Client):
+    # The streaming tier serves Redis-backed SSE only; coupling its readiness to
+    # Postgres would pull healthy stream-serving pods out of the load balancer
+    # exactly when the database is saturated.
+    with simulate_postgres_error():
+        resp = get_readyz(client=client, role="streaming")
+
+    assert resp.status_code == 200, resp.content
+
+    with simulate_clickhouse_cannot_connect(), simulate_celery_cannot_connect():
+        resp = get_readyz(client=client, role="streaming")
+
+    assert resp.status_code == 200, resp.content
+
+    with simulate_cache_cannot_connect():
+        resp = get_readyz(client=client, role="streaming")
+
+    # Redis is the one hard dependency: streams are fed from it.
+    assert resp.status_code == 503, resp.content
+
+
+@pytest.mark.django_db
 def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
     """
     If we don't specify any role, we assume we want all dependencies to be

@@ -263,7 +263,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         # fragment. argmax_select wraps the chain in an ``ast.Field``, keeping the key parameterized.
         assert select_fields == {"prop_0": ["properties", malicious_property]}
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_activity_parameterizes_property_keys_in_clickhouse_query(self):
         from asgiref.sync import sync_to_async
@@ -318,7 +318,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 return_value=(filters, [malicious_property], combine_filter_bytecodes(filters)),
             ),
             patch(
-                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client",
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
                 return_value=_AsyncClientContextManager(mock_client),
             ),
             patch(
@@ -360,7 +360,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         prop_chains = _collect_field_chains(property_aliases[0])
         assert any(chain[-2:] == ["properties", malicious_property] for chain in prop_chains)
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_activity_falls_back_to_full_properties_for_percent_keys(self):
         from asgiref.sync import sync_to_async
@@ -415,7 +415,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 return_value=(filters, [percent_property], combine_filter_bytecodes(filters)),
             ),
             patch(
-                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client",
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
                 return_value=_AsyncClientContextManager(mock_client),
             ),
             patch(
@@ -515,7 +515,10 @@ class TestActivityRowConsumption:
                 return_value=(filters, list(person_properties), combine_filter_bytecodes(filters)),
             ),
             patch(self._module("compile_hogql_for_streaming"), side_effect=compile_stub),
-            patch(self._module("get_client"), return_value=_AsyncClientContextManager(mock_client)),
+            patch(
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
+                return_value=_AsyncClientContextManager(mock_client),
+            ),
             patch(self._module("evaluate_combined_filters_with_fallback_sync"), side_effect=eval_stub),
             patch(self._module("get_producer"), return_value=producer),
             patch(self._module("Heartbeater"), _NoopHeartbeater),

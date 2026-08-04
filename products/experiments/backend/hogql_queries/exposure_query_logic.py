@@ -6,7 +6,10 @@ including multiple variant handling and exposure filtering logic.
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import Optional, Union
+
+import posthoganalytics
 
 from posthog.schema import (
     ActionsNode,
@@ -26,6 +29,56 @@ from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 
 logger = logging.getLogger(__name__)
+
+# The event an experiment counts exposures on when its criteria don't name one. If the default
+# ever changes (e.g. to a dedicated exposure event), flip it here — consumers that resolve
+# criteria through this module's helpers key off this constant. Note the variant-property
+# pairing in `get_exposure_event_and_property` (and the handling of configs that explicitly
+# name `$feature_flag_called`) must move with it.
+DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
+
+# The dedicated exposure event that replaces $feature_flag_called as the default,
+# gated per team by the flag below while it rolls out.
+EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
+EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
+
+# When $experiment_exposure ingestion goes live. Experiments started before this timestamp ran
+# (at least partly) without the new event, so they must keep counting exposures via
+# $feature_flag_called even where the two overlap. Only experiments whose start_date is at or
+# after the cutoff can rely on $experiment_exposure covering their whole exposure window.
+EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 8, 5, tzinfo=UTC)
+
+
+def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
+    """
+    Returns the event to count exposures on when the experiment doesn't configure a custom one.
+
+    Experiments started at or after EXPERIMENT_EXPOSURE_EVENT_CUTOFF use $experiment_exposure,
+    provided the team is flagged into the rollout. Everything else stays on $feature_flag_called:
+    older experiments predate the new event, and because ingestion duplicates flag events into
+    $experiment_exposure, counting exactly one of the two is what avoids double counting.
+    """
+    if start_date is None:
+        return DEFAULT_EXPOSURE_EVENT
+    if start_date.tzinfo is None:
+        # Query-supplied start dates can be naive ISO strings; the stored values are UTC.
+        start_date = start_date.replace(tzinfo=UTC)
+    if start_date < EXPERIMENT_EXPOSURE_EVENT_CUTOFF:
+        return DEFAULT_EXPOSURE_EVENT
+    # only_evaluate_locally keeps this off the network - it runs on the query hot path, so an
+    # inconclusive or failed local evaluation must fall back to the pre-rollout default.
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            EXPERIMENT_EXPOSURE_EVENT_FLAG,
+            str(team.id),
+            groups={"project": str(team.id)},
+            group_properties={"project": {"id": str(team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return DEFAULT_EXPOSURE_EVENT
+    return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
 
 
 def _is_actions_node_dict(config: dict) -> bool:
@@ -180,15 +233,15 @@ def get_exposure_event_and_property(
     else:
         # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
         feature_flag_variant_property = "$feature_flag_response"
-        event = "$feature_flag_called"
+        event = DEFAULT_EXPOSURE_EVENT
 
     return event, feature_flag_variant_property
 
 
 def _get_event_name_from_config(exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]]) -> str:
-    """Extract event name from exposure config, defaulting to $feature_flag_called."""
+    """Extract event name from exposure config, defaulting to DEFAULT_EXPOSURE_EVENT."""
     if not exposure_config or not hasattr(exposure_config, "event"):
-        return "$feature_flag_called"
+        return DEFAULT_EXPOSURE_EVENT
 
     event = exposure_config.event
     return str(event) if event and event != "$feature_flag_called" else "$feature_flag_called"
@@ -248,6 +301,26 @@ def _build_property_filters(
     return [ast.And(exprs=property_filters)] if property_filters else []
 
 
+def build_exposure_event_conditions(
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
+    team: Team,
+    feature_flag_key: Optional[str],
+) -> list[ast.Expr]:
+    """
+    Builds the event/action and property filters that define what counts as an exposure event —
+    the exposure-identity subset of build_common_exposure_conditions, without the analysis-only
+    conditions (date range, variant filter, test-account exclusion). Used directly by consumers
+    that need "who was exposed" for serving decisions rather than metric analysis, such as the
+    freeze-exposure snapshot scan.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    exposure_config = criteria.exposure_config if criteria else None
+    return [
+        *_build_event_filters(exposure_config, team, feature_flag_key),
+        *_build_property_filters(exposure_config, team),
+    ]
+
+
 def build_common_exposure_conditions(
     feature_flag_variant_property: str,
     variants: list[str],
@@ -268,7 +341,6 @@ def build_common_exposure_conditions(
         feature_flag_key: Feature flag key (required for $feature_flag_called events)
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)
-    exposure_config = criteria.exposure_config if criteria else None
 
     return [
         # Date range filters
@@ -290,10 +362,8 @@ def build_common_exposure_conditions(
         ),
         # Test accounts filter
         *get_test_accounts_filter(team, criteria),
-        # Event/action filters
-        *_build_event_filters(exposure_config, team, feature_flag_key),
-        # Property filters
-        *_build_property_filters(exposure_config, team),
+        # Event/action and property filters
+        *build_exposure_event_conditions(criteria, team, feature_flag_key),
     ]
 
 

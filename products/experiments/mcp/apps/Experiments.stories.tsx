@@ -33,11 +33,18 @@ const runningExperiment: ExperimentData = {
     feature_flag_key: 'onboarding-v2-experiment',
     start_date: '2025-11-01T10:00:00Z',
     created_at: '2025-10-28T09:00:00Z',
-    parameters: {
-        feature_flag_variants: [
-            { key: 'control', name: 'Current flow', split_percent: 50 },
-            { key: 'test', name: 'Simplified flow', split_percent: 50 },
-        ],
+    feature_flag: {
+        id: 101,
+        key: 'onboarding-v2-experiment',
+        filters: {
+            groups: [{ rollout_percentage: 100 }],
+            multivariate: {
+                variants: [
+                    { key: 'control', name: 'Current flow', rollout_percentage: 50 },
+                    { key: 'test', name: 'Simplified flow', rollout_percentage: 50 },
+                ],
+            },
+        },
     },
     metrics: [{ kind: 'primary', event: 'user_activated', math: 'total' }],
     _posthogUrl: 'https://us.posthog.com/project/1/experiments/1',
@@ -52,12 +59,19 @@ const completedExperiment: ExperimentData = {
     start_date: '2025-09-01T10:00:00Z',
     end_date: '2025-10-01T10:00:00Z',
     created_at: '2025-08-28T09:00:00Z',
-    parameters: {
-        feature_flag_variants: [
-            { key: 'control', name: 'Get started', split_percent: 34 },
-            { key: 'test-a', name: 'Start free trial', split_percent: 33 },
-            { key: 'test-b', name: 'Try it now', split_percent: 33 },
-        ],
+    feature_flag: {
+        id: 102,
+        key: 'pricing-cta-test',
+        filters: {
+            groups: [{ rollout_percentage: 100 }],
+            multivariate: {
+                variants: [
+                    { key: 'control', name: 'Get started', rollout_percentage: 34 },
+                    { key: 'test-a', name: 'Start free trial', rollout_percentage: 33 },
+                    { key: 'test-b', name: 'Try it now', rollout_percentage: 33 },
+                ],
+            },
+        },
     },
     conclusion: 'significant',
     conclusion_comment: 'test-a outperformed control by 12% on conversion rate.',
@@ -70,11 +84,18 @@ const draftExperiment: ExperimentData = {
     description: 'Should new users default to dark mode?',
     feature_flag_key: 'dark-mode-default',
     created_at: '2025-12-01T09:00:00Z',
-    parameters: {
-        feature_flag_variants: [
-            { key: 'control', split_percent: 50 },
-            { key: 'test', split_percent: 50 },
-        ],
+    feature_flag: {
+        id: 103,
+        key: 'dark-mode-default',
+        filters: {
+            groups: [{ rollout_percentage: 100 }],
+            multivariate: {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+            },
+        },
     },
 }
 

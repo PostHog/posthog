@@ -41,7 +41,7 @@ const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'):
 
     const displayName = getDisplayName()
 
-    const getObjectLink = () => {
+    const getObjectLink = (): JSX.Element => {
         switch (objectType) {
             case 'dashboard':
                 return (

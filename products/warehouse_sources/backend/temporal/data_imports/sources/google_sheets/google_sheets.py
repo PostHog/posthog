@@ -6,15 +6,18 @@ from typing import Any, Optional, TypeVar
 from django.conf import settings
 
 import gspread
+import requests
 from cachetools import Cache, TTLCache, cached
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
+    GoogleSheetsSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # (connect, read) timeout for every Sheets API request, in seconds. gspread defaults to no
@@ -25,6 +28,15 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # fast, retryable `requests.Timeout` instead. The read timeout is the max gap between received
 # bytes (not total download time), so it stays safe for large sheets that stream in steadily.
 _REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (30.0, 120.0)
+
+# Google Sheets exposes a single current stable REST API version — v4 — which gspread targets for
+# every request (its base URL is pinned in gspread.urls and is not per-client configurable); v3 and
+# earlier are retired. The resolved version is threaded down to `_get_worksheet`, where it keys the
+# worksheet-handle cache, so a future version whose client differs can't reuse another version's
+# handle; every supported label resolves to the same v4 calls today. The framework's legacy
+# UNVERSIONED default ("v1") predates this metadata and was never Google's v3, so sources created
+# before this change keep issuing identical requests.
+GOOGLE_SHEETS_API_VERSION_V4 = "v4"
 
 
 def google_sheets_client() -> gspread.Client:
@@ -81,6 +93,30 @@ _SPREADSHEET_NOT_FOUND_MESSAGE = (
 T = TypeVar("T")
 
 
+def _assert_unique_normalized_column_names(headers: list[str]) -> None:
+    """Fail early when two header cells collapse to the same column name.
+
+    Sheet headers become table column names via `NamingConvention`, which is case-insensitive and
+    collapses spaces/punctuation — so headers that look distinct ("Task ID" vs "task_id") map to the
+    same column. gspread only rejects *exact* duplicate headers, so these near-duplicates slip past it
+    and fail much later with an opaque "duplicate column name" deep in table creation, after the sync
+    has already started. Detect the collision up front and raise an actionable message naming the
+    offending headers instead. Exact duplicates are left to gspread's own check."""
+    seen: dict[str, str] = {}
+    for header in headers:
+        if not header or not header.strip():
+            continue
+        normalized = NamingConvention.normalize_identifier(header)
+        previous = seen.get(normalized)
+        if previous is not None and previous != header:
+            raise Exception(
+                f'Column headers "{previous}" and "{header}" collapse to the same column name '
+                f'"{normalized}" when synced. Column headers must stay unique after PostHog normalizes '
+                f"them (it ignores case, spaces, and punctuation). Rename one of them and resync."
+            )
+        seen[normalized] = header
+
+
 def _is_retryable_api_error(e: gspread.exceptions.APIError) -> bool:
     """Decide whether a gspread APIError is a transient error worth retrying.
 
@@ -119,8 +155,25 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
     while True:
         try:
             return execute()
-        except gspread.exceptions.APIError as e:
-            if not _is_retryable_api_error(e) or attempts >= max_attempts:
+        except (
+            gspread.exceptions.APIError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+        ) as e:
+            # A dropped connection or read timeout is raised by `requests` before gspread can wrap
+            # it in an APIError, so the status-code check never sees it, and the tracked adapter's
+            # transport retries are already spent by the time it reaches us. It's a transient
+            # network blip, so retry inline like a 5xx; APIErrors still gate on their status. Once
+            # the budget is spent, let it bubble so Temporal retries the activity.
+            #
+            # `ChunkedEncodingError` is listed separately because a connection reset mid-download
+            # surfaces as one: `requests` catches the underlying urllib3 `ProtocolError` while
+            # streaming the response body and re-raises it as `ChunkedEncodingError`, which is a
+            # sibling of `ConnectionError` in the `requests` hierarchy (not a subclass), so the
+            # `ConnectionError` entry above would not catch it.
+            is_retryable = _is_retryable_api_error(e) if isinstance(e, gspread.exceptions.APIError) else True
+            if not is_retryable or attempts >= max_attempts:
                 raise
 
             jitter = random.uniform(-jitter_in_seconds, jitter_in_seconds)
@@ -131,7 +184,11 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
 
 
 @cached(cache)
-def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
+def _get_worksheet(
+    spreadsheet_url: str, worksheet_id: int, api_version: str = GOOGLE_SHEETS_API_VERSION_V4
+) -> gspread.Worksheet:
+    # `api_version` participates in the memoization key so a future version whose client differs
+    # can't collide with a cached handle built for another version.
     def execute() -> gspread.Worksheet:
         client = google_sheets_client()
         try:
@@ -166,7 +223,9 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
 
 
-def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_name: str) -> list[IncrementalField]:
+def get_schema_incremental_fields(
+    config: GoogleSheetsSourceConfig, worksheet_name: str, api_version: str = GOOGLE_SHEETS_API_VERSION_V4
+) -> list[IncrementalField]:
     worksheets = get_schemas(config)
     selected_worksheet = [id for name, id in worksheets if name == worksheet_name]
     if len(selected_worksheet) == 0:
@@ -174,7 +233,7 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
 
     worksheet_id = selected_worksheet[0]
 
-    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
+    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
     try:
         rows = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:2"))  # Get the first two rows
@@ -210,6 +269,7 @@ def google_sheets_source(
     config: GoogleSheetsSourceConfig,
     worksheet_name: str,
     db_incremental_field_last_value: Optional[Any],
+    api_version: str,
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     worksheets = get_schemas(config)
@@ -219,9 +279,11 @@ def google_sheets_source(
 
     worksheet_id = selected_worksheet[0]
 
-    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
+    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
     headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
+    if len(headers) > 0:
+        _assert_unique_normalized_column_names(headers[0])
     primary_keys = None
     if len(headers) > 0 and "id" in headers[0]:
         primary_keys = ["id"]
@@ -237,7 +299,7 @@ def google_sheets_source(
     # range-based batching (e.g. A2:Z1001, A1002:Z2001, ...), which is a behavior change to
     # the sync itself and is out of scope for restart-safety alone.
     def get_rows():
-        worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
+        worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
         # default_blank defaults to "", which turns empty cells into strings and breaks numeric
         # columns that legitimately have gaps. None lets blank cells import as null instead.

@@ -28,7 +28,8 @@ from posthog.temporal.common.search_attributes import (
     POSTHOG_TEAM_ID_KEY,
 )
 
-from products.data_modeling.backend.models import Node
+from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
+from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -85,9 +86,7 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
             isinstance(action, ScheduleListActionStartWorkflow)
             and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
         ):
-            # A cadence-tier schedule id is "{dag_id}:{interval_seconds}"; a legacy id is the
-            # bare DAG id (no colon), which rsplit leaves untouched.
-            dag_ids.add(listing.id.rsplit(":", 1)[0])
+            dag_ids.add(dag_id_from_schedule_id(listing.id))
     return dag_ids
 
 
@@ -156,7 +155,9 @@ def _short_interval_spec(entity_id: uuid.UUID, interval: timedelta, timezone: st
     """
     interval_mins = int(interval.total_seconds() // 60)
     num_windows = 60 // interval_mins
-    base_min = _deterministic_int(entity_id, "minute") % interval_mins
+    # The interval must participate in the salt: with a shared salt, a coarser tier's fire
+    # minutes are always a subset of every finer tier's, so all tiers of a DAG fire together.
+    base_min = _deterministic_int(entity_id, f"minute-{interval_mins}") % interval_mins
     mins = [(base_min + i * interval_mins) % 60 for i in range(num_windows)]
     return ScheduleSpec(
         calendars=[
@@ -182,7 +183,9 @@ def _medium_interval_spec(entity_id: uuid.UUID, interval: timedelta, timezone: s
     """
     interval_hours = int(interval.total_seconds() // 3600)
     num_windows = 24 // interval_hours
-    base_hour = _deterministic_int(entity_id, "hour") % interval_hours
+    # Interval in the salt keeps tiers of one DAG de-aligned from each other (and the plain
+    # "hour" salt of the weekly/monthly specs).
+    base_hour = _deterministic_int(entity_id, f"hour-{interval_hours}") % interval_hours
     hours = [(base_hour + i * interval_hours) % 24 for i in range(num_windows)]
     return ScheduleSpec(
         calendars=[

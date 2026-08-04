@@ -1,24 +1,40 @@
-import {
-    HedgehogChartHog,
-    HedgehogCodeBubble,
-    HedgehogCursorHog,
-    HedgehogDirector,
-    HedgehogExperiment,
-    HedgehogJudge,
-    HedgehogMegaphone,
-    HedgehogNoirHog,
-    HedgehogPanic,
-    HedgehogPhoneCall,
-    HedgehogPuzzle,
-    HedgehogRoboHog,
-    HedgehogTrafficController,
-    HedgehogWizardHog,
-    HedgehogWorkflows,
-} from '@posthog/brand/hoggies'
+import * as chart from '@posthog/brand/hoggies/png/chart'
+import * as codeBubble from '@posthog/brand/hoggies/png/code-bubble'
+import * as cursor from '@posthog/brand/hoggies/png/cursor'
+import * as director from '@posthog/brand/hoggies/png/director'
+import * as experiment from '@posthog/brand/hoggies/png/experiment'
+import * as judge from '@posthog/brand/hoggies/png/judge'
+import * as megaphone from '@posthog/brand/hoggies/png/megaphone'
+import * as noir from '@posthog/brand/hoggies/png/noir-1'
+import * as panic from '@posthog/brand/hoggies/png/panic'
+import * as phoneCall from '@posthog/brand/hoggies/png/phone-call'
+import * as puzzle from '@posthog/brand/hoggies/png/puzzle'
+import * as robot from '@posthog/brand/hoggies/png/robot'
+import * as trafficController from '@posthog/brand/hoggies/png/traffic-controller'
+import * as wizard from '@posthog/brand/hoggies/png/wizard-1'
+import * as workflows from '@posthog/brand/hoggies/png/workflows'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { ProductPushDisplay } from './navPanelAdShared'
+
+const HedgehogChart = pngHoggie(chart)
+const HedgehogCodeBubble = pngHoggie(codeBubble)
+const HedgehogCursor = pngHoggie(cursor)
+const HedgehogDirector = pngHoggie(director)
+const HedgehogExperiment = pngHoggie(experiment)
+const HedgehogJudge = pngHoggie(judge)
+const HedgehogMegaphone = pngHoggie(megaphone)
+const HedgehogNoir = pngHoggie(noir)
+const HedgehogPanic = pngHoggie(panic)
+const HedgehogPhoneCall = pngHoggie(phoneCall)
+const HedgehogPuzzle = pngHoggie(puzzle)
+const HedgehogRobot = pngHoggie(robot)
+const HedgehogTrafficController = pngHoggie(trafficController)
+const HedgehogWizard = pngHoggie(wizard)
+const HedgehogWorkflows = pngHoggie(workflows)
 
 export const DEFAULT_PRODUCT_PUSH_DISPLAY: ProductPushDisplay = {
     Hoggie: HedgehogMegaphone,
@@ -32,13 +48,13 @@ export const DEFAULT_PRODUCT_PUSH_DISPLAY: ProductPushDisplay = {
 // DEFAULT_PRODUCT_PUSH_DISPLAY, so TAM-scheduled pushes of unlisted products still render.
 export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay>> = {
     [ProductKey.PRODUCT_ANALYTICS]: {
-        Hoggie: HedgehogChartHog,
+        Hoggie: HedgehogChart,
         accentColor: 'var(--color-product-product-analytics-light)',
         tagline:
             'Insights, funnels, trends, and retention - understand exactly what users do in your product, with the events you already send.',
     },
     [ProductKey.WEB_ANALYTICS]: {
-        Hoggie: HedgehogCursorHog,
+        Hoggie: HedgehogCursor,
         accentColor: 'var(--color-product-web-analytics-light)',
         tagline:
             'Visitors, pageviews, and conversions on one simple dashboard. Like GA, without the pain - and no extra setup, ready for you to use.',
@@ -78,7 +94,7 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
             'Query everything with SQL - your product events plus warehouse sources like Stripe, HubSpot, and Postgres.',
     },
     [ProductKey.AI_OBSERVABILITY]: {
-        Hoggie: HedgehogRoboHog,
+        Hoggie: HedgehogRobot,
         accentColor: 'var(--color-product-llm-analytics-light)',
         tagline:
             "Traces, costs, and latency for every LLM call - know what your AI is doing, and what it's costing you.",
@@ -94,12 +110,12 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         tagline: 'Grade your LLM outputs at scale and catch regressions before your users do.',
     },
     [ProductKey.LLM_PROMPTS]: {
-        Hoggie: HedgehogWizardHog,
+        Hoggie: HedgehogWizard,
         accentColor: 'var(--color-product-llm-prompts-light)',
         tagline: 'Version, test, and ship prompt changes without redeploying your app. A little magic, fully tracked.',
     },
     [ProductKey.LOGS]: {
-        Hoggie: HedgehogNoirHog,
+        Hoggie: HedgehogNoir,
         accentColor: 'var(--color-product-logs-light)',
         tagline: 'Search every log line alongside your product data - no mystery goes unsolved.',
     },

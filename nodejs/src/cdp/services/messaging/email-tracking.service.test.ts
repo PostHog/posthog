@@ -15,6 +15,7 @@ import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -349,7 +350,8 @@ describe('EmailTrackingService', () => {
                 })
 
                 const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                expect(metrics).toHaveLength(1)
+                // Permanent bounces emit the rollup plus the hard-only sub-metric
+                expect(metrics.map((m) => m.value.metric_name)).toEqual(['email_bounced', 'email_bounced_hard'])
                 expect(metrics[0].value).toMatchObject({
                     team_id: team.id,
                     metric_name: 'email_bounced',
@@ -363,7 +365,8 @@ describe('EmailTrackingService', () => {
 
                 await waitForExpect(() => {
                     const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                    expect(metrics).toHaveLength(1)
+                    // Permanent bounces emit the rollup plus the hard-only sub-metric
+                    expect(metrics.map((m) => m.value.metric_name)).toEqual(['email_bounced', 'email_bounced_hard'])
                     expect(metrics[0].value).toMatchObject({
                         team_id: team.id,
                         metric_name: 'email_bounced',
@@ -394,6 +397,175 @@ describe('EmailTrackingService', () => {
                     })
                 })
             })
+        })
+    })
+
+    describe('SES webhook writes to the suppression list', () => {
+        // EmailSuppressionService reads its threshold from `hub.EMAIL_SUPPRESSION_*` (via CdpConfig),
+        // not directly from process.env. The outer beforeEach recreates `hub` per test, so overriding
+        // here doesn't leak across tests — no restore in afterEach needed. Threshold=1 keeps the test
+        // to a single POST — the counter arithmetic is not what this test is guarding, the write-path
+        // wiring is.
+        let api: CdpApi
+        let app: express.Application
+        let server: Server
+        let verifySignatureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            hub.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = 1
+
+            api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue: createMockJobQueue(),
+            })
+            app = setupExpressApp()
+            app.use('/', api.router())
+            server = app.listen(0, () => {})
+
+            verifySignatureSpy = jest
+                .spyOn(SesWebhookHandler.prototype as any, 'verifySnsSignature')
+                .mockResolvedValue(true)
+        })
+
+        afterEach(() => {
+            server.close()
+            verifySignatureSpy.mockRestore()
+        })
+
+        const postTransientBounce = async (functionId: string, emailAddress: string): Promise<supertest.Response> => {
+            const trackingCode = signer.generate({ functionId, id: 'invocation-id', teamId: team.id })
+            const sesRecord = {
+                eventType: 'Bounce',
+                mail: {
+                    timestamp: '2024-01-01T00:00:00.000Z',
+                    source: 'sender@posthog.com',
+                    messageId: 'ses-message-id',
+                    destination: [emailAddress],
+                    headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                },
+                bounce: {
+                    bounceType: 'Transient',
+                    bouncedRecipients: [
+                        { emailAddress, diagnosticCode: 'smtp; 421 4.2.1 mailbox temporarily unavailable' },
+                    ],
+                    timestamp: '2024-01-01T00:00:00.000Z',
+                },
+            }
+            const envelope = {
+                Type: 'Notification',
+                MessageId: 'sns-message-id',
+                TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
+                Message: JSON.stringify(sesRecord),
+                Timestamp: '2024-01-01T00:00:00.000Z',
+                SignatureVersion: '1',
+                Signature: 'stubbed',
+                SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+            }
+            return await supertest(app)
+                .post('/public/m/ses_webhook')
+                .set('Content-Type', 'text/plain')
+                .send(JSON.stringify(envelope))
+        }
+
+        const postPermanentBounce = async (functionId: string, emailAddress: string): Promise<supertest.Response> => {
+            const trackingCode = signer.generate({ functionId, id: 'invocation-id', teamId: team.id })
+            const sesRecord = {
+                eventType: 'Bounce',
+                mail: {
+                    timestamp: '2024-01-01T00:00:00.000Z',
+                    source: 'sender@posthog.com',
+                    messageId: 'ses-message-id',
+                    destination: [emailAddress],
+                    headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                },
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: [{ emailAddress, diagnosticCode: 'smtp; 550 5.1.1 user unknown' }],
+                    timestamp: '2024-01-01T00:00:00.000Z',
+                },
+            }
+            const envelope = {
+                Type: 'Notification',
+                MessageId: 'sns-message-id',
+                TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
+                Message: JSON.stringify(sesRecord),
+                Timestamp: '2024-01-01T00:00:00.000Z',
+                SignatureVersion: '1',
+                Signature: 'stubbed',
+                SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+            }
+            return await supertest(app)
+                .post('/public/m/ses_webhook')
+                .set('Content-Type', 'text/plain')
+                .send(JSON.stringify(envelope))
+        }
+
+        it('inserts a suppression row and marks it suppressed after a Transient bounce webhook', async () => {
+            const hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
+            const email = 'transient-bouncer@example.com'
+
+            const res = await postTransientBounce(hogFlow.id, email)
+            expect(res.status).toBe(200)
+
+            // handleSesWebhook awaits the suppression write inline, so the row is present
+            // as soon as the 200 returns — no waitForExpect needed.
+            const result = await hub.postgres.query<{
+                identifier: string
+                source: string
+                suppressed: boolean
+                transient_bounce_count: number
+                deleted: boolean
+            }>(
+                PostgresUse.COMMON_READ,
+                `SELECT identifier, source, suppressed, transient_bounce_count, deleted
+                 FROM posthog_messagesuppression
+                 WHERE team_id = $1 AND identifier = $2`,
+                [team.id, email],
+                'test-read-suppression'
+            )
+            expect(result.rows).toEqual([
+                {
+                    identifier: email,
+                    source: 'BOUNCE',
+                    suppressed: true,
+                    transient_bounce_count: 1,
+                    deleted: false,
+                },
+            ])
+        })
+
+        it('inserts a suppressed row for a Permanent bounce webhook', async () => {
+            const hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
+            const email = 'hard-bouncer@example.com'
+
+            const res = await postPermanentBounce(hogFlow.id, email)
+            expect(res.status).toBe(200)
+
+            const result = await hub.postgres.query<{
+                identifier: string
+                source: string
+                suppressed: boolean
+                transient_bounce_count: number
+                last_bounce_diagnostic: string | null
+                deleted: boolean
+            }>(
+                PostgresUse.COMMON_READ,
+                `SELECT identifier, source, suppressed, transient_bounce_count, last_bounce_diagnostic, deleted
+                 FROM posthog_messagesuppression
+                 WHERE team_id = $1 AND identifier = $2`,
+                [team.id, email],
+                'test-read-hard-bounce-suppression'
+            )
+            expect(result.rows).toEqual([
+                {
+                    identifier: email,
+                    source: 'BOUNCE',
+                    suppressed: true,
+                    transient_bounce_count: 0,
+                    last_bounce_diagnostic: 'smtp; 550 5.1.1 user unknown',
+                    deleted: false,
+                },
+            ])
         })
     })
 

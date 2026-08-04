@@ -4,6 +4,9 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
+        "@posthog/quill-components": "workspace:*",
+        "@posthog/quill-primitives": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
@@ -25,7 +28,7 @@
         "@xyflow/react": "*",
         "clsx": "*",
         "elkjs": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*",
         "rrule": "*"

@@ -19,14 +19,14 @@ APIScopeObject = Literal[
     "access_control",
     "account",
     "activity_log",
-    "agents",
-    "agent_approvals",
     "alert",
     "annotation",
     "approvals",
     "batch_export",
     "batch_import",
+    "batch_import_support",
     "business_knowledge",
+    "canvas",
     "clickhouse_test_cluster_perf",
     "cohort",
     "comment",
@@ -34,6 +34,8 @@ APIScopeObject = Literal[
     "customer_analytics",
     "customer_journey",
     "customer_profile_config",
+    "data_catalog",
+    "data_catalog_approval",
     "dashboard",
     "event_filter",
     "dashboard_template",
@@ -59,19 +61,25 @@ APIScopeObject = Literal[
     "heatmap",
     "hog_flow",
     "hog_function",
+    "ingestion_warning",
     "insight",
     "insight_variable",
     "integration",
+    "internal_run",
     "legal_document",
     "link",
     "live_debugger",
     "llm_analytics",
+    "ai_observability_clusters",
     "llm_gateway",
+    "llm_playground",
     "llm_prompt",
     "llm_provider_key",
     "llm_skill",
     "logs",
+    "loop",
     "marketing_analytics",
+    "mcp_builtin_agent",
     "mcp_analytics",
     "metrics",
     "notebook",
@@ -87,6 +95,7 @@ APIScopeObject = Literal[
     "query",  # Covers query and events endpoints
     "query_performance",
     "replay_scanner",
+    "review_hog",
     "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
@@ -94,12 +103,14 @@ APIScopeObject = Literal[
     "signal_scout",
     "signal_scout_internal",
     "signal_scout_report",
+    "stamphog",
     "streamlit_app",
     "subscription",
     "survey",
     "tagger",
     "ticket",
     "task",
+    "toolbar",
     "tracing",
     "field_note",
     "uploaded_media",
@@ -115,6 +126,11 @@ APIScopeObject = Literal[
     "webhook",
     "wizard_session",
 ]
+
+
+# Server-only provenance marker for OAuth tokens minted for PostHog's built-in
+# agents. It is hidden from user-controlled scope selectors below.
+MCP_BUILT_IN_AGENT_SCOPE = "mcp_builtin_agent:read"
 
 APIScopeActions = Literal[
     "read",
@@ -135,6 +151,15 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
+        # Provenance marker on tokens minted server-side for a sandbox/agent run
+        # (never via the consent flow or a personal API key). The LLM gateway requires
+        # it on the internal products that share the PostHog Desktop OAuth app so a user's
+        # own credential can't reach them — see services/llm-gateway products/config.py.
+        "internal_run",
+        # Marks a sandbox OAuth token as belonging to a trusted built-in agent.
+        # MCP Store uses it to deny the human/member control plane and force the
+        # agent through its own explicit gateway grants.
+        "mcp_builtin_agent",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
@@ -152,7 +177,16 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 # we don't want OAuth-based clients (the consent screen, MCP, third-party apps)
 # to discover it — alpha / not-yet-public products, or staff-only debug endpoints
 # automation reaches with a PAT (e.g. `query_performance`, also gated by `is_staff`).
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_session", "query_performance"})
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
+    {
+        "wizard_session",
+        "query_performance",
+        # Staff-only managed-migrations (batch import) support diagnostics, also gated by
+        # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
+        # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
+        "batch_import_support",
+    }
+)
 
 # llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
 # ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
@@ -161,6 +195,14 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # SDK local evaluation and remote config. The Rust feature-flags service already
     # validates feature_flag:read PSAKs on the flag-definitions path; this makes them creatable.
     ("feature_flag", "read"),
+    # Customer analytics external account list, a bulk export for service integrations.
+    # Gated on a PSAK so the team-wide secret_api_token (readable by any project member)
+    # can't be used to sidestep per-user account access controls.
+    ("account", "read"),
+    # First write-capable PSAK scope: lets a service credential fire a loop via
+    # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
+    # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
+    ("loop", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
@@ -194,7 +236,7 @@ PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read", "llm_gateway:
 # alpha scope never reaches the broad default. Intersected with `ALL_SCOPES`
 # so a future hidden object whose action set narrows doesn't carry a phantom
 # string into the set.
-OAUTH_HIDDEN_SCOPES: frozenset[str] = (
+OAUTH_SCOPES_HIDDEN: frozenset[str] = (
     frozenset(f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS) & ALL_SCOPES
 )
 
@@ -203,7 +245,7 @@ OAUTH_HIDDEN_SCOPES: frozenset[str] = (
 # `/authorize` time. OIDC scopes (openid/profile/email) are NOT in this set —
 # they live in `OIDC_SCOPES` below and are accepted at `/authorize`
 # independently of `application.scopes`.
-UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_HIDDEN_SCOPES
+UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_SCOPES_HIDDEN
 
 
 def get_scope_descriptions() -> dict[str, str]:
@@ -337,7 +379,7 @@ def scopes_within_ceiling(
 
     `allow_wildcard_under_empty_ceiling` is the only resolution difference between
     the callers: `/authorize` passes `True` to grandfather legacy `*` clients (the
-    PostHog Code CLI) until wildcard retirement; provisioning leaves it `False`
+    PostHog Desktop CLI) until wildcard retirement; provisioning leaves it `False`
     (the default) since it never granted wildcard, so an unseeded ceiling must not
     silently become one.
     """
@@ -414,7 +456,7 @@ def get_oauth_scopes_supported() -> list[str]:
 
     Built from `UNPRIVILEGED_SCOPES`, so it excludes all three non-advertised
     classes: `INTERNAL_API_SCOPE_OBJECTS` (server-mint-only, e.g.
-    `signal_scout_internal` — never user-grantable), `OAUTH_HIDDEN_SCOPES`
+    `signal_scout_internal` — never user-grantable), `OAUTH_SCOPES_HIDDEN`
     (alpha / PAT-only), and `PRIVILEGED_SCOPES` (`llm_gateway:*`, admin-granted
     only). Discovery metadata shouldn't advertise scopes an OAuth client can't
     obtain self-serve. PAT validation uses `get_scope_descriptions()` directly

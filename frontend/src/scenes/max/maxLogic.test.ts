@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -12,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
 import {
+    PENDING_MAX_CONTEXT_KEY,
     QUESTION_SUGGESTIONS_DATA,
     SIDE_PANEL_PANEL_ID,
     maxLogic,
@@ -27,6 +30,7 @@ describe('maxLogic', () => {
 
     beforeEach(() => {
         localStorage.clear()
+        sessionStorage.clear()
         useMocks(maxMocks)
         initKeaTests()
     })
@@ -84,6 +88,83 @@ describe('maxLogic', () => {
         await expectLogic(logic).toMatchValues({
             autoRun: true,
             question: 'Foo',
+        })
+    })
+
+    it('does not set autoRun for #panel=max:!Foo when the new panel view is active', async () => {
+        // In the new view the prompt is consumed by phaiSidePanelComposerSeedLogic; autoRun here too
+        // would make the hidden legacy thread fire askMax on top of the new composer's submit.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+
+        sidePanelStateLogic.mount()
+        await expectLogic(sidePanelStateLogic, () => {
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, '!Foo')
+        }).toDispatchActions(['openSidePanel'])
+
+        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            autoRun: false,
+            question: 'Foo',
+        })
+
+        featureFlagLogic.unmount()
+    })
+
+    // The /ai?ask= deep link (e.g. "Start with AI") must not silently vanish when the org hasn't
+    // granted AI data-processing consent: askMax no-ops in that case, so the handler has to fall back
+    // to prefilling the composer. With consent it auto-sends via askMax instead.
+    describe('ask URL parameter', () => {
+        it('prefills the composer without auto-sending when AI consent is not granted', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            useMocks(maxMocks)
+            router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ question: 'Explore my traces' })
+        })
+
+        it('clears any pending deep-link context even when consent is not granted', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            useMocks(maxMocks)
+            sessionStorage.setItem(
+                PENDING_MAX_CONTEXT_KEY,
+                JSON.stringify({ context: { dashboards: [] }, timestamp: Date.now() })
+            )
+            router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ question: 'Explore my traces' })
+            expect(sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)).toBeNull()
+        })
+
+        it('auto-sends via askMax without prefilling when AI consent is granted', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            useMocks(maxMocks)
+            router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions([
+                logic.actionCreators.askMax('Explore my traces', true, undefined),
+            ])
+            expect(logic.values.question).toBe('')
         })
     })
 

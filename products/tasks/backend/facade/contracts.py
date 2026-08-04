@@ -42,6 +42,37 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class SignalImplementationRunDTO:
+    """Identity of a signals-origin ("self-driving") implementation run that produced a PR.
+
+    Returned by ``find_signal_implementation_run``. Consumers (stamphog's inbox carve-out) use it
+    to confirm a bot-authored PR is a PostHog Code self-driving implementation and to find whose
+    review preferences apply.
+    """
+
+    run_id: UUID
+    task_id: UUID
+    team_id: int
+    signal_report_id: UUID
+    task_created_by_id: int | None = None
+
+
+@dataclass(frozen=True)
+class WizardCloudRunDTO:
+    """A team's active onboarding wizard cloud run.
+
+    Lets the frontend rehydrate the setup-progress FAB from the server when the drop
+    flow started the run server-side (so no client-side localStorage handle exists).
+    Carries only what the FAB's cloud stream needs to reconnect.
+    """
+
+    task_id: UUID
+    run_id: UUID
+    status: str
+    started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class TaskRunDTO:
     """A single execution of a task.
 
@@ -75,6 +106,21 @@ class TaskRunDTO:
 
 
 @dataclass(frozen=True)
+class WizardPrReadyEmailContextDTO:
+    """Everything ``send_wizard_pr_ready_email`` needs to read off a task run's PR-ready state."""
+
+    task_id: UUID
+    run_id: UUID
+    team_id: int
+    origin_product: str
+    pr_url: str
+    repository: str | None
+    branch: str | None
+    created_by_id: int | None
+    already_sent: bool
+
+
+@dataclass(frozen=True)
 class WarmRunDTO:
     """Outcome of ensuring a warm sandbox run exists for a task."""
 
@@ -104,7 +150,9 @@ class TaskDetailDTO:
     title_manually_set: bool
     description: str
     origin_product: str
+    runtime: str
     repository: str | None
+    repositories: list[str]
     github_integration: int | None
     github_user_integration: UUID | None
     signal_report: UUID | None
@@ -128,7 +176,24 @@ class ChannelDTO:
     id: UUID
     name: str
     channel_type: str
+    github_integration: int | None
+    repositories: list[str]
     created_at: datetime
+    created_by: "TaskUserBasicInfo | None" = None
+    starred: bool = False
+
+
+@dataclass(frozen=True)
+class ChannelInstructionsDTO:
+    """The HTTP representation of a channel's CONTEXT.md instructions version.
+
+    A channel that has never had instructions published reads as a blank
+    version 0 — publish against ``base_version: 0`` to create version 1."""
+
+    channel: UUID
+    content: str
+    version: int
+    created_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
 
 
@@ -138,11 +203,28 @@ class TaskThreadMessageDTO:
 
     id: UUID
     task: UUID
+    author_kind: str
+    event: str
+    payload: dict
     content: str
     created_at: datetime
     author: "TaskUserBasicInfo | None" = None
     forwarded_to_agent_at: datetime | None = None
     forwarded_by: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class ChannelFeedMessageDTO:
+    """The HTTP representation of one system announcement in a channel's feed."""
+
+    id: UUID
+    channel: UUID
+    author_kind: str
+    event: str
+    payload: dict
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
 
 
 @dataclass(frozen=True)
@@ -158,6 +240,38 @@ class TaskMentionDTO:
     content: str
     created_at: datetime
     author: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class TaskActivityDTO:
+    """One task the requesting user is involved in, for the task-centric activity feed.
+
+    Unlike ``TaskMentionDTO`` (one row per mention message), this is one row per task,
+    surfacing the most recent relevant activity. ``activity_kind`` classifies the winning
+    signal so the client can pick row copy; ``snippet``/``latest_author``/``latest_message_id``
+    describe the thread message tied to ``activity_at`` (empty/None when the winning signal is
+    task creation, which has no message).
+    """
+
+    id: UUID
+    task_id: UUID
+    task_title: str
+    channel_id: UUID | None
+    channel_name: str | None
+    activity_at: datetime
+    activity_kind: str
+    snippet: str
+    latest_author: "TaskUserBasicInfo | None" = None
+    latest_message_id: UUID | None = None
+    is_unread: bool = True
+
+
+@dataclass(frozen=True)
+class TaskActivityPageDTO:
+    results: list[TaskActivityDTO]
+    unread_count: int
+    next_before: datetime | None = None
+    next_before_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -181,6 +295,7 @@ class TaskSummaryDTO:
     repository: str | None
     created_at: datetime
     updated_at: datetime
+    origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
 
 
@@ -430,7 +545,7 @@ class CreatedTaskDTO:
 
 @dataclass(frozen=True)
 class CodeInviteRedeemResult:
-    """Outcome of attempting to redeem a PostHog Code invite.
+    """Outcome of attempting to redeem a PostHog Desktop invite.
 
     ``outcome`` is one of ``redeemed`` (or ``already_redeemed``), ``invalid_code``, or
     ``not_redeemable``. The presentation layer maps it to the success/error HTTP response;
@@ -472,102 +587,6 @@ class TaskAutomationDTO:
 
 
 @dataclass(frozen=True)
-class CodeWorkflowConfigDTO:
-    """A user's per-team code-workflow binding configuration.
-
-    Mirrors exactly the JSON shape the code-workflow endpoints emit: ``id`` and
-    ``updatedAt`` are stringified, ``version`` powers optimistic locking, and
-    ``bindings`` is the situation-id → ordered action-list mapping.
-    """
-
-    id: str
-    version: int
-    updated_at: datetime
-    bindings: dict
-
-
-@dataclass(frozen=True)
-class CodeWorkflowDiagnosticDTO:
-    """One binding-validation diagnostic.
-
-    Mirrors a ``ValidationDiagnostic``; ``situation_id`` / ``action_id`` are present only
-    when the diagnostic is scoped to a specific situation or action.
-    """
-
-    severity: str
-    code: str
-    message: str
-    situation_id: str | None = None
-    action_id: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeWorkflowSaveResult:
-    """Outcome of attempting to save code-workflow bindings.
-
-    ``outcome`` is one of ``saved`` (bindings persisted, version bumped), ``conflict``
-    (``expected_version`` did not match the stored version), or ``invalid`` (validation
-    failed). ``config`` is always the resulting/current config; ``diagnostics`` is only
-    populated on the ``invalid`` outcome.
-    """
-
-    outcome: str
-    config: CodeWorkflowConfigDTO
-    diagnostics: list[CodeWorkflowDiagnosticDTO] = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class CodeHomeWorkstreamTaskDTO:
-    """One grouped task inside a workstream card."""
-
-    id: str | None
-    title: str | None
-    status: str | None
-    is_generating: bool = False
-    needs_permission: bool = False
-    quick_action: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeHomeWorkstreamDTO:
-    """A persisted workstream card for the code-home board."""
-
-    id: str
-    repo_name: str | None
-    repo_full_path: str | None
-    branch: str | None
-    pr_url: str | None
-    pr: dict | None
-    primary_situation: str | None
-    last_activity_at: int
-    tasks: list[CodeHomeWorkstreamTaskDTO] = Field(default_factory=list)
-    situations: list = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class CodeHomeActiveAgentDTO:
-    """A live, in-flight agent run shown on the code-home board."""
-
-    task_id: str
-    title: str
-    repo_name: str | None
-    branch: str | None
-    status: str
-    last_activity_at: int
-    needs_permission: bool = False
-    cloud_pr_url: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeHomeDTO:
-    """The full code-home board: live agents plus persisted workstreams by column."""
-
-    active_agents: list[CodeHomeActiveAgentDTO] = Field(default_factory=list)
-    needs_attention: list[CodeHomeWorkstreamDTO] = Field(default_factory=list)
-    in_progress: list[CodeHomeWorkstreamDTO] = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
 class TaskUserBasicInfo:
     """Lightweight user info for display, mirroring core ``UserBasicSerializer`` output.
 
@@ -601,6 +620,33 @@ class SandboxEnvironmentDTO:
     repositories: list[str] = Field(default_factory=list)
     effective_domains: list[str] = Field(default_factory=list)
     has_environment_variables: bool = False
+    created_by: TaskUserBasicInfo | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    custom_image_id: UUID | None = None
+    custom_image_name: str | None = None
+    custom_image_status: str | None = None
+
+
+@dataclass(frozen=True)
+class SandboxCustomImageDTO:
+    """A user-defined custom base image for cloud task sandboxes (Modal VM runtime)."""
+
+    id: UUID
+    team_id: int
+    name: str
+    description: str
+    status: str
+    version: int
+    modal_image_name: str
+    error: str
+    repository: str = ""
+    private: bool = False
+    spec: dict = Field(default_factory=dict)
+    spec_yaml: str = ""
+    scan_result: dict = Field(default_factory=dict)
+    build_log: str = ""
+    builder_task_id: UUID | None = None
     created_by: TaskUserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

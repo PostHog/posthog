@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import {
     IngestionWarningsOutput,
@@ -9,19 +10,49 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonMessage } from '~/common/persons/person-message'
+import { logger } from '~/common/utils/logger'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
-import { InternalPerson, Team } from '~/types'
+import { InternalPerson, Team, ValueMatcher } from '~/types'
 
 import { buildPersonMergeEventMessage } from './person-merge-event'
+import type { MergeFoldPlan } from './person-merge-fold'
 import { MergeMode } from './person-merge-types'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
+
+export const personMergeEventProducedCounter = new Counter({
+    name: 'person_merge_event_produced_total',
+    help: 'Number of person_merge_events messages acked by the broker (gate-on merges only).',
+})
 
 export type PersonOutputs = IngestionOutputs<
     PersonsOutput | PersonDistinctIdsOutput | IngestionWarningsOutput | PersonMergeEventsOutput
 >
 
-/** Gate + partition-count for the cross-partition merge-event producer. */
-export type MergeEventsConfig = { enabled: boolean; partitionCount: number }
+/** Gate + partition-count + team allowlist for the cross-partition merge-event producer. */
+export type MergeEventsConfig = {
+    enabled: boolean
+    partitionCount: number
+    /**
+     * Matches teams allowed to emit merge events, built from PERSON_MERGE_EVENTS_TEAM_ALLOWLIST
+     * (team 2 by default, '*' for all). The no-arg constructor default below matches no teams.
+     */
+    isTeamEnabled: ValueMatcher<number>
+}
+
+/** Per-team gates for the personless-table removal rollout (steps 2-4 of the RFC). */
+export type PersonlessRolloutConfig = {
+    /**
+     * Always-v1: merge-added distinct id mappings get version 1 unconditionally (always writing a
+     * ClickHouse override) instead of consulting posthog_personlessdistinctid.
+     */
+    mergeAlwaysV1: boolean
+    /**
+     * Stop-reading/stop-writing: merges skip the posthog_personlessdistinctid upserts entirely.
+     * Forces mergeAlwaysV1 (normalized in the PersonContext constructor): without the upserts the
+     * table has gaps for this team, so a version decision must never consult it again.
+     */
+    writesDisabled: boolean
+}
 
 /**
  * Lightweight data holder containing all the context needed for person processing.
@@ -43,9 +74,23 @@ export class PersonContext {
         public readonly mergeMode: MergeMode,
         public readonly updateAllProperties: boolean = false, // When true, all property changes trigger person updates
         public readonly shouldUpdateLastSeenAt: boolean = false,
-        public readonly mergeEventsConfig: MergeEventsConfig = { enabled: false, partitionCount: 64 }
+        public readonly mergeEventsConfig: MergeEventsConfig = {
+            enabled: false,
+            partitionCount: 64,
+            isTeamEnabled: () => false,
+        },
+        public readonly personlessRollout: PersonlessRolloutConfig = {
+            mergeAlwaysV1: false,
+            writesDisabled: false,
+        },
+        /** Fold plan shared by this event's consecutive $identify run; see person-merge-fold.ts. */
+        public readonly mergeFoldPlan?: MergeFoldPlan
     ) {
         this.eventProperties = event.properties!
+        this.personlessRollout = {
+            mergeAlwaysV1: personlessRollout.mergeAlwaysV1 || personlessRollout.writesDisabled,
+            writesDisabled: personlessRollout.writesDisabled,
+        }
     }
 
     async produceMessages(messages: PersonMessage[]): Promise<void> {
@@ -57,26 +102,47 @@ export class PersonContext {
     }
 
     /**
-     * Emit a person_merge_events message for the cohort-stream-processor. Resolved no-op when the
-     * gate is off. The message is explicitly partitioned by `(team_id, P_old)` so it reaches the
-     * worker holding P_old's state — see `buildPersonMergeEventMessage`.
+     * Whether a person_merge_events message should be emitted for this context's team. Gated by the
+     * global kill switch and scoped to the team allowlist so we do not emit events for teams outside
+     * the cohort-stream-processor's scope.
+     */
+    shouldProduceMergeEvent(): boolean {
+        return this.mergeEventsConfig.enabled && this.mergeEventsConfig.isTeamEnabled(this.team.id)
+    }
+
+    /**
+     * Best-effort emit of a person_merge_events message for the cohort-stream-processor. No-op when
+     * the gate is off or the team is outside the allowlist. Never throws: a produce failure is
+     * logged and dropped, so it can never affect ingestion. Delivery is at-most-once; loss is
+     * accepted until the delivery-guarantees milestone. The message is explicitly partitioned by
+     * `(team_id, P_old)` so it reaches the worker holding P_old's state — see `buildPersonMergeEventMessage`.
      */
     async producePersonMergeEvent(sourcePerson: InternalPerson, targetPerson: InternalPerson): Promise<void> {
-        if (!this.mergeEventsConfig.enabled) {
+        if (!this.shouldProduceMergeEvent()) {
             return
         }
-        const { key, partition, value } = buildPersonMergeEventMessage(
-            this.team.id,
-            sourcePerson.uuid,
-            targetPerson.uuid,
-            Date.now(),
-            this.mergeEventsConfig.partitionCount
-        )
-        await this.outputs.produce(PERSON_MERGE_EVENTS_OUTPUT, {
-            value,
-            key,
-            partition,
-            teamId: this.team.id,
-        })
+        try {
+            const { key, partition, value } = buildPersonMergeEventMessage(
+                this.team.id,
+                sourcePerson.uuid,
+                targetPerson.uuid,
+                Date.now(),
+                this.mergeEventsConfig.partitionCount
+            )
+            await this.outputs.produce(PERSON_MERGE_EVENTS_OUTPUT, {
+                value,
+                key,
+                partition,
+                teamId: this.team.id,
+            })
+            personMergeEventProducedCounter.inc()
+        } catch (error) {
+            logger.warn('person_merge_events produce failed, dropping', {
+                team_id: this.team.id,
+                source_person_uuid: sourcePerson.uuid,
+                target_person_uuid: targetPerson.uuid,
+                error,
+            })
+        }
     }
 }

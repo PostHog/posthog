@@ -23,7 +23,7 @@ from products.dashboards.backend.widgets.experiment_results import (
     run_experiment_results_widget,
 )
 from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import EXPOSURE_FROZEN_GROUP_KEY, Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -86,12 +86,18 @@ class TestExperimentsListWidget(APIBaseTest):
         start_date: Any = None,
         end_date: Any = None,
         flag_active: bool = True,
+        exposure_frozen: bool = False,
     ) -> Experiment:
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
             key=f"flag-{name}",
             created_by=created_by or self.user,
             active=flag_active,
+            filters=(
+                {"groups": [{"properties": [], "rollout_percentage": 100, EXPOSURE_FROZEN_GROUP_KEY: True}]}
+                if exposure_frozen
+                else {}
+            ),
         )
         return Experiment.objects.create(
             team=self.team,
@@ -121,6 +127,7 @@ class TestExperimentsListWidget(APIBaseTest):
             ("draft", "draft"),
             ("running", "running"),
             ("paused", "paused"),
+            ("exposure_frozen", "exposure_frozen"),
             ("stopped", "stopped"),
         ]
     )
@@ -130,11 +137,13 @@ class TestExperimentsListWidget(APIBaseTest):
             "draft": "Draft exp",
             "running": "Running exp",
             "paused": "Paused exp",
+            "exposure_frozen": "Frozen exp",
             "stopped": "Stopped exp",
         }
         self._create_experiment("Draft exp")
         self._create_experiment("Running exp", start_date=now)
         self._create_experiment("Paused exp", start_date=now, flag_active=False)
+        self._create_experiment("Frozen exp", start_date=now, exposure_frozen=True)
         self._create_experiment("Stopped exp", start_date=now, end_date=now)
 
         result = run_experiments_list_widget(self.team, {"status": status_filter}, user=self.user)

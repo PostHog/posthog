@@ -10,6 +10,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessSource
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -188,6 +189,17 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
             assert res.status_code == status.HTTP_400_BAD_REQUEST, f"Failed for level {level}: {res.json()}"
             assert "cannot be set above the maximum 'viewer'" in res.json()["detail"]
 
+    def test_toolbar_access_level_cannot_be_above_viewer(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        for level in ["editor", "manager"]:
+            res = self.client.put(
+                "/api/projects/@current/resource_access_controls",
+                {"resource": "toolbar", "access_level": level},
+            )
+            assert res.status_code == status.HTTP_400_BAD_REQUEST, f"Failed for level {level}: {res.json()}"
+            assert "cannot be set above the maximum 'viewer'" in res.json()["detail"]
+
     def test_activity_log_access_restricted_for_users_without_access(self):
         """Test that users without access to activity_log cannot access activity log endpoints"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
@@ -253,7 +265,49 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
             "user_can_edit_access_levels": True,
             "minimum_access_level": "none",
             "maximum_access_level": "manager",
+            "inherited_resource": "notebook",
+            # No project-wide rule for notebooks, so the resource's built-in default applies
+            "inherited_access_level": "editor",
         }
+
+    def test_get_access_controls_resolves_the_project_wide_level_it_falls_back_to(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+        for payload in [
+            {"resource": "notebook", "access_level": "viewer"},
+            # Role rules grant to role members only — they must not be reported as the everyone-level
+            {"resource": "notebook", "access_level": "editor", "role": str(role.id)},
+            # A rule on another resource must not leak into this notebook's fallback
+            {"resource": "dashboard", "access_level": "none"},
+        ]:
+            res = self._put_global_access_control(payload)
+            assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self._get_access_controls()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["inherited_resource"] == "notebook"
+        assert res.json()["inherited_access_level"] == "viewer"
+
+    def test_inherited_resource_follows_the_resource_it_actually_inherits_from(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self._put_global_access_control({"resource": "session_recording", "access_level": "viewer"})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        playlist = SessionRecordingPlaylist.objects.create(team=self.team, created_by=self.user, short_id="abc123")
+
+        res = self.client.get(f"/api/projects/@current/session_recording_playlists/{playlist.short_id}/access_controls")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        # Playlists are gated by the session_recording rules, so that's what "no override" falls back to
+        assert res.json()["inherited_resource"] == "session_recording"
+        assert res.json()["inherited_access_level"] == "viewer"
+
+    def test_project_reports_no_inherited_level(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get("/api/projects/@current/access_controls")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        # Nothing sits above a project, so it must report no inherited level — that absence is what
+        # keeps "No override" an object-default affordance rather than a project-level one
+        assert res.json()["inherited_resource"] is None
+        assert res.json()["inherited_access_level"] is None
 
     def test_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
@@ -1120,7 +1174,9 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
-        baseline = 8
+        # The 9th query is domain enforcement resolving the user's current organization — this
+        # endpoint is the only one here that doesn't already load it for other reasons.
+        baseline = 9
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 10):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
@@ -1169,7 +1225,9 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
     def test_query_counts_stable_for_project_access(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        baseline = 8
+        # The 9th query is domain enforcement resolving the user's current organization — this
+        # endpoint is the only one here that doesn't already load it for other reasons.
+        baseline = 9
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 10):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
@@ -1996,6 +2054,57 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert project["effective_access_level"] == "member"
         assert project["inherited_access_level"] == "member"
         assert project["inherited_access_level_reason"] == "project_default"
+
+    def test_members_without_project_access_hidden_when_org_restricts_member_list_visibility(self):
+        # Private project: default access "none", explicit grants for everyone but user3 and the org admin
+        user3 = self._create_user("user3@example.com")
+        user3_membership = user3.organization_memberships.get(organization=self.organization)
+        org_admin = self._create_user("admin4@example.com")
+        org_admin_membership = org_admin.organization_memberships.get(organization=self.organization)
+        org_admin_membership.level = OrganizationMembership.Level.ADMIN
+        org_admin_membership.save()
+        self._put_project_access_control({"access_level": "none"})
+        self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "member"}
+        )
+        self._put_project_access_control(
+            {"organization_member": str(self.user2_membership.id), "access_level": "member"}
+        )
+
+        # Non-editor with default visibility: full roster (current behavior preserved)
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get("/api/projects/@current/access_control_members")
+        assert self._find_member(res.json()["results"], user3_membership.id) is not None
+
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        # Non-editor with restricted visibility: members without project-scoped access are
+        # hidden — including org admins, whose implicit access doesn't count
+        res = self.client.get("/api/projects/@current/access_control_members")
+        data = res.json()
+        assert data["can_edit"] is False
+        assert self._find_member(data["results"], user3_membership.id) is None
+        assert self._find_member(data["results"], org_admin_membership.id) is None
+        assert self._find_member(data["results"], self.user2_membership.id) is not None
+        assert self._find_member(data["results"], self.organization_membership.id) is not None
+
+        # Org admins always see the full roster so they can grant access
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get("/api/projects/@current/access_control_members")
+        results = res.json()["results"]
+        assert self._find_member(results, user3_membership.id) is not None
+        assert self._find_member(results, org_admin_membership.id) is not None
+
+        # Explicit project admins who aren't org admins can edit, but still don't see the full roster
+        self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get("/api/projects/@current/access_control_members")
+        data = res.json()
+        assert data["can_edit"] is True
+        assert self._find_member(data["results"], user3_membership.id) is None
 
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""

@@ -18,10 +18,10 @@ import { EvaluationManagerService } from '~/ai-observability/services/evaluation
 import { ProviderKeyManagerService } from '~/ai-observability/services/provider-key-manager.service'
 import { TaggerManagerService } from '~/ai-observability/services/tagger-manager.service'
 import {
-    DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS,
     TemporalService,
     TemporalServiceConfig,
     isEvaluationWorkflowRuntime,
+    resolveSettleConfig,
 } from '~/ai-observability/services/temporal.service'
 import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '~/ai-observability/types'
 import { execHog } from '~/cdp/utils/hog-exec'
@@ -476,16 +476,15 @@ async function processEventEvaluationMatch(
     evaluationMatchesCounter.labels({ outcome: 'matched', type: 'evaluation' }).inc()
 
     if (isTraceTarget && traceContext?.traceId) {
-        // No isEvaluationWorkflowRuntime guard here: the trace workflow validates evaluation_type
+        // No isEvaluationWorkflowRuntime guard here: the aggregate workflow validates evaluation_type
         // server-side and rejects unsupported types as a non-retryable ApplicationError.
-        const windowSeconds =
-            evaluationDefinition.target_config?.window_seconds ?? DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS
-        await temporalService.startTraceEvaluationRunWorkflow(
+        const settle = resolveSettleConfig(evaluationDefinition.target_config)
+        await temporalService.startAggregateEvaluationWorkflow(
             evaluationDefinition.id,
             event,
             traceContext.traceId,
             traceContext.sessionId,
-            windowSeconds
+            settle
         )
     } else {
         const evaluationRuntime = evaluationDefinition.evaluation_type

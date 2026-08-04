@@ -78,6 +78,11 @@ export interface OrganizationApi {
     readonly customer_id: string | null
     /** @nullable */
     enforce_2fa?: boolean | null
+    /**
+     * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+     * @nullable
+     */
+    enforce_verified_domains?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
     /**
@@ -86,6 +91,8 @@ export interface OrganizationApi {
      */
     members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
     /** @nullable */
@@ -174,6 +181,11 @@ export interface PatchedOrganizationApi {
     readonly customer_id?: string | null
     /** @nullable */
     enforce_2fa?: boolean | null
+    /**
+     * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+     * @nullable
+     */
+    enforce_verified_domains?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
     /**
@@ -182,6 +194,8 @@ export interface PatchedOrganizationApi {
      */
     members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count?: number
     /** @nullable */
@@ -245,6 +259,7 @@ export interface OrganizationAIAccessRequestResponseApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -257,6 +272,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -645,7 +661,6 @@ export interface PatchedApprovalPolicyApi {
 /**
  * * `valid` - Valid
  * * `invalid` - Invalid
- * * `expired` - Expired
  * * `stale` - Stale (resource changed)
  */
 export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
@@ -653,7 +668,6 @@ export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typ
 export const ValidationStatusEnumApi = {
     Valid: 'valid',
     Invalid: 'invalid',
-    Expired: 'expired',
     Stale: 'stale',
 } as const
 
@@ -723,6 +737,27 @@ export interface PaginatedChangeRequestListApi {
     /** @nullable */
     previous?: string | null
     results: ChangeRequestApi[]
+}
+
+export interface ChangeRequestApproveApi {
+    /** Optional note recorded with the approval vote explaining the decision. */
+    reason?: string
+}
+
+export interface ChangeRequestDecisionResponseApi {
+    /** The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected'). */
+    status: string
+    /** Human-readable summary of what happened. */
+    message: string
+    /** The change request after the vote was recorded. */
+    change_request: ChangeRequestApi
+    /** Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version). */
+    result?: unknown
+}
+
+export interface ChangeRequestRejectApi {
+    /** Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester. */
+    reason: string
 }
 
 export interface CommentApi {
@@ -961,6 +996,7 @@ export type ActivityLogListParams = {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
      * * `UserGroup` - UserGroup
@@ -983,6 +1019,8 @@ export type ActivityLogListParams = {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `LLMPrompt` - LLMPrompt
+     * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -990,12 +1028,18 @@ export type ActivityLogListParams = {
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
+     * * `LogsRetentionRule` - LogsRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `StreamlitApp` - StreamlitApp
+     * * `Metric` - Metric
+     * * `TableCertification` - TableCertification
+     * * `Billing` - Billing
+     * * `Loop` - Loop
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1043,6 +1087,7 @@ export const ActivityLogListScope = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
     UserGroup: 'UserGroup',
@@ -1065,6 +1110,8 @@ export const ActivityLogListScope = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    LLMPrompt: 'LLMPrompt',
+    LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -1072,12 +1119,18 @@ export const ActivityLogListScope = {
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    LogsRetentionRule: 'LogsRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    StreamlitApp: 'StreamlitApp',
+    Metric: 'Metric',
+    TableCertification: 'TableCertification',
+    Billing: 'Billing',
+    Loop: 'Loop',
 } as const
 
 /**
@@ -1112,6 +1165,7 @@ export const ActivityLogListScope = {
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
  * * `OrganizationDomain` - OrganizationDomain
+ * * `IdentityProviderConfig` - IdentityProviderConfig
  * * `OrganizationMembership` - OrganizationMembership
  * * `Role` - Role
  * * `UserGroup` - UserGroup
@@ -1134,6 +1188,8 @@ export const ActivityLogListScope = {
  * * `ExternalDataSource` - ExternalDataSource
  * * `ExternalDataSchema` - ExternalDataSchema
  * * `Evaluation` - Evaluation
+ * * `LLMPrompt` - LLMPrompt
+ * * `LLMPromptLabel` - LLMPromptLabel
  * * `LLMTrace` - LLMTrace
  * * `AIGatewayCredit` - AIGatewayCredit
  * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -1141,12 +1197,18 @@ export const ActivityLogListScope = {
  * * `Log` - Log
  * * `LogsAlertConfiguration` - LogsAlertConfiguration
  * * `LogsExclusionRule` - LogsExclusionRule
+ * * `LogsRetentionRule` - LogsRetentionRule
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
+ * * `StreamlitApp` - StreamlitApp
+ * * `Metric` - Metric
+ * * `TableCertification` - TableCertification
+ * * `Billing` - Billing
+ * * `Loop` - Loop
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1182,6 +1244,7 @@ export const ActivityLogListScopesItem = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
     UserGroup: 'UserGroup',
@@ -1204,6 +1267,8 @@ export const ActivityLogListScopesItem = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    LLMPrompt: 'LLMPrompt',
+    LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -1211,12 +1276,18 @@ export const ActivityLogListScopesItem = {
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    LogsRetentionRule: 'LogsRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    StreamlitApp: 'StreamlitApp',
+    Metric: 'Metric',
+    TableCertification: 'TableCertification',
+    Billing: 'Billing',
+    Loop: 'Loop',
 } as const
 
 export type AdvancedActivityLogsListParams = {

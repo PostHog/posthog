@@ -4,7 +4,9 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import {
     TraceTreeNode,
+    buildFeedbackAttachmentMap,
     getEffectiveEventId,
+    getHighlightedEventId,
     getInitialFocusEventId,
     getSingleTraceLoadTiming,
     reportTraceNormalizationFailures,
@@ -341,6 +343,29 @@ describe('resolveTraceEventById', () => {
     })
 })
 
+describe('getHighlightedEventId', () => {
+    const llmTraceEvent: LLMTraceEvent = {
+        id: 'internal-uuid',
+        event: '$ai_generation',
+        properties: { $ai_span_id: 'my-span' },
+        createdAt: '2024-01-01T00:00:00Z',
+    }
+    const llmTrace: LLMTrace = {
+        id: 'trace-id',
+        distinctId: 'user-1',
+        events: [],
+        createdAt: '2024-01-01T00:00:00Z',
+    }
+
+    it.each<[string, LLMTrace | LLMTraceEvent | null, string | null]>([
+        ['LLMTraceEvent', llmTraceEvent, 'internal-uuid'],
+        ['LLMTrace', llmTrace, null],
+        ['null', null, null],
+    ])('returns correct id for %s', (_label, event, expected) => {
+        expect(getHighlightedEventId(event)).toBe(expected)
+    })
+})
+
 describe('getSingleTraceLoadTiming', () => {
     it('computes trace age from earliest event timestamp in UTC with query runner duration', () => {
         const trace: LLMTrace = {
@@ -553,5 +578,73 @@ describe('reportTraceNormalizationFailures', () => {
         )
 
         expect(capture).not.toHaveBeenCalled()
+    })
+})
+
+describe('buildFeedbackAttachmentMap', () => {
+    const span: LLMTraceEvent = {
+        id: 'span-1',
+        event: '$ai_span',
+        properties: { $ai_parent_id: 'trace-1' },
+        createdAt: '2024-01-01T00:00:00Z',
+    }
+
+    it.each([
+        ['targets a real span via $ai_parent_id', { $ai_parent_id: 'span-1', $ai_metric_value: '95' }, 'attached'],
+        ['targets the trace root via $ai_parent_id', { $ai_parent_id: 'trace-1', $ai_metric_value: '95' }, 'root'],
+        ['has only $ai_trace_id, no $ai_parent_id', { $ai_trace_id: 'trace-1', $ai_metric_value: '95' }, 'root'],
+        ['has neither $ai_parent_id nor $ai_trace_id', { $ai_metric_value: '95' }, 'root'],
+        ['has a dangling $ai_parent_id', { $ai_parent_id: 'does-not-exist', $ai_metric_value: '95' }, 'root'],
+    ])('%s', (_name, metricProperties, expected) => {
+        const metric: LLMTraceEvent = {
+            id: 'metric-1',
+            event: '$ai_metric',
+            properties: metricProperties,
+            createdAt: '2024-01-01T00:01:00Z',
+        }
+
+        const { byNodeId, rootLevel } = buildFeedbackAttachmentMap([span, metric], 'trace-1')
+
+        if (expected === 'attached') {
+            expect(byNodeId.get('span-1')).toEqual([metric])
+            expect(rootLevel).toEqual([])
+        } else {
+            expect(byNodeId.size).toBe(0)
+            expect(rootLevel).toEqual([metric])
+        }
+    })
+
+    it('excludes a metric with no $ai_metric_value from both buckets', () => {
+        const metric: LLMTraceEvent = {
+            id: 'metric-1',
+            event: '$ai_metric',
+            properties: { $ai_parent_id: 'span-1' },
+            createdAt: '2024-01-01T00:01:00Z',
+        }
+
+        const { byNodeId, rootLevel } = buildFeedbackAttachmentMap([span, metric], 'trace-1')
+
+        expect(byNodeId.size).toBe(0)
+        expect(rootLevel).toEqual([])
+    })
+
+    it('groups metrics before feedback on the same node, preserving chronological order within each type', () => {
+        const feedback: LLMTraceEvent = {
+            id: 'feedback-1',
+            event: '$ai_feedback',
+            properties: { $ai_parent_id: 'span-1', $ai_feedback_text: 'Helpful' },
+            createdAt: '2024-01-01T00:01:00Z',
+        }
+        const metric: LLMTraceEvent = {
+            id: 'metric-1',
+            event: '$ai_metric',
+            properties: { $ai_parent_id: 'span-1', $ai_metric_value: '95' },
+            createdAt: '2024-01-01T00:02:00Z',
+        }
+
+        // Feedback is chronologically first but must still sort after the metric.
+        const { byNodeId } = buildFeedbackAttachmentMap([span, feedback, metric], 'trace-1')
+
+        expect(byNodeId.get('span-1')).toEqual([metric, feedback])
     })
 })

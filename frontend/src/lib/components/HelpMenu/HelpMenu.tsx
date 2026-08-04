@@ -4,21 +4,20 @@ import { useActions, useValues } from 'kea'
 import { IconCopy, IconDatabase, IconOpenSidebar, IconServer, IconShieldLock, IconSparkles } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { IconMenu, IconWithBadge } from 'lib/lemon-ui/icons'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { Link } from 'lib/lemon-ui/Link/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -28,7 +27,6 @@ import { keyBinds } from '../Shortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { healthSummaryLogic } from './healthSummaryLogic'
 import { helpMenuLogic } from './helpMenuLogic'
-import { IconCheeseburger } from './IconCheeseburger'
 import { posthogStatusLogic } from './posthogStatusLogic'
 
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
@@ -42,9 +40,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent, statusPageUrl } =
         useValues(posthogStatusLogic)
     const { totalIssues } = useValues(healthSummaryLogic)
-
-    // A/B test of the trigger icon: control = 3-line hamburger menu icon, test = cheeseburger glyph
-    const useCheeseburger = useFeatureFlag('MORE_MENU_ICON_EXPERIMENT', 'test')
 
     return (
         <Menu.Root open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
@@ -74,11 +69,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                 status={triggerBadgeStatus}
                                 className="flex"
                             >
-                                {useCheeseburger ? (
-                                    <IconCheeseburger className="size-[17px]" />
-                                ) : (
-                                    <IconMenu className="size-[17px]" />
-                                )}
+                                <IconMenu className="size-[17px]" />
                             </IconWithBadge>
                         </span>
                         {!iconOnly && (

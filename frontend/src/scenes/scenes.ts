@@ -2,6 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { Params, Scene, SceneConfig, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -297,7 +298,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger' },
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
-    [Scene.EmailMFAVerify]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Login]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
     [Scene.Models]: {
@@ -453,11 +453,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Copy template to project',
         layout: 'app-container',
     },
-    [Scene.RevenueAnalytics]: {
-        projectBased: true,
-        name: 'Revenue analytics',
-        layout: 'app-container',
-    },
     [Scene.MarketingAnalytics]: {
         projectBased: true,
         name: 'Marketing analytics',
@@ -515,18 +510,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'exports',
         description:
             'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
-    },
-    [Scene.Subscriptions]: {
-        projectBased: true,
-        name: 'Subscriptions',
-        iconType: 'inbox',
-        description: 'View and manage scheduled insight and dashboard subscriptions for this project.',
-    },
-    [Scene.Subscription]: {
-        projectBased: true,
-        name: 'Subscription',
-        iconType: 'inbox',
-        description: 'View subscription details and delivery history for this project.',
     },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
@@ -675,6 +658,9 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.destinations(),
+    // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
+    // ?review= / ?reviews_scope= deep links that PR status comments bake in
+    '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
@@ -709,9 +695,12 @@ export const redirects: Record<
 
     '/events/actions': urls.actions(),
     '/events/properties': urls.propertyDefinitions(),
-    '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
+    '/events/properties/:id': ({ id }) => urls.propertyDefinition(tryDecodeURIComponent(id)),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
+    // The scene lives at /feature_flags (underscore); catch the hyphenated variant so it doesn't 404
+    '/feature-flags': urls.featureFlags(),
+    '/feature-flags/:id': ({ id }) => urls.featureFlag(id),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/me/settings': urls.settings('user'),
@@ -739,6 +728,8 @@ export const redirects: Record<
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
     '/project/settings': urls.settings('project'),
+    // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
+    '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/settings': () => urls.replaySettings(),
@@ -777,14 +768,13 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
     [urls.ingestionWarnings()]: [Scene.DataManagement, 'ingestionWarnings'],
+    [urls.ingestionWarningsV2()]: [Scene.DataManagement, 'ingestionWarningsV2'],
     [urls.insightQuickStart()]: [Scene.InsightQuickStart, 'insightQuickStart'],
     [urls.insightNew()]: [Scene.Insight, 'insightNew'],
     [urls.insightEdit(':shortId' as InsightShortId)]: [Scene.Insight, 'insightEdit'],
     [urls.insightView(':shortId' as InsightShortId)]: [Scene.Insight, 'insightView'],
     [urls.insightSubcriptions(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSubcriptions'],
     [urls.insightSubcription(':shortId' as InsightShortId, ':itemId')]: [Scene.Insight, 'insightSubcription'],
-    [urls.alert(':shortId')]: [Scene.SavedInsights, 'alert'],
-    [urls.alerts()]: [Scene.SavedInsights, 'alerts'],
     [urls.insightAlerts(':shortId' as InsightShortId)]: [Scene.Insight, 'insightAlerts'],
     [urls.insightSharing(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSharing'],
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
@@ -795,7 +785,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
     [urls.webAnalyticsRecap()]: [Scene.WebAnalyticsRecap, 'webAnalyticsRecap'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
-    [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
@@ -855,6 +844,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],
+    [urls.featureFlagsStaffTools()]: ['FeatureFlagsStaffTools' as Scene, 'featureFlagsStaffTools'],
+    [urls.cohortsStaffTools()]: ['CohortsStaffTools' as Scene, 'cohortsStaffTools'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
@@ -898,7 +889,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.credentialReview()]: [Scene.CredentialReview, 'credentialReview'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
-    [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
     [urls.signup()]: [Scene.Signup, 'signup'],
     [urls.inviteSignup(':id')]: [Scene.InviteSignup, 'inviteSignup'],
@@ -956,14 +946,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     // Parameterized route must come after static /health/* routes
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
-    [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
-    // Static + edit routes MUST come before `/subscriptions/:subscriptionId`,
-    // otherwise the wildcard captures "new" / "<id>/edit" and mounts the detail
-    // scene → 404 "Subscription not found" with a removeChild reconciliation
-    // error from the racing mounts.
-    [urls.subscriptionNew()]: [Scene.Subscriptions, 'subscriptionNew'],
-    [urls.subscriptionEdit(':subscriptionId')]: [Scene.Subscriptions, 'subscriptionEdit'],
-    [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],

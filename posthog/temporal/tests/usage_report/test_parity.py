@@ -73,6 +73,11 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
         "teams_with_node_exceptions_captured_in_period": {team_b_id: 1},
         "teams_with_api_queries_count": {team_a_id: 10},
         "teams_with_api_queries_read_bytes": {team_a_id: 1_500_000},
+        # apm_tracing is a multi-output spec (bytes + spans) and drives a
+        # derived per-team MB field. team_a2's sub-MB bytes must floor to 0
+        # per team before the org sum, so org_a's MB is 2 (not 3).
+        "teams_with_apm_tracing_bytes_in_period": {team_a_id: 2_500_000, team_b_id: 600_000, team_c_id: 999_999},
+        "teams_with_apm_tracing_spans_in_period": {team_a_id: 40, team_b_id: 10, team_c_id: 5},
     }
     return {key: interesting.get(key, {}) for key in _all_destination_keys()}
 
@@ -255,6 +260,17 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert temporal_per_org[str(org_b.id)]["event_count_in_period"] == 25
     assert temporal_per_org[str(org_a.id)]["team_count"] == 2
     assert temporal_per_org[str(org_b.id)]["team_count"] == 1
+
+    # apm_tracing is a multi-output spec: the byte→spans mapping must fan out
+    # correctly and the derived MB field must floor per team before the org
+    # sum. org_a is two teams (2_500_000 + 600_000 bytes → 2 MB, since the
+    # 600_000 team floors to 0), org_b is one (999_999 bytes → 0 MB).
+    assert temporal_per_org[str(org_a.id)]["apm_tracing_bytes_in_period"] == 2_500_000 + 600_000
+    assert temporal_per_org[str(org_a.id)]["apm_tracing_spans_in_period"] == 40 + 10
+    assert temporal_per_org[str(org_a.id)]["apm_tracing_mb_in_period"] == 2
+    assert temporal_per_org[str(org_b.id)]["apm_tracing_bytes_in_period"] == 999_999
+    assert temporal_per_org[str(org_b.id)]["apm_tracing_spans_in_period"] == 5
+    assert temporal_per_org[str(org_b.id)]["apm_tracing_mb_in_period"] == 0
 
 
 @pytest.mark.django_db(transaction=True)

@@ -57,6 +57,11 @@ export function isDiscussionCommentProps(props: NotebookComponentProps): boolean
 }
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 const EMPTY_PARAGRAPH_MARKDOWN = ' '
+/** One blank line separates two blocks of the same card; a second one starts a new card
+ * (`startsGroup` in `types.ts`). Programmatic writers append blocks with this separator so each
+ * one lands as its own node. */
+export const NOTEBOOK_BLOCK_SEPARATOR = '\n\n\n'
+const NOTEBOOK_BLOCK_JOINER = '\n\n'
 // Every character the serializer may backslash-escape; the inline parser turns `\X` back into
 // the literal character for exactly this set, so the two must stay in sync.
 const INLINE_ESCAPABLE_CHARS = new Set([
@@ -114,6 +119,7 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
     }
 
     let lineIndex = 0
+    let blankLinesBeforeBlock = 0
     while (lineIndex < lines.length) {
         const line = lines[lineIndex]
 
@@ -122,12 +128,15 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
                 id: '',
                 type: 'paragraph',
                 children: [],
+                startsGroup: nodes.length > 0 && blankLinesBeforeBlock > 1 ? true : undefined,
             })
+            blankLinesBeforeBlock = 0
             lineIndex += 1
             continue
         }
 
         if (!line.trim()) {
+            blankLinesBeforeBlock += 1
             lineIndex += 1
             continue
         }
@@ -137,8 +146,12 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
             errors.push(result.error)
         }
         if (result.node) {
+            if (nodes.length > 0 && blankLinesBeforeBlock > 1) {
+                result.node.startsGroup = true
+            }
             pushParsedNode(result.node)
         }
+        blankLinesBeforeBlock = 0
         lineIndex = Math.max(result.nextLineIndex, lineIndex + 1)
     }
 
@@ -152,8 +165,14 @@ export function serializeMarkdownNotebook(document: NotebookDocument): string {
 
     const shouldPreserveEmptyParagraphs = document.nodes.length > 1
     const serialized = document.nodes
-        .map((node) => serializeDocumentNode(node, shouldPreserveEmptyParagraphs))
-        .join('\n\n')
+        .map((node, index) => {
+            const block = serializeDocumentNode(node, shouldPreserveEmptyParagraphs)
+            if (index === 0) {
+                return block
+            }
+            return `${node.startsGroup ? NOTEBOOK_BLOCK_SEPARATOR : NOTEBOOK_BLOCK_JOINER}${block}`
+        })
+        .join('')
     const lastNode = document.nodes[document.nodes.length - 1]
     const previousNode = document.nodes[document.nodes.length - 2]
     const shouldPreserveTrailingEmptyParagraph =
@@ -180,9 +199,11 @@ export function serializeNode(node: NotebookBlockNode): string {
 function serializeNodeUncached(node: NotebookBlockNode): string {
     if (node.type === 'heading') {
         const [firstLine, ...followingLines] = serializeInlineNodes(node.children).split('\n')
-        return [`${'#'.repeat(node.level ?? 1)} ${firstLine}`, ...followingLines.map(escapeMarkdownLineStart)].join(
-            '\n'
-        )
+        const linePrefix = node.blockquote ? '> ' : ''
+        return [
+            `${linePrefix}${'#'.repeat(node.level ?? 1)} ${firstLine}`,
+            ...followingLines.map((followingLine) => `${linePrefix}${escapeMarkdownLineStart(followingLine)}`),
+        ].join('\n')
     }
     if (node.type === 'paragraph') {
         return escapeMarkdownBlockLines(serializeInlineNodes(node.children))
@@ -608,13 +629,33 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         if (isListLine(stripBlockquoteMarker(line))) {
             return parseBlockquotedListBlock(lines, lineIndex)
         }
+        if (COMPONENT_START_REGEX.test(stripAllBlockquoteMarkers(line))) {
+            return parseBlockquotedComponentBlock(lines, lineIndex)
+        }
+
+        // The heading marker needs its trailing space (`> ## `), which stripBlockquoteMarker trims.
+        const quotedHeadingMatch = line.replace(/^\s*>\s?/, '').match(HEADING_REGEX)
+        if (quotedHeadingMatch) {
+            return {
+                node: {
+                    id: '',
+                    type: 'heading',
+                    level: quotedHeadingMatch[1].length as NotebookTextBlockNode['level'],
+                    blockquote: true,
+                    children: parseInlineMarkdown(quotedHeadingMatch[2]),
+                },
+                nextLineIndex: lineIndex + 1,
+            }
+        }
 
         const quoteLines: string[] = []
         let nextLineIndex = lineIndex
         while (
             nextLineIndex < lines.length &&
             lines[nextLineIndex].trim().startsWith('>') &&
-            !isListLine(stripBlockquoteMarker(lines[nextLineIndex]))
+            !isListLine(stripBlockquoteMarker(lines[nextLineIndex])) &&
+            !HEADING_REGEX.test(lines[nextLineIndex].replace(/^\s*>\s?/, '')) &&
+            !COMPONENT_START_REGEX.test(stripAllBlockquoteMarkers(lines[nextLineIndex]))
         ) {
             quoteLines.push(stripBlockquoteMarker(lines[nextLineIndex]))
             nextLineIndex += 1
@@ -674,6 +715,34 @@ function isListLine(line: string): boolean {
 
 function stripBlockquoteMarker(line: string): string {
     return line.trim().replace(/^>\s?/, '')
+}
+
+function stripAllBlockquoteMarkers(line: string): string {
+    let stripped = stripBlockquoteMarker(line)
+    while (stripped.trim().startsWith('>')) {
+        stripped = stripBlockquoteMarker(stripped)
+    }
+    return stripped
+}
+
+// Component tags have no blockquote representation in this model, so a quoted tag line (as
+// produced by older legacy-notebook conversions, e.g. `> <Query … />`) is parsed as the
+// component itself, broken out of the quote. Treating it as quote text would degrade the tag
+// to escaped literal text on the next save, permanently destroying the node.
+function parseBlockquotedComponentBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const strippedLines: string[] = []
+    let end = lineIndex
+    while (end < lines.length && lines[end].trim().startsWith('>')) {
+        strippedLines.push(stripAllBlockquoteMarkers(lines[end]))
+        end += 1
+    }
+
+    const result = parseComponentBlock(strippedLines, 0)
+    return {
+        ...result,
+        nextLineIndex: lineIndex + result.nextLineIndex,
+        error: result.error ? { ...result.error, line: lineIndex + result.error.line } : undefined,
+    }
 }
 
 function parseBlockquotedListBlock(lines: string[], lineIndex: number): BlockParseResult {

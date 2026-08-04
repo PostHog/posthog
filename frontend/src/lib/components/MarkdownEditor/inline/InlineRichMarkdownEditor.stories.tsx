@@ -2,11 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { useState } from 'react'
 
-import {
-    markdownToTextCardDoc,
-    textCardDocToMarkdown,
-    TEXT_CARD_MARKDOWN_EXTENSIONS,
-} from 'lib/components/Cards/TextCard/textCardMarkdown'
+import { TEXT_CARD_MARKDOWN_EXTENSIONS, textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 
 import { InlineRichMarkdownEditor, InlineRichMarkdownEditorProps } from './InlineRichMarkdownEditor'
 
@@ -24,8 +20,8 @@ const INLINE_EXTENSIONS_BUBBLE_AND_SLASH = [
 
 const storyDefaults = {
     extensions: INLINE_EXTENSIONS,
-    markdownToDoc: markdownToTextCardDoc,
-    docToMarkdown: textCardDocToMarkdown,
+    markdownToDoc: textCardConverter.markdownToDoc,
+    docToMarkdown: textCardConverter.docToMarkdown,
     dataAttr: 'story-inline-rich-markdown-editor',
 }
 
@@ -56,7 +52,7 @@ export const WithMarkdown: Story = {
 export const WithSlashCommands: Story = {
     args: {
         value: 'Type / in the editor to open the command menu.',
-        showSlashCommands: true,
+        controls: { slashCommands: true },
     },
 }
 
@@ -67,8 +63,6 @@ export const BubbleMenuAndSlashCommands: Story = {
         value: `Select this sentence to open the **bubble** toolbar (bold, link, image, emoji, etc.).
 
 On a new line, type \`/\` to open **slash** commands — same capabilities grouped as Style and Insert.`,
-        showSlashCommands: true,
-        showBubbleImageUpload: true,
-        showBubbleEmoji: true,
+        controls: { slashCommands: true, imageUpload: true, emoji: true },
     },
 }

@@ -38,6 +38,14 @@ export interface LogsViewerProps {
     // Filters enforced by the embedding scene. Merged into the user-editable filterGroup
     // and rendered without an X so users can't accidentally drop the scope.
     pinnedFilters?: UniversalFiltersGroup
+    // Scope all logs and sparkline queries to this person (uuid or numeric id). Expanded
+    // server-side to the person's distinct ids and matched against the team's configured
+    // distinct-id log attributes — unlike a pinned distinct-ids filter, not capped by how
+    // many ids the person page happened to load.
+    personId?: string
+    // Seed the facet/filter rail as collapsed on first mount for this id. Persisted per id,
+    // so a user who expands it keeps that choice; the "Show filters" toggle still re-expands.
+    defaultFacetRailCollapsed?: boolean
 }
 
 export function LogsViewer({
@@ -46,10 +54,12 @@ export function LogsViewer({
     showSavedViewsButton = false,
     initialFilters,
     pinnedFilters,
+    personId,
+    defaultFacetRailCollapsed,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters }}>
-            <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId }}>
+            <BindLogic logic={logsViewerConfigLogic} props={{ id, defaultFacetRailCollapsed }}>
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
@@ -99,7 +109,7 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode, groupBy } =
+    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
         useValues(logsViewerConfigLogic)
     const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
@@ -339,18 +349,16 @@ function LogsViewerContent({
         </>
     )
 
-    // Patterns is a mode of the Viewer, not a separate tab: it swaps only the results region
-    // and reuses the same filter bar / FacetRail / date range (shared via logsViewerFiltersLogic).
-    // Gate on the flag too, so the patterns query stays unreachable when the flag is off regardless
-    // of the (non-persisted) viewMode state.
+    // Patterns and Group are modes of the Viewer, not separate tabs: they swap only the results
+    // region and reuse the same filter bar / FacetRail / date range (shared via
+    // logsViewerFiltersLogic). Each gates on its flag too, so its query stays unreachable when
+    // the flag is off regardless of the (non-persisted) viewMode state.
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
-    // Group-by (prototype, logs-group-by flag): an active grouping swaps the Logs lens's results
-    // for the grouped table. Double-gated like Patterns so it's unreachable with the flag off.
-    const inGroupByMode = showGroupBy && !inPatternsMode && groupBy !== null
+    const inGroupByMode = showGroupBy && viewMode === 'group'
     const resultsRegion = inPatternsMode ? (
         <LogsPatterns id={id} />
-    ) : inGroupByMode && groupBy ? (
-        <LogsGroupByResults groupBy={groupBy} />
+    ) : inGroupByMode ? (
+        <LogsGroupByResults id={id} />
     ) : (
         logList
     )

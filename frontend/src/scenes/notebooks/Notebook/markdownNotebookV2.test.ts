@@ -17,6 +17,7 @@ import {
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookTitle,
+    insertMarkdownNotebookBlockAfterNode,
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
     notebookContentHasCommentMarks,
@@ -57,9 +58,43 @@ describe('markdownNotebookV2', () => {
             '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'
         )
 
-        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(`# Activation
+        // Two blank lines: an appended block is a node of its own, not a continuation of the
+        // card the notebook currently ends with.
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\n\n<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'
+        )
+    })
 
-<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />`)
+    it('inserts markdown blocks after the block with a matching nodeId prop', () => {
+        const content = buildMarkdownNotebookContent(
+            '# Activation\n\n<UsageMetrics nodeId="target-node" />\n\nClosing paragraph'
+        )
+        const nextContent = insertMarkdownNotebookBlockAfterNode(content, 'target-node', '<Survey id="s1" />')
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\n<UsageMetrics nodeId="target-node" />\n\n<Survey id="s1" />\n\nClosing paragraph'
+        )
+    })
+
+    it('inserts markdown blocks after the block with a matching parsed block id', () => {
+        const markdown = '# Activation\n\nMiddle paragraph\n\nClosing paragraph'
+        const middleBlockId = parseMarkdownNotebook(markdown).nodes[1].id
+        const nextContent = insertMarkdownNotebookBlockAfterNode(
+            buildMarkdownNotebookContent(markdown),
+            middleBlockId,
+            'Inserted paragraph'
+        )
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\nMiddle paragraph\n\nInserted paragraph\n\nClosing paragraph'
+        )
+    })
+
+    it('appends at the end when no block matches the target node id', () => {
+        const content = buildMarkdownNotebookContent('# Activation')
+        const nextContent = insertMarkdownNotebookBlockAfterNode(content, 'missing-node', '<Survey id="s1" />')
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual('# Activation\n\n\n<Survey id="s1" />')
     })
 
     it('converts common legacy notebook nodes to markdown', () => {
@@ -527,6 +562,84 @@ after`)
         expect(parsed.errors).toEqual([])
         // The legacy horizontal rule round-trips into the markdown notebook divider component
         expect(parsed.nodes.map((node) => node.type)).toEqual(['heading', 'list', 'component', 'blockquote'])
+    })
+
+    it('splits embedded cards out of blockquotes while keeping headings quoted', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'blockquote',
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Quoted context' }] },
+                        {
+                            type: NotebookNodeType.Query,
+                            attrs: {
+                                query: { kind: NodeKind.SavedInsightNode, shortId: 'abc123' },
+                                hideFilters: true,
+                            },
+                        },
+                        {
+                            type: 'blockquote',
+                            content: [
+                                {
+                                    type: 'heading',
+                                    attrs: { level: 2 },
+                                    content: [{ type: 'text', text: 'Where to improve' }],
+                                },
+                                { type: NotebookNodeType.Python, attrs: { code: 'print(1)', hideFilters: true } },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('> Quoted context')
+        expect(markdown).toContain('\n\n<Query ')
+        expect(markdown).toContain('> ## Where to improve')
+        expect(markdown).toContain('\n\n<Python ')
+        expect(markdown).not.toContain('> <')
+
+        const parsed = parseMarkdownNotebook(markdown)
+        expect(parsed.errors).toEqual([])
+        expect(parsed.nodes.flatMap((node) => (node.type === 'component' ? [node.tagName] : []))).toEqual([
+            'Query',
+            'Python',
+        ])
+        const quotedHeading = parsed.nodes.find((node) => node.type === 'heading')
+        expect(quotedHeading?.type === 'heading' && quotedHeading.blockquote).toBe(true)
+    })
+
+    it('splits embedded cards out of callouts while keeping the emoji and text quoted', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'callout',
+                    attrs: { emoji: '!' },
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Watch this' }] },
+                        {
+                            type: NotebookNodeType.Query,
+                            attrs: {
+                                query: { kind: NodeKind.SavedInsightNode, shortId: 'abc123' },
+                                hideFilters: true,
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('> ! Watch this')
+        expect(markdown).toContain('\n\n<Query ')
+        expect(markdown).not.toContain('> <')
+        expect(parseMarkdownNotebook(markdown).errors).toEqual([])
     })
 
     it('converts notebook artifacts to markdown notebook content', () => {

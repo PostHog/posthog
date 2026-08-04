@@ -15,7 +15,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 
-import { SessionReplayHeaders } from './validate-headers-step'
+import { SessionReplayHeaders } from './pipeline-types'
 
 const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4')
 

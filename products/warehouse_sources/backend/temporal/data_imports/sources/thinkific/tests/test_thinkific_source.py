@@ -7,7 +7,9 @@ from parameterized import parameterized
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ThinkificSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkific import (
+    ThinkificSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.source import ThinkificSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.thinkific import ThinkificResumeConfig
@@ -43,7 +45,6 @@ class TestThinkificSourceConfig:
         assert cfg.label == "Thinkific"
         assert cfg.category == DataWarehouseSourceCategory.E_COMMERCE
         assert cfg.releaseStatus == ReleaseStatus.ALPHA
-        assert cfg.unreleasedSource is True
 
     def test_source_config_fields(self) -> None:
         cfg = ThinkificSource().get_source_config

@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailgunSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailgun import (
+    MailgunSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import MailgunResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.settings import (
     ENDPOINTS,

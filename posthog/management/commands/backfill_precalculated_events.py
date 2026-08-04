@@ -200,7 +200,7 @@ class Command(BaseCommand):
             help="Number of concurrent child workflows to run (default: 5)",
         )
         parser.add_argument(
-            "--force-reprocess",
+            "--ignore-backfilled-dates",
             action="store_true",
             default=False,
             help="Skip the already-backfilled check and reprocess all days unconditionally",
@@ -212,7 +212,7 @@ class Command(BaseCommand):
         cohort_id = options.get("cohort_id")
         days_override = options.get("days")
         concurrent_workflows = options["concurrent_workflows"]
-        force_reprocess = options["force_reprocess"]
+        ignore_backfilled_dates = options["ignore_backfilled_dates"]
 
         if team_id and team_ids_option:
             raise CommandError("Cannot use both --team-id and --team-ids. Please use only one.")
@@ -371,7 +371,7 @@ class Command(BaseCommand):
                     cohort_ids=cohort_ids,
                     effective_days=effective_days,
                     concurrent_workflows=concurrent_workflows,
-                    force_reprocess=force_reprocess,
+                    ignore_backfilled_dates=ignore_backfilled_dates,
                 )
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"Failed to start workflow for team {current_team_id}: {e}"))
@@ -395,7 +395,7 @@ class Command(BaseCommand):
         cohort_ids: list[int],
         effective_days: int,
         concurrent_workflows: int,
-        force_reprocess: bool = False,
+        ignore_backfilled_dates: bool = False,
     ) -> str:
         """Run the Temporal coordinator workflow for the team."""
         filter_storage_key = store_event_filters(filters, team_id)
@@ -416,7 +416,7 @@ class Command(BaseCommand):
                 condition_hashes=condition_hashes,
                 days_to_backfill=effective_days,
                 concurrent_workflows=concurrent_workflows,
-                force_reprocess=force_reprocess,
+                ignore_backfilled_dates=ignore_backfilled_dates,
             )
 
             await client.start_workflow(

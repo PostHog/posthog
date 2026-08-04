@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
-use common_metrics::setup_metrics_routes;
+use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use tokio::sync::mpsc;
@@ -13,11 +13,10 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use common_kafka::kafka_producer::create_kafka_producer;
 use personhog_writer::buffer::PersonBuffer;
 use personhog_writer::config::Config;
 use personhog_writer::consumer::ConsumerTask;
-use personhog_writer::kafka::{PersonConsumer, WarningsProducer};
+use personhog_writer::kafka::PersonConsumer;
 use personhog_writer::pg::PgStore;
 use personhog_writer::store::PersonWriteStore;
 use personhog_writer::writer::WriterTask;
@@ -90,7 +89,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
-        let metrics_router = setup_metrics_routes(health_router);
+        // E2E latency is a lag detector: healthy produce-to-commit lag is
+        // seconds (the flush cadence), and the interesting tail is minutes
+        // of writer lag. The default buckets cap at 10s, which would
+        // collapse every lag excursion into +Inf.
+        let metrics_router = setup_metrics_routes_with_overrides(
+            health_router,
+            &[(
+                Matcher::Full("personhog_writer_e2e_latency_ms".into()),
+                &[
+                    250.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0,
+                    600000.0,
+                ],
+            )],
+        );
 
         let bind = format!("0.0.0.0:{metrics_port}");
         let listener = tokio::net::TcpListener::bind(&bind)
@@ -137,23 +149,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
     tracing::info!("Subscribed to Kafka topic: {}", config.kafka_topic);
 
-    // Ingestion warnings producer
-    let warnings_producer = create_kafka_producer(&config.kafka, writer_handle.clone())
-        .await
-        .map(|producer| {
-            WarningsProducer::new(producer, config.kafka_ingestion_warnings_topic.clone())
-        })
-        .ok();
-
-    if warnings_producer.is_some() {
-        tracing::info!(
-            "Ingestion warnings enabled (topic: {})",
-            config.kafka_ingestion_warnings_topic
-        );
-    } else {
-        tracing::warn!("Ingestion warnings disabled (Kafka producer creation failed)");
-    }
-
     // Writer task
     let pg_store = PgStore::new(pool, config.pg_target_table.clone());
     let store = PersonWriteStore::new(
@@ -161,17 +156,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         personhog_writer::store::StoreConfig {
             chunk_size: config.upsert_batch_size,
             row_fallback_concurrency: config.row_fallback_concurrency,
-            properties_size_threshold: config.properties_size_threshold,
-            properties_trim_target: config.properties_trim_target,
         },
     );
-    let writer_task = WriterTask::new(
-        Arc::clone(&kafka_consumer),
-        store,
-        flush_rx,
-        writer_handle,
-        warnings_producer,
-    );
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
 
     tokio::spawn(async move {
         writer_task.run().await;

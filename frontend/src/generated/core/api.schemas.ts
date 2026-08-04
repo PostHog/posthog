@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -117,50 +119,12 @@ export interface OrganizationDomainApi {
     sso_enforcement?: string
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml: boolean
-    /**
-     * SAML IdP entity ID (issuer).
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * SAML single sign-on (ACS) URL.
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /**
-     * SAML IdP X.509 signing certificate (PEM).
-     * @nullable
-     */
-    saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim: boolean
-    /** Whether SCIM provisioning is enabled for this domain. */
-    scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url: string | null
-    /** @nullable */
-    readonly scim_bearer_token: string | null
     /** Returns whether ID-JAG (XAA) is configured for this domain. */
     readonly has_id_jag: boolean
-    /**
-     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_issuer_url?: string | null
-    /**
-     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_jwks_url?: string | null
-    /**
-     * Allowed ID-JAG client IDs. Empty list allows any client_id.
-     * @items.maxLength 256
-     */
-    id_jag_allowed_clients?: string[]
     /**
      * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
      * @nullable
@@ -191,50 +155,12 @@ export interface PatchedOrganizationDomainApi {
     sso_enforcement?: string
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml?: boolean
-    /**
-     * SAML IdP entity ID (issuer).
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * SAML single sign-on (ACS) URL.
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /**
-     * SAML IdP X.509 signing certificate (PEM).
-     * @nullable
-     */
-    saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim?: boolean
-    /** Whether SCIM provisioning is enabled for this domain. */
-    scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url?: string | null
-    /** @nullable */
-    readonly scim_bearer_token?: string | null
     /** Returns whether ID-JAG (XAA) is configured for this domain. */
     readonly has_id_jag?: boolean
-    /**
-     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_issuer_url?: string | null
-    /**
-     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_jwks_url?: string | null
-    /**
-     * Allowed ID-JAG client IDs. Empty list allows any client_id.
-     * @items.maxLength 256
-     */
-    id_jag_allowed_clients?: string[]
     /**
      * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
      * @nullable
@@ -603,9 +529,6 @@ export const BusinessModelEnumApi = {
  * * `track_costs` - track_costs
  * * `set_up_llm_evaluation` - set_up_llm_evaluation
  * * `run_ai_playground` - run_ai_playground
- * * `enable_revenue_analytics_viewset` - enable_revenue_analytics_viewset
- * * `connect_revenue_source` - connect_revenue_source
- * * `set_up_revenue_goal` - set_up_revenue_goal
  * * `enable_log_capture` - enable_log_capture
  * * `view_first_logs` - view_first_logs
  * * `create_first_workflow` - create_first_workflow
@@ -677,9 +600,6 @@ export const AvailableSetupTaskIdsEnumApi = {
     TrackCosts: 'track_costs',
     SetUpLlmEvaluation: 'set_up_llm_evaluation',
     RunAiPlayground: 'run_ai_playground',
-    EnableRevenueAnalyticsViewset: 'enable_revenue_analytics_viewset',
-    ConnectRevenueSource: 'connect_revenue_source',
-    SetUpRevenueGoal: 'set_up_revenue_goal',
     EnableLogCapture: 'enable_log_capture',
     ViewFirstLogs: 'view_first_logs',
     CreateFirstWorkflow: 'create_first_workflow',
@@ -1012,7 +932,6 @@ export const BaseCurrencyEnumApi = {
 export interface TeamRevenueAnalyticsConfigApi {
     base_currency?: BaseCurrencyEnumApi
     events?: unknown
-    goals?: unknown
     filter_test_accounts?: boolean
 }
 
@@ -1065,9 +984,29 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
 }
 
+/**
+ * * `off` - Off
+ * * `opt_out` - Opt Out
+ * * `opt_in` - Opt In
+ */
+export type EmailTrackingConsentModeEnumApi =
+    (typeof EmailTrackingConsentModeEnumApi)[keyof typeof EmailTrackingConsentModeEnumApi]
+
+export const EmailTrackingConsentModeEnumApi = {
+    Off: 'off',
+    OptOut: 'opt_out',
+    OptIn: 'opt_in',
+} as const
+
 export interface TeamWorkflowsConfigApi {
     /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
     capture_workflows_engagement_events?: boolean
+    /** Recipient-consent enforcement for open/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.
+     *
+     * * `off` - Off
+     * * `opt_out` - Opt Out
+     * * `opt_in` - Opt In */
+    email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
 }
 
 /**
@@ -2786,6 +2725,9 @@ export interface SharePasswordApi {
     readonly is_active: boolean
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -2794,218 +2736,11 @@ export interface SharingConfigurationApi {
     settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
-}
-
-export interface FileSystemApi {
-    readonly id: string
-    path: string
-    /** @nullable */
-    readonly depth: number | null
-    /** @maxLength 100 */
-    type?: string
     /**
-     * @maxLength 100
+     * The effective access level the user has for this object
      * @nullable
      */
-    ref?: string | null
-    /** @nullable */
-    href?: string | null
-    meta?: unknown
-    /** @nullable */
-    shortcut?: boolean | null
-    readonly created_at: string
-    /** @nullable */
-    readonly last_viewed_at: string | null
-}
-
-export interface PaginatedFileSystemListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: FileSystemApi[]
-}
-
-export interface PatchedFileSystemApi {
-    readonly id?: string
-    path?: string
-    /** @nullable */
-    readonly depth?: number | null
-    /** @maxLength 100 */
-    type?: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /** @nullable */
-    href?: string | null
-    meta?: unknown
-    /** @nullable */
-    shortcut?: boolean | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly last_viewed_at?: string | null
-}
-
-/**
- * Payload for publishing a freeform canvas's React source via the agent.
- */
-export interface PatchedCanvasPublishApi {
-    code?: string
-    prompt?: string
-    name?: string
-}
-
-export interface ContextGenerationApi {
-    /**
-     * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
-     * @nullable
-     */
-    task_id: string | null
-}
-
-export interface ContextGenerationSetApi {
-    /**
-     * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
-     * @nullable
-     */
-    task_id: string | null
-}
-
-export interface FolderInstructionsApi {
-    /** Unique identifier for this instructions version. */
-    readonly id: string
-    /** Markdown instructions describing the contents of the folder. */
-    readonly content: string
-    /** Monotonically increasing version number, starting at 1. */
-    readonly version: number
-    /** Whether this is the current (latest) version for the folder. */
-    readonly is_latest: boolean
-    /** User who published this version. */
-    readonly created_by: UserBasicApi
-    /** When this version was published. */
-    readonly created_at: string
-    /** When this version row was last modified. */
-    readonly updated_at: string
-}
-
-export interface FolderInstructionsPublishApi {
-    /** Full markdown instructions to publish as a new version for the folder. */
-    content: string
-    /**
-     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
-     * @minimum 0
-     */
-    base_version?: number
-}
-
-export interface PatchedFolderInstructionsPublishApi {
-    /** Full markdown instructions to publish as a new version for the folder. */
-    content?: string
-    /**
-     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
-     * @minimum 0
-     */
-    base_version?: number
-}
-
-/**
- * Version-history entry: metadata only, with the markdown content omitted.
- */
-export interface FolderInstructionsVersionApi {
-    /** Unique identifier for this instructions version. */
-    readonly id: string
-    /** Monotonically increasing version number, starting at 1. */
-    readonly version: number
-    /** Whether this is the current (latest) version for the folder. */
-    readonly is_latest: boolean
-    /** User who published this version. */
-    readonly created_by: UserBasicApi
-    /** When this version was published. */
-    readonly created_at: string
-}
-
-export interface PaginatedFolderInstructionsVersionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: FolderInstructionsVersionApi[]
-}
-
-export interface FileSystemShortcutApi {
-    readonly id: string
-    /** Display path of the shortcut in the sidebar. */
-    path: string
-    /**
-     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
-     * @maxLength 100
-     */
-    type?: string
-    /**
-     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /**
-     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
-     * @nullable
-     */
-    href?: string | null
-    /**
-     * Display order within the user's shortcut list, ascending.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    order?: number
-    readonly created_at: string
-}
-
-export interface PaginatedFileSystemShortcutListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: FileSystemShortcutApi[]
-}
-
-export interface PatchedFileSystemShortcutApi {
-    readonly id?: string
-    /** Display path of the shortcut in the sidebar. */
-    path?: string
-    /**
-     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
-     * @maxLength 100
-     */
-    type?: string
-    /**
-     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /**
-     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
-     * @nullable
-     */
-    href?: string | null
-    /**
-     * Display order within the user's shortcut list, ascending.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    order?: number
-    readonly created_at?: string
-}
-
-export interface FileSystemShortcutReorderApi {
-    /** IDs of the current user's shortcuts in the desired display order. */
-    ordered_ids: string[]
+    readonly user_access_level: string | null
 }
 
 /**
@@ -3064,6 +2799,153 @@ export interface PaginatedExportedAssetListApi {
     /** @nullable */
     previous?: string | null
     results: ExportedAssetApi[]
+}
+
+export interface FileSystemApi {
+    readonly id: string
+    path: string
+    /** @nullable */
+    readonly depth: number | null
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    meta?: unknown
+    /** @nullable */
+    shortcut?: boolean | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+    /** @nullable */
+    readonly last_viewed_at: string | null
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export interface PaginatedFileSystemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemApi[]
+}
+
+export interface PatchedFileSystemApi {
+    readonly id?: string
+    path?: string
+    /** @nullable */
+    readonly depth?: number | null
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    meta?: unknown
+    /** @nullable */
+    shortcut?: boolean | null
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi | null
+    /** @nullable */
+    readonly last_viewed_at?: string | null
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
+export interface FileSystemShortcutApi {
+    readonly id: string
+    /** Display path of the shortcut in the sidebar. */
+    path: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at: string
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export interface PaginatedFileSystemShortcutListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemShortcutApi[]
+}
+
+export interface PatchedFileSystemShortcutApi {
+    readonly id?: string
+    /** Display path of the shortcut in the sidebar. */
+    path?: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at?: string
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
+export interface FileSystemShortcutReorderApi {
+    /** IDs of the current user's shortcuts in the desired display order. */
+    ordered_ids: string[]
 }
 
 /**
@@ -3179,6 +3061,8 @@ export interface EnterprisePropertyDefinitionApi {
     readonly verified_by: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+    readonly warehouse_origin: unknown
 }
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
@@ -3211,6 +3095,8 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+    readonly warehouse_origin?: unknown
 }
 
 /**
@@ -3347,6 +3233,11 @@ export interface OrganizationApi {
     readonly customer_id: string | null
     /** @nullable */
     enforce_2fa?: boolean | null
+    /**
+     * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+     * @nullable
+     */
+    enforce_verified_domains?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
     /**
@@ -3355,6 +3246,8 @@ export interface OrganizationApi {
      */
     members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
     /** @nullable */
@@ -3477,6 +3370,7 @@ export const ShortcutPositionEnumApi = {
  * * `delegated` - Delegated to teammate
  * * `later` - Skipped for later
  * * `other` - Other
+ * * `provisioned` - Account provisioned by a partner
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -3485,6 +3379,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Delegated: 'delegated',
     Later: 'later',
     Other: 'other',
+    Provisioned: 'provisioned',
 } as const
 
 /**
@@ -3538,6 +3433,11 @@ export interface UserApi {
     readonly is_impersonated_until: string | null
     /** @nullable */
     readonly is_impersonated_read_only: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
     readonly team: TeamBasicApi
@@ -3568,6 +3468,8 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
     readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | null
@@ -3640,6 +3542,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_until?: string | null
     /** @nullable */
     readonly is_impersonated_read_only?: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
     readonly team?: TeamBasicApi
@@ -3670,6 +3577,8 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
     readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | null
@@ -3720,6 +3629,11 @@ export interface UserGitHubIntegrationItemApi {
     repository_selection?: string | null
     /** Installation account metadata from GitHub. */
     account?: UserGitHubAccountApi | null
+    /**
+     * The connected user's own GitHub login (distinct from the installation account).
+     * @nullable
+     */
+    github_login?: string | null
     /** True when this installation id matches a team-level GitHub integration on the active project. */
     uses_shared_installation: boolean
     /** When this integration row was created. */
@@ -3791,7 +3705,7 @@ export interface UserGitHubPrepareCallbackRequestApi {
 
 export interface UserGitHubLinkStartRequestApi {
     /**
-     * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+     * Optional team/project id (e.g. PostHog Desktop); web UI uses the session's current team.
      * @nullable
      */
     team_id?: number | null
@@ -4031,47 +3945,6 @@ export type OrganizationsProjectsListParams = {
      * A search term.
      */
     search?: string
-}
-
-export type DesktopFileSystemListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type DesktopFileSystemInstructionsVersionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type DesktopFileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type ExportsListParams = {

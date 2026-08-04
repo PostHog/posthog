@@ -1,3 +1,5 @@
+import secrets
+
 SHELL_EFFICIENCY_INSTRUCTION = """\
 Shell efficiency: optimize for the fewest shell round trips.
 - Batch related commands into one Bash invocation using `&&` (e.g. `npm run typecheck && npm run lint && npm test`).
@@ -5,12 +7,27 @@ Shell efficiency: optimize for the fewest shell round trips.
 - Read multiple files at once.
 - Never rerun a command solely to reproduce output you already have."""
 
-WIZARD_PR_AGENT_PROMPT = f"""
+# Sentinel swapped for the run's server-generated head branch by build_wizard_pr_agent_prompt.
+# A .replace() sentinel (not str.format) because the prompt body is full of literal braces.
+WIZARD_HEAD_BRANCH_PLACEHOLDER = "<wizard-head-branch>"
+
+WIZARD_HEAD_BRANCH_PREFIX = "posthog/instrumentation-"
+
+
+def generate_wizard_head_branch() -> str:
+    """A unique PR head branch for a wizard run; the random suffix is here to prevent
+    collisions with existing branches in the user's repo."""
+    return f"{WIZARD_HEAD_BRANCH_PREFIX}{secrets.token_hex(3)}"
+
+
+WIZARD_PR_AGENT_PROMPT = rf"""
 # Context
 
 PostHog's setup wizard has already run in this repository and integrated PostHog. The working tree
 contains its uncommitted changes: modified source files, an updated package manifest, installed
-dependencies, a `posthog-setup-report.md` summary, and possibly a `.posthog-events.json` plan.
+dependencies, a `posthog-setup-report.md` summary. It'll also possibly contain a
+`.posthog-events.json` plan and some skills definitions under a harness skills folder such as
+`.claude/skills/*` or `.agents/skills/*`.
 
 The wizard's full console output is saved to `/tmp/wizard-cloud-run/wizard-output.log` (outside the
 repository, so it can never be committed). Read it whenever you need to understand what the wizard
@@ -58,9 +75,9 @@ are actually in the repository.
 
 ## Step 2 - Commit the wizard's changes to a new branch
 
-1. Create a branch named `posthog/instrumentation-<random-short-sha>`, where
-   `<random-short-sha>` is a random 6-character hex string you generate (NOT the HEAD
-   commit SHA). Its only purpose is to keep this branch from clashing with an existing branch.
+1. Create a branch named exactly `{WIZARD_HEAD_BRANCH_PLACEHOLDER}`. This name was
+   pre-generated for this run and PostHog uses it to link the pull request back to the
+   setup progress — do NOT choose a different branch name.
 2. Look at `git log` to learn this repository's commit message convention.
 3. Commit the wizard's changes in that style; the message should resemble the concept of
    "Add PostHog to codebase". For example, in a repo using conventional commits:
@@ -71,15 +88,26 @@ are actually in the repository.
 
 4. Do NOT commit `posthog-setup-report.md` or `.posthog-events.json` - they are local reference
    only. Leave them untracked or exclude them from staging.
+5. Do NOT commit any of the skills included under a harness skills folder like `.claude/skills/*`
+   or `.agents/skills/*` (any `.<harness>/skills/` path). Leave them untracked or exclude them
+   from staging.
 
-**Checkpoint:** the commit exists on `posthog/instrumentation-<random-short-sha>` and
-contains neither reference file:
+**Checkpoint:** the commit exists on `{WIZARD_HEAD_BRANCH_PLACEHOLDER}` and contains none of the
+forbidden files. Run the two checks separately so you can see exactly which kind leaked if either
+fails:
 
 ```bash
-git rev-parse --abbrev-ref HEAD          # prints: posthog/instrumentation-<random-short-sha>
-git show --stat HEAD                     # lists the wizard's files
-git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-output' && echo "FAIL: forbidden files committed" || echo "OK: no forbidden files"
-# expected: OK: no forbidden files (the grep finding nothing is the pass case)
+git rev-parse --abbrev-ref HEAD          # prints: {WIZARD_HEAD_BRANCH_PLACEHOLDER}
+git show --stat HEAD                      # lists the wizard's files
+
+# 1. Reference files (local-only summaries/plans/logs):
+git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-output' && echo "FAIL: reference files committed" || echo "OK: no reference files"
+
+# 2. Harness skills folders (.claude/skills/, .agents/skills/, any .<harness>/skills/):
+git show --stat HEAD | grep -E '\.[^/]+/skills/' && echo "FAIL: skills files committed" || echo "OK: no skills files"
+
+# expected: both print OK (the grep finding nothing is the pass case). If either FAILs, unstage
+# those paths, amend the commit, and re-run this checkpoint.
 ```
 
 ## Step 3 - Configure environment variables for production
@@ -87,7 +115,8 @@ git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-outpu
 1. Identify how the codebase is deployed to production.
 2. If you can automatically configure the required PostHog environment variables in a file that
    will be read in production, do so, and commit that change to the same branch as a SEPARATE
-   commit.
+   commit. This includes any changes to `.env`, `wrangler.jsonc`, `docker-compose.yml`,
+   or any other file that is used to configure the production environment.
 3. If you can't configure them automatically, do not commit anything in this step - instead write
    down in your notes which variables are needed and what values they must be set to,
    for use in the PR description in Step 4.
@@ -168,10 +197,12 @@ nothing about environment variables, so the reader cannot tell whether anything 
 
 ### Examples of the env-var section when you could NOT configure them automatically
 
-This happens when the deployment does not read a committed file like `.env.production` - e.g. the
-env vars live in a hosting dashboard (Vercel, Netlify, Heroku, Fly.io) or in infrastructure config
-you cannot see from the repo. Name the platform you detected, list every variable with its exact
-value, and tell the reader where to put them. Calibrate to the audience.
+This happens when the deployment does not read a committed file like `.env.production`,
+`wrangler.jsonc`, `docker-compose.yml`, or any other file that is used to configure the production
+environment - e.g. the env vars live in a hosting dashboard (Vercel, Netlify, Heroku, Fly.io)
+or in infrastructure config you cannot see from the repo. Name the platform you detected,
+list every variable with its exact value, and tell the reader where to put them. Calibrate to the
+audience.
 
 For a Javascript project (assume a non-technical reader - explain what env vars are and walk
 through the exact clicks):
@@ -199,6 +230,25 @@ To set them:
    click **Save**.
 4. Redeploy the app (Deployments tab, "..." menu on the latest deployment, **Redeploy**) - the new
    settings only take effect on the next deployment.
+```
+
+If there's a way to set these environment variables via a local CLI - like it's common for Vercel,
+Netlify, Heroku, Fly.io, etc. - then suggest using that instead of the dashboard.
+
+The following example is for Vercel, but you should use the appropriate command for the hosting provider
+you've inferred from the codebase.
+
+Double-check the exact CLI syntax for the provider you detected - many commands (including
+`vercel env add`) take the target environment as a positional argument and read the value from
+stdin, so passing the value as a positional would silently set the wrong thing.
+
+Add a "Setting environment variables via a local CLI" subsection that tells the reader they can run
+commands locally instead of using the dashboard. For Vercel the commands look like this (the value
+is piped in; `production` is the target environment):
+
+```bash
+echo "phc_abc123def456" | npx vercel env add NEXT_PUBLIC_POSTHOG_TOKEN production
+echo "https://us.i.posthog.com" | npx vercel env add NEXT_PUBLIC_POSTHOG_HOST production
 ```
 
 For any other language (assume a technical reader - be direct, no env-var explainer):
@@ -255,3 +305,13 @@ unrelated to the integration and documented in a PR comment.
 
 {SHELL_EFFICIENCY_INSTRUCTION}
 """
+
+
+def build_wizard_pr_agent_prompt(head_branch: str) -> str:
+    """The wizard PR agent prompt with the run's server-generated head branch baked in.
+
+    The branch must be known before the agent runs so the GitHub PR webhook can bind the
+    opened PR back to the TaskRun (see webhooks.find_task_run); letting the agent invent
+    the name made that binding impossible.
+    """
+    return WIZARD_PR_AGENT_PROMPT.replace(WIZARD_HEAD_BRANCH_PLACEHOLDER, head_branch)

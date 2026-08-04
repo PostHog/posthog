@@ -1,10 +1,13 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
-from typing import Optional
+from typing import Any, Optional
+
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
+from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -34,6 +37,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -42,13 +46,15 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     parse_ttl_schedule,
 )
-from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
+from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
+    resolve_exposure_config_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentPrecomputationContext
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -146,6 +152,53 @@ def experiment_has_min_runtime_for_precomputation(
     return (effective_end - start_date).total_seconds() >= MIN_PRECOMPUTATION_DURATION_SECONDS
 
 
+def _collect_cohort_ids(obj: Any) -> set[int]:
+    """Cohort IDs referenced anywhere in a filter/criteria/metric JSON structure."""
+    ids: set[int] = set()
+    if isinstance(obj, dict):
+        if obj.get("type") in ("cohort", "static-cohort", "precalculated-cohort"):
+            value = obj.get("value")
+            if isinstance(value, int | str):
+                try:
+                    ids.add(int(value))
+                except ValueError:
+                    pass
+        for nested in obj.values():
+            ids |= _collect_cohort_ids(nested)
+    elif isinstance(obj, list):
+        for item in obj:
+            ids |= _collect_cohort_ids(item)
+    return ids
+
+
+def has_uncalculated_cohorts(team: Team, *filter_sources: Any) -> bool:
+    """True when any cohort referenced in the given filter structures hasn't finished its
+    first materialization (dynamic: no completed version; static: initial population running).
+
+    Queries against such a cohort read its partially-inserted membership — they load fine
+    but undercount, and with a skew determined by insertion order. A precompute build in
+    that window freezes the torn snapshot for the frozen-band TTL (60 days), so precompute
+    must be skipped until the first calculation lands. Cohorts with a completed version are
+    safe even mid-recalculation: reads pin the last complete version, and cohorts recalculate
+    every ~15 minutes, so gating on is_calculating would disable precompute permanently.
+    """
+    ids: set[int] = set()
+    for source in filter_sources:
+        if source is None:
+            continue
+        if isinstance(source, BaseModel):
+            source = source.model_dump()
+        ids |= _collect_cohort_ids(source)
+    if not ids:
+        return False
+    return Cohort.objects.filter(
+        Q(is_static=False, version__isnull=True) | Q(is_static=True, is_calculating=True),
+        team__project_id=team.project_id,
+        pk__in=ids,
+        deleted=False,
+    ).exists()
+
+
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
@@ -186,7 +239,7 @@ class ExperimentQueryRunner(QueryRunner):
         self.as_of = as_of if as_of is not None else (self.experiment.end_date or datetime.now(UTC))
         self.feature_flag = self.experiment.feature_flag
         self.feature_flag_key = self.feature_flag.key_without_tombstone()
-        self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
+        self.group_type_index = self.feature_flag.aggregation_group_type_index
         self.entity_key = get_entity_key(self.group_type_index)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
@@ -199,7 +252,7 @@ class ExperimentQueryRunner(QueryRunner):
         ]
 
         stats_config = self.experiment.stats_config or {}
-        self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
+        self.baseline_variant_key = get_baseline_variant_key(stats_config, self.variants)
 
         self.date_range = experiment_window(self.experiment, self.team, self.as_of)
         self.date_range_query = QueryDateRange(
@@ -290,6 +343,9 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            # High-volume teams' builds OOM even at capped window widths; spilling the
+            # GROUP BY to disk degrades gracefully instead of failing the build.
+            spill_to_disk=True,
         )
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
@@ -321,6 +377,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            spill_to_disk=True,
         )
 
     @cached_property
@@ -337,10 +394,13 @@ class ExperimentQueryRunner(QueryRunner):
         if not self._team_experiments_config.experiment_precomputation_enabled:
             return False
 
-        return experiment_has_min_runtime_for_precomputation(
+        if not experiment_has_min_runtime_for_precomputation(
             self.experiment.start_date,
             self.experiment.end_date,
-        )
+        ):
+            return False
+
+        return not has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric)
 
     def _precompute_skip_reason(self) -> Optional[str]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""
@@ -355,8 +415,12 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         ):
             return "min_runtime"
+        if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
+            return "cohort_not_calculated"
         if self.is_data_warehouse_query:
             return "data_warehouse"
+        if self.group_type_index is not None:
+            return "group_aggregation"
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
     def _metric_events_precompute_applicable(self) -> bool:
@@ -383,7 +447,9 @@ class ExperimentQueryRunner(QueryRunner):
             exposure_config,
             multiple_variant_handling,
             filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
+        ) = get_exposure_config_params_for_builder(
+            self.experiment.exposure_criteria, self.team, self.experiment.start_date
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -406,8 +472,11 @@ class ExperimentQueryRunner(QueryRunner):
         metric_events_job_ids: list[str] | None = None
 
         # Skip precomputation for data warehouse metrics because the precomputed table
-        # doesn't include the join keys needed to link exposures to data warehouse tables
-        if should_precompute and not self.is_data_warehouse_query:
+        # doesn't include the join keys needed to link exposures to data warehouse tables.
+        # Group-aggregated experiments are excluded too: their build INSERT references
+        # $group_N, which the INSERT ... SELECT analysis path can't resolve (MATERIALIZED
+        # on sharded_events), so every build fails with UNKNOWN_IDENTIFIER.
+        if should_precompute and not self.is_data_warehouse_query and self.group_type_index is None:
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
                     result = self._ensure_exposures_precomputed(builder)
@@ -664,20 +733,18 @@ class ExperimentQueryRunner(QueryRunner):
         """
         variants_seen = [v.key for _, v in variants]
 
-        has_breakdown = (
-            self.metric.breakdownFilter is not None
-            and self.metric.breakdownFilter.breakdowns
-            and len(self.metric.breakdownFilter.breakdowns) > 0
-        )
+        # Fan out over the breakdown combinations actually present in the results, not over the
+        # metric's breakdown config: a metric can declare breakdowns and still come back with no
+        # rows at all (no data yet), and there is then nothing to fan out over — fall back to the
+        # single breakdown-less zero row so the baseline variant still exists.
+        breakdown_tuples = {bv for bv, _ in variants if bv is not None}
 
         # Type annotation required for empty list so mypy knows the expected element type:
         # list of tuples containing (breakdown_values, stats) where breakdown_values can be None
         variants_missing: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]] = []
         for key in self.variants:
             if key not in variants_seen:
-                if has_breakdown:
-                    # Extract all breakdown value combinations that exist in the results
-                    breakdown_tuples = {bv for bv, _ in variants if bv is not None}
+                if breakdown_tuples:
                     # Use extend to add MULTIPLE tuples - one for each breakdown combination
                     # Each missing variant needs to appear across ALL breakdown values to maintain consistency
                     variants_missing.extend(
@@ -782,21 +849,14 @@ class ExperimentQueryRunner(QueryRunner):
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
         if self.actors_query.exposureConfig is not None:
-            exposure_config = self.actors_query.exposureConfig
-        elif self.experiment.exposure_criteria and self.experiment.exposure_criteria.get("exposure_config"):
-            from products.experiments.backend.hogql_queries.experiment_query_builder import (
-                normalize_to_exposure_criteria,
+            exposure_config = resolve_exposure_config_for_builder(
+                self.actors_query.exposureConfig, self.team, self.experiment.start_date
             )
-
-            criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
-            if criteria and criteria.exposure_config:
-                exposure_config = criteria.exposure_config
-            else:
-                # Default to $feature_flag_called
-                exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
         else:
-            # Default to $feature_flag_called
-            exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+            # Same resolution as the main experiment query, so the actor list matches the counts.
+            exposure_config, _, _ = get_exposure_config_params_for_builder(
+                self.experiment.exposure_criteria, self.team, self.experiment.start_date
+            )
 
         # Get multiple variant handling
         if self.actors_query.multipleVariantHandling is not None:

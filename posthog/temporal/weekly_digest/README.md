@@ -30,6 +30,8 @@ Generated via `team_data_key(digest_key, TeamDataKey.*, team_id)`:
 | `SAVED_FILTERS`         | `{digest_key}-saved-filters-{team_id}`         | Interesting replay filters         |
 | `EXPIRING_RECORDINGS`   | `{digest_key}-expiring-recordings-{team_id}`   | Count of soon-to-expire recordings |
 | `SURVEYS_LAUNCHED`      | `{digest_key}-surveys-launched-{team_id}`      | Surveys launched                   |
+| `USAGE_TRENDS`          | `{digest_key}-usage-trends-{team_id}`          | Event volume + active users, WoW   |
+| `ERROR_ISSUES`          | `{digest_key}-error-issues-{team_id}`          | New error-tracking issues          |
 
 ### Organization-level data
 

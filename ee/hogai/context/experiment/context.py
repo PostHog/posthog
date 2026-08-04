@@ -133,8 +133,7 @@ class ExperimentContext:
 
         stats_method = get_experiment_stats_method(experiment)
 
-        multivariate = experiment.feature_flag.filters.get("multivariate", {})
-        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+        variants = [v.get("key") for v in experiment.feature_flag.variants if v.get("key")]
 
         lines.append(f"## Experiment: {experiment.name}")
         lines.append(f"**ID:** {experiment.id}")

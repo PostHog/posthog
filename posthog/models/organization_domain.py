@@ -1,8 +1,9 @@
 import secrets
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models, transaction
+from django.core.exceptions import ValidationError
+from django.db import models
 from django.utils import timezone
 
 import structlog
@@ -11,13 +12,12 @@ import dns.resolver
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.identity_provider_config import (
-    IDP_CONFIG_SYNCED_FIELDS,
-    IdentityProviderConfig,
-    sync_identity_provider_config_from_domain,
-)
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -29,6 +29,10 @@ def generate_verification_challenge() -> str:
 class OrganizationDomainManager(models.Manager):
     def verified_domains(self):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
+        # INVARIANT for that future work: never clear `verified_at` while the owning organization
+        # has `enforce_verified_domains` on — the domain would drop out of the enforcement
+        # allow-list and lock out every member on it at once, admins included. Suspend or flag
+        # instead of clearing.
         # `select_related` the IdP config since reads of SAML/SCIM/ID-JAG settings resolve through
         # it (`OrganizationDomain.idp_config`) in the hot auth paths.
         return self.exclude(verified_at__isnull=True).select_related("identity_provider_config")
@@ -170,6 +174,34 @@ class OrganizationDomainManager(models.Manager):
 
         return candidate_sso_enforcement
 
+    def is_domain_verified_for_organization(self, email: str, organization: Organization) -> bool:
+        """Whether the domain of `email` is a verified domain owned by `organization`."""
+        if "@" not in email:
+            return False
+        domain = email[email.index("@") + 1 :]
+        return self.verified_domains().filter(organization=organization, domain__iexact=domain).exists()
+
+    def is_email_blocked_by_domain_enforcement(self, email: str, organization: Organization) -> bool:
+        """
+        Whether a login or join for `email` into `organization` should be blocked: the org requires
+        a verified email domain, and `email`'s domain is not one of the org's verified domains.
+        """
+        if not organization.enforce_verified_domains:
+            return False
+        return not self.is_domain_verified_for_organization(email, organization)
+
+    def is_access_blocked_by_domain_enforcement(self, user: "User") -> bool:
+        """
+        Whether `user` should be denied access to the organization they're currently in.
+
+        Scoped to the current organization, matching `enforce_2fa`: one organization's setting must
+        not lock a member out of the other organizations they belong to.
+        """
+        organization = user.organization
+        if organization is None:
+            return False
+        return self.is_email_blocked_by_domain_enforcement(user.email, organization)
+
 
 class OrganizationDomain(ModelActivityMixin, UUIDTModel):
     objects: OrganizationDomainManager = OrganizationDomainManager()
@@ -190,26 +222,27 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         max_length=28, blank=True
     )  # currently only used for PostHog Cloud; SSO enforcement on self-hosted is set by env var
 
-    # ---- SAML / SCIM / ID-JAG attributes ----
-    # These are mirrored from the linked `IdentityProviderConfig`, which is the source of truth
-    # for reads. The Python attributes are underscore-prefixed to discourage direct access — read
-    # through `self.idp_config` instead — while `db_column` keeps the original column names so no
-    # schema change is needed. Only the internal sync code (and the dual-write domain serializer)
-    # touches these directly.
-    # Normally not good practice to have `null=True` in `CharField` (as you have to nil states now), but creating non-nullable
-    # attributes locks up tables when migrating. Remove `null=True` on next major release.
-    _saml_entity_id = models.CharField(max_length=512, blank=True, null=True, db_column="saml_entity_id")
-    _saml_acs_url = models.CharField(max_length=512, blank=True, null=True, db_column="saml_acs_url")
-    _saml_x509_cert = models.TextField(blank=True, null=True, db_column="saml_x509_cert")
+    # ---- SAML / SCIM / ID-JAG attributes (legacy, frozen) ----
+    _saml_entity_id = models.CharField(
+        max_length=512, blank=True, null=True, db_column="saml_entity_id"
+    )  # deprecated, do not use; see `IdentityProviderConfig`
+    _saml_acs_url = models.CharField(
+        max_length=512, blank=True, null=True, db_column="saml_acs_url"
+    )  # deprecated, do not use; see `IdentityProviderConfig`
+    _saml_x509_cert = models.TextField(
+        blank=True, null=True, db_column="saml_x509_cert"
+    )  # deprecated, do not use; see `IdentityProviderConfig`
 
-    _scim_enabled = models.BooleanField(default=False, db_column="scim_enabled")
+    _scim_enabled = models.BooleanField(
+        default=False, db_column="scim_enabled"
+    )  # deprecated, do not use; see `IdentityProviderConfig`
     _scim_bearer_token = models.CharField(
         max_length=255,
         blank=True,
         null=True,
         help_text="Hashed bearer token for SCIM authentication",
         db_column="scim_bearer_token",
-    )
+    )  # deprecated, do not use; see `IdentityProviderConfig`
 
     _id_jag_issuer_url = models.CharField(
         max_length=512,
@@ -217,7 +250,8 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         null=True,
         help_text="Trusted IdP issuer URL for ID-JAG. Required to enable ID-JAG on this domain.",
         db_column="id_jag_issuer_url",
-    )
+    )  # deprecated, do not use; see `IdentityProviderConfig`
+
     # Defaults to `{id_jag_issuer_url}/.well-known/openid-configuration`.
     _id_jag_jwks_url = models.CharField(
         max_length=512,
@@ -225,7 +259,7 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         null=True,
         help_text="Override JWKS URL. Defaults to OIDC discovery on the issuer URL.",
         db_column="id_jag_jwks_url",
-    )
+    )  # deprecated, do not use; see `IdentityProviderConfig`
     _id_jag_allowed_clients = ArrayField(
         models.CharField(max_length=256),
         default=list,
@@ -233,14 +267,12 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         null=True,
         help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
         db_column="id_jag_allowed_clients",
-    )
+    )  # deprecated, do not use; see `IdentityProviderConfig`
 
-    # ---- IdP config (new home for SAML/SCIM/ID-JAG settings) ----
-    # Temporary foreign key to the backing `IdentityProviderConfig` model. Eventually
-    # will be removed once the migration is complete.
-    # The IdP fields above are being migrated to `IdentityProviderConfig`, which can be
-    # shared by multiple domains. Until reads are switched over, this model remains the
-    # source of truth and `save()` mirrors the fields into the linked config.
+    # ---- IdP config (home for SAML/SCIM/ID-JAG settings) ----
+    # `IdentityProviderConfig` is the source of truth for SAML/SCIM/ID-JAG settings and can be
+    # shared by multiple domains. All reads and writes of those settings go through the linked
+    # config (`self.idp_config`); the FK link itself is still writable via this domain.
     identity_provider_config = models.ForeignKey(
         IdentityProviderConfig,
         on_delete=models.SET_NULL,
@@ -253,45 +285,11 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
     class Meta:
         verbose_name = "domain"
 
-    def save(self, *args, **kwargs) -> None:
-        # Atomic so the domain write and the mirrored IdP config write cannot diverge.
-        with transaction.atomic():
-            # When a brand-new domain is linked to an already-populated config, adopt the config's
-            # values onto the domain's columns first. Otherwise the forward mirror would see the
-            # new domain's empty columns as a "change" and blank the (possibly shared) config. This
-            # mirrors the adopt-on-link the serializer does for updates; here it covers creation
-            # (including direct ORM creates).
-            if self._state.adding and self.identity_provider_config_id is not None:
-                config = self.identity_provider_config
-                for field in IDP_CONFIG_SYNCED_FIELDS:
-                    setattr(self, f"_{field}", getattr(config, field))
-            super().save(*args, **kwargs)
-            sync_identity_provider_config_from_domain(self)
-
-    def clean(self) -> None:
-        # Validate ID-JAG IdP URLs at write time as a UX guard against the
-        # common admin mistake of pointing them at an internal/loopback/
-        # metadata host. This is best-effort — DNS rebinding and post-write
-        # config changes can still produce an unsafe URL at fetch time, so
-        # `posthog.api.id_jag._get_jwks_client` re-validates before every
-        # network call. Callers must invoke `full_clean()` (or use a
-        # ModelForm / DRF serializer that does) for this to take effect.
-        # Imported lazily to keep this app's import graph free of security/.
-        from django.core.exceptions import ValidationError
-
-        from posthog.security.url_validation import is_url_allowed
-
+    def _validate_identity_provider_config_organization(self) -> dict[str, str]:
+        # A linked IdP config must belong to the same organization as the domain. Without this,
+        # an admin could link a domain to another org's config and have that org's IdP settings
+        # exposed on this domain (SCIM/ID-JAG auth resolve through `self.idp_config`).
         errors: dict[str, str] = {}
-        for field_name in ("_id_jag_issuer_url", "_id_jag_jwks_url"):
-            url = getattr(self, field_name, None)
-            if not url:
-                continue
-            allowed, reason = is_url_allowed(url)
-            if not allowed:
-                errors[field_name] = f"URL is not allowed: {reason}"
-        # A linked IdP config must belong to the same organization as the domain. Without
-        # this, an admin could link a domain to another org's config and have its IdP
-        # settings silently overwritten on save (see `sync_identity_provider_config_from_domain`).
         if self.identity_provider_config_id is not None:
             try:
                 config = self.identity_provider_config
@@ -303,9 +301,22 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
                 errors["identity_provider_config"] = (
                     "IdP configuration must belong to the same organization as the domain."
                 )
+        return errors
+
+    def clean(self) -> None:
+        errors = self._validate_identity_provider_config_organization()
         if errors:
             raise ValidationError(errors)
         super().clean()
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # `clean()` isn't called by plain `.save()`/`.objects.create()`, so this check has to be
+        # always-on here too — otherwise a direct ORM write (not going through a form/serializer)
+        # could silently persist a cross-organization IdP link.
+        errors = self._validate_identity_provider_config_organization()
+        if errors:
+            raise ValidationError(errors)
+        super().save(*args, **kwargs)
 
     @property
     def is_verified(self) -> bool:

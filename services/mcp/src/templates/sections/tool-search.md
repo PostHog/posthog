@@ -11,16 +11,9 @@
 
 - `search create dashboard insight` — plain words, ranked: dashboard/insight creation tools first
 - `search feature-flag` — regex (`-`): tools for feature flags
-- `search dashboard` — dashboard CRUD tools
 - `search query-` — regex (`-`): all insight query tools
-- `search experiment` — experiment tools
-- `search survey` — survey tools
 
-**Avoid queries that are too broad** (match dozens of tools):
-
-- `search data` — matches almost everything
-- `search get list create` — action verbs across all domains
-- `search pageview|email@address.com` — unrelated to tools
+**Avoid queries that are too broad** (match dozens of tools): `search data`, `search get list create` — they match almost everything.
 
 Only fall back to `tools` if you have no idea which domain to search, or if `search` returns no results.
 

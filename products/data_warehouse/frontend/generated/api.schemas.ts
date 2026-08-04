@@ -58,6 +58,13 @@ export interface CheckDatabaseNameResponseApi {
     available: boolean
 }
 
+export interface CheckSchemaNameResponseApi {
+    /** The schema name that was checked */
+    name: string
+    /** Whether the schema name is free within the organization's warehouse */
+    available: boolean
+}
+
 export interface DeleteWarehouseOrgResponseApi {
     /** Deletion lifecycle message from the provisioner */
     status?: string
@@ -72,23 +79,247 @@ export interface DeprovisionWarehouseResponseApi {
     org: string
 }
 
-export interface EnableWarehouseBackfillRequestApi {
-    /** Name for this environment's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be unique across the organization's environments. */
-    table_name: string
+/**
+ * * `not_configured` - not_configured
+ * * `waiting` - waiting
+ * * `backfilling` - backfilling
+ * * `up_to_date` - up_to_date
+ * * `needs_attention` - needs_attention
+ * * `sync_paused` - sync_paused
+ */
+export type ManagedWarehouseReadinessStateEnumApi =
+    (typeof ManagedWarehouseReadinessStateEnumApi)[keyof typeof ManagedWarehouseReadinessStateEnumApi]
+
+export const ManagedWarehouseReadinessStateEnumApi = {
+    NotConfigured: 'not_configured',
+    Waiting: 'waiting',
+    Backfilling: 'backfilling',
+    UpToDate: 'up_to_date',
+    NeedsAttention: 'needs_attention',
+    SyncPaused: 'sync_paused',
+} as const
+
+/**
+ * * `events` - events
+ * * `persons` - persons
+ */
+export type DatasetEnumApi = (typeof DatasetEnumApi)[keyof typeof DatasetEnumApi]
+
+export const DatasetEnumApi = {
+    Events: 'events',
+    Persons: 'persons',
+} as const
+
+export interface ManagedWarehouseDatasetStatusApi {
+    /** Warehouse dataset represented by this status.
+     *
+     * * `events` - events
+     * * `persons` - persons */
+    dataset: DatasetEnumApi
+    /** User-facing readiness state for this dataset.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of the current readiness state. */
+    detail: string
+    /** Number of historical backfill partitions completed successfully. */
+    completed_partitions: number
+    /**
+     * Expected historical partitions, or null while the range is being calculated.
+     * @nullable
+     */
+    total_partitions: number | null
+    /**
+     * Partition currently running or requiring attention, when applicable.
+     * @nullable
+     */
+    current_partition: string | null
+    /**
+     * When the durable backfill status last changed.
+     * @nullable
+     */
+    last_updated_at: string | null
 }
 
-export interface EnableWarehouseBackfillResponseApi {
-    /** Whether warehouse backfill is now enabled */
-    enabled: boolean
-    /** Suffix used for this environment's tables (events_<suffix>, persons_<suffix>) */
-    table_suffix: string
+export interface ManagedWarehouseSourceSummaryApi {
+    /** Imported source connection identifier. */
+    source_id: string
+    /** Display name for the imported source connection. */
+    source_name: string
+    /** Type of the imported source connection. */
+    source_type: string
+    /** Rolled-up warehouse readiness state across this source's schemas.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of this source's readiness state. */
+    detail: string
+    /** Number of this source's schemas visible to the warehouse. */
+    total_schemas: number
+    /** Number of schemas applied by a completed copy or register workflow. */
+    applied_schemas: number
+    /**
+     * Most recent completed copy or register workflow across this source's schemas, or null if none completed.
+     * @nullable
+     */
+    last_applied_at: string | null
+    /**
+     * Most recent upstream source import completion across this source's schemas.
+     * @nullable
+     */
+    last_synced_at: string | null
+}
+
+export interface ManagedWarehouseSourcesStatusApi {
+    /** Rolled-up readiness state for imported sources.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of imported source readiness. */
+    detail: string
+    /** Per-source rollup of copy and register workflow statuses for configured warehouse source imports. */
+    sources: ManagedWarehouseSourceSummaryApi[]
+}
+
+export interface ManagedWarehouseDataStatusResponseApi {
+    /** Highest-priority readiness state across all warehouse datasets.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `sync_paused` - sync_paused */
+    overall_readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Events backfill readiness. */
+    events: ManagedWarehouseDatasetStatusApi
+    /** Persons backfill readiness. */
+    persons: ManagedWarehouseDatasetStatusApi
+    /** Imported source table readiness. */
+    sources: ManagedWarehouseSourcesStatusApi
+    /** When this status snapshot was generated. */
+    generated_at: string
+}
+
+/**
+ * * `copy` - copy
+ * * `register` - register
+ */
+export type WorkflowTypeEnumApi = (typeof WorkflowTypeEnumApi)[keyof typeof WorkflowTypeEnumApi]
+
+export const WorkflowTypeEnumApi = {
+    Copy: 'copy',
+    Register: 'register',
+} as const
+
+/**
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `skipped` - skipped
+ * * `stale` - stale
+ */
+export type WorkflowStatusEnumApi = (typeof WorkflowStatusEnumApi)[keyof typeof WorkflowStatusEnumApi]
+
+export const WorkflowStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+    Stale: 'stale',
+} as const
+
+export interface ManagedWarehouseSourceTableStatusApi {
+    /** Imported source schema identifier. */
+    schema_id: string
+    /** Imported source connection identifier. */
+    source_id: string
+    /** Display name for the imported source connection. */
+    source_name: string
+    /** Type of the imported source connection. */
+    source_type: string
+    /** Imported table name. */
+    table_name: string
+    /** User-facing warehouse readiness state for this table.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of the table's readiness state. */
+    detail: string
+    /** Workflow applying the latest source import, or null if no workflow has run.
+     *
+     * * `copy` - copy
+     * * `register` - register */
+    workflow_type: WorkflowTypeEnumApi | null
+    /** State of the latest copy or register workflow, or null if no workflow has run.
+     *
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `skipped` - skipped
+     * * `stale` - stale */
+    workflow_status: WorkflowStatusEnumApi | null
+    /**
+     * When the latest copy or register workflow started, or null if no workflow has run.
+     * @nullable
+     */
+    workflow_started_at: string | null
+    /** Whether a copy or register workflow has applied this table to the warehouse. */
+    applied: boolean
+    /**
+     * When a copy or register workflow most recently applied this table, or null if no workflow completed.
+     * @nullable
+     */
+    last_applied_at: string | null
+    /**
+     * When PostHog most recently completed the upstream source import.
+     * @nullable
+     */
+    last_synced_at: string | null
+}
+
+export interface ManagedWarehouseSourceSchemasResponseApi {
+    /** Per-schema copy or register workflow status for the requested source. */
+    schemas: ManagedWarehouseSourceTableStatusApi[]
+}
+
+export interface OnboardWarehouseTeamRequestApi {
+    /** Schema name for this project's data in the organization's warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Must be unique within the organization and cannot be changed later. */
+    schema_name: string
+}
+
+export interface OnboardWarehouseTeamResponseApi {
+    /** Whether this project is now onboarded onto the managed warehouse */
+    onboarded: boolean
+    /** Schema this project's data lands in */
+    schema_name: string
 }
 
 export interface ProvisionWarehouseRequestApi {
     /** Name for the new database */
     database_name: string
-    /** Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required so the first project gets its own per-environment tables. */
-    table_name: string
+    /** Schema name for the provisioning project's data in the warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Cannot be changed later. Required — the first project gets its own schema, and other projects pick theirs when they join. */
+    schema_name: string
 }
 
 export interface ProvisionWarehouseResponseApi {
@@ -178,6 +409,13 @@ export interface WarehouseStatusResponseApi {
      * @nullable
      */
     table_suffix: string | null
+    /** Whether this project is onboarded onto the managed warehouse. False when the warehouse exists but this project has not picked a schema yet — show the onboarding screen in that case. */
+    team_onboarded: boolean
+    /**
+     * Schema this project's data lands in. Null when the project is not onboarded.
+     * @nullable
+     */
+    schema_name: string | null
 }
 
 /**
@@ -508,6 +746,7 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -520,6 +759,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -624,6 +864,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly description: string
     /** @nullable */
     readonly sync_frequency: string | null
+    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+    readonly sync_frequency_managed_by_dag: boolean
     readonly columns: readonly DataWarehouseSavedQueryMinimalApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -691,6 +933,20 @@ export type DataWarehouseSavedQueryApiQuery = {
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
+export interface SavedQuerySuspensionApi {
+    /** When materialization was suspended. */
+    at: string
+    /** Error from the materialization run that tripped suspension. */
+    reason: string
+    /** Materialization job that tripped suspension. */
+    job_id: string
+}
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type DataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
+
 /**
  * * `never` - never
  * * `15min` - 15min
@@ -740,7 +996,7 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     description?: string | null
-    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
      *
      * * `never` - never
      * * `15min` - 15min
@@ -752,6 +1008,8 @@ export interface DataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
+    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+    readonly sync_frequency_managed_by_dag: boolean
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -814,6 +1072,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended: DataWarehouseSavedQueryApiSuspended
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -832,6 +1092,11 @@ export type PatchedDataWarehouseSavedQueryApiQuery = {
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type PatchedDataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
@@ -856,7 +1121,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     description?: string | null
-    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
      *
      * * `never` - never
      * * `15min` - 15min
@@ -868,6 +1133,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
+    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+    readonly sync_frequency_managed_by_dag?: boolean
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -930,6 +1197,13 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
+}
+
+export interface SavedQueryResumeApi {
+    /** False when the query's materialization was not suspended. */
+    resumed: boolean
 }
 
 export interface DataWarehouseSavedQueryDraftApi {
@@ -1235,7 +1509,6 @@ export interface CredentialApi {
  * * `Dixa` - Dixa
  * * `Gladly` - Gladly
  * * `Qualtrics` - Qualtrics
- * * `Delighted` - Delighted
  * * `AzureDevOps` - AzureDevOps
  * * `Rollbar` - Rollbar
  * * `Opsgenie` - Opsgenie
@@ -1485,6 +1758,7 @@ export interface CredentialApi {
  * * `PrestaShop` - PrestaShop
  * * `Pretix` - Pretix
  * * `Primetric` - Primetric
+ * * `Printavo` - Printavo
  * * `Printify` - Printify
  * * `Productive` - Productive
  * * `Pylon` - Pylon
@@ -1708,6 +1982,624 @@ export interface CredentialApi {
  * * `Mercury` - Mercury
  * * `Gojiberry` - Gojiberry
  * * `Teachable` - Teachable
+ * * `PeecAI` - PeecAI
+ * * `Healthchecks` - Healthchecks
+ * * `Impact` - Impact
+ * * `AikidoSecurity` - AikidoSecurity
+ * * `Alguna` - Alguna
+ * * `Anthropic` - Anthropic
+ * * `Appwrite` - Appwrite
+ * * `BlandAI` - BlandAI
+ * * `BrowseAI` - BrowseAI
+ * * `BrowserUse` - BrowserUse
+ * * `ChartHop` - ChartHop
+ * * `Cody` - Cody
+ * * `Cursor` - Cursor
+ * * `Decagon` - Decagon
+ * * `Deepgram` - Deepgram
+ * * `ElevenLabs` - ElevenLabs
+ * * `Harvey` - Harvey
+ * * `Hyperspell` - Hyperspell
+ * * `Langfuse` - Langfuse
+ * * `LingoDev` - LingoDev
+ * * `M3ter` - M3ter
+ * * `Maxio` - Maxio
+ * * `Metorial` - Metorial
+ * * `OpenRouter` - OpenRouter
+ * * `TogetherAI` - TogetherAI
+ * * `Vapi` - Vapi
+ * * `Vespa` - Vespa
+ * * `Writesonic` - Writesonic
+ * * `Aiven` - Aiven
+ * * `Aviator` - Aviator
+ * * `Backblaze` - Backblaze
+ * * `Baseten` - Baseten
+ * * `Browserbase` - Browserbase
+ * * `Cohere` - Cohere
+ * * `DenoDeploy` - DenoDeploy
+ * * `DigitalOcean` - DigitalOcean
+ * * `E2B` - E2B
+ * * `Fintoc` - Fintoc
+ * * `Firecrawl` - Firecrawl
+ * * `FireworksAI` - FireworksAI
+ * * `FlyIo` - FlyIo
+ * * `Groq` - Groq
+ * * `GrowthBook` - GrowthBook
+ * * `Gumloop` - Gumloop
+ * * `Hatchet` - Hatchet
+ * * `Helicone` - Helicone
+ * * `Heroku` - Heroku
+ * * `Hetzner` - Hetzner
+ * * `HeyGen` - HeyGen
+ * * `Infisical` - Infisical
+ * * `Inngest` - Inngest
+ * * `KapaAI` - KapaAI
+ * * `Kernel` - Kernel
+ * * `Koyeb` - Koyeb
+ * * `LambdaLabs` - LambdaLabs
+ * * `LangSmith` - LangSmith
+ * * `Linode` - Linode
+ * * `LlamaCloud` - LlamaCloud
+ * * `Mem0` - Mem0
+ * * `Metriport` - Metriport
+ * * `Mintlify` - Mintlify
+ * * `MistralAI` - MistralAI
+ * * `Mono` - Mono
+ * * `Netlify` - Netlify
+ * * `Northflank` - Northflank
+ * * `OpenAI` - OpenAI
+ * * `Pinecone` - Pinecone
+ * * `PlatformSh` - PlatformSh
+ * * `PromptingCompany` - PromptingCompany
+ * * `Qdrant` - Qdrant
+ * * `Render` - Render
+ * * `Replicate` - Replicate
+ * * `RetellAI` - RetellAI
+ * * `Roark` - Roark
+ * * `RunPod` - RunPod
+ * * `ScaleAI` - ScaleAI
+ * * `Scaleway` - Scaleway
+ * * `SigNoz` - SigNoz
+ * * `Sim` - Sim
+ * * `Skyvern` - Skyvern
+ * * `Slash` - Slash
+ * * `Synthesia` - Synthesia
+ * * `Telli` - Telli
+ * * `TerraApi` - TerraApi
+ * * `TriggerDev` - TriggerDev
+ * * `Turso` - Turso
+ * * `Singular` - Singular
+ * * `Swonkie` - Swonkie
+ * * `TwelveLabs` - TwelveLabs
+ * * `Twenty` - Twenty
+ * * `Unstructured` - Unstructured
+ * * `Upstash` - Upstash
+ * * `Vellum` - Vellum
+ * * `Vultr` - Vultr
+ * * `Windmill` - Windmill
+ * * `Zep` - Zep
+ * * `Hex` - Hex
+ * * `Sumsub` - Sumsub
+ * * `GoogleChat` - GoogleChat
+ * * `Kickscale` - Kickscale
+ * * `Zellify` - Zellify
+ * * `RudderStack` - RudderStack
+ * * `DodoPayments` - DodoPayments
+ * * `Salestrics` - Salestrics
+ * * `Doppler` - Doppler
+ * * `Usersnap` - Usersnap
+ * * `Asknicely` - Asknicely
+ * * `Featurebase` - Featurebase
+ * * `Frill` - Frill
+ * * `Bettermode` - Bettermode
+ * * `Dynatrace` - Dynatrace
+ * * `Honeycomb` - Honeycomb
+ * * `SumoLogic` - SumoLogic
+ * * `LogzIO` - LogzIO
+ * * `Coralogix` - Coralogix
+ * * `BetterStack` - BetterStack
+ * * `Raygun` - Raygun
+ * * `Honeybadger` - Honeybadger
+ * * `Airbrake` - Airbrake
+ * * `Appsignal` - Appsignal
+ * * `Appdynamics` - Appdynamics
+ * * `Instana` - Instana
+ * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+ * * `Uptimerobot` - Uptimerobot
+ * * `Statuscake` - Statuscake
+ * * `Tailscale` - Tailscale
+ * * `Flagsmith` - Flagsmith
+ * * `Xmatters` - Xmatters
+ * * `Squadcast` - Squadcast
+ * * `Zenduty` - Zenduty
+ * * `Cronitor` - Cronitor
+ * * `Jenkins` - Jenkins
+ * * `Bitbucket` - Bitbucket
+ * * `Gitea` - Gitea
+ * * `Teamcity` - Teamcity
+ * * `TravisCI` - TravisCI
+ * * `Semaphore` - Semaphore
+ * * `CircleciInsights` - CircleciInsights
+ * * `OctopusDeploy` - OctopusDeploy
+ * * `Sourcegraph` - Sourcegraph
+ * * `Bitrise` - Bitrise
+ * * `Gerrit` - Gerrit
+ * * `TerraformCloud` - TerraformCloud
+ * * `PulumiCloud` - PulumiCloud
+ * * `Spacelift` - Spacelift
+ * * `Railway` - Railway
+ * * `Argocd` - Argocd
+ * * `PrefectCloud` - PrefectCloud
+ * * `DagsterCloud` - DagsterCloud
+ * * `Env0` - Env0
+ * * `Kubecost` - Kubecost
+ * * `Snyk` - Snyk
+ * * `Semgrep` - Semgrep
+ * * `Veracode` - Veracode
+ * * `Checkmarx` - Checkmarx
+ * * `Gitguardian` - Gitguardian
+ * * `QualysVmdr` - QualysVmdr
+ * * `Rapid7Insightvm` - Rapid7Insightvm
+ * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+ * * `Sentinelone` - Sentinelone
+ * * `Lacework` - Lacework
+ * * `OrcaSecurity` - OrcaSecurity
+ * * `Drata` - Drata
+ * * `Secureframe` - Secureframe
+ * * `CiscoDuo` - CiscoDuo
+ * * `Jumpcloud` - Jumpcloud
+ * * `OnePassword` - OnePassword
+ * * `Stytch` - Stytch
+ * * `Sonarqube` - Sonarqube
+ * * `Codecov` - Codecov
+ * * `Coveralls` - Coveralls
+ * * `Codacy` - Codacy
+ * * `Deepsource` - Deepsource
+ * * `Linearb` - Linearb
+ * * `Jellyfish` - Jellyfish
+ * * `Swarmia` - Swarmia
+ * * `Packagist` - Packagist
+ * * `Nuget` - Nuget
+ * * `CratesIO` - CratesIO
+ * * `SonatypeNexus` - SonatypeNexus
+ * * `JfrogArtifactory` - JfrogArtifactory
+ * * `Snowplow` - Snowplow
+ * * `WeightsAndBiases` - WeightsAndBiases
+ * * `MonteCarlo` - MonteCarlo
+ * * `Metaplane` - Metaplane
+ * * `Datahub` - Datahub
+ * * `ClickhouseCloud` - ClickhouseCloud
+ * * `ConfluentCloud` - ConfluentCloud
+ * * `KongKonnect` - KongKonnect
+ * * `Kandji` - Kandji
+ * * `Automox` - Automox
+ * * `Autumn` - Autumn
+ * * `GetStream` - GetStream
+ * * `Octolens` - Octolens
+ * * `Kajabi` - Kajabi
+ * * `Shopware` - Shopware
+ * * `Dubsado` - Dubsado
+ * * `Campfire` - Campfire
+ * * `PromptWatch` - PromptWatch
+ * * `Crisp` - Crisp
+ * * `Kommo` - Kommo
+ * * `Axiom` - Axiom
+ * * `Plivo` - Plivo
+ * * `DataForSEO` - DataForSEO
+ * * `Sleekplan` - Sleekplan
+ * * `AbTasty` - AbTasty
+ * * `Ably` - Ably
+ * * `AbnormalSecurity` - AbnormalSecurity
+ * * `Acast` - Acast
+ * * `Acculynx` - Acculynx
+ * * `Actionstep` - Actionstep
+ * * `Aftership` - Aftership
+ * * `AhaIdeas` - AhaIdeas
+ * * `AkamaiReporting` - AkamaiReporting
+ * * `Alation` - Alation
+ * * `Alegra` - Alegra
+ * * `Allegro` - Allegro
+ * * `AnodotCost` - AnodotCost
+ * * `Anomalo` - Anomalo
+ * * `Apaleo` - Apaleo
+ * * `Apitally` - Apitally
+ * * `AppStoreConnect` - AppStoreConnect
+ * * `Appdirect` - Appdirect
+ * * `Appfolio` - Appfolio
+ * * `Arxiv` - Arxiv
+ * * `Asaas` - Asaas
+ * * `Astronomer` - Astronomer
+ * * `Athenahealth` - Athenahealth
+ * * `Atlan` - Atlan
+ * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+ * * `Avalara` - Avalara
+ * * `AwsAthena` - AwsAthena
+ * * `AwsBatch` - AwsBatch
+ * * `AwsBudgets` - AwsBudgets
+ * * `AwsCloudformation` - AwsCloudformation
+ * * `AwsComputeOptimizer` - AwsComputeOptimizer
+ * * `AwsConfig` - AwsConfig
+ * * `AwsConnect` - AwsConnect
+ * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+ * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+ * * `AwsCostExplorer` - AwsCostExplorer
+ * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+ * * `AwsGuardduty` - AwsGuardduty
+ * * `AwsHealth` - AwsHealth
+ * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+ * * `AwsInspector` - AwsInspector
+ * * `AwsMacie` - AwsMacie
+ * * `AwsOrganizations` - AwsOrganizations
+ * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+ * * `AwsSagemaker` - AwsSagemaker
+ * * `AwsSavingsPlans` - AwsSavingsPlans
+ * * `AwsSecurityHub` - AwsSecurityHub
+ * * `AwsSes` - AwsSes
+ * * `AwsStepFunctions` - AwsStepFunctions
+ * * `AwsSupport` - AwsSupport
+ * * `AwsSystemsManager` - AwsSystemsManager
+ * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+ * * `AwsWaf` - AwsWaf
+ * * `AwsXray` - AwsXray
+ * * `AzureActivityLog` - AzureActivityLog
+ * * `AzureAdvisor` - AzureAdvisor
+ * * `AzureApiManagement` - AzureApiManagement
+ * * `AzureApplicationInsights` - AzureApplicationInsights
+ * * `AzureCostManagement` - AzureCostManagement
+ * * `AzureDataExplorer` - AzureDataExplorer
+ * * `AzureDataFactory` - AzureDataFactory
+ * * `AzureLogAnalytics` - AzureLogAnalytics
+ * * `AzureMonitorAlerts` - AzureMonitorAlerts
+ * * `AzureMonitorMetrics` - AzureMonitorMetrics
+ * * `AzureOpenaiUsage` - AzureOpenaiUsage
+ * * `AzurePolicyInsights` - AzurePolicyInsights
+ * * `AzureReservations` - AzureReservations
+ * * `AzureResourceGraph` - AzureResourceGraph
+ * * `AzureResourceHealth` - AzureResourceHealth
+ * * `AzureServiceHealth` - AzureServiceHealth
+ * * `AzureSynapse` - AzureSynapse
+ * * `BackMarket` - BackMarket
+ * * `Beehiiv` - Beehiiv
+ * * `Bigeye` - Bigeye
+ * * `BillCom` - BillCom
+ * * `Billomat` - Billomat
+ * * `BingWebmasterTools` - BingWebmasterTools
+ * * `Bitwarden` - Bitwarden
+ * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+ * * `BlackboardLearn` - BlackboardLearn
+ * * `Bling` - Bling
+ * * `Bloomerang` - Bloomerang
+ * * `Bluesky` - Bluesky
+ * * `BolRetailer` - BolRetailer
+ * * `Boulevard` - Boulevard
+ * * `Buffer` - Buffer
+ * * `Bugherd` - Bugherd
+ * * `Buildium` - Buildium
+ * * `Buttondown` - Buttondown
+ * * `BuyMeACoffee` - BuyMeACoffee
+ * * `Calendarific` - Calendarific
+ * * `Calibre` - Calibre
+ * * `CanvasLms` - CanvasLms
+ * * `Captivate` - Captivate
+ * * `Cashfree` - Cashfree
+ * * `CastAi` - CastAi
+ * * `Catchpoint` - Catchpoint
+ * * `CdcOpenData` - CdcOpenData
+ * * `Census` - Census
+ * * `Checkly` - Checkly
+ * * `CircleSo` - CircleSo
+ * * `Classy` - Classy
+ * * `Cleartax` - Cleartax
+ * * `Clever` - Clever
+ * * `Clevertap` - Clevertap
+ * * `Cliniko` - Cliniko
+ * * `Clio` - Clio
+ * * `Clip` - Clip
+ * * `Cloudability` - Cloudability
+ * * `Cloudsmith` - Cloudsmith
+ * * `Cloudzero` - Cloudzero
+ * * `Clover` - Clover
+ * * `Codemagic` - Codemagic
+ * * `Codescene` - Codescene
+ * * `Collibra` - Collibra
+ * * `Companycam` - Companycam
+ * * `Conekta` - Conekta
+ * * `ContaAzul` - ContaAzul
+ * * `Contentsquare` - Contentsquare
+ * * `Cortex` - Cortex
+ * * `Courier` - Courier
+ * * `Crossref` - Crossref
+ * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+ * * `CubeCloud` - CubeCloud
+ * * `D2lBrightspace` - D2lBrightspace
+ * * `Dayforce` - Dayforce
+ * * `Debugbear` - Debugbear
+ * * `Descope` - Descope
+ * * `Develocity` - Develocity
+ * * `Dialpad` - Dialpad
+ * * `Discord` - Discord
+ * * `Discourse` - Discourse
+ * * `Donorbox` - Donorbox
+ * * `Doorloop` - Doorloop
+ * * `Dovetail` - Dovetail
+ * * `Drchrono` - Drchrono
+ * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+ * * `EcbDataPortal` - EcbDataPortal
+ * * `Emarsys` - Emarsys
+ * * `Embrace` - Embrace
+ * * `Entsoe` - Entsoe
+ * * `Eppo` - Eppo
+ * * `Etsy` - Etsy
+ * * `Eurostat` - Eurostat
+ * * `Faire` - Faire
+ * * `FarosAi` - FarosAi
+ * * `Fieldpulse` - Fieldpulse
+ * * `Fieldwire` - Fieldwire
+ * * `Filevine` - Filevine
+ * * `Finout` - Finout
+ * * `Five9` - Five9
+ * * `FlexeraCloudCost` - FlexeraCloudCost
+ * * `Flutterwave` - Flutterwave
+ * * `Fortnox` - Fortnox
+ * * `Fourthwall` - Fourthwall
+ * * `Fred` - Fred
+ * * `Frontegg` - Frontegg
+ * * `FusionAuth` - FusionAuth
+ * * `G2` - G2
+ * * `Gcore` - Gcore
+ * * `GcpApigee` - GcpApigee
+ * * `GcpArtifactRegistry` - GcpArtifactRegistry
+ * * `GcpBigtable` - GcpBigtable
+ * * `GcpChronicle` - GcpChronicle
+ * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+ * * `GcpCloudBilling` - GcpCloudBilling
+ * * `GcpCloudBuild` - GcpCloudBuild
+ * * `GcpCloudDeploy` - GcpCloudDeploy
+ * * `GcpCloudDns` - GcpCloudDns
+ * * `GcpCloudFunctions` - GcpCloudFunctions
+ * * `GcpCloudLogging` - GcpCloudLogging
+ * * `GcpCloudMonitoring` - GcpCloudMonitoring
+ * * `GcpCloudRun` - GcpCloudRun
+ * * `GcpCloudSpanner` - GcpCloudSpanner
+ * * `GcpCloudSql` - GcpCloudSql
+ * * `GcpCloudTrace` - GcpCloudTrace
+ * * `GcpCloudWorkflows` - GcpCloudWorkflows
+ * * `GcpComputeEngine` - GcpComputeEngine
+ * * `GcpContainerAnalysis` - GcpContainerAnalysis
+ * * `GcpDataflow` - GcpDataflow
+ * * `GcpDataplex` - GcpDataplex
+ * * `GcpDataproc` - GcpDataproc
+ * * `GcpErrorReporting` - GcpErrorReporting
+ * * `GcpGke` - GcpGke
+ * * `GcpPubsub` - GcpPubsub
+ * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+ * * `GcpRecommender` - GcpRecommender
+ * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+ * * `Gdelt` - Gdelt
+ * * `GenesysCloud` - GenesysCloud
+ * * `Getdx` - Getdx
+ * * `Ghost` - Ghost
+ * * `Givebutter` - Givebutter
+ * * `Gleif` - Gleif
+ * * `GooglePlayConsole` - GooglePlayConsole
+ * * `Guesty` - Guesty
+ * * `Gumroad` - Gumroad
+ * * `HarnessCcm` - HarnessCcm
+ * * `HarnessSei` - HarnessSei
+ * * `Harvest` - Harvest
+ * * `Healthie` - Healthie
+ * * `Hitpay` - Hitpay
+ * * `Hivebrite` - Hivebrite
+ * * `Holded` - Holded
+ * * `Hostaway` - Hostaway
+ * * `HousecallPro` - HousecallPro
+ * * `Humanitec` - Humanitec
+ * * `ImfData` - ImfData
+ * * `Imperva` - Imperva
+ * * `InfluxdbCloud` - InfluxdbCloud
+ * * `Iyzico` - Iyzico
+ * * `Jobtread` - Jobtread
+ * * `Kameleoon` - Kameleoon
+ * * `KauflandMarketplace` - KauflandMarketplace
+ * * `Kestra` - Kestra
+ * * `Kick` - Kick
+ * * `Kinde` - Kinde
+ * * `Kion` - Kion
+ * * `Knowbe4` - Knowbe4
+ * * `Komodor` - Komodor
+ * * `Labelbox` - Labelbox
+ * * `Lawmatics` - Lawmatics
+ * * `Learnworlds` - Learnworlds
+ * * `LexwareOffice` - LexwareOffice
+ * * `Lightdash` - Lightdash
+ * * `Lodgify` - Lodgify
+ * * `Logicmonitor` - Logicmonitor
+ * * `Logrocket` - Logrocket
+ * * `LoopReturns` - LoopReturns
+ * * `Mastodon` - Mastodon
+ * * `Meetup` - Meetup
+ * * `Memberful` - Memberful
+ * * `MercadoPago` - MercadoPago
+ * * `Meteostat` - Meteostat
+ * * `Mews` - Mews
+ * * `Mezmo` - Mezmo
+ * * `Microsoft365UsageReports` - Microsoft365UsageReports
+ * * `MicrosoftAdvertising` - MicrosoftAdvertising
+ * * `MicrosoftClarity` - MicrosoftClarity
+ * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+ * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+ * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+ * * `MicrosoftIntune` - MicrosoftIntune
+ * * `MicrosoftPurview` - MicrosoftPurview
+ * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+ * * `MicrosoftSentinel` - MicrosoftSentinel
+ * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+ * * `Midtrans` - Midtrans
+ * * `MightyNetworks` - MightyNetworks
+ * * `Mindbody` - Mindbody
+ * * `Mirakl` - Mirakl
+ * * `Moesif` - Moesif
+ * * `Moneybird` - Moneybird
+ * * `Moodle` - Moodle
+ * * `Motherduck` - Motherduck
+ * * `Mycase` - Mycase
+ * * `NagerDate` - NagerDate
+ * * `NeonCrm` - NeonCrm
+ * * `Nexhealth` - Nexhealth
+ * * `NoaaCdo` - NoaaCdo
+ * * `Nobl9` - Nobl9
+ * * `Nolt` - Nolt
+ * * `Nops` - Nops
+ * * `NpmRegistry` - NpmRegistry
+ * * `Oecd` - Oecd
+ * * `Okendo` - Okendo
+ * * `Omni` - Omni
+ * * `Onelogin` - Onelogin
+ * * `OpenDental` - OpenDental
+ * * `OpenMeteo` - OpenMeteo
+ * * `Openalex` - Openalex
+ * * `Opencorporates` - Opencorporates
+ * * `Openfec` - Openfec
+ * * `OpnPayments` - OpnPayments
+ * * `Opslevel` - Opslevel
+ * * `OttoMarket` - OttoMarket
+ * * `Ownerrez` - Ownerrez
+ * * `Pagbank` - Pagbank
+ * * `Patreon` - Patreon
+ * * `Pax8` - Pax8
+ * * `Paychex` - Paychex
+ * * `Paymob` - Paymob
+ * * `Paymongo` - Paymongo
+ * * `Phonepe` - Phonepe
+ * * `Pike13` - Pike13
+ * * `Pingone` - Pingone
+ * * `PinterestOrganic` - PinterestOrganic
+ * * `PlanningCenter` - PlanningCenter
+ * * `PluralsightFlow` - PluralsightFlow
+ * * `Podbean` - Podbean
+ * * `Postscript` - Postscript
+ * * `PowerBiAdmin` - PowerBiAdmin
+ * * `Practicepanther` - Practicepanther
+ * * `Preset` - Preset
+ * * `Procore` - Procore
+ * * `Productiv` - Productiv
+ * * `ProofpointTap` - ProofpointTap
+ * * `Propertyware` - Propertyware
+ * * `Pubnub` - Pubnub
+ * * `Quay` - Quay
+ * * `Raken` - Raken
+ * * `RedpandaCloud` - RedpandaCloud
+ * * `RentManager` - RentManager
+ * * `Reverb` - Reverb
+ * * `RocketMatter` - RocketMatter
+ * * `Rubygems` - Rubygems
+ * * `Scalr` - Scalr
+ * * `SecEdgar` - SecEdgar
+ * * `SelectStar` - SelectStar
+ * * `SemanticScholar` - SemanticScholar
+ * * `Semrush` - Semrush
+ * * `ServiceFusion` - ServiceFusion
+ * * `Servicem8` - Servicem8
+ * * `Servicetitan` - Servicetitan
+ * * `Servicetrade` - Servicetrade
+ * * `Sevdesk` - Sevdesk
+ * * `Similarweb` - Similarweb
+ * * `Simpro` - Simpro
+ * * `Sinch` - Sinch
+ * * `Singlestore` - Singlestore
+ * * `Site24x7` - Site24x7
+ * * `Sleuth` - Sleuth
+ * * `Smartlook` - Smartlook
+ * * `Smartrecruiters` - Smartrecruiters
+ * * `Smokeball` - Smokeball
+ * * `SodaCloud` - SodaCloud
+ * * `Speedcurve` - Speedcurve
+ * * `SpotIo` - SpotIo
+ * * `Sprig` - Sprig
+ * * `Sprinklr` - Sprinklr
+ * * `SproutSocial` - SproutSocial
+ * * `StackOverflowForTeams` - StackOverflowForTeams
+ * * `Stockx` - Stockx
+ * * `TackleIo` - TackleIo
+ * * `Talkdesk` - Talkdesk
+ * * `TeamupFitness` - TeamupFitness
+ * * `Tebra` - Tebra
+ * * `Telnyx` - Telnyx
+ * * `Ternary` - Ternary
+ * * `Thoughtspot` - Thoughtspot
+ * * `Thousandeyes` - Thousandeyes
+ * * `Threads` - Threads
+ * * `TiktokShop` - TiktokShop
+ * * `TinyErp` - TinyErp
+ * * `Tinybird` - Tinybird
+ * * `Tipalti` - Tipalti
+ * * `Toast` - Toast
+ * * `Torii` - Torii
+ * * `Transistor` - Transistor
+ * * `TrunkIo` - TrunkIo
+ * * `Trustradius` - Trustradius
+ * * `Twitch` - Twitch
+ * * `TwoC2p` - TwoC2p
+ * * `UkCompaniesHouse` - UkCompaniesHouse
+ * * `UkOns` - UkOns
+ * * `UnComtrade` - UnComtrade
+ * * `UsBea` - UsBea
+ * * `UsBls` - UsBls
+ * * `UsEia` - UsEia
+ * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+ * * `Vanta` - Vanta
+ * * `Vendr` - Vendr
+ * * `Virtuous` - Virtuous
+ * * `Vonage` - Vonage
+ * * `WalmartMarketplace` - WalmartMarketplace
+ * * `Waydev` - Waydev
+ * * `Wayfair` - Wayfair
+ * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+ * * `WhoGho` - WhoGho
+ * * `Whop` - Whop
+ * * `Wiz` - Wiz
+ * * `Wompi` - Wompi
+ * * `Workiz` - Workiz
+ * * `WorldBank` - WorldBank
+ * * `Xendit` - Xendit
+ * * `Yoco` - Yoco
+ * * `ZalandoZdirect` - ZalandoZdirect
+ * * `Zluri` - Zluri
+ * * `Zylo` - Zylo
+ * * `Tally` - Tally
+ * * `Nuntly` - Nuntly
+ * * `Vturb` - Vturb
+ * * `Meltwater` - Meltwater
+ * * `UserCom` - UserCom
+ * * `Latitude` - Latitude
+ * * `Workato` - Workato
+ * * `SideShift` - SideShift
+ * * `DuckLake` - DuckLake
+ * * `Starburst` - Starburst
+ * * `Easybill` - Easybill
+ * * `Bexio` - Bexio
+ * * `Umami` - Umami
+ * * `Manychat` - Manychat
+ * * `Kickstarter` - Kickstarter
+ * * `Typesense` - Typesense
+ * * `FirstPromoter` - FirstPromoter
+ * * `Zero` - Zero
+ * * `Inth` - Inth
+ * * `BCMS` - BCMS
+ * * `Convonite` - Convonite
+ * * `Hookdeck` - Hookdeck
+ * * `Billit` - Billit
+ * * `Moxie` - Moxie
+ * * `TripleWhale` - TripleWhale
+ * * `Directus` - Directus
+ * * `Clay` - Clay
+ * * `TradableBits` - TradableBits
+ * * `Swan` - Swan
+ * * `Hyros` - Hyros
+ * * `Odoo` - Odoo
+ * * `Airbridge` - Airbridge
+ * * `Snovio` - Snovio
+ * * `GoogleMerchantCenter` - GoogleMerchantCenter
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1899,7 +2791,6 @@ export const ExternalDataSourceTypeEnumApi = {
     Dixa: 'Dixa',
     Gladly: 'Gladly',
     Qualtrics: 'Qualtrics',
-    Delighted: 'Delighted',
     AzureDevOps: 'AzureDevOps',
     Rollbar: 'Rollbar',
     Opsgenie: 'Opsgenie',
@@ -2149,6 +3040,7 @@ export const ExternalDataSourceTypeEnumApi = {
     PrestaShop: 'PrestaShop',
     Pretix: 'Pretix',
     Primetric: 'Primetric',
+    Printavo: 'Printavo',
     Printify: 'Printify',
     Productive: 'Productive',
     Pylon: 'Pylon',
@@ -2372,6 +3264,624 @@ export const ExternalDataSourceTypeEnumApi = {
     Mercury: 'Mercury',
     Gojiberry: 'Gojiberry',
     Teachable: 'Teachable',
+    PeecAI: 'PeecAI',
+    Healthchecks: 'Healthchecks',
+    Impact: 'Impact',
+    AikidoSecurity: 'AikidoSecurity',
+    Alguna: 'Alguna',
+    Anthropic: 'Anthropic',
+    Appwrite: 'Appwrite',
+    BlandAI: 'BlandAI',
+    BrowseAI: 'BrowseAI',
+    BrowserUse: 'BrowserUse',
+    ChartHop: 'ChartHop',
+    Cody: 'Cody',
+    Cursor: 'Cursor',
+    Decagon: 'Decagon',
+    Deepgram: 'Deepgram',
+    ElevenLabs: 'ElevenLabs',
+    Harvey: 'Harvey',
+    Hyperspell: 'Hyperspell',
+    Langfuse: 'Langfuse',
+    LingoDev: 'LingoDev',
+    M3ter: 'M3ter',
+    Maxio: 'Maxio',
+    Metorial: 'Metorial',
+    OpenRouter: 'OpenRouter',
+    TogetherAI: 'TogetherAI',
+    Vapi: 'Vapi',
+    Vespa: 'Vespa',
+    Writesonic: 'Writesonic',
+    Aiven: 'Aiven',
+    Aviator: 'Aviator',
+    Backblaze: 'Backblaze',
+    Baseten: 'Baseten',
+    Browserbase: 'Browserbase',
+    Cohere: 'Cohere',
+    DenoDeploy: 'DenoDeploy',
+    DigitalOcean: 'DigitalOcean',
+    E2b: 'E2B',
+    Fintoc: 'Fintoc',
+    Firecrawl: 'Firecrawl',
+    FireworksAI: 'FireworksAI',
+    FlyIo: 'FlyIo',
+    Groq: 'Groq',
+    GrowthBook: 'GrowthBook',
+    Gumloop: 'Gumloop',
+    Hatchet: 'Hatchet',
+    Helicone: 'Helicone',
+    Heroku: 'Heroku',
+    Hetzner: 'Hetzner',
+    HeyGen: 'HeyGen',
+    Infisical: 'Infisical',
+    Inngest: 'Inngest',
+    KapaAI: 'KapaAI',
+    Kernel: 'Kernel',
+    Koyeb: 'Koyeb',
+    LambdaLabs: 'LambdaLabs',
+    LangSmith: 'LangSmith',
+    Linode: 'Linode',
+    LlamaCloud: 'LlamaCloud',
+    Mem0: 'Mem0',
+    Metriport: 'Metriport',
+    Mintlify: 'Mintlify',
+    MistralAI: 'MistralAI',
+    Mono: 'Mono',
+    Netlify: 'Netlify',
+    Northflank: 'Northflank',
+    OpenAI: 'OpenAI',
+    Pinecone: 'Pinecone',
+    PlatformSh: 'PlatformSh',
+    PromptingCompany: 'PromptingCompany',
+    Qdrant: 'Qdrant',
+    Render: 'Render',
+    Replicate: 'Replicate',
+    RetellAI: 'RetellAI',
+    Roark: 'Roark',
+    RunPod: 'RunPod',
+    ScaleAI: 'ScaleAI',
+    Scaleway: 'Scaleway',
+    SigNoz: 'SigNoz',
+    Sim: 'Sim',
+    Skyvern: 'Skyvern',
+    Slash: 'Slash',
+    Synthesia: 'Synthesia',
+    Telli: 'Telli',
+    TerraApi: 'TerraApi',
+    TriggerDev: 'TriggerDev',
+    Turso: 'Turso',
+    Singular: 'Singular',
+    Swonkie: 'Swonkie',
+    TwelveLabs: 'TwelveLabs',
+    Twenty: 'Twenty',
+    Unstructured: 'Unstructured',
+    Upstash: 'Upstash',
+    Vellum: 'Vellum',
+    Vultr: 'Vultr',
+    Windmill: 'Windmill',
+    Zep: 'Zep',
+    Hex: 'Hex',
+    Sumsub: 'Sumsub',
+    GoogleChat: 'GoogleChat',
+    Kickscale: 'Kickscale',
+    Zellify: 'Zellify',
+    RudderStack: 'RudderStack',
+    DodoPayments: 'DodoPayments',
+    Salestrics: 'Salestrics',
+    Doppler: 'Doppler',
+    Usersnap: 'Usersnap',
+    Asknicely: 'Asknicely',
+    Featurebase: 'Featurebase',
+    Frill: 'Frill',
+    Bettermode: 'Bettermode',
+    Dynatrace: 'Dynatrace',
+    Honeycomb: 'Honeycomb',
+    SumoLogic: 'SumoLogic',
+    LogzIO: 'LogzIO',
+    Coralogix: 'Coralogix',
+    BetterStack: 'BetterStack',
+    Raygun: 'Raygun',
+    Honeybadger: 'Honeybadger',
+    Airbrake: 'Airbrake',
+    Appsignal: 'Appsignal',
+    Appdynamics: 'Appdynamics',
+    Instana: 'Instana',
+    SplunkObservabilityCloud: 'SplunkObservabilityCloud',
+    Uptimerobot: 'Uptimerobot',
+    Statuscake: 'Statuscake',
+    Tailscale: 'Tailscale',
+    Flagsmith: 'Flagsmith',
+    Xmatters: 'Xmatters',
+    Squadcast: 'Squadcast',
+    Zenduty: 'Zenduty',
+    Cronitor: 'Cronitor',
+    Jenkins: 'Jenkins',
+    Bitbucket: 'Bitbucket',
+    Gitea: 'Gitea',
+    Teamcity: 'Teamcity',
+    TravisCI: 'TravisCI',
+    Semaphore: 'Semaphore',
+    CircleciInsights: 'CircleciInsights',
+    OctopusDeploy: 'OctopusDeploy',
+    Sourcegraph: 'Sourcegraph',
+    Bitrise: 'Bitrise',
+    Gerrit: 'Gerrit',
+    TerraformCloud: 'TerraformCloud',
+    PulumiCloud: 'PulumiCloud',
+    Spacelift: 'Spacelift',
+    Railway: 'Railway',
+    Argocd: 'Argocd',
+    PrefectCloud: 'PrefectCloud',
+    DagsterCloud: 'DagsterCloud',
+    Env0: 'Env0',
+    Kubecost: 'Kubecost',
+    Snyk: 'Snyk',
+    Semgrep: 'Semgrep',
+    Veracode: 'Veracode',
+    Checkmarx: 'Checkmarx',
+    Gitguardian: 'Gitguardian',
+    QualysVmdr: 'QualysVmdr',
+    Rapid7Insightvm: 'Rapid7Insightvm',
+    TenableVulnerabilityManagement: 'TenableVulnerabilityManagement',
+    Sentinelone: 'Sentinelone',
+    Lacework: 'Lacework',
+    OrcaSecurity: 'OrcaSecurity',
+    Drata: 'Drata',
+    Secureframe: 'Secureframe',
+    CiscoDuo: 'CiscoDuo',
+    Jumpcloud: 'Jumpcloud',
+    OnePassword: 'OnePassword',
+    Stytch: 'Stytch',
+    Sonarqube: 'Sonarqube',
+    Codecov: 'Codecov',
+    Coveralls: 'Coveralls',
+    Codacy: 'Codacy',
+    Deepsource: 'Deepsource',
+    Linearb: 'Linearb',
+    Jellyfish: 'Jellyfish',
+    Swarmia: 'Swarmia',
+    Packagist: 'Packagist',
+    Nuget: 'Nuget',
+    CratesIO: 'CratesIO',
+    SonatypeNexus: 'SonatypeNexus',
+    JfrogArtifactory: 'JfrogArtifactory',
+    Snowplow: 'Snowplow',
+    WeightsAndBiases: 'WeightsAndBiases',
+    MonteCarlo: 'MonteCarlo',
+    Metaplane: 'Metaplane',
+    Datahub: 'Datahub',
+    ClickhouseCloud: 'ClickhouseCloud',
+    ConfluentCloud: 'ConfluentCloud',
+    KongKonnect: 'KongKonnect',
+    Kandji: 'Kandji',
+    Automox: 'Automox',
+    Autumn: 'Autumn',
+    GetStream: 'GetStream',
+    Octolens: 'Octolens',
+    Kajabi: 'Kajabi',
+    Shopware: 'Shopware',
+    Dubsado: 'Dubsado',
+    Campfire: 'Campfire',
+    PromptWatch: 'PromptWatch',
+    Crisp: 'Crisp',
+    Kommo: 'Kommo',
+    Axiom: 'Axiom',
+    Plivo: 'Plivo',
+    DataForSEO: 'DataForSEO',
+    Sleekplan: 'Sleekplan',
+    AbTasty: 'AbTasty',
+    Ably: 'Ably',
+    AbnormalSecurity: 'AbnormalSecurity',
+    Acast: 'Acast',
+    Acculynx: 'Acculynx',
+    Actionstep: 'Actionstep',
+    Aftership: 'Aftership',
+    AhaIdeas: 'AhaIdeas',
+    AkamaiReporting: 'AkamaiReporting',
+    Alation: 'Alation',
+    Alegra: 'Alegra',
+    Allegro: 'Allegro',
+    AnodotCost: 'AnodotCost',
+    Anomalo: 'Anomalo',
+    Apaleo: 'Apaleo',
+    Apitally: 'Apitally',
+    AppStoreConnect: 'AppStoreConnect',
+    Appdirect: 'Appdirect',
+    Appfolio: 'Appfolio',
+    Arxiv: 'Arxiv',
+    Asaas: 'Asaas',
+    Astronomer: 'Astronomer',
+    Athenahealth: 'Athenahealth',
+    Atlan: 'Atlan',
+    AutodeskConstructionCloud: 'AutodeskConstructionCloud',
+    Avalara: 'Avalara',
+    AwsAthena: 'AwsAthena',
+    AwsBatch: 'AwsBatch',
+    AwsBudgets: 'AwsBudgets',
+    AwsCloudformation: 'AwsCloudformation',
+    AwsComputeOptimizer: 'AwsComputeOptimizer',
+    AwsConfig: 'AwsConfig',
+    AwsConnect: 'AwsConnect',
+    AwsCostAndUsageReport: 'AwsCostAndUsageReport',
+    AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
+    AwsCostExplorer: 'AwsCostExplorer',
+    AwsGlueDataCatalog: 'AwsGlueDataCatalog',
+    AwsGuardduty: 'AwsGuardduty',
+    AwsHealth: 'AwsHealth',
+    AwsIamAccessAnalyzer: 'AwsIamAccessAnalyzer',
+    AwsInspector: 'AwsInspector',
+    AwsMacie: 'AwsMacie',
+    AwsOrganizations: 'AwsOrganizations',
+    AwsRdsPerformanceInsights: 'AwsRdsPerformanceInsights',
+    AwsSagemaker: 'AwsSagemaker',
+    AwsSavingsPlans: 'AwsSavingsPlans',
+    AwsSecurityHub: 'AwsSecurityHub',
+    AwsSes: 'AwsSes',
+    AwsStepFunctions: 'AwsStepFunctions',
+    AwsSupport: 'AwsSupport',
+    AwsSystemsManager: 'AwsSystemsManager',
+    AwsTrustedAdvisor: 'AwsTrustedAdvisor',
+    AwsWaf: 'AwsWaf',
+    AwsXray: 'AwsXray',
+    AzureActivityLog: 'AzureActivityLog',
+    AzureAdvisor: 'AzureAdvisor',
+    AzureApiManagement: 'AzureApiManagement',
+    AzureApplicationInsights: 'AzureApplicationInsights',
+    AzureCostManagement: 'AzureCostManagement',
+    AzureDataExplorer: 'AzureDataExplorer',
+    AzureDataFactory: 'AzureDataFactory',
+    AzureLogAnalytics: 'AzureLogAnalytics',
+    AzureMonitorAlerts: 'AzureMonitorAlerts',
+    AzureMonitorMetrics: 'AzureMonitorMetrics',
+    AzureOpenaiUsage: 'AzureOpenaiUsage',
+    AzurePolicyInsights: 'AzurePolicyInsights',
+    AzureReservations: 'AzureReservations',
+    AzureResourceGraph: 'AzureResourceGraph',
+    AzureResourceHealth: 'AzureResourceHealth',
+    AzureServiceHealth: 'AzureServiceHealth',
+    AzureSynapse: 'AzureSynapse',
+    BackMarket: 'BackMarket',
+    Beehiiv: 'Beehiiv',
+    Bigeye: 'Bigeye',
+    BillCom: 'BillCom',
+    Billomat: 'Billomat',
+    BingWebmasterTools: 'BingWebmasterTools',
+    Bitwarden: 'Bitwarden',
+    BlackbaudRaisersEdgeNxt: 'BlackbaudRaisersEdgeNxt',
+    BlackboardLearn: 'BlackboardLearn',
+    Bling: 'Bling',
+    Bloomerang: 'Bloomerang',
+    Bluesky: 'Bluesky',
+    BolRetailer: 'BolRetailer',
+    Boulevard: 'Boulevard',
+    Buffer: 'Buffer',
+    Bugherd: 'Bugherd',
+    Buildium: 'Buildium',
+    Buttondown: 'Buttondown',
+    BuyMeACoffee: 'BuyMeACoffee',
+    Calendarific: 'Calendarific',
+    Calibre: 'Calibre',
+    CanvasLms: 'CanvasLms',
+    Captivate: 'Captivate',
+    Cashfree: 'Cashfree',
+    CastAi: 'CastAi',
+    Catchpoint: 'Catchpoint',
+    CdcOpenData: 'CdcOpenData',
+    Census: 'Census',
+    Checkly: 'Checkly',
+    CircleSo: 'CircleSo',
+    Classy: 'Classy',
+    Cleartax: 'Cleartax',
+    Clever: 'Clever',
+    Clevertap: 'Clevertap',
+    Cliniko: 'Cliniko',
+    Clio: 'Clio',
+    Clip: 'Clip',
+    Cloudability: 'Cloudability',
+    Cloudsmith: 'Cloudsmith',
+    Cloudzero: 'Cloudzero',
+    Clover: 'Clover',
+    Codemagic: 'Codemagic',
+    Codescene: 'Codescene',
+    Collibra: 'Collibra',
+    Companycam: 'Companycam',
+    Conekta: 'Conekta',
+    ContaAzul: 'ContaAzul',
+    Contentsquare: 'Contentsquare',
+    Cortex: 'Cortex',
+    Courier: 'Courier',
+    Crossref: 'Crossref',
+    CrowdstrikeFalcon: 'CrowdstrikeFalcon',
+    CubeCloud: 'CubeCloud',
+    D2lBrightspace: 'D2lBrightspace',
+    Dayforce: 'Dayforce',
+    Debugbear: 'Debugbear',
+    Descope: 'Descope',
+    Develocity: 'Develocity',
+    Dialpad: 'Dialpad',
+    Discord: 'Discord',
+    Discourse: 'Discourse',
+    Donorbox: 'Donorbox',
+    Doorloop: 'Doorloop',
+    Dovetail: 'Dovetail',
+    Drchrono: 'Drchrono',
+    Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
+    EcbDataPortal: 'EcbDataPortal',
+    Emarsys: 'Emarsys',
+    Embrace: 'Embrace',
+    Entsoe: 'Entsoe',
+    Eppo: 'Eppo',
+    Etsy: 'Etsy',
+    Eurostat: 'Eurostat',
+    Faire: 'Faire',
+    FarosAi: 'FarosAi',
+    Fieldpulse: 'Fieldpulse',
+    Fieldwire: 'Fieldwire',
+    Filevine: 'Filevine',
+    Finout: 'Finout',
+    Five9: 'Five9',
+    FlexeraCloudCost: 'FlexeraCloudCost',
+    Flutterwave: 'Flutterwave',
+    Fortnox: 'Fortnox',
+    Fourthwall: 'Fourthwall',
+    Fred: 'Fred',
+    Frontegg: 'Frontegg',
+    FusionAuth: 'FusionAuth',
+    G2: 'G2',
+    Gcore: 'Gcore',
+    GcpApigee: 'GcpApigee',
+    GcpArtifactRegistry: 'GcpArtifactRegistry',
+    GcpBigtable: 'GcpBigtable',
+    GcpChronicle: 'GcpChronicle',
+    GcpCloudAssetInventory: 'GcpCloudAssetInventory',
+    GcpCloudBilling: 'GcpCloudBilling',
+    GcpCloudBuild: 'GcpCloudBuild',
+    GcpCloudDeploy: 'GcpCloudDeploy',
+    GcpCloudDns: 'GcpCloudDns',
+    GcpCloudFunctions: 'GcpCloudFunctions',
+    GcpCloudLogging: 'GcpCloudLogging',
+    GcpCloudMonitoring: 'GcpCloudMonitoring',
+    GcpCloudRun: 'GcpCloudRun',
+    GcpCloudSpanner: 'GcpCloudSpanner',
+    GcpCloudSql: 'GcpCloudSql',
+    GcpCloudTrace: 'GcpCloudTrace',
+    GcpCloudWorkflows: 'GcpCloudWorkflows',
+    GcpComputeEngine: 'GcpComputeEngine',
+    GcpContainerAnalysis: 'GcpContainerAnalysis',
+    GcpDataflow: 'GcpDataflow',
+    GcpDataplex: 'GcpDataplex',
+    GcpDataproc: 'GcpDataproc',
+    GcpErrorReporting: 'GcpErrorReporting',
+    GcpGke: 'GcpGke',
+    GcpPubsub: 'GcpPubsub',
+    GcpRecaptchaEnterprise: 'GcpRecaptchaEnterprise',
+    GcpRecommender: 'GcpRecommender',
+    GcpSecurityCommandCenter: 'GcpSecurityCommandCenter',
+    Gdelt: 'Gdelt',
+    GenesysCloud: 'GenesysCloud',
+    Getdx: 'Getdx',
+    Ghost: 'Ghost',
+    Givebutter: 'Givebutter',
+    Gleif: 'Gleif',
+    GooglePlayConsole: 'GooglePlayConsole',
+    Guesty: 'Guesty',
+    Gumroad: 'Gumroad',
+    HarnessCcm: 'HarnessCcm',
+    HarnessSei: 'HarnessSei',
+    Harvest: 'Harvest',
+    Healthie: 'Healthie',
+    Hitpay: 'Hitpay',
+    Hivebrite: 'Hivebrite',
+    Holded: 'Holded',
+    Hostaway: 'Hostaway',
+    HousecallPro: 'HousecallPro',
+    Humanitec: 'Humanitec',
+    ImfData: 'ImfData',
+    Imperva: 'Imperva',
+    InfluxdbCloud: 'InfluxdbCloud',
+    Iyzico: 'Iyzico',
+    Jobtread: 'Jobtread',
+    Kameleoon: 'Kameleoon',
+    KauflandMarketplace: 'KauflandMarketplace',
+    Kestra: 'Kestra',
+    Kick: 'Kick',
+    Kinde: 'Kinde',
+    Kion: 'Kion',
+    Knowbe4: 'Knowbe4',
+    Komodor: 'Komodor',
+    Labelbox: 'Labelbox',
+    Lawmatics: 'Lawmatics',
+    Learnworlds: 'Learnworlds',
+    LexwareOffice: 'LexwareOffice',
+    Lightdash: 'Lightdash',
+    Lodgify: 'Lodgify',
+    Logicmonitor: 'Logicmonitor',
+    Logrocket: 'Logrocket',
+    LoopReturns: 'LoopReturns',
+    Mastodon: 'Mastodon',
+    Meetup: 'Meetup',
+    Memberful: 'Memberful',
+    MercadoPago: 'MercadoPago',
+    Meteostat: 'Meteostat',
+    Mews: 'Mews',
+    Mezmo: 'Mezmo',
+    Microsoft365UsageReports: 'Microsoft365UsageReports',
+    MicrosoftAdvertising: 'MicrosoftAdvertising',
+    MicrosoftClarity: 'MicrosoftClarity',
+    MicrosoftDefenderCloudApps: 'MicrosoftDefenderCloudApps',
+    MicrosoftDefenderEndpoint: 'MicrosoftDefenderEndpoint',
+    MicrosoftDefenderForCloud: 'MicrosoftDefenderForCloud',
+    MicrosoftIntune: 'MicrosoftIntune',
+    MicrosoftPurview: 'MicrosoftPurview',
+    MicrosoftPurviewAudit: 'MicrosoftPurviewAudit',
+    MicrosoftSentinel: 'MicrosoftSentinel',
+    MicrosoftTeamsCallRecords: 'MicrosoftTeamsCallRecords',
+    Midtrans: 'Midtrans',
+    MightyNetworks: 'MightyNetworks',
+    Mindbody: 'Mindbody',
+    Mirakl: 'Mirakl',
+    Moesif: 'Moesif',
+    Moneybird: 'Moneybird',
+    Moodle: 'Moodle',
+    Motherduck: 'Motherduck',
+    Mycase: 'Mycase',
+    NagerDate: 'NagerDate',
+    NeonCrm: 'NeonCrm',
+    Nexhealth: 'Nexhealth',
+    NoaaCdo: 'NoaaCdo',
+    Nobl9: 'Nobl9',
+    Nolt: 'Nolt',
+    Nops: 'Nops',
+    NpmRegistry: 'NpmRegistry',
+    Oecd: 'Oecd',
+    Okendo: 'Okendo',
+    Omni: 'Omni',
+    Onelogin: 'Onelogin',
+    OpenDental: 'OpenDental',
+    OpenMeteo: 'OpenMeteo',
+    Openalex: 'Openalex',
+    Opencorporates: 'Opencorporates',
+    Openfec: 'Openfec',
+    OpnPayments: 'OpnPayments',
+    Opslevel: 'Opslevel',
+    OttoMarket: 'OttoMarket',
+    Ownerrez: 'Ownerrez',
+    Pagbank: 'Pagbank',
+    Patreon: 'Patreon',
+    Pax8: 'Pax8',
+    Paychex: 'Paychex',
+    Paymob: 'Paymob',
+    Paymongo: 'Paymongo',
+    Phonepe: 'Phonepe',
+    Pike13: 'Pike13',
+    Pingone: 'Pingone',
+    PinterestOrganic: 'PinterestOrganic',
+    PlanningCenter: 'PlanningCenter',
+    PluralsightFlow: 'PluralsightFlow',
+    Podbean: 'Podbean',
+    Postscript: 'Postscript',
+    PowerBiAdmin: 'PowerBiAdmin',
+    Practicepanther: 'Practicepanther',
+    Preset: 'Preset',
+    Procore: 'Procore',
+    Productiv: 'Productiv',
+    ProofpointTap: 'ProofpointTap',
+    Propertyware: 'Propertyware',
+    Pubnub: 'Pubnub',
+    Quay: 'Quay',
+    Raken: 'Raken',
+    RedpandaCloud: 'RedpandaCloud',
+    RentManager: 'RentManager',
+    Reverb: 'Reverb',
+    RocketMatter: 'RocketMatter',
+    Rubygems: 'Rubygems',
+    Scalr: 'Scalr',
+    SecEdgar: 'SecEdgar',
+    SelectStar: 'SelectStar',
+    SemanticScholar: 'SemanticScholar',
+    Semrush: 'Semrush',
+    ServiceFusion: 'ServiceFusion',
+    Servicem8: 'Servicem8',
+    Servicetitan: 'Servicetitan',
+    Servicetrade: 'Servicetrade',
+    Sevdesk: 'Sevdesk',
+    Similarweb: 'Similarweb',
+    Simpro: 'Simpro',
+    Sinch: 'Sinch',
+    Singlestore: 'Singlestore',
+    Site24x7: 'Site24x7',
+    Sleuth: 'Sleuth',
+    Smartlook: 'Smartlook',
+    Smartrecruiters: 'Smartrecruiters',
+    Smokeball: 'Smokeball',
+    SodaCloud: 'SodaCloud',
+    Speedcurve: 'Speedcurve',
+    SpotIo: 'SpotIo',
+    Sprig: 'Sprig',
+    Sprinklr: 'Sprinklr',
+    SproutSocial: 'SproutSocial',
+    StackOverflowForTeams: 'StackOverflowForTeams',
+    Stockx: 'Stockx',
+    TackleIo: 'TackleIo',
+    Talkdesk: 'Talkdesk',
+    TeamupFitness: 'TeamupFitness',
+    Tebra: 'Tebra',
+    Telnyx: 'Telnyx',
+    Ternary: 'Ternary',
+    Thoughtspot: 'Thoughtspot',
+    Thousandeyes: 'Thousandeyes',
+    Threads: 'Threads',
+    TiktokShop: 'TiktokShop',
+    TinyErp: 'TinyErp',
+    Tinybird: 'Tinybird',
+    Tipalti: 'Tipalti',
+    Toast: 'Toast',
+    Torii: 'Torii',
+    Transistor: 'Transistor',
+    TrunkIo: 'TrunkIo',
+    Trustradius: 'Trustradius',
+    Twitch: 'Twitch',
+    TwoC2p: 'TwoC2p',
+    UkCompaniesHouse: 'UkCompaniesHouse',
+    UkOns: 'UkOns',
+    UnComtrade: 'UnComtrade',
+    UsBea: 'UsBea',
+    UsBls: 'UsBls',
+    UsEia: 'UsEia',
+    UsTreasuryFiscalData: 'UsTreasuryFiscalData',
+    Vanta: 'Vanta',
+    Vendr: 'Vendr',
+    Virtuous: 'Virtuous',
+    Vonage: 'Vonage',
+    WalmartMarketplace: 'WalmartMarketplace',
+    Waydev: 'Waydev',
+    Wayfair: 'Wayfair',
+    WhatsappBusinessManagement: 'WhatsappBusinessManagement',
+    WhoGho: 'WhoGho',
+    Whop: 'Whop',
+    Wiz: 'Wiz',
+    Wompi: 'Wompi',
+    Workiz: 'Workiz',
+    WorldBank: 'WorldBank',
+    Xendit: 'Xendit',
+    Yoco: 'Yoco',
+    ZalandoZdirect: 'ZalandoZdirect',
+    Zluri: 'Zluri',
+    Zylo: 'Zylo',
+    Tally: 'Tally',
+    Nuntly: 'Nuntly',
+    Vturb: 'Vturb',
+    Meltwater: 'Meltwater',
+    UserCom: 'UserCom',
+    Latitude: 'Latitude',
+    Workato: 'Workato',
+    SideShift: 'SideShift',
+    DuckLake: 'DuckLake',
+    Starburst: 'Starburst',
+    Easybill: 'Easybill',
+    Bexio: 'Bexio',
+    Umami: 'Umami',
+    Manychat: 'Manychat',
+    Kickstarter: 'Kickstarter',
+    Typesense: 'Typesense',
+    FirstPromoter: 'FirstPromoter',
+    Zero: 'Zero',
+    Inth: 'Inth',
+    Bcms: 'BCMS',
+    Convonite: 'Convonite',
+    Hookdeck: 'Hookdeck',
+    Billit: 'Billit',
+    Moxie: 'Moxie',
+    TripleWhale: 'TripleWhale',
+    Directus: 'Directus',
+    Clay: 'Clay',
+    TradableBits: 'TradableBits',
+    Swan: 'Swan',
+    Hyros: 'Hyros',
+    Odoo: 'Odoo',
+    Airbridge: 'Airbridge',
+    Snovio: 'Snovio',
+    GoogleMerchantCenter: 'GoogleMerchantCenter',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -2401,6 +3911,8 @@ export interface TableApi {
     deleted?: boolean | null
     /** @maxLength 128 */
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+    readonly hogql_name: string
     format: TableFormatEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -2446,6 +3958,8 @@ export interface PatchedTableApi {
     deleted?: boolean | null
     /** @maxLength 128 */
     name?: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+    readonly hogql_name?: string
     format?: TableFormatEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string
@@ -2464,22 +3978,81 @@ export interface PatchedTableApi {
     readonly user_access_level?: string | null
 }
 
+/**
+ * * `csv` - csv
+ * * `json` - json
+ * * `parquet` - parquet
+ */
+export type CreateTableFromUploadFileFormatEnumApi =
+    (typeof CreateTableFromUploadFileFormatEnumApi)[keyof typeof CreateTableFromUploadFileFormatEnumApi]
+
+export const CreateTableFromUploadFileFormatEnumApi = {
+    Csv: 'csv',
+    Json: 'json',
+    Parquet: 'parquet',
+} as const
+
+export interface CreateTableFromUploadApi {
+    /** Id returned by upload_file for the stored file. */
+    upload_id: string
+    /** Sanitized filename returned by upload_file. */
+    filename: string
+    /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+     *
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet */
+    file_format: CreateTableFromUploadFileFormatEnumApi
+    /** Name the resulting table is queried by in HogQL. */
+    table_name: string
+}
+
+export interface FileUploadResponseApi {
+    /** Id of the stored upload. Pass it to create_from_upload to build the table. */
+    upload_id: string
+    /** Sanitized name the file was stored under. */
+    filename: string
+    /** Format the file will be read as: 'csv', 'json', or 'parquet'. */
+    file_format: string
+    /** Size of the stored file in bytes. */
+    size_bytes: number
+}
+
 export interface ViewLinkApi {
     readonly id: string
-    /** @nullable */
+    /**
+     * Whether this join has been soft-deleted.
+     * @nullable
+     */
     deleted?: boolean | null
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 400
+     */
     source_table_name: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 400
+     */
     source_table_key: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 400
+     */
     joining_table_name: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 400
+     */
     joining_table_key: string
-    /** @maxLength 400 */
+    /**
+     * Accessor added to the source table to reach the joined rows, for example person in events.person.
+     * @maxLength 400
+     */
     field_name: string
+    /** Optional join configuration, for example experiments optimization flags. */
     configuration?: unknown
 }
 
@@ -2494,32 +4067,116 @@ export interface PaginatedViewLinkListApi {
 
 export interface PatchedViewLinkApi {
     readonly id?: string
-    /** @nullable */
+    /**
+     * Whether this join has been soft-deleted.
+     * @nullable
+     */
     deleted?: boolean | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 400
+     */
     source_table_name?: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 400
+     */
     source_table_key?: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 400
+     */
     joining_table_name?: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 400
+     */
     joining_table_key?: string
-    /** @maxLength 400 */
+    /**
+     * Accessor added to the source table to reach the joined rows, for example person in events.person.
+     * @maxLength 400
+     */
     field_name?: string
+    /** Optional join configuration, for example experiments optimization flags. */
     configuration?: unknown
 }
 
 export interface ViewLinkValidationApi {
-    /** @maxLength 255 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 255
+     */
     joining_table_name: string
-    /** @maxLength 255 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 255
+     */
     joining_table_key: string
-    /** @maxLength 255 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 255
+     */
     source_table_name: string
-    /** @maxLength 255 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 255
+     */
     source_table_key: string
+}
+
+export interface ViewLinkValidationResponseApi {
+    /** Whether the join compiled and returned rows when executed against a sample of the source table. */
+    is_valid: boolean
+    /**
+     * Warning about the validation result, for example when the sampled join returned no rows.
+     * @nullable
+     */
+    msg: string | null
+    /**
+     * The HogQL statement used to validate the join.
+     * @nullable
+     */
+    hogql: string | null
+    /** Column names for each row in results. */
+    columns: string[]
+    /** Distinct source and joining key pairs from the joined result, at most 5. */
+    results: unknown[][]
+    /**
+     * Number of sampled source rows checked for a join match, at most 10000. Null when the match-rate query failed.
+     * @nullable
+     */
+    total_rows: number | null
+    /**
+     * Number of sampled source rows with at least one match in the joining table. Null when the match-rate query failed.
+     * @nullable
+     */
+    matched_rows: number | null
+    /**
+     * matched_rows divided by total_rows, between 0 and 1. Null when the match-rate query failed or no rows were sampled.
+     * @nullable
+     */
+    match_rate: number | null
+}
+
+export interface ViewLinkValidationErrorApi {
+    /**
+     * Request field the error relates to, if any.
+     * @nullable
+     */
+    attr: string | null
+    /** Machine-readable error code, for example QueryError. */
+    code: string
+    /** Why the join failed to validate. */
+    detail: string
+    /** Error category; always query_error for validation failures. */
+    type: string
+    /**
+     * The HogQL statement that failed to validate.
+     * @nullable
+     */
+    hogql: string | null
 }
 
 export type DataModelingJobsListParams = {
@@ -2540,6 +4197,21 @@ export type DataWarehouseCheckDatabaseNameRetrieveParams = {
      * @minLength 1
      */
     name: string
+}
+
+export type DataWarehouseCheckSchemaNameRetrieveParams = {
+    /**
+     * Schema name to check
+     * @minLength 1
+     */
+    name: string
+}
+
+export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
+    /**
+     * Imported source connection to fetch per-schema detail for.
+     */
+    source_id: string
 }
 
 export type FixHogqlListParams = {
@@ -2662,6 +4334,25 @@ export type WarehouseTablesListParams = {
      * A search term.
      */
     search?: string
+}
+
+/**
+ * How the file will be read when the table is created.
+ */
+export type WarehouseTablesUploadFileCreateBodyFileFormat =
+    (typeof WarehouseTablesUploadFileCreateBodyFileFormat)[keyof typeof WarehouseTablesUploadFileCreateBodyFileFormat]
+
+export const WarehouseTablesUploadFileCreateBodyFileFormat = {
+    Csv: 'csv',
+    Json: 'json',
+    Parquet: 'parquet',
+} as const
+
+export type WarehouseTablesUploadFileCreateBody = {
+    /** The file to upload. */
+    file: Blob
+    /** How the file will be read when the table is created. */
+    file_format: WarehouseTablesUploadFileCreateBodyFileFormat
 }
 
 export type WarehouseViewLinkListParams = {

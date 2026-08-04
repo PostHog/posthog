@@ -119,12 +119,15 @@ function sendLog(level: LogLevel, context: string, message: string, properties?:
         if (navigator.sendBeacon) {
             navigator.sendBeacon(url, new Blob([JSON.stringify(body)], { type: 'application/json' }))
         } else {
-            void fetch(url, {
+            // Swallow rejections: an unhandled rejection here would surface on the
+            // customer's page (and in error tracking) just because a log didn't send.
+            // nosemgrep: toolbar-no-raw-fetch - can't use safeFetch (utils.ts imports this logger)
+            fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
                 keepalive: true,
-            })
+            }).catch(() => {})
         }
     } catch {
         // Never throw on customer pages — matches the contract of toolbarPosthogJS.capture()

@@ -23,6 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _connect_to_postgres,
     _connect_with_dropped_retry,
+    _is_connection_dropped_error,
+    _safe_close_connection,
     get_primary_key_columns,
 )
 
@@ -42,6 +44,17 @@ _SLOT_ADVANCE_MAX_ATTEMPTS = 3
 # run's connection is still releasing it. The slot frees on its own, so a short in-process retry
 # absorbs the handoff instead of failing — and replaying — the whole extraction attempt.
 _SLOT_READ_MAX_ATTEMPTS = 4
+
+
+def _is_slot_already_ahead_error(exc: psycopg.errors.ObjectNotInPrerequisiteState) -> bool:
+    """Whether Postgres refused a slot advance because the slot is already at or past the target
+    LSN ("cannot advance replication slot to X, minimum is Y" with Y > X).
+
+    Distinct from slot invalidation (``is_slot_invalidation_error``): the slot is healthy and
+    simply ahead of the requested position, so the advance is a benign no-op rather than a failure.
+    """
+    message = str(exc).lower()
+    return "cannot advance replication slot to" in message and "minimum is" in message
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +111,15 @@ class PgCDCStreamReader:
         # read paths and absorb those drops in-process instead of failing the whole
         # extraction activity; permanent errors (auth, SSL-required) are re-raised
         # immediately by the helper.
-        self._conn = _connect_with_dropped_retry(
+        self._conn = self._open_streaming_connection()
+
+    def _open_streaming_connection(self) -> psycopg.Connection:
+        """Open a streaming connection to the source through the current tunnel endpoint.
+
+        Shared by the initial ``connect()`` and the in-process reconnect ``read_changes`` runs
+        after a transient mid-peek drop, so both use identical server-side timeouts.
+        """
+        return _connect_with_dropped_retry(
             lambda: _connect_to_postgres(
                 host=self._effective_host,
                 port=self._effective_port,
@@ -193,6 +214,21 @@ class PgCDCStreamReader:
                 self._last_rows_consumed = 0
                 logger.warning("slot_read_busy_retry", slot_name=self._params.slot_name, attempt=attempt + 1)
                 time.sleep(0.5 * 2**attempt)
+            except psycopg.OperationalError as e:
+                # A transient drop on the peek fetch (pooler/firewall idle cull, failover, network
+                # blip — e.g. "consuming input failed: SSL SYSCALL error: EOF detected") is the same
+                # class connect()/confirm_position() already absorb in-process. Reconnect and
+                # re-peek: the peek is non-consuming, so re-reading from the slot's last confirmed
+                # position is safe. Only retry before the first row lands — once events have been
+                # yielded the caller has buffered them, so a re-peek would duplicate; let it surface
+                # and Temporal replays the whole run from the last confirmed LSN.
+                if slot_acquired or not _is_connection_dropped_error(e) or attempt == _SLOT_READ_MAX_ATTEMPTS - 1:
+                    raise
+                _safe_close_connection(conn)
+                self._last_rows_consumed = 0
+                logger.warning("slot_read_dropped_retry", slot_name=self._params.slot_name, attempt=attempt + 1)
+                time.sleep(0.5 * 2**attempt)
+                self._conn = conn = self._open_streaming_connection()
 
     def confirm_position(self, position: str) -> None:
         """Advance the replication slot to the given LSN.
@@ -225,6 +261,14 @@ class PgCDCStreamReader:
         )
         try:
             self._advance_slot(advance_conn, query)
+        except psycopg.errors.ObjectNotInPrerequisiteState as e:
+            if not _is_slot_already_ahead_error(e):
+                raise
+            # The slot's confirmed position already sits at or beyond `position` — a retried or
+            # overlapping run advanced it further — so the WAL up to here is already released and
+            # there is nothing to do. Postgres refuses a backward advance; treat it as a no-op.
+            logger.info("slot_already_ahead", slot_name=self._params.slot_name, position=position)
+            return
         finally:
             advance_conn.close()
 

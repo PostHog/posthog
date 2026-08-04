@@ -51,14 +51,20 @@ export type MarkdownNotebookVisualGroup =
           index: number
       }
 
+/** Blocks that share a card with the text-like blocks around them. Components, tables, and
+ * dividers always stand alone, so they never need a `startsGroup` boundary. */
+export function isTextGroupNode(node: NotebookBlockNode | undefined): boolean {
+    return (
+        !!node && (isTextBlockNode(node) || node.type === 'list' || node.type === 'code' || isPromptComponentNode(node))
+    )
+}
+
 export function getMarkdownNotebookVisualGroups(
     nodes: NotebookBlockNode[],
     insertMenuNodeId?: string
 ): MarkdownNotebookVisualGroup[] {
     const groups: MarkdownNotebookVisualGroup[] = []
     let currentTextGroup: Extract<MarkdownNotebookVisualGroup, { type: 'text' }> | null = null
-    const isTextLikeNode = (node: NotebookBlockNode | undefined): boolean =>
-        !!node && (isTextBlockNode(node) || node.type === 'list' || node.type === 'code' || isPromptComponentNode(node))
 
     // A discussion comment sits right above the text it highlights; joining the surrounding
     // text group keeps that text from being split into separate cards. A comment anchored to
@@ -74,12 +80,15 @@ export function getMarkdownNotebookVisualGroups(
         while (nextIndex < nodes.length && isDiscussionCommentNode(nodes[nextIndex])) {
             nextIndex += 1
         }
-        return isTextLikeNode(nodes[nextIndex])
+        return isTextGroupNode(nodes[nextIndex])
     }
 
     nodes.forEach((node, index) => {
         const shouldBreakTextGroupForInsertMenu = node.id === insertMenuNodeId && !isPromptComponentNode(node)
-        if ((isTextLikeNode(node) || commentJoinsTextGroup(index)) && !shouldBreakTextGroupForInsertMenu) {
+        if ((isTextGroupNode(node) || commentJoinsTextGroup(index)) && !shouldBreakTextGroupForInsertMenu) {
+            if (node.startsGroup) {
+                currentTextGroup = null
+            }
             if (!currentTextGroup) {
                 currentTextGroup = {
                     type: 'text',
@@ -115,6 +124,35 @@ export function getMarkdownNotebookVisualGroups(
     return groups
 }
 
+// ensureEditableNotebookDocument prepends an empty `# ` title row so editors always have a
+// title to type into. Viewers can't type, so in view mode that synthetic row would render as
+// a bare "Untitled notebook" placeholder card (e.g. profile canvases whose content starts
+// with a component) — drop it from the rendered groups instead.
+export function withoutLeadingEmptyTitleGroup(groups: MarkdownNotebookVisualGroup[]): MarkdownNotebookVisualGroup[] {
+    const firstGroup = groups[0]
+    if (!firstGroup || firstGroup.type !== 'text') {
+        return groups
+    }
+    const [firstItem, ...restItems] = firstGroup.items
+    if (!firstItem || firstItem.index !== 0 || !isTextBlockNode(firstItem.node) || nodeHasContent(firstItem.node)) {
+        return groups
+    }
+    return restItems.length ? [{ ...firstGroup, items: restItems }, ...groups.slice(1)] : groups.slice(1)
+}
+
+// `startsGroup` belongs to the slot a block occupies, not to its content: whatever replaces the
+// block inherits the card boundary, and the halves a split leaves behind must not each keep it —
+// that would start a fresh card on every Enter.
+export function withPreservedGroupStart(
+    replacedNode: NotebookBlockNode,
+    replacementNodes: NotebookBlockNode[]
+): NotebookBlockNode[] {
+    return replacementNodes.map((node, index) => {
+        const startsGroup = index === 0 ? replacedNode.startsGroup : undefined
+        return startsGroup === node.startsGroup ? node : { ...node, startsGroup }
+    })
+}
+
 export function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
     return node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote'
 }
@@ -122,7 +160,10 @@ export function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBl
 export function isGroupedBlockquoteNode(
     node: NotebookBlockNode
 ): node is NotebookTextBlockNode | NotebookListBlockNode {
-    return (isTextBlockNode(node) && node.type === 'blockquote') || (node.type === 'list' && !!node.blockquote)
+    return (
+        (isTextBlockNode(node) && (node.type === 'blockquote' || !!node.blockquote)) ||
+        (node.type === 'list' && !!node.blockquote)
+    )
 }
 
 export function isPromptComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
@@ -318,7 +359,7 @@ export function getPromptSource(value: NotebookPropValue | undefined): 'slash' |
 }
 
 export function textBlocksShareContinuationStyle(left: NotebookTextBlockNode, right: NotebookTextBlockNode): boolean {
-    if (left.type !== right.type) {
+    if (left.type !== right.type || !!left.blockquote !== !!right.blockquote) {
         return false
     }
 
@@ -458,6 +499,8 @@ export function getTextBlockShortcutReplacement(
                     id: node.id,
                     type: 'heading',
                     level: headingShortcut,
+                    // A heading typed inside a quote stays part of the quote
+                    blockquote: node.type === 'blockquote' || node.blockquote ? true : undefined,
                     children: [],
                 },
             ],
@@ -465,49 +508,53 @@ export function getTextBlockShortcutReplacement(
         }
     }
 
-    if (isTitleBlock || node.type !== 'paragraph') {
+    if (isTitleBlock || (node.type !== 'paragraph' && node.type !== 'blockquote')) {
         return null
     }
 
-    if (getBlockquoteShortcut(text)) {
-        return {
-            nodes: [
-                {
-                    id: node.id,
-                    type: 'blockquote',
-                    children: [],
-                },
-            ],
-            restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+    // Only the list shortcut applies inside a quote: code blocks and dividers have no quoted
+    // form, and a quote marker typed in a quote stays literal text.
+    if (node.type === 'paragraph') {
+        if (getBlockquoteShortcut(text)) {
+            return {
+                nodes: [
+                    {
+                        id: node.id,
+                        type: 'blockquote',
+                        children: [],
+                    },
+                ],
+                restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+            }
         }
-    }
 
-    if (getCodeBlockShortcut(text)) {
-        return {
-            nodes: [
-                {
-                    id: node.id,
-                    type: 'code',
-                    text: '',
-                },
-            ],
-            restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+        if (getCodeBlockShortcut(text)) {
+            return {
+                nodes: [
+                    {
+                        id: node.id,
+                        type: 'code',
+                        text: '',
+                    },
+                ],
+                restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+            }
         }
-    }
 
-    if (getDividerShortcut(text)) {
-        const trailingParagraph = makeEmptyParagraph(`divider-${node.id}`)
-        return {
-            nodes: [
-                {
-                    id: node.id,
-                    type: 'component',
-                    tagName: DIVIDER_COMPONENT_TAG,
-                    props: {},
-                },
-                trailingParagraph,
-            ],
-            restoreSelection: { nodeId: trailingParagraph.id, start: 0, end: 0 },
+        if (getDividerShortcut(text)) {
+            const trailingParagraph = makeEmptyParagraph(`divider-${node.id}`)
+            return {
+                nodes: [
+                    {
+                        id: node.id,
+                        type: 'component',
+                        tagName: DIVIDER_COMPONENT_TAG,
+                        props: {},
+                    },
+                    trailingParagraph,
+                ],
+                restoreSelection: { nodeId: trailingParagraph.id, start: 0, end: 0 },
+            }
         }
     }
 
@@ -521,6 +568,8 @@ export function getTextBlockShortcutReplacement(
                     type: 'list',
                     ordered: listShortcut.ordered,
                     start: listShortcut.start,
+                    // A list typed inside a quote stays part of the quote
+                    blockquote: node.type === 'blockquote' ? true : undefined,
                     items: [
                         {
                             id: listItemId,
@@ -921,6 +970,18 @@ export function rekeyNotebookNodes(nodes: NotebookBlockNode[], seed: string): No
                     ...item,
                     id: makeListItemId(`${seed}-${String(index)}-${String(itemIndex)}`),
                 })),
+            }
+        }
+
+        // A component node's `nodeId` prop is its per-instance identity: it keys the node's
+        // logic and cached results. If it survives a paste unchanged, the pasted copy shares
+        // that logic with the original, so editing one edits the other. Refresh it to match the
+        // fresh block id (the same fallback a node with no persisted nodeId already uses).
+        if (clonedNode.type === 'component' && typeof clonedNode.props.nodeId === 'string') {
+            return {
+                ...clonedNode,
+                id,
+                props: { ...clonedNode.props, nodeId: id },
             }
         }
 

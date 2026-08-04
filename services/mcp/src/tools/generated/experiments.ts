@@ -15,6 +15,8 @@ import {
     ExperimentSavedMetricsPartialUpdateBody,
     ExperimentSavedMetricsPartialUpdateParams,
     ExperimentSavedMetricsRetrieveParams,
+    ExperimentsActivityRetrieveParams,
+    ExperimentsActivityRetrieveQueryParams,
     ExperimentsArchiveCreateBody,
     ExperimentsArchiveCreateParams,
     ExperimentsCalculateRunningTimeCreateBody,
@@ -26,8 +28,13 @@ import {
     ExperimentsDuplicateCreateParams,
     ExperimentsEndCreateBody,
     ExperimentsEndCreateParams,
+    ExperimentsFreezeExposureCreateParams,
     ExperimentsLaunchCreateParams,
     ExperimentsListQueryParams,
+    ExperimentsMetricsRecalculationCreateBody,
+    ExperimentsMetricsRecalculationCreateParams,
+    ExperimentsMetricsRecalculationLatestRetrieveParams,
+    ExperimentsMetricsRecalculationRetrieveParams,
     ExperimentsPartialUpdateBody,
     ExperimentsPartialUpdateParams,
     ExperimentsPauseCreateParams,
@@ -39,12 +46,34 @@ import {
     ExperimentsTimeseriesResultsRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveQueryParams,
     ExperimentsUnarchiveCreateParams,
+    ExperimentsUnfreezeExposureCreateParams,
 } from '@/generated/experiments/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const ExperimentActivitySchema = ExperimentsActivityRetrieveParams.omit({ project_id: true })
+    .extend(ExperimentsActivityRetrieveQueryParams.shape)
+    .extend({ id: z.preprocess(castStringToInt, ExperimentsActivityRetrieveParams.shape['id']) })
+
+const experimentActivity = (): ToolBase<typeof ExperimentActivitySchema, Schemas.ActivityLogPaginatedResponse> => ({
+    name: 'experiment-activity',
+    schema: ExperimentActivitySchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentActivitySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/activity/`,
+            query: {
+                limit: params.limit,
+                page: params.page,
+            },
+        })
+        return result
+    },
+})
 
 const ExperimentArchiveSchema = ExperimentsArchiveCreateParams.omit({ project_id: true })
     .extend(ExperimentsArchiveCreateBody.shape)
@@ -175,13 +204,16 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     _create_in_folder: true,
     conclusion: true,
     conclusion_comment: true,
+    repository: true,
     primary_metrics_ordered_uuids: true,
     secondary_metrics_ordered_uuids: true,
     only_count_matured_users: true,
     update_feature_flag_params: true,
+    version: true,
+    original_experiment: true,
 }).extend({
-    parameters: ExperimentsCreateBody.shape['parameters'].describe(
-        'Variant split and rollout scope. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100% rollout. HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant\'s `key` must be the literal string `control` (lowercase, no variations). It is the baseline used for analysis and the experiment runtime treats it specially. If the user describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair, map the baseline to `key: "control"` — not "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`, `variant_a`, etc.).'
+    feature_flag: ExperimentsCreateBody.shape['feature_flag'].describe(
+        'Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag\'s own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.'
     ),
 })
 
@@ -200,6 +232,9 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
             }
             if (params.feature_flag_key !== undefined) {
                 body['feature_flag_key'] = params.feature_flag_key
+            }
+            if (params.feature_flag !== undefined) {
+                body['feature_flag'] = params.feature_flag
             }
             if (params.holdout_id !== undefined) {
                 body['holdout_id'] = params.holdout_id
@@ -286,10 +321,13 @@ const ExperimentDuplicateSchema = ExperimentsDuplicateCreateParams.omit({ projec
             _create_in_folder: true,
             conclusion: true,
             conclusion_comment: true,
+            repository: true,
             primary_metrics_ordered_uuids: true,
             secondary_metrics_ordered_uuids: true,
             only_count_matured_users: true,
             update_feature_flag_params: true,
+            version: true,
+            original_experiment: true,
         }).shape
     )
     .extend({ id: z.preprocess(castStringToInt, ExperimentsDuplicateCreateParams.shape['id']) })
@@ -335,10 +373,34 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
             if (params.open_cleanup_pr !== undefined) {
                 body['open_cleanup_pr'] = params.open_cleanup_pr
             }
+            if (params.repository !== undefined) {
+                body['repository'] = params.repository
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
                 body,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        },
+    })
+
+const ExperimentFreezeExposureSchema = ExperimentsFreezeExposureCreateParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentsFreezeExposureCreateParams.shape['id']),
+})
+
+const experimentFreezeExposure = (): ToolBase<
+    typeof ExperimentFreezeExposureSchema,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
+    withUiApp('experiment', {
+        name: 'experiment-freeze-exposure',
+        schema: ExperimentFreezeExposureSchema,
+        handler: async (context: Context, params: z.infer<typeof ExperimentFreezeExposureSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/freeze_exposure/`,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
@@ -530,7 +592,7 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
 
 const ExperimentListSchema = ExperimentsListQueryParams.extend({
     status: ExperimentsListQueryParams.shape['status'].describe(
-        'Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active), "paused" (launched, flag deactivated — mutually exclusive with running), "stopped" or "complete" (both mean ended), "all" (no filter). Defaults to all non-archived experiments.'
+        'Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active), "paused" (launched, flag deactivated — mutually exclusive with running), "exposure_frozen" (launched, enrollment frozen to the already-exposed cohort while metrics keep flowing), "stopped" or "complete" (both mean ended), "all" (no filter). Defaults to all non-archived experiments.'
     ),
     limit: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['offset']).optional(),
@@ -570,6 +632,7 @@ const experimentList = (): ToolBase<
                         'name',
                         'description',
                         'feature_flag_key',
+                        'feature_flag',
                         'start_date',
                         'end_date',
                         'archived',
@@ -592,6 +655,68 @@ const experimentList = (): ToolBase<
             )
         },
     })
+
+const ExperimentMetricsRecalculationCreateSchema = ExperimentsMetricsRecalculationCreateParams.omit({
+    project_id: true,
+})
+    .extend(ExperimentsMetricsRecalculationCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationCreateParams.shape['id']) })
+
+const experimentMetricsRecalculationCreate = (): ToolBase<
+    typeof ExperimentMetricsRecalculationCreateSchema,
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+> => ({
+    name: 'experiment-metrics-recalculation-create',
+    schema: ExperimentMetricsRecalculationCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/`,
+        })
+        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+    },
+})
+
+const ExperimentMetricsRecalculationLatestRetrieveSchema = ExperimentsMetricsRecalculationLatestRetrieveParams.omit({
+    project_id: true,
+}).extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationLatestRetrieveParams.shape['id']) })
+
+const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
+    typeof ExperimentMetricsRecalculationLatestRetrieveSchema,
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+> => ({
+    name: 'experiment-metrics-recalculation-latest-retrieve',
+    schema: ExperimentMetricsRecalculationLatestRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
+        })
+        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+    },
+})
+
+const ExperimentMetricsRecalculationRetrieveSchema = ExperimentsMetricsRecalculationRetrieveParams.omit({
+    project_id: true,
+}).extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationRetrieveParams.shape['id']) })
+
+const experimentMetricsRecalculationRetrieve = (): ToolBase<
+    typeof ExperimentMetricsRecalculationRetrieveSchema,
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+> => ({
+    name: 'experiment-metrics-recalculation-retrieve',
+    schema: ExperimentMetricsRecalculationRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/${encodeURIComponent(String(params.recalculation_id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+    },
+})
 
 const ExperimentPauseSchema = ExperimentsPauseCreateParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, ExperimentsPauseCreateParams.shape['id']),
@@ -806,6 +931,9 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             if (params.open_cleanup_pr !== undefined) {
                 body['open_cleanup_pr'] = params.open_cleanup_pr
             }
+            if (params.repository !== undefined) {
+                body['repository'] = params.repository
+            }
             if (params.variant_key !== undefined) {
                 body['variant_key'] = params.variant_key
             }
@@ -877,6 +1005,27 @@ const experimentUnarchive = (): ToolBase<typeof ExperimentUnarchiveSchema, WithP
         },
     })
 
+const ExperimentUnfreezeExposureSchema = ExperimentsUnfreezeExposureCreateParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentsUnfreezeExposureCreateParams.shape['id']),
+})
+
+const experimentUnfreezeExposure = (): ToolBase<
+    typeof ExperimentUnfreezeExposureSchema,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
+    withUiApp('experiment', {
+        name: 'experiment-unfreeze-exposure',
+        schema: ExperimentUnfreezeExposureSchema,
+        handler: async (context: Context, params: z.infer<typeof ExperimentUnfreezeExposureSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/unfreeze_exposure/`,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        },
+    })
+
 const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id: true })
     .extend(
         ExperimentsPartialUpdateBody.omit({
@@ -889,13 +1038,19 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             type: true,
             scheduling_config: true,
             _create_in_folder: true,
+            repository: true,
             primary_metrics_ordered_uuids: true,
             secondary_metrics_ordered_uuids: true,
             only_count_matured_users: true,
+            version: true,
+            original_experiment: true,
         }).shape
     )
     .extend({
         id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
+        feature_flag: ExperimentsPartialUpdateBody.shape['feature_flag'].describe(
+            "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input for flag config. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100; the analysis baseline defaults to the variant keyed 'control' when present, else the first variant — except web experiments, which must keep a variant keyed 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first)."
+        ),
         running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
             "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
         ),
@@ -914,6 +1069,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             if (params.description !== undefined) {
                 body['description'] = params.description
+            }
+            if (params.feature_flag !== undefined) {
+                body['feature_flag'] = params.feature_flag
             }
             if (params.holdout_id !== undefined) {
                 body['holdout_id'] = params.holdout_id
@@ -986,6 +1144,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
     })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'experiment-activity': experimentActivity,
     'experiment-archive': experimentArchive,
     'experiment-calculate-running-time': experimentCalculateRunningTime,
     'experiment-copy-to-project': experimentCopyToProject,
@@ -993,6 +1152,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-delete': experimentDelete,
     'experiment-duplicate': experimentDuplicate,
     'experiment-end': experimentEnd,
+    'experiment-freeze-exposure': experimentFreezeExposure,
     'experiment-get': experimentGet,
     'experiment-holdouts-create': experimentHoldoutsCreate,
     'experiment-holdouts-destroy': experimentHoldoutsDestroy,
@@ -1001,6 +1161,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-holdouts-retrieve': experimentHoldoutsRetrieve,
     'experiment-launch': experimentLaunch,
     'experiment-list': experimentList,
+    'experiment-metrics-recalculation-create': experimentMetricsRecalculationCreate,
+    'experiment-metrics-recalculation-latest-retrieve': experimentMetricsRecalculationLatestRetrieve,
+    'experiment-metrics-recalculation-retrieve': experimentMetricsRecalculationRetrieve,
     'experiment-pause': experimentPause,
     'experiment-reset': experimentReset,
     'experiment-resume': experimentResume,
@@ -1013,5 +1176,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-stats': experimentStats,
     'experiment-timeseries-results': experimentTimeseriesResults,
     'experiment-unarchive': experimentUnarchive,
+    'experiment-unfreeze-exposure': experimentUnfreezeExposure,
     'experiment-update': experimentUpdate,
 }

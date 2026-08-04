@@ -186,9 +186,10 @@ export const LemonFormDialog = ({
     content,
     primaryButtonProps,
     dialogKey,
+    showErrorsOnTouch,
     ...props
 }: LemonFormDialogProps): JSX.Element => {
-    const logicProps = { errors, dialogKey }
+    const logicProps = { errors, dialogKey, showErrorsOnTouch }
     const logic = lemonDialogLogic(logicProps)
     const { form, isFormValid, formValidationErrors } = useValues(logic)
     const { setFormValues } = useActions(logic)

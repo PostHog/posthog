@@ -1,6 +1,13 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
+import httpx
+import anthropic
+from parameterized import parameterized
+
+from products.ai_observability.backend.llm.errors import ContextWindowExceededError
 from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter, AnthropicConfig
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
 
 
 class TestAnthropicListModels:
@@ -64,3 +71,99 @@ class TestAnthropicListModels:
 class TestAnthropicRecommendedModels:
     def test_recommended_models_equals_supported_models(self):
         assert AnthropicAdapter.recommended_models() == set(AnthropicConfig.SUPPORTED_MODELS)
+
+
+class TestAnthropicTemperature:
+    def _make_mock_response(self):
+        mock_block = MagicMock()
+        mock_block.text = "yes"
+        mock_response = MagicMock()
+        mock_response.content = [mock_block]
+        mock_response.usage.input_tokens = 1
+        mock_response.usage.output_tokens = 1
+        return mock_response
+
+    def _complete_with_model(self, model: str, temperature: float | None = None):
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.return_value = self._make_mock_response()
+
+            AnthropicAdapter().complete(
+                CompletionRequest(
+                    model=model,
+                    messages=[{"role": "user", "content": "hi"}],
+                    provider="anthropic",
+                    system="s",
+                    temperature=temperature,
+                ),
+                api_key="sk-ant-test",
+                analytics=AnalyticsContext(capture=False),
+            )
+            return mock_client.messages.create.call_args.kwargs
+
+    def _stream_with_model(self, model: str, temperature: float | None = None):
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.return_value = iter([])
+
+            # stream() is a generator; drain it so the request is actually built and sent
+            list(
+                AnthropicAdapter().stream(
+                    CompletionRequest(
+                        model=model,
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                        temperature=temperature,
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+            )
+            return mock_client.messages.create.call_args.kwargs
+
+    @parameterized.expand(["claude-haiku-4-5", "claude-opus-4-8", "claude-fable-5"])
+    def test_temperature_omitted_when_not_set(self, model: str):
+        # Evals never set a temperature; we must not inject one (Anthropic's guidance is to omit,
+        # and injecting temperature=0 is what 400'd on models where it's deprecated)
+        assert "temperature" not in self._complete_with_model(model, temperature=None)
+        assert "temperature" not in self._stream_with_model(model, temperature=None)
+
+    @parameterized.expand(["claude-haiku-4-5", "claude-opus-4-6"])
+    def test_explicit_temperature_forwarded(self, model: str):
+        assert self._complete_with_model(model, temperature=0.5)["temperature"] == 0.5
+        assert self._stream_with_model(model, temperature=0.5)["temperature"] == 0.5
+
+
+def _make_bad_request_error(message: str) -> anthropic.BadRequestError:
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(status_code=400, request=request, json={"error": {"message": message}})
+    return anthropic.BadRequestError(message, response=response, body={"error": {"message": message}})
+
+
+class TestAnthropicErrorMapping:
+    @parameterized.expand(
+        [
+            ("prompt_too_long", "prompt is too long: 300000 tokens > 200000 maximum"),
+            ("input_tokens_exceed", "input tokens exceed the maximum allowed for this model"),
+        ]
+    )
+    def test_context_window_400_maps_to_context_window_exceeded(self, _name: str, message: str):
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = _make_bad_request_error(message)
+
+            with pytest.raises(ContextWindowExceededError):
+                AnthropicAdapter().complete(
+                    CompletionRequest(
+                        model="claude-haiku-4-5",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )

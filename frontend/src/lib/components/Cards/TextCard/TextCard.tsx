@@ -15,7 +15,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
 
-import { markdownToTextCardDoc, TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS } from './textCardMarkdown'
+import { TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS, textCardConverter } from './textCardMarkdown'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     textTile: DashboardTile<QueryBasedInsightModel>
@@ -38,7 +38,7 @@ interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, '
 }
 
 function TextContentImpl({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
-    const initialDoc = useMemo(() => markdownToTextCardDoc(text), [text])
+    const initialDoc = useMemo(() => textCardConverter.markdownToDoc(text), [text])
 
     const editor = useRichContentEditor({
         extensions: TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS,

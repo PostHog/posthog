@@ -1614,9 +1614,13 @@ fn naive_to_seconds(naive: NaiveDateTime, zone: Option<&str>) -> Result<f64, VmE
     }
 }
 
-/// `f64` epoch seconds with sub-second precision, matching Python's `datetime.timestamp()`.
+/// `f64` epoch seconds at millisecond precision, matching the reference VM (luxon
+/// `DateTime.fromISO(...).toSeconds()`), which parses to milliseconds and truncates finer digits.
+/// The Node HogVM is the ingestion shadow baseline, so preserving microseconds (as Python's
+/// `datetime.timestamp()` does) surfaced as a `result_mismatch` on any sub-millisecond event
+/// timestamp — e.g. `toUnixTimestamp(toDateTime(event.timestamp))` in a "first seen" transform.
 fn datetime_to_seconds<Tz: TimeZone>(dt: DateTime<Tz>) -> f64 {
-    dt.timestamp() as f64 + f64::from(dt.timestamp_subsec_nanos()) / 1_000_000_000.0
+    dt.timestamp_millis() as f64 / 1000.0
 }
 
 // Extract every element as a Num and return them sorted ascending. Single allocation + early error,

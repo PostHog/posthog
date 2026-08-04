@@ -1,6 +1,5 @@
-# ruff: noqa: T201, E402, I001
-# CLI benchmark tool: print() is the report channel, and the imports
-# are deferred until after `django.setup()` so the order is intentional.
+# ruff: noqa: T201, I001
+# CLI benchmark tool: print() is the report channel.
 """Side-by-side parser performance benchmark — backend-agnostic.
 
 `--oracle` defaults to `cpp-json`. `--candidate` is REQUIRED (no
@@ -59,11 +58,6 @@ import sys
 import timeit
 from pathlib import Path
 from typing import Any
-
-import django
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-django.setup()
 
 from posthog.hogql.parser import HogQLParserShadowMismatch, clear_parse_caches, parse_expr, parse_select
 from posthog.hogql.scripts._diagnostic_common import _abort_on_shadow_mismatch, _probe_backend

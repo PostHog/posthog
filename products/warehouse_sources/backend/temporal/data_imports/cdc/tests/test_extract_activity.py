@@ -6,6 +6,8 @@ from typing import Literal
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db.utils import OperationalError
+
 import pyarrow as pa
 import psycopg.errors
 from parameterized import parameterized
@@ -14,6 +16,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
+    CDC_BACKPRESSURE_STUCK_AGE,
     CDC_MAX_CHANGES_PER_READ,
     CDC_ORPHAN_JOB_MIN_AGE,
     CDC_ORPHANED_JOB_MESSAGE,
@@ -25,6 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BatchQueue,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
@@ -124,13 +130,35 @@ def _fake_update_schema_sync_type_config(schema, *, updates=None, removes=None, 
             setattr(schema, field, value)
 
 
+def _fake_complete_schema_run(schema, *, last_synced_at):
+    """Stand-in for complete_schema_run mirroring its contract on the in-memory mock schema:
+    a broken marker blocks the repaint, otherwise the paused marker clears and the schema
+    repaints COMPLETED. The real locked-transaction semantics are covered by
+    tests/test_models.py::TestCompleteSchemaRun."""
+    config = schema.sync_type_config or {}
+    if config.get("cdc_broken"):
+        return False
+    config.pop("cdc_extraction_paused", None)
+    schema.sync_type_config = config
+    schema.status = ExternalDataSchema.Status.COMPLETED
+    schema.latest_error = None
+    schema.last_synced_at = last_synced_at
+    return True
+
+
 @pytest.fixture(autouse=True)
 def _stub_sync_type_config_merge():
     """Route every activity sync_type_config write onto the in-memory mock schema (no DB)."""
-    with patch.object(
-        CDCExtractActivity,
-        "_update_schema_sync_type_config",
-        side_effect=_fake_update_schema_sync_type_config,
+    with (
+        patch.object(
+            CDCExtractActivity,
+            "_update_schema_sync_type_config",
+            side_effect=_fake_update_schema_sync_type_config,
+        ),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.complete_schema_run",
+            side_effect=_fake_complete_schema_run,
+        ),
     ):
         yield
 
@@ -201,7 +229,7 @@ def _setup_mocks(
     MockJob.Status.FAILED = "Failed"
 
     mock_activity.heartbeat = MagicMock()
-    mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+    mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
     return mock_reader, mock_s3, mock_producer, mock_job
 
@@ -310,6 +338,60 @@ def _make_extract_activity(source, log=None) -> CDCExtractActivity:
     activity_obj.source = source
     activity_obj.log = log or MagicMock()
     return activity_obj
+
+
+class TestBackpressureGuard:
+    def _activity(self) -> CDCExtractActivity:
+        source = _make_source()
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [_make_schema("users", source=source)]
+        return act
+
+    @pytest.mark.parametrize(
+        "age_seconds,expect_skip,expect_stuck",
+        [
+            (None, False, None),
+            (30.0, True, False),
+            (CDC_BACKPRESSURE_STUCK_AGE.total_seconds() + 1, True, True),
+        ],
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.metrics.get_tick_skipped_metric")
+    @patch("psycopg.Connection.connect")
+    def test_skips_only_while_previous_batches_pend(
+        self, mock_connect, mock_metric, age_seconds, expect_skip, expect_stuck
+    ):
+        act = self._activity()
+
+        with patch.object(BatchQueue, "get_oldest_non_terminal_batch_age_seconds", return_value=age_seconds):
+            assert act._previous_load_still_pending() is expect_skip
+
+        if expect_skip:
+            mock_metric.assert_called_once_with(act.inputs.team_id, str(act.inputs.source_id), expect_stuck)
+        else:
+            mock_metric.assert_not_called()
+
+    def test_fails_open_when_queue_db_unreachable(self):
+        act = self._activity()
+
+        with patch("psycopg.Connection.connect", side_effect=Exception("queue db down")):
+            assert act._previous_load_still_pending() is False
+
+    # close_old_connections is real Django connection housekeeping: without the patch this
+    # non-django_db test blows up whenever a django_db test ran earlier in the same process.
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("psycopg.Connection.connect")
+    def test_run_skips_tick_without_touching_schemas_or_reader(self, mock_connect, _mock_close_conns):
+        act = self._activity()
+
+        with (
+            patch.object(act, "_setup", return_value=True),
+            patch.object(act, "_mark_schemas_running") as mark_running,
+            patch.object(BatchQueue, "get_oldest_non_terminal_batch_age_seconds", return_value=42.0),
+        ):
+            act.run()
+
+        mark_running.assert_not_called()
+        assert act.reader is None
 
 
 class TestFlushDeferredRuns:
@@ -896,8 +978,67 @@ class TestCDCExtractActivity:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_dropped_connection_during_flush_still_records_failure(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", table="users", position="0/100")]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        # The source DB (or the warehouse-sources DB) drops the connection mid-flush — the same
+        # OperationalError seen when Postgres kills a connection out from under a long-running
+        # activity thread.
+        mock_s3.write_batch.side_effect = OperationalError("the connection is closed")
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+
+        with pytest.raises(OperationalError, match="the connection is closed"):
+            cdc_extract_activity(inputs)
+
+        # The stale connection left by the drop must be evicted again before the failure handler
+        # writes the job/schema failure state, otherwise that write immediately re-raises the same
+        # "connection is closed" error and the friendly message never gets recorded. One call from
+        # run()'s own startup eviction, one from the failure handler.
+        assert mock_close_conns.call_count == 2
+
+        assert schema.status == "Failed"
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.UNKNOWN).friendly_message
+        mock_reader.confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch.object(CDCExtractActivity, "_pause_cdc_extraction_schedule")
     def test_unmergeable_schema_fails_non_retryably(
         self,
+        _mock_pause_schedule,
         mock_close_conns,
         MockJob,
         MockSourceModel,
@@ -1024,7 +1165,7 @@ class TestCDCExtractActivity:
         mock_get_adapter.return_value = mock_adapter
 
         mock_activity.heartbeat = MagicMock()
-        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         cdc_extract_activity(inputs)
@@ -1751,8 +1892,10 @@ class TestErrorClassification:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch.object(CDCExtractActivity, "_pause_cdc_extraction_schedule")
     def test_non_retryable_error_raises_nonretryable_and_captures(
         self,
+        _mock_pause_schedule,
         mock_close_conns,
         MockJob,
         MockSourceModel,
@@ -1782,11 +1925,18 @@ class TestErrorClassification:
         mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
-        with pytest.raises(NonRetryableException):
+        with (
+            patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest") as mock_digest,
+            pytest.raises(NonRetryableException),
+        ):
             cdc_extract_activity(inputs)
 
         assert schema.status == "Failed"
         assert schema.latest_error == cdc_error_info(CDCErrorCategory.AUTH_FAILED).friendly_message
+        # The schedule pause leaves no DB trace of its own; this marker is what tells the failure
+        # digest email "paused, action required" instead of "will retry".
+        assert schema.sync_type_config["cdc_extraction_paused"]["reason"] == "auth_failed"
+        mock_digest.assert_called_once_with(1, trigger="cdc")
 
         mock_posthoganalytics.capture.assert_called_once()
         captured = mock_posthoganalytics.capture.call_args.kwargs
@@ -1823,12 +1973,14 @@ class TestErrorClassification:
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch.object(CDCExtractActivity, "_pause_cdc_extraction_schedule")
     def test_missing_slot_or_publication_marks_cdc_broken(
         self,
         _name,
         exc_cls,
         exc_message,
         expected_reason,
+        mock_pause,
         mock_close_conns,
         MockSourceModel,
         mock_get_schemas,
@@ -1838,9 +1990,8 @@ class TestErrorClassification:
         mock_get_machine_id,
         mock_mark_broken,
     ):
-        # A missing slot/publication is non-retryable and must trip mark_cdc_broken (pause + persist
-        # the broken marker) so the schedule stops firing against a resource that no longer exists.
-        # A transient auth failure, equally non-retryable, must NOT — it could recover.
+        # Slot/publication errors mark_cdc_broken (pause + broken marker); an auth failure has an
+        # intact slot, so it pauses the schedule directly without the broken marker.
         source = _make_source()
         MockSourceModel.objects.get.return_value = source
         schema = _make_schema("users", cdc_mode="streaming", source=source)
@@ -1864,10 +2015,78 @@ class TestErrorClassification:
 
         if expected_reason is None:
             mock_mark_broken.assert_not_called()
+            mock_pause.assert_called_once()
         else:
             mock_mark_broken.assert_called_once()
             assert mock_mark_broken.call_args.args[0] is source
             assert mock_mark_broken.call_args.args[1] == expected_reason
+            # This run backfills its own FAILED rows; mark_cdc_broken adding a second set would
+            # show every incident as two identical failed runs.
+            assert mock_mark_broken.call_args.kwargs["create_visibility_jobs"] is False
+            mock_pause.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_missing_slot_name_fails_before_streaming_without_recovery(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+        mock_mark_broken,
+    ):
+        # A CDC-enabled source whose stored slot name is empty must fail fast and non-retryably:
+        # streaming an empty slot name reads as a recoverable slot drop, so recovery / Repair CDC
+        # run only to dead-end with no slot name to recreate. Guard before streaming instead.
+        source = _make_source(
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "testdb",
+                "user": "test",
+                "password": "test",
+                "cdc_publication_name": "posthog_pub",
+            }
+        )
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.parse_cdc_config = PostgresCDCAdapter().parse_cdc_config  # reads the empty slot name
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with pytest.raises(NonRetryableException) as exc_info:
+            cdc_extract_activity(inputs)
+
+        assert str(exc_info.value) == cdc_error_info(CDCErrorCategory.SLOT_NOT_CONFIGURED).friendly_message
+        # Never streamed and never tried to recover — the guard fired first.
+        mock_reader.connect.assert_not_called()
+        mock_reader.read_changes.assert_not_called()
+        mock_adapter.recreate_slot.assert_not_called()
+        # Broken state persisted so the schedule stops firing against an unconfigured slot.
+        mock_mark_broken.assert_called_once()
+        assert mock_mark_broken.call_args.args[0] is source
+        assert mock_mark_broken.call_args.args[1] == "slot_not_configured"
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
@@ -1880,8 +2099,10 @@ class TestErrorClassification:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch.object(CDCExtractActivity, "_pause_cdc_extraction_schedule")
     def test_analytics_failure_does_not_mask_nonretryable(
         self,
+        _mock_pause_schedule,
         mock_close_conns,
         MockJob,
         MockSourceModel,
@@ -2292,7 +2513,11 @@ class TestFailureVisibilityJobs:
         mock_activity.heartbeat = MagicMock()
         mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=attempt)
 
-        with pytest.raises((NonRetryableException, psycopg.OperationalError)):
+        # The non-retryable pause hits Temporal (sync_connect); stub it so these stay off the network.
+        with (
+            patch.object(CDCExtractActivity, "_pause_cdc_extraction_schedule"),
+            pytest.raises((NonRetryableException, psycopg.OperationalError)),
+        ):
             cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
 
     @parameterized.expand(
@@ -2444,6 +2669,40 @@ class _ScriptedReader:
 
     def close(self):
         pass
+
+
+class TestSuccessRepaintGuards:
+    """A run finishing after the sweeper marked the source broken must not repaint the schema
+    healthy — that hides the breakage from the UI and from the failure digest email."""
+
+    def _activity_with(self, *schemas):
+        source = schemas[0].source
+        act = _make_extract_activity(source)
+        act.cdc_schemas = list(schemas)
+        return act
+
+    @pytest.mark.parametrize("finalize", ["success", "no_changes"])
+    def test_broken_schema_keeps_failed_state_and_paused_marker_clears(self, finalize):
+        source = _make_source()
+        broken = _make_schema("broken_table", source=source)
+        broken.status = "Failed"
+        broken.sync_type_config["cdc_broken"] = {"reason": "auto_dropped_critical_lag"}
+        recovered = _make_schema("recovered_table", source=source)
+        recovered.sync_type_config["cdc_extraction_paused"] = {"reason": "auth_failed"}
+        act = self._activity_with(broken, recovered)
+
+        if finalize == "success":
+            act._finalize_success()
+        else:
+            act.reader = MagicMock(last_commit_end_lsn=None)
+            act._handle_no_changes([])
+
+        assert broken.status == "Failed"
+        assert "cdc_broken" in broken.sync_type_config
+        assert recovered.status == ExternalDataSchema.Status.COMPLETED
+        # A successful run proves extraction resumed; the stale pause marker must not keep the
+        # digest email reporting "paused, action required".
+        assert "cdc_extraction_paused" not in recovered.sync_type_config
 
 
 class TestCDCBoundedReadLoop:
@@ -2614,6 +2873,52 @@ class TestCDCBoundedReadLoop:
 
         assert reader.upto_nchanges_calls == [CDC_MAX_CHANGES_PER_READ, CDC_MAX_CHANGES_PER_READ * 2]
         assert reader.confirmed_positions == ["0/300"]  # nothing to advance on pass 1; pass 2 drains
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_heartbeat_timeout_does_not_abort_the_read_loop(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        # The Temporal SDK relays a sync activity's heartbeat through the worker's event loop
+        # with its own short internal timeout, which can trip transiently under load. That must
+        # never fail an otherwise-healthy extraction.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        events = [_make_event(op="I", table="users", position="0/100")]
+        _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+        mock_activity.heartbeat.side_effect = TimeoutError()
+
+        cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        assert mock_activity.heartbeat.called
+        assert schema.status == "Completed"
 
 
 @pytest.mark.django_db

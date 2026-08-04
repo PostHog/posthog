@@ -30,42 +30,10 @@ export const domainsCreateBodyDomainMax = 128
 
 export const domainsCreateBodySsoEnforcementMax = 28
 
-export const domainsCreateBodySamlEntityIdMax = 512
-
-export const domainsCreateBodySamlAcsUrlMax = 512
-
-export const domainsCreateBodyIdJagIssuerUrlMax = 512
-
-export const domainsCreateBodyIdJagJwksUrlMax = 512
-
-export const domainsCreateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsCreateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod
-        .string()
-        .max(domainsCreateBodySamlEntityIdMax)
-        .nullish()
-        .describe('SAML IdP entity ID (issuer).'),
-    saml_acs_url: zod.string().max(domainsCreateBodySamlAcsUrlMax).nullish().describe('SAML single sign-on (ACS) URL.'),
-    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
-    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsCreateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsCreateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsCreateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
     identity_provider_config: zod
         .uuid()
         .nullish()
@@ -78,42 +46,10 @@ export const domainsUpdateBodyDomainMax = 128
 
 export const domainsUpdateBodySsoEnforcementMax = 28
 
-export const domainsUpdateBodySamlEntityIdMax = 512
-
-export const domainsUpdateBodySamlAcsUrlMax = 512
-
-export const domainsUpdateBodyIdJagIssuerUrlMax = 512
-
-export const domainsUpdateBodyIdJagJwksUrlMax = 512
-
-export const domainsUpdateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsUpdateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsUpdateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod
-        .string()
-        .max(domainsUpdateBodySamlEntityIdMax)
-        .nullish()
-        .describe('SAML IdP entity ID (issuer).'),
-    saml_acs_url: zod.string().max(domainsUpdateBodySamlAcsUrlMax).nullish().describe('SAML single sign-on (ACS) URL.'),
-    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
-    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsUpdateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsUpdateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsUpdateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
     identity_provider_config: zod
         .uuid()
         .nullish()
@@ -126,101 +62,10 @@ export const domainsPartialUpdateBodyDomainMax = 128
 
 export const domainsPartialUpdateBodySsoEnforcementMax = 28
 
-export const domainsPartialUpdateBodySamlEntityIdMax = 512
-
-export const domainsPartialUpdateBodySamlAcsUrlMax = 512
-
-export const domainsPartialUpdateBodyIdJagIssuerUrlMax = 512
-
-export const domainsPartialUpdateBodyIdJagJwksUrlMax = 512
-
-export const domainsPartialUpdateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsPartialUpdateBodyDomainMax).optional(),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsPartialUpdateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod
-        .string()
-        .max(domainsPartialUpdateBodySamlEntityIdMax)
-        .nullish()
-        .describe('SAML IdP entity ID (issuer).'),
-    saml_acs_url: zod
-        .string()
-        .max(domainsPartialUpdateBodySamlAcsUrlMax)
-        .nullish()
-        .describe('SAML single sign-on (ACS) URL.'),
-    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
-    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsPartialUpdateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsPartialUpdateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsPartialUpdateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
-})
-
-/**
- * Regenerate SCIM bearer token.
- */
-export const domainsScimTokenCreateBodyDomainMax = 128
-
-export const domainsScimTokenCreateBodySsoEnforcementMax = 28
-
-export const domainsScimTokenCreateBodySamlEntityIdMax = 512
-
-export const domainsScimTokenCreateBodySamlAcsUrlMax = 512
-
-export const domainsScimTokenCreateBodyIdJagIssuerUrlMax = 512
-
-export const domainsScimTokenCreateBodyIdJagJwksUrlMax = 512
-
-export const domainsScimTokenCreateBodyIdJagAllowedClientsItemMax = 256
-
-export const DomainsScimTokenCreateBody = /* @__PURE__ */ zod.object({
-    domain: zod.string().max(domainsScimTokenCreateBodyDomainMax),
-    jit_provisioning_enabled: zod.boolean().optional(),
-    sso_enforcement: zod.string().max(domainsScimTokenCreateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod
-        .string()
-        .max(domainsScimTokenCreateBodySamlEntityIdMax)
-        .nullish()
-        .describe('SAML IdP entity ID (issuer).'),
-    saml_acs_url: zod
-        .string()
-        .max(domainsScimTokenCreateBodySamlAcsUrlMax)
-        .nullish()
-        .describe('SAML single sign-on (ACS) URL.'),
-    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
-    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsScimTokenCreateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsScimTokenCreateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsScimTokenCreateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
     identity_provider_config: zod
         .uuid()
         .nullish()
@@ -233,46 +78,10 @@ export const domainsVerifyCreateBodyDomainMax = 128
 
 export const domainsVerifyCreateBodySsoEnforcementMax = 28
 
-export const domainsVerifyCreateBodySamlEntityIdMax = 512
-
-export const domainsVerifyCreateBodySamlAcsUrlMax = 512
-
-export const domainsVerifyCreateBodyIdJagIssuerUrlMax = 512
-
-export const domainsVerifyCreateBodyIdJagJwksUrlMax = 512
-
-export const domainsVerifyCreateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsVerifyCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsVerifyCreateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod
-        .string()
-        .max(domainsVerifyCreateBodySamlEntityIdMax)
-        .nullish()
-        .describe('SAML IdP entity ID (issuer).'),
-    saml_acs_url: zod
-        .string()
-        .max(domainsVerifyCreateBodySamlAcsUrlMax)
-        .nullish()
-        .describe('SAML single sign-on (ACS) URL.'),
-    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
-    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsVerifyCreateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsVerifyCreateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsVerifyCreateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
     identity_provider_config: zod
         .uuid()
         .nullish()
@@ -860,7 +669,6 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -912,6 +720,13 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -1461,7 +1276,6 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -1513,6 +1327,13 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -2064,7 +1885,6 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -2116,6 +1936,13 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -2679,7 +2506,6 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -2733,6 +2559,13 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -3288,7 +3121,6 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -3342,6 +3174,13 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -3917,7 +3756,6 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -3971,6 +3809,13 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -4167,7 +4012,8 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultEvaluationContextsCreateBodyNameMax = 200
 
@@ -4534,7 +4380,6 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -4588,6 +4433,13 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -4784,7 +4636,8 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Manage default release conditions for new feature flags in this project.
+ * Manage default release conditions for new feature flags in this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultReleaseConditionsUpdateBodyNameMax = 200
 
@@ -5151,7 +5004,6 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -5205,6 +5057,13 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -5776,7 +5635,6 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -5830,6 +5688,13 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -6393,7 +6258,6 @@ export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PUR
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -6447,6 +6311,13 @@ export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PUR
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -7022,7 +6893,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -7076,6 +6946,13 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -7273,8 +7150,9 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
 
 /**
  * Manage logs product configuration for this project's canonical environment.
- * Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
- * alongside the legacy /api/environments/:id/logs_config/ alias.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
  */
 export const organizationsProjectsLogsConfigPartialUpdateBodyNameMax = 200
 
@@ -7629,7 +7507,6 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -7683,6 +7560,13 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -8234,7 +8118,6 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -8288,6 +8171,13 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -8851,7 +8741,6 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -8905,6 +8794,13 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -9103,357 +8999,21 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
 /**
  * Create a new password for the sharing configuration.
  */
-export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
-
-export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemCreateBodyTypeMax = 100
-
-export const desktopFileSystemCreateBodyRefMax = 100
-
-export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemUpdateBodyTypeMax = 100
-
-export const desktopFileSystemUpdateBodyRefMax = 100
-
-export const DesktopFileSystemUpdateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemUpdateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemUpdateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemPartialUpdateBodyTypeMax = 100
-
-export const desktopFileSystemPartialUpdateBodyRefMax = 100
-
-export const DesktopFileSystemPartialUpdateBody = /* @__PURE__ */ zod.object({
-    path: zod.string().optional(),
-    type: zod.string().max(desktopFileSystemPartialUpdateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemPartialUpdateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * Publish a new version of a freeform canvas's React source.
- *
- * Merges into the dashboard row's `meta` (never replaces it), so existing
- * keys like `channelId`/`templateId` survive. Appends a full-file version
- * snapshot and points `currentVersionId` at it — the server-side mirror of
- * the app's dashboardsService.saveFreeform.
- */
-export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
+export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod
     .object({
-        code: zod.string().optional(),
-        prompt: zod.string().optional(),
-        name: zod.string().optional(),
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
     })
-    .describe("Payload for publishing a freeform canvas's React source via the agent.")
+    .describe('Mixin for serializers to add user access control fields')
 
-/**
- * Set or clear the Task associated with this folder's CONTEXT.md generation.
- */
-export const DesktopFileSystemContextGenerationUpdateBody = /* @__PURE__ */ zod.object({
-    task_id: zod
-        .uuid()
-        .nullable()
-        .describe(
-            "ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association."
-        ),
-})
-
-/**
- * Get count of all files in a folder.
- */
-export const desktopFileSystemCountCreateBodyTypeMax = 100
-
-export const desktopFileSystemCountCreateBodyRefMax = 100
-
-export const DesktopFileSystemCountCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemCountCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemCountCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * Publish a new version of the folder's instructions.
- */
-export const desktopFileSystemInstructionsUpdateBodyBaseVersionMin = 0
-
-export const DesktopFileSystemInstructionsUpdateBody = /* @__PURE__ */ zod.object({
-    content: zod.string().describe('Full markdown instructions to publish as a new version for the folder.'),
-    base_version: zod
-        .number()
-        .min(desktopFileSystemInstructionsUpdateBodyBaseVersionMin)
-        .optional()
-        .describe(
-            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
-        ),
-})
-
-/**
- * Publish a new version of the folder's instructions.
- */
-export const desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin = 0
-
-export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    content: zod.string().optional().describe('Full markdown instructions to publish as a new version for the folder.'),
-    base_version: zod
-        .number()
-        .min(desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin)
-        .optional()
-        .describe(
-            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
-        ),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemLinkCreateBodyTypeMax = 100
-
-export const desktopFileSystemLinkCreateBodyRefMax = 100
-
-export const DesktopFileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemLinkCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemLinkCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemMoveCreateBodyTypeMax = 100
-
-export const desktopFileSystemMoveCreateBodyRefMax = 100
-
-export const DesktopFileSystemMoveCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemMoveCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemMoveCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * Get count of all files in a folder.
- */
-export const desktopFileSystemCountByPathCreateBodyTypeMax = 100
-
-export const desktopFileSystemCountByPathCreateBodyRefMax = 100
-
-export const DesktopFileSystemCountByPathCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemCountByPathCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemCountByPathCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemLogViewCreateBodyTypeMax = 100
-
-export const desktopFileSystemLogViewCreateBodyRefMax = 100
-
-export const DesktopFileSystemLogViewCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemLogViewCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemLogViewCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemUndoDeleteCreateBodyTypeMax = 100
-
-export const desktopFileSystemUndoDeleteCreateBodyRefMax = 100
-
-export const DesktopFileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemUndoDeleteCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemUndoDeleteCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutCreateBodyTypeMax = 100
-
-export const desktopFileSystemShortcutCreateBodyRefMax = 100
-
-export const desktopFileSystemShortcutCreateBodyOrderMin = -2147483648
-export const desktopFileSystemShortcutCreateBodyOrderMax = 2147483647
-
-export const DesktopFileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string().describe('Display path of the shortcut in the sidebar.'),
-    type: zod
-        .string()
-        .max(desktopFileSystemShortcutCreateBodyTypeMax)
-        .optional()
-        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
-    ref: zod
-        .string()
-        .max(desktopFileSystemShortcutCreateBodyRefMax)
-        .nullish()
-        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
-    href: zod
-        .string()
-        .nullish()
-        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
-    order: zod
-        .number()
-        .min(desktopFileSystemShortcutCreateBodyOrderMin)
-        .max(desktopFileSystemShortcutCreateBodyOrderMax)
-        .optional()
-        .describe("Display order within the user's shortcut list, ascending."),
-})
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutUpdateBodyTypeMax = 100
-
-export const desktopFileSystemShortcutUpdateBodyRefMax = 100
-
-export const desktopFileSystemShortcutUpdateBodyOrderMin = -2147483648
-export const desktopFileSystemShortcutUpdateBodyOrderMax = 2147483647
-
-export const DesktopFileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
-    path: zod.string().describe('Display path of the shortcut in the sidebar.'),
-    type: zod
-        .string()
-        .max(desktopFileSystemShortcutUpdateBodyTypeMax)
-        .optional()
-        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
-    ref: zod
-        .string()
-        .max(desktopFileSystemShortcutUpdateBodyRefMax)
-        .nullish()
-        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
-    href: zod
-        .string()
-        .nullish()
-        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
-    order: zod
-        .number()
-        .min(desktopFileSystemShortcutUpdateBodyOrderMin)
-        .max(desktopFileSystemShortcutUpdateBodyOrderMax)
-        .optional()
-        .describe("Display order within the user's shortcut list, ascending."),
-})
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutPartialUpdateBodyTypeMax = 100
-
-export const desktopFileSystemShortcutPartialUpdateBodyRefMax = 100
-
-export const desktopFileSystemShortcutPartialUpdateBodyOrderMin = -2147483648
-export const desktopFileSystemShortcutPartialUpdateBodyOrderMax = 2147483647
-
-export const DesktopFileSystemShortcutPartialUpdateBody = /* @__PURE__ */ zod.object({
-    path: zod.string().optional().describe('Display path of the shortcut in the sidebar.'),
-    type: zod
-        .string()
-        .max(desktopFileSystemShortcutPartialUpdateBodyTypeMax)
-        .optional()
-        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
-    ref: zod
-        .string()
-        .max(desktopFileSystemShortcutPartialUpdateBodyRefMax)
-        .nullish()
-        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
-    href: zod
-        .string()
-        .nullish()
-        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
-    order: zod
-        .number()
-        .min(desktopFileSystemShortcutPartialUpdateBodyOrderMin)
-        .max(desktopFileSystemShortcutPartialUpdateBodyOrderMax)
-        .optional()
-        .describe("Display order within the user's shortcut list, ascending."),
-})
-
-/**
- * Set the display order of the current user's shortcuts. `ordered_ids` becomes the new top-to-bottom order; any unknown IDs are rejected.
- */
-export const DesktopFileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.object({
-    ordered_ids: zod.array(zod.uuid()).describe("IDs of the current user's shortcuts in the desired display order."),
-})
+export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -9703,32 +9263,40 @@ export const FileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Create a new password for the sharing configuration.
  */
-export const InsightsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const InsightsSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const InsightsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const InsightsSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create a new password for the sharing configuration.
  */
-export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
     products: zod
@@ -9855,17 +9423,21 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
 /**
  * Create a new password for the sharing configuration.
  */
-export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
@@ -9933,10 +9505,10 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -9949,6 +9521,12 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10018,10 +9596,10 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10034,6 +9612,12 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10100,10 +9684,10 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10116,6 +9700,12 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10152,7 +9742,7 @@ export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object
     team_id: zod
         .number()
         .nullish()
-        .describe("Optional team\/project id (e.g. PostHog Code); web UI uses the session's current team."),
+        .describe("Optional team\/project id (e.g. PostHog Desktop); web UI uses the session's current team."),
     connect_from: zod
         .string()
         .optional()
@@ -10316,10 +9906,10 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10332,6 +9922,12 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10401,10 +9997,10 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10417,6 +10013,12 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10486,10 +10088,10 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10502,6 +10104,12 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10568,10 +10176,10 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10584,6 +10192,12 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10650,10 +10264,10 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10666,6 +10280,12 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10732,10 +10352,10 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10748,6 +10368,12 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10814,10 +10440,10 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10830,6 +10456,12 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10896,10 +10528,10 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10912,5 +10544,11 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })

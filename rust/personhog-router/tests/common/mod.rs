@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,7 +11,6 @@ use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::{
     PersonHogLeader, PersonHogLeaderServer,
 };
-use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
     PersonHogReplica, PersonHogReplicaServer,
 };
@@ -490,9 +490,7 @@ pub async fn start_test_replica(service: TestReplicaService) -> SocketAddr {
     tokio::spawn(async move {
         Server::builder()
             .add_service(
-                PersonHogReplicaServer::new(service)
-                    .accept_compressed(CompressionEncoding::Zstd)
-                    .send_compressed(CompressionEncoding::Zstd),
+                PersonHogReplicaServer::new(service).accept_compressed(CompressionEncoding::Gzip),
             )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
@@ -520,9 +518,7 @@ pub async fn start_test_replica_with_async_gzip(service: TestReplicaService) -> 
                 ..AsyncGzipConfig::default()
             }))
             .add_service(
-                PersonHogReplicaServer::new(service)
-                    .accept_compressed(CompressionEncoding::Zstd)
-                    .send_compressed(CompressionEncoding::Zstd),
+                PersonHogReplicaServer::new(service).accept_compressed(CompressionEncoding::Gzip),
             )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
@@ -546,9 +542,7 @@ pub async fn start_test_replica_with_async_gzip_disabled(
         Server::builder()
             .layer(AsyncGzipLayer::new(AsyncGzipConfig::default()))
             .add_service(
-                PersonHogReplicaServer::new(service)
-                    .accept_compressed(CompressionEncoding::Zstd)
-                    .send_compressed(CompressionEncoding::Zstd),
+                PersonHogReplicaServer::new(service).accept_compressed(CompressionEncoding::Gzip),
             )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
@@ -566,13 +560,12 @@ pub async fn create_client(router_addr: SocketAddr) -> PersonHogServiceClient<Ch
     PersonHogServiceClient::connect(url).await.unwrap()
 }
 
-/// Create a client that sends Zstd-compressed requests.
+/// Create a client that sends gzip-compressed requests, matching a
+/// production client with request compression opted in.
 pub async fn create_compressed_client(router_addr: SocketAddr) -> PersonHogServiceClient<Channel> {
     let url = format!("http://{}", router_addr);
     let channel = Channel::from_shared(url).unwrap().connect().await.unwrap();
-    PersonHogServiceClient::new(channel)
-        .send_compressed(CompressionEncoding::Zstd)
-        .accept_compressed(CompressionEncoding::Zstd)
+    PersonHogServiceClient::new(channel).send_compressed(CompressionEncoding::Gzip)
 }
 
 /// Send a raw gRPC unary request with `grpc-accept-encoding: gzip` and return
@@ -648,15 +641,24 @@ pub fn create_test_person() -> Person {
 // ============================================================
 
 /// A simple in-memory leader service for integration tests.
-/// Stores persons keyed by (team_id, person_id), ignoring partition for lookups.
+/// Stores persons keyed by (team_id, person_id). Mirrors the real leader's
+/// `x-partition` handling — fail closed when the metadata is missing or
+/// malformed — so tests through the router prove the router actually
+/// stamps the header, not just that the body arrives intact.
 pub struct TestLeaderService {
     persons: DashMap<(i64, i64), Person>,
+    /// While true, writes are rejected with FailedPrecondition, mimicking
+    /// a leader whose partition is write-fenced for a handoff. Shared and
+    /// runtime-toggleable so tests can clear the fence mid-drain, the way
+    /// a real fence clears in watch-propagation time.
+    fenced: Arc<AtomicBool>,
 }
 
 impl TestLeaderService {
     pub fn new() -> Self {
         Self {
             persons: DashMap::new(),
+            fenced: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -664,14 +666,40 @@ impl TestLeaderService {
         self.persons.insert((person.team_id, person.id), person);
         self
     }
+
+    pub fn fenced(self) -> Self {
+        self.fenced.store(true, Ordering::SeqCst);
+        self
+    }
+
+    /// Handle for flipping the fence after the service has been moved
+    /// into the server.
+    pub fn fence_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.fenced)
+    }
+}
+
+/// Extract the routing partition from `x-partition` metadata, matching the
+/// real leader's `partition_from_metadata` semantics.
+#[allow(clippy::result_large_err)]
+fn require_partition_metadata<T>(request: &Request<T>) -> Result<u32, Status> {
+    request
+        .metadata()
+        .get("x-partition")
+        .ok_or_else(|| Status::invalid_argument("missing x-partition metadata"))?
+        .to_str()
+        .map_err(|_| Status::invalid_argument("x-partition metadata is not valid ASCII"))?
+        .parse::<u32>()
+        .map_err(|_| Status::invalid_argument("x-partition metadata is not a valid u32"))
 }
 
 #[tonic::async_trait]
 impl PersonHogLeader for TestLeaderService {
     async fn get_person(
         &self,
-        request: Request<LeaderGetPersonRequest>,
+        request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
+        require_partition_metadata(&request)?;
         let req = request.into_inner();
         let person = self
             .persons
@@ -691,7 +719,13 @@ impl PersonHogLeader for TestLeaderService {
         &self,
         request: Request<UpdatePersonPropertiesRequest>,
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
+        require_partition_metadata(&request)?;
         let req = request.into_inner();
+        if self.fenced.load(Ordering::SeqCst) {
+            return Err(Status::failed_precondition(
+                "partition is fenced for handoff; writes are rejected",
+            ));
+        }
         let key = (req.team_id, req.person_id);
 
         let mut person = self
@@ -734,28 +768,32 @@ impl PersonHogLeader for TestLeaderService {
 pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    serve_test_leader(listener, service);
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    addr
+}
 
+/// Start the test leader on a specific address. Used by tests that
+/// reserve an address up front so the backend can dial it — and fail at
+/// the transport layer — before the leader exists.
+pub async fn start_test_leader_at(addr: SocketAddr, service: TestLeaderService) {
+    let listener = TcpListener::bind(addr)
+        .await
+        .expect("reserved leader address must be bindable");
+    serve_test_leader(listener, service);
+    tokio::time::sleep(Duration::from_millis(10)).await;
+}
+
+fn serve_test_leader(listener: TcpListener, service: TestLeaderService) {
     tokio::spawn(async move {
-        // The production `LeaderBackend` configures its gRPC client with
-        // `send_compressed(Zstd) + accept_compressed(Zstd)`, so the test
-        // leader must accept (and may send) Zstd-compressed payloads to
-        // mirror real wire behavior. Without this the LeaderBackend
-        // forwards a Zstd-compressed body and the server returns
-        // `Unimplemented: Content is compressed with zstd which isn't supported`.
         Server::builder()
             .add_service(
-                PersonHogLeaderServer::new(service)
-                    .accept_compressed(CompressionEncoding::Zstd)
-                    .send_compressed(CompressionEncoding::Zstd),
+                PersonHogLeaderServer::new(service).accept_compressed(CompressionEncoding::Gzip),
             )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
     });
-
-    tokio::time::sleep(Duration::from_millis(10)).await;
-
-    addr
 }
 
 // ============================================================
@@ -779,11 +817,6 @@ fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
 }
 
 fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<LeaderBackend> {
-    let retry_config = RetryConfig {
-        max_retries: 1,
-        initial_backoff_ms: 1,
-        max_backoff_ms: 1,
-    };
     let mut routing = HashMap::new();
     for p in 0..num_partitions {
         routing.insert(p, "leader-0".to_string());
@@ -798,9 +831,6 @@ fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<Lead
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_secs(5),
-            retry_config,
-            max_send_message_size: 4 * 1024 * 1024,
-            max_recv_message_size: 4 * 1024 * 1024,
         },
         StashTable::with_bounds(usize::MAX, usize::MAX),
     ))

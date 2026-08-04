@@ -99,10 +99,18 @@
 }
 
 .SeriesDisplay__value {
-    display: inline-flex;
-    align-items: center;
+    // inline-block (not inline-flex) so text-overflow can truncate a long value to one line; line-height
+    // matches height to keep it vertically centered without flex. vertical-align: middle matches
+    // .SeriesDisplay__raw-name so both tag styles sit on the same line.
+    display: inline-block;
+    max-width: 100%;
     height: 1.25rem;
     padding: 0 0.125rem;
+    overflow: hidden;
+    line-height: 1.25rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
     background: var(--color-bg-surface-secondary);
     border-width: 1px;
     border-radius: var(--radius-sm);

@@ -240,6 +240,7 @@ export const HogFlowStatusEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -252,6 +253,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -287,6 +289,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface HogFlowMinimalApi {
     readonly id: string
     /** @nullable */
@@ -307,6 +312,11 @@ export interface HogFlowMinimalApi {
     readonly abort_action: string | null
     readonly variables: unknown
     readonly billable_action_types: unknown
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -322,6 +332,12 @@ export interface PaginatedHogFlowMinimalListApi {
  * Variable: {key, type: string|number|boolean, default}.
  */
 export type HogFlowApiVariablesItem = { [key: string]: string }
+
+/**
+ * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+ * @nullable
+ */
+export type HogFlowApiActionRedirects = { [key: string]: string } | null
 
 export interface HogFlowConversionEventApi {
     /** Event/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side. */
@@ -363,14 +379,43 @@ export interface HogFlowEdgeApi {
      * * `continue` - continue
      * * `branch` - branch */
     type: HogFlowEdgeTypeEnumApi
-    /** Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing). */
+    /** Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing). */
     index?: number
     /** Source action id. */
     from: string
 }
 
 /**
- * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+ * * `trigger` - trigger
+ * * `function` - function
+ * * `function_email` - function_email
+ * * `function_sms` - function_sms
+ * * `function_push` - function_push
+ * * `delay` - delay
+ * * `wait_until_condition` - wait_until_condition
+ * * `wait_until_time_window` - wait_until_time_window
+ * * `conditional_branch` - conditional_branch
+ * * `random_cohort_branch` - random_cohort_branch
+ * * `exit` - exit
+ */
+export type HogFlowActionTypeEnumApi = (typeof HogFlowActionTypeEnumApi)[keyof typeof HogFlowActionTypeEnumApi]
+
+export const HogFlowActionTypeEnumApi = {
+    Trigger: 'trigger',
+    Function: 'function',
+    FunctionEmail: 'function_email',
+    FunctionSms: 'function_sms',
+    FunctionPush: 'function_push',
+    Delay: 'delay',
+    WaitUntilCondition: 'wait_until_condition',
+    WaitUntilTimeWindow: 'wait_until_time_window',
+    ConditionalBranch: 'conditional_branch',
+    RandomCohortBranch: 'random_cohort_branch',
+    Exit: 'exit',
+} as const
+
+/**
+ * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
  */
 export type HogFlowActionApiConfig =
     | { [key: string]: unknown }
@@ -394,7 +439,10 @@ export type HogFlowActionApiConfig =
       }
 
 export interface HogFlowActionApi {
-    /** Unique node ID within the workflow. */
+    /**
+     * Unique node ID within the workflow.
+     * @maxLength 200
+     */
     id: string
     /**
      * Display name.
@@ -414,14 +462,23 @@ export interface HogFlowActionApi {
     updated_at?: number
     /** Property filters gating this action. */
     filters?: HogFunctionFiltersApi | null
-    /**
-     * trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
-     * @maxLength 100
-     */
-    type: string
-    /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+    /** One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.
+     *
+     * * `trigger` - trigger
+     * * `function` - function
+     * * `function_email` - function_email
+     * * `function_sms` - function_sms
+     * * `function_push` - function_push
+     * * `delay` - delay
+     * * `wait_until_condition` - wait_until_condition
+     * * `wait_until_time_window` - wait_until_time_window
+     * * `conditional_branch` - conditional_branch
+     * * `random_cohort_branch` - random_cohort_branch
+     * * `exit` - exit */
+    type: HogFlowActionTypeEnumApi
+    /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
     config: HogFlowActionApiConfig
-    /** Output variable definition for downstream actions. */
+    /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
     output_variable?: unknown
 }
 
@@ -467,6 +524,9 @@ export interface HogFlowScheduleApi {
     readonly updated_at: string
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface HogFlowApi {
     readonly id: string
     /**
@@ -510,6 +570,23 @@ export interface HogFlowApi {
     readonly billable_action_types: unknown
     /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
     readonly schedules: readonly HogFlowScheduleApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+    readonly draft: unknown
+    /**
+     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+     * @nullable
+     */
+    readonly draft_updated_at: string | null
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    readonly action_redirects: HogFlowApiActionRedirects
 }
 
 /**
@@ -517,6 +594,15 @@ export interface HogFlowApi {
  */
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
 
+/**
+ * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+ * @nullable
+ */
+export type PatchedHogFlowApiActionRedirects = { [key: string]: string } | null
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedHogFlowApi {
     readonly id?: string
     /**
@@ -560,6 +646,85 @@ export interface PatchedHogFlowApi {
     readonly billable_action_types?: unknown
     /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
     readonly schedules?: readonly HogFlowScheduleApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+    /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+    readonly draft?: unknown
+    /**
+     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+     * @nullable
+     */
+    readonly draft_updated_at?: string | null
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    readonly action_redirects?: PatchedHogFlowApiActionRedirects
+}
+
+/**
+ * * `update_content` - update_content
+ * * `update_column` - update_column
+ * * `update_row` - update_row
+ * * `update_body` - update_body
+ * * `add_content` - add_content
+ * * `remove_content` - remove_content
+ * * `move_content` - move_content
+ * * `add_row` - add_row
+ * * `remove_row` - remove_row
+ */
+export type EmailTemplateDesignOperationEnumApi =
+    (typeof EmailTemplateDesignOperationEnumApi)[keyof typeof EmailTemplateDesignOperationEnumApi]
+
+export const EmailTemplateDesignOperationEnumApi = {
+    UpdateContent: 'update_content',
+    UpdateColumn: 'update_column',
+    UpdateRow: 'update_row',
+    UpdateBody: 'update_body',
+    AddContent: 'add_content',
+    RemoveContent: 'remove_content',
+    MoveContent: 'move_content',
+    AddRow: 'add_row',
+    RemoveRow: 'remove_row',
+} as const
+
+export interface DesignOperationApi {
+    /** Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null leaf deletes that key) — the surgical path, e.g. change just values.text. update_row / update_column {id, patch} and update_body {patch}: same deep-merge for row/column/body-level settings. add_content {column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are filled in for you). remove_content {id} / move_content {id, column_id, index?}: delete or relocate a block. add_row {row, index?} / remove_row {id}: add or delete a row.
+     *
+     * * `update_content` - update_content
+     * * `update_column` - update_column
+     * * `update_row` - update_row
+     * * `update_body` - update_body
+     * * `add_content` - add_content
+     * * `remove_content` - remove_content
+     * * `move_content` - move_content
+     * * `add_row` - add_row
+     * * `remove_row` - remove_row */
+    op: EmailTemplateDesignOperationEnumApi
+    /** Target node id. Required for update_content/column/row, remove_content, remove_row, move_content. */
+    id?: string
+    /** Target column id. Required for add_content and move_content. */
+    column_id?: string
+    /** update_* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text. */
+    patch?: unknown
+    /** add_content only. A content block {type, values: {...}}; omit id and values._meta — they're assigned server-side. type is one of text, heading, button, image, divider, html, etc. */
+    content?: unknown
+    /** add_row only. A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it. */
+    row?: unknown
+    /** add_*\/move_content only. 0-based insert position; omit to append to the end. */
+    index?: number
+}
+
+export interface PatchedHogFlowActionEmailUpdateApi {
+    /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
+    base_updated_at?: string
+    /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
+    operations?: DesignOperationApi[]
+    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it. */
+    email_patch?: unknown
 }
 
 export interface MessageAssetApi {
@@ -573,19 +738,19 @@ export interface MessageAssetApi {
     function_name: string
     /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
     parent_run_id: string
-    /** Asset kind. Currently always 'email'. */
+    /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints return one channel each. */
     kind: string
     /** The recipient's distinct_id. */
     distinct_id: string
     /** The recipient's person UUID, if resolved. */
     person_id: string
-    /** The recipient email address. */
+    /** Who the message went to: the email address for 'email', or the recipient's distinct ID for 'push'. */
     recipient: string
-    /** The email subject line. */
+    /** The email subject line, or the push notification title. */
     subject: string
-    /** Delivery status at capture time. Currently always 'sent'. */
+    /** Delivery status at capture time. Currently always 'sent' - only delivered messages are captured. */
     status: string
-    /** When the email was sent. */
+    /** When the message was sent. */
     sent_at: string
 }
 
@@ -623,7 +788,7 @@ export interface HogFlowBatchJobApi {
     /** ID of the workflow this batch run belongs to. */
     hog_flow: string
     /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
-    filters?: unknown
+    readonly filters: unknown
     /** Variable value overrides applied to this run. */
     variables?: unknown
     readonly created_at: string
@@ -652,7 +817,7 @@ export const HogFlowGraphOperationOpEnumApi = {
 } as const
 
 export interface HogFlowGraphOperationApi {
-    /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
+    /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action, edges?}: append a full action node, optionally wiring its edges in the same op. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
      *
      * * `update_action` - update_action
      * * `add_action` - add_action
@@ -669,11 +834,13 @@ export interface HogFlowGraphOperationApi {
     action?: unknown
     /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
     edge?: HogFlowEdgeApi
-    /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
+    /** replace_action_edges: the complete set of the action's outgoing edges (incoming edges are preserved). add_action: optional edges to wire the new node in the same op. */
     edges?: HogFlowEdgeApi[]
 }
 
 export interface PatchedHogFlowGraphUpdateApi {
+    /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
+    base_updated_at?: string
     /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
     operations?: HogFlowGraphOperationApi[]
 }
@@ -735,6 +902,8 @@ export interface HogFlowInvocationApi {
     mock_async_functions?: boolean
     /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
     current_action_id?: string
+    /** Test the workflow's staged draft instead of its live config. Set this only when workflows-get returns a non-null 'draft'; it can't be combined with an explicit configuration override. */
+    use_draft?: boolean
 }
 
 export interface AppMetricSeriesApi {
@@ -751,6 +920,93 @@ export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
 
 export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
+}
+
+export interface HogFlowPublishRequestApi {
+    /** False (default) previews the publish: returns the impact on people in-flight without changing anything. True applies the staged draft to the live workflow. */
+    confirm?: boolean
+    /** From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
+    confirm_token?: string
+}
+
+export interface HogFlowPublishImpactMoveTargetApi {
+    /** Id of the surviving step runs will continue at. */
+    action_id: string
+    /** Name of the surviving step. */
+    name: string
+}
+
+export interface HogFlowPublishImpactDeletedStepApi {
+    /** Id of the step this publish deletes. */
+    action_id: string
+    /** Name of the deleted step. */
+    name: string
+    /**
+     * About how many in-flight runs are parked on this step. Null when the count is unavailable.
+     * @nullable
+     */
+    runs: number | null
+    /** Where those runs continue (skip-forward). Null when nothing downstream survives. */
+    moves_to: HogFlowPublishImpactMoveTargetApi | null
+    /** True when runs parked here exit the workflow instead of moving forward. */
+    exits: boolean
+}
+
+export interface HogFlowPublishImpactEmptyVariableApi {
+    /** Variable that renders empty for runs already past its producer. */
+    variable: string
+    /**
+     * Id of the new action that sets it; null when the draft newly declares it as a workflow variable.
+     * @nullable
+     */
+    set_by: string | null
+    /** Ids of steps whose content references the variable. */
+    referenced_by: string[]
+}
+
+export interface HogFlowPublishImpactScheduleConflictApi {
+    /** Schedule whose variable overrides reference removed variables. */
+    schedule_id: string
+    /** Override keys the draft no longer declares as workflow variables. */
+    variables: string[]
+}
+
+export interface HogFlowPublishImpactApi {
+    /** Per deleted step: how many runs are parked there and where they go. Empty for content-only edits. */
+    deleted_steps: HogFlowPublishImpactDeletedStepApi[]
+    /**
+     * In-flight runs whose current step is unknown. Null when the count is unavailable.
+     * @nullable
+     */
+    position_unknown: number | null
+    /** Variables that render empty for runs predating their producer. */
+    empty_variables: HogFlowPublishImpactEmptyVariableApi[]
+    /** Schedules overriding variables the draft removes. */
+    schedule_conflicts: HogFlowPublishImpactScheduleConflictApi[]
+}
+
+export interface HogFlowPublishResponseApi {
+    /** Whether the draft was applied to the live workflow. */
+    published: boolean
+    /**
+     * Runs currently in flight (parked on waits/delays or executing) that will follow the new config once published. Null when the count is unavailable.
+     * @nullable
+     */
+    in_flight_runs: number | null
+    /**
+     * The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.
+     * @nullable
+     */
+    draft_updated_at: string | null
+    /**
+     * Echo this back with confirm=true to publish the previewed draft. Only set on previews.
+     * @nullable
+     */
+    confirm_token: string | null
+    /** What publishing does to people in-flight. Only set on previews; counts are approximate. */
+    impact: HogFlowPublishImpactApi | null
+    /** The workflow after publishing (only set when published=true). */
+    workflow?: HogFlowApi | null
 }
 
 /**
@@ -821,6 +1077,36 @@ export interface HogInvocationRerunResponseApi {
     skipped_count: number
 }
 
+export interface HogFlowRevisionBasicApi {
+    /** Workflow version this snapshot was published as. */
+    readonly version: number
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+}
+
+export interface PaginatedHogFlowRevisionBasicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HogFlowRevisionBasicApi[]
+}
+
+export interface HogFlowRevisionApi {
+    /** Workflow version this snapshot was published as. */
+    readonly version: number
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+    /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
+    readonly content: unknown
+}
+
+export interface HogFlowRevisionRestoreRequestApi {
+    /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
+    overwrite?: boolean
+}
+
 export interface PatchedHogFlowScheduleApi {
     readonly id?: string
     /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
@@ -849,6 +1135,21 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
+/**
+ * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
+ */
+export interface EmailSendingSuspensionStatusApi {
+    /** True while workflow email sending is suspended for this project to protect deliverability. */
+    readonly email_sending_suspended: boolean
+    /**
+     * When email sending was suspended; null while sending is enabled.
+     * @nullable
+     */
+    readonly email_sending_suspended_at: string | null
+    /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
+    readonly email_sending_suspension_reason: string
+}
+
 export interface WorkflowStatsRowApi {
     /** The workflow these counts are for. */
     workflow_id: string
@@ -859,9 +1160,177 @@ export interface WorkflowStatsRowApi {
 }
 
 /**
+ * * `healthy` - healthy
+ * * `warning` - warning
+ * * `critical` - critical
+ * * `suspended` - suspended
+ */
+export type AwsTenantReputationHealthEnumApi =
+    (typeof AwsTenantReputationHealthEnumApi)[keyof typeof AwsTenantReputationHealthEnumApi]
+
+export const AwsTenantReputationHealthEnumApi = {
+    Healthy: 'healthy',
+    Warning: 'warning',
+    Critical: 'critical',
+    Suspended: 'suspended',
+} as const
+
+/**
+ * * `ENABLED` - ENABLED
+ * * `REINSTATED` - REINSTATED
+ * * `DISABLED` - DISABLED
+ */
+export type SendingStatusEnumApi = (typeof SendingStatusEnumApi)[keyof typeof SendingStatusEnumApi]
+
+export const SendingStatusEnumApi = {
+    Enabled: 'ENABLED',
+    Reinstated: 'REINSTATED',
+    Disabled: 'DISABLED',
+} as const
+
+/**
+ * * `DKIM` - DKIM
+ * * `DMARC` - DMARC
+ * * `SPF` - SPF
+ * * `BIMI` - BIMI
+ * * `COMPLAINT` - COMPLAINT
+ * * `BOUNCE` - BOUNCE
+ * * `FEEDBACK_3P` - FEEDBACK_3P
+ * * `IP_LISTING` - IP_LISTING
+ */
+export type FindingTypeEnumApi = (typeof FindingTypeEnumApi)[keyof typeof FindingTypeEnumApi]
+
+export const FindingTypeEnumApi = {
+    Dkim: 'DKIM',
+    Dmarc: 'DMARC',
+    Spf: 'SPF',
+    Bimi: 'BIMI',
+    Complaint: 'COMPLAINT',
+    Bounce: 'BOUNCE',
+    Feedback3p: 'FEEDBACK_3P',
+    IpListing: 'IP_LISTING',
+} as const
+
+/**
+ * * `LOW` - LOW
+ * * `HIGH` - HIGH
+ */
+export type ImpactEnumApi = (typeof ImpactEnumApi)[keyof typeof ImpactEnumApi]
+
+export const ImpactEnumApi = {
+    Low: 'LOW',
+    High: 'HIGH',
+} as const
+
+/**
+ * An open reputation finding AWS SES raised for this project's email sending.
+ */
+export interface AwsTenantFindingApi {
+    /** What the finding is about: authentication setup (DKIM/DMARC/SPF/BIMI), recipient signals (COMPLAINT/BOUNCE/FEEDBACK_3P), or a blocklist listing (IP_LISTING).
+     *
+     * * `DKIM` - DKIM
+     * * `DMARC` - DMARC
+     * * `SPF` - SPF
+     * * `BIMI` - BIMI
+     * * `COMPLAINT` - COMPLAINT
+     * * `BOUNCE` - BOUNCE
+     * * `FEEDBACK_3P` - FEEDBACK_3P
+     * * `IP_LISTING` - IP_LISTING */
+    readonly finding_type: FindingTypeEnumApi
+    /** AWS's impact rating. HIGH-impact findings can pause the project's sending automatically.
+     *
+     * * `LOW` - LOW
+     * * `HIGH` - HIGH */
+    readonly impact: ImpactEnumApi
+    /** AWS's short description of the finding. Often a terse disambiguator (e.g. DKIM1) rather than full remediation prose — finding_type carries the remediation category. */
+    readonly description: string
+    /**
+     * When AWS last updated this finding.
+     * @nullable
+     */
+    readonly last_updated_at: string | null
+}
+
+/**
+ * Authoritative reputation for this project's SES tenant, as judged and enforced by AWS.
+ */
+export interface AwsTenantReputationApi {
+    /** Overall health derived from AWS's verdicts: healthy (no findings), warning (low-impact findings), critical (high-impact findings — sending may be paused), suspended (the SES tenant's sending is paused). Reflects AWS state only; PostHog-initiated suspensions are reported separately via email_sending_suspended.
+     *
+     * * `healthy` - healthy
+     * * `warning` - warning
+     * * `critical` - critical
+     * * `suspended` - suspended */
+    readonly health: AwsTenantReputationHealthEnumApi
+    /** The tenant's aggregate sending status. REINSTATED means sending was re-enabled after a pause and AWS is re-monitoring it.
+     *
+     * * `ENABLED` - ENABLED
+     * * `REINSTATED` - REINSTATED
+     * * `DISABLED` - DISABLED */
+    readonly sending_status: SendingStatusEnumApi
+    /** Open findings, if any, with AWS's remediation guidance. */
+    readonly findings: readonly AwsTenantFindingApi[]
+}
+
+/**
+ * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
+ */
+export interface EmailSendingRatesApi {
+    /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
+    readonly bounce_rate: number
+    /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
+    readonly complaint_rate: number
+    /** Emails sent in the last 30 days. */
+    readonly emails_sent: number
+}
+
+/**
+ * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
+ */
+export interface WorkflowEmailSendingRatesApi {
+    /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
+    readonly bounce_rate: number
+    /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
+    readonly complaint_rate: number
+    /** Emails sent in the last 30 days. */
+    readonly emails_sent: number
+    /** The workflow these rates are for. */
+    readonly hog_flow_id: string
+    /** Display name of the workflow; empty for unnamed workflows. */
+    readonly hog_flow_name: string
+}
+
+export interface TeamEmailReputationResponseApi {
+    /** Sending health as judged and enforced by AWS SES for this project's tenant; null when the caller lacks project-wide workflow access, no tenant is provisioned, or AWS is unreachable. */
+    readonly aws: AwsTenantReputationApi | null
+    /** Project-wide rates across all workflow email in the last 30 days (including sends from since-deleted workflows); null when nothing was sent. */
+    readonly reputation: EmailSendingRatesApi | null
+    /** Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50. */
+    readonly workflows: readonly WorkflowEmailSendingRatesApi[]
+    /** True while workflow email sending is suspended for this project to protect deliverability. */
+    readonly email_sending_suspended: boolean
+    /**
+     * When email sending was suspended; null while sending is enabled.
+     * @nullable
+     */
+    readonly email_sending_suspended_at: string | null
+    /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
+    readonly email_sending_suspension_reason: string
+}
+
+/**
  * Property filters to apply
  */
 export type BlastRadiusRequestApiFilters = { [key: string]: unknown }
+
+/**
+ * * `email` - email
+ */
+export type DedupeKeyEnumApi = (typeof DedupeKeyEnumApi)[keyof typeof DedupeKeyEnumApi]
+
+export const DedupeKeyEnumApi = {
+    Email: 'email',
+} as const
 
 export interface BlastRadiusRequestApi {
     /** Property filters to apply */
@@ -871,6 +1340,10 @@ export interface BlastRadiusRequestApi {
      * @nullable
      */
     group_type_index?: number | null
+    /** When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.
+     *
+     * * `email` - email */
+    dedupe_key?: DedupeKeyEnumApi | null
 }
 
 export interface BlastRadiusApi {
@@ -880,6 +1353,12 @@ export interface BlastRadiusApi {
     total: number
     /** Maximum allowed audience size for batch triggers for this team. */
     limit: number
+    /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.
+     *
+     * * `email` - email */
+    dedupe_key: DedupeKeyEnumApi | null
+    /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
+    confirm_token: string
 }
 
 export type HogFlowTemplatesListParams = {
@@ -927,7 +1406,10 @@ export type HogFlowTemplatesLogsRetrieveParams = {
 
 export type HogFlowsListParams = {
     created_at?: string
-    created_by?: number
+    /**
+     * Filter to workflows created by the user with this uuid.
+     */
+    created_by?: string
     id?: string
     /**
      * Number of results to return per page.
@@ -937,6 +1419,10 @@ export type HogFlowsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Case-insensitive search across workflow name and description.
+     */
+    search?: string
     /**
      * * `draft` - Draft
      * * `active` - Active
@@ -1199,6 +1685,17 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
     Week: 'week',
 } as const
 
+export type HogFlowsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type HogFlowsMetricsGlobalRetrieveParams = {
     /**
      * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
@@ -1210,4 +1707,11 @@ export type HogFlowsMetricsGlobalRetrieveParams = {
      * @minLength 1
      */
     before?: string
+}
+
+export type HogFlowsReputationRetrieveParams = {
+    /**
+     * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
+     */
+    search?: string
 }

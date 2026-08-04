@@ -1,13 +1,11 @@
-import {
-    HedgehogChartHog,
-    HedgehogConstruction1,
-    HedgehogDirector,
-    HedgehogExperiment,
-    HedgehogMagnifyingGlass,
-    HedgehogReadingIsMagic,
-    HedgehogReporter,
-    HedgehogRoboHog,
-} from '@posthog/brand/hoggies'
+import * as chart from '@posthog/brand/hoggies/png/chart'
+import * as construction from '@posthog/brand/hoggies/png/construction-1'
+import * as director from '@posthog/brand/hoggies/png/director'
+import * as experiment from '@posthog/brand/hoggies/png/experiment'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as readingIsMagic from '@posthog/brand/hoggies/png/reading-is-magic'
+import * as reporter from '@posthog/brand/hoggies/png/reporter'
+import * as robot from '@posthog/brand/hoggies/png/robot'
 import {
     IconBolt,
     IconBuilding,
@@ -38,12 +36,22 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ExplorerHog, FeatureFlagHog, MailHog } from 'lib/components/hedgehogs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type AvailableOnboardingProducts, type OnboardingProduct } from '~/types'
+
+const HedgehogChart = pngHoggie(chart)
+const HedgehogConstruction = pngHoggie(construction)
+const HedgehogDirector = pngHoggie(director)
+const HedgehogExperiment = pngHoggie(experiment)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagic)
+const HedgehogReporter = pngHoggie(reporter)
+const HedgehogRobot = pngHoggie(robot)
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,
@@ -123,7 +131,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Trend analysis & dashboards', problem: 'Track how key metrics change week over week' },
             { title: 'User paths & retention', problem: 'Understand which features keep users coming back' },
         ],
-        hedgehog: HedgehogChartHog,
+        hedgehog: HedgehogChart,
         icon: 'IconGraph',
         iconColor: 'rgb(47 128 250)',
         url: urls.insights(),
@@ -177,7 +185,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Latency monitoring', problem: 'Find slow prompts before users complain' },
             { title: 'Prompt evaluation', problem: 'Compare prompt versions with real data' },
         ],
-        hedgehog: HedgehogRoboHog,
+        hedgehog: HedgehogRobot,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         url: urls.aiObservabilityDashboard(),
@@ -194,7 +202,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'External data joins', problem: 'Combine Stripe, Hubspot, or Postgres data with PostHog' },
             { title: 'SQL queries', problem: 'Ask questions no pre-built dashboard can answer' },
         ],
-        hedgehog: HedgehogConstruction1,
+        hedgehog: HedgehogConstruction,
         icon: 'IconDatabase',
         iconColor: 'rgb(133 103 255)',
         breadcrumbsName: 'Data Warehouse',
@@ -311,6 +319,23 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.Logs,
         setupEffort: 'low',
     },
+    [ProductKey.METRICS]: {
+        name: 'Metrics',
+        description: 'Chart and alert on the metrics your services already expose',
+        userCentricDescription: 'See how your services are performing over time',
+        capabilities: ['Prometheus and OpenTelemetry ingest', 'Metric charts and dashboards', 'Anomaly detection'],
+        valueProps: [
+            { title: 'Bring your existing metrics', problem: 'Scrape a Prometheus endpoint without changing your app' },
+            { title: 'Charts and dashboards', problem: 'Watch latency, throughput, and error rates over time' },
+            { title: 'Metric to trace links', problem: 'Jump from a spike straight to the trace behind it' },
+        ],
+        hedgehog: HedgehogChart,
+        icon: 'IconGraph',
+        iconColor: 'var(--color-product-metrics-light)',
+        url: urls.metrics(),
+        scene: Scene.Metrics,
+        setupEffort: 'low',
+    },
     [ProductKey.MCP_ANALYTICS]: {
         name: 'MCP analytics',
         description: 'See how AI agents use your MCP server — tool calls, intent, and failures',
@@ -321,11 +346,28 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Agent intent', problem: 'Know what agents were trying to do, not just which tools they ran' },
             { title: 'Failures & gaps', problem: 'Catch failing tools and capabilities agents wish you had' },
         ],
-        hedgehog: HedgehogRoboHog,
+        hedgehog: HedgehogRobot,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         url: urls.mcpAnalyticsDashboard(),
         scene: Scene.MCPAnalytics,
+        setupEffort: 'low',
+    },
+    [ProductKey.CONVERSATIONS]: {
+        name: 'Support',
+        description: 'Receive customer questions over web, email, Slack, and Microsoft Teams',
+        userCentricDescription: 'Triage, assign, and automate customer support in PostHog',
+        capabilities: ['In-app chat widget', 'Email, Slack & Teams channels', 'Direct conversations API'],
+        valueProps: [
+            { title: 'In-app widget', problem: 'Let customers reach you without leaving your product' },
+            { title: 'Multi-channel inbox', problem: 'Handle email, Slack, and Teams tickets in one place' },
+            { title: 'Direct API', problem: 'Build your own support UI on top of the conversations API' },
+        ],
+        hedgehog: HedgehogReporter,
+        icon: 'IconMessage',
+        iconColor: 'var(--color-product-support-light)',
+        url: urls.supportTickets(),
+        scene: Scene.SupportTickets,
         setupEffort: 'low',
     },
 }

@@ -1,3 +1,4 @@
+import socket
 from typing import Literal
 
 import pytest
@@ -5,13 +6,15 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metabase import (
     MetabaseAuthMethodConfig,
     MetabaseSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
     API_KEY_AUTH,
     SESSION_AUTH,
+    SESSION_RESPONSE_NOT_JSON_ERROR,
     MetabaseAuth,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.settings import ENDPOINTS
@@ -64,9 +67,44 @@ class TestMetabaseSource:
         }
         assert secret_field_names == {"api_key", "password"}
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "Invalid Metabase credentials"])
+    @pytest.mark.parametrize(
+        "expected_key",
+        [
+            "401 Client Error",
+            "403 Client Error",
+            "Invalid Metabase credentials",
+            SESSION_RESPONSE_NOT_JSON_ERROR,
+            "Couldn't resolve the host",
+        ],
+    )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
+
+    def test_dns_resolution_failure_message_is_classified_non_retryable(self):
+        # `_is_host_safe` raises this exact message when the Instance URL doesn't resolve via
+        # DNS — a permanent, deterministic failure until it's corrected. Build the message via
+        # the real `_is_host_safe` code path (not a hand-typed copy) so this test breaks if
+        # either side's wording drifts from the classifier's key.
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud",
+                return_value=True,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.get_instance_region",
+                return_value="US",
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.socket.getaddrinfo",
+                side_effect=socket.gaierror,
+            ),
+        ):
+            ok, err = _is_host_safe("nonexistent.example", team_id=999)
+
+        assert not ok
+        assert err is not None
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in err for key in non_retryable)
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

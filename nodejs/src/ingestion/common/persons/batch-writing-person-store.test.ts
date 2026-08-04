@@ -125,7 +125,10 @@ describe('BatchWritingPersonStore', () => {
             fetchPersonDistinctIds: jest.fn().mockResolvedValue([]),
             fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
             fetchPersonsByPersonIds: jest.fn().mockResolvedValue([]),
+            fetchPersonsForUpdateByDistinctIds: jest.fn().mockResolvedValue([]),
             fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
+            deletePersons: jest.fn().mockResolvedValue([]),
+            updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             updatePersonAssertVersion: jest.fn().mockResolvedValue([person.version + 1, []]),
@@ -162,10 +165,16 @@ describe('BatchWritingPersonStore', () => {
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             deletePerson: jest.fn().mockResolvedValue([]),
+            deletePersons: jest.fn().mockResolvedValue([]),
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
+            moveDistinctIdsFromPersons: jest
+                .fn()
+                .mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
             addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
+            updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
+            countDistinctIdsForPersons: jest.fn().mockResolvedValue(new Map()),
         }
         return mockTransaction
     }
@@ -724,15 +733,14 @@ describe('BatchWritingPersonStore', () => {
         await personStore.flush()
 
         expect(mockRepo.updatePersonsBatch).toHaveBeenCalled()
-        expect(emitIngestionWarning).toHaveBeenCalledWith(
-            mockIngestionWarningsOutputs,
-            teamId,
-            'person_upsert_message_size_too_large',
-            {
-                personId: person.id,
+        expect(emitIngestionWarning).toHaveBeenCalledWith(mockIngestionWarningsOutputs, teamId, {
+            type: 'person_upsert_message_size_too_large',
+            details: {
+                personId: person.uuid,
                 distinctId: 'test',
-            }
-        )
+            },
+            pipelineStep: 'person-store',
+        })
     })
 
     describe('dbWriteMode functionality', () => {
@@ -908,15 +916,14 @@ describe('BatchWritingPersonStore', () => {
                 await personStore.flush()
 
                 expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
-                expect(emitIngestionWarning).toHaveBeenCalledWith(
-                    mockIngestionWarningsOutputs,
-                    teamId,
-                    'person_upsert_message_size_too_large',
-                    {
-                        personId: person.id,
+                expect(emitIngestionWarning).toHaveBeenCalledWith(mockIngestionWarningsOutputs, teamId, {
+                    type: 'person_upsert_message_size_too_large',
+                    details: {
+                        personId: person.uuid,
                         distinctId: 'test',
-                    }
-                )
+                    },
+                    pipelineStep: 'person-store',
+                })
                 expect(mockRepo.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
             })
         })

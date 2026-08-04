@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 import yaml
 
@@ -613,10 +614,12 @@ def sync_canonical_skills(
                 diverged.append(row.name)
                 continue
             # Re-scope the soft-delete to seeded rows too, so a team-authored row sharing the
-            # name is never caught by the bulk update.
+            # name is never caught by the bulk update. `updated_at=now` matters: queryset updates
+            # bypass auto_now, and the marketplace plugin version is Max(updated_at) over ALL team
+            # rows — without the bump the cached repo keeps serving the pruned skill.
             LLMSkill.objects.filter(
                 team=team, name=row.name, deleted=False, metadata__seeded_by=HARNESS_SEEDED_BY
-            ).update(deleted=True, is_latest=False)
+            ).update(deleted=True, is_latest=False, updated_at=timezone.now())
             pruned.append(row.name)
 
     if created or updated or pruned:

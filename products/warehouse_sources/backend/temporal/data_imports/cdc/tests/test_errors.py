@@ -6,6 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCErrorCategory,
     CDCErrorInfo,
     CDCSchemaMergeError,
+    CDCSlotNotConfiguredError,
     CDCTransactionTooLargeError,
     cdc_error_info,
     classify_cdc_error,
@@ -34,6 +35,7 @@ class TestCDCErrorInfo:
             (CDCErrorCategory.CONNECTION_FAILED, True),
             (CDCErrorCategory.HOST_UNREACHABLE, False),
             (CDCErrorCategory.SLOT_MISSING, False),
+            (CDCErrorCategory.SLOT_NOT_CONFIGURED, False),
             (CDCErrorCategory.PUBLICATION_MISSING, False),
             (CDCErrorCategory.SLOT_IN_USE, True),
             (CDCErrorCategory.WAL_DECODE_ERROR, False),
@@ -82,6 +84,13 @@ class TestClassifyCDCError:
     def test_transaction_too_large_is_classified_without_adapter(self):
         info = classify_cdc_error(CDCTransactionTooLargeError("500001 events"), None)
         assert info.category is CDCErrorCategory.TRANSACTION_TOO_LARGE
+        assert info.retryable is False
+
+    def test_slot_not_configured_is_classified_without_adapter(self):
+        # A CDC-enabled source with no slot name is a config dead end, not a psycopg failure, so it
+        # must classify to a non-retryable category regardless of engine adapter.
+        info = classify_cdc_error(CDCSlotNotConfiguredError(), None)
+        assert info.category is CDCErrorCategory.SLOT_NOT_CONFIGURED
         assert info.retryable is False
 
     def test_schema_merge_error_is_non_retryable_via_cause_chain(self):

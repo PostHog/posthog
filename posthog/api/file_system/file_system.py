@@ -1,9 +1,7 @@
 import re
-import time
 import shlex
 import builtins
 from typing import Any, cast
-from uuid import uuid4
 
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
@@ -14,6 +12,7 @@ from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
@@ -21,28 +20,6 @@ from posthog.api.file_system.deletion import (
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
-from posthog.api.file_system.folder_context_generation import (
-    ContextGenerationSerializer,
-    ContextGenerationSetSerializer,
-)
-from posthog.api.file_system.folder_context_generation_service import (
-    get_context_generation_task_id,
-    set_context_generation_task_id,
-)
-from posthog.api.file_system.folder_instructions import (
-    FolderInstructionsPublishSerializer,
-    FolderInstructionsSerializer,
-    FolderInstructionsVersionSerializer,
-)
-from posthog.api.file_system.folder_instructions_service import (
-    FolderInstructionsVersionConflictError,
-    FolderInstructionsVersionLimitError,
-    delete_folder_instructions,
-    ensure_blank_folder_instructions,
-    get_folder_instructions_versions,
-    get_latest_folder_instructions,
-    publish_folder_instructions,
-)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -69,8 +46,9 @@ DELETE_PREVIEW_ENTRY_LIMIT = 200
 RECENTS_SEARCH_SCAN_LIMIT = 200
 
 
-class FileSystemSerializer(serializers.ModelSerializer):
+class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = FileSystem
@@ -84,7 +62,9 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "meta",
             "shortcut",
             "created_at",
+            "created_by",
             "last_viewed_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -92,6 +72,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "created_at",
             "team_id",
             "last_viewed_at",
+            "user_access_level",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
@@ -195,7 +176,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
     # Product surface this tree serves. Subclass and override to expose a different surface
-    # (e.g. "desktop") on its own route. The default surface also matches legacy NULL rows.
+    # on its own route. The default surface also matches legacy NULL rows.
     file_system_surface: str = DEFAULT_SURFACE
     # GET /instructions/ and /instructions/versions/ are reads; PUT/PATCH/DELETE on
     # /instructions/ resolve to `publish_instructions` / `delete_instructions` via DRF's
@@ -203,12 +184,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object_read_actions = [
         "list",
         "retrieve",
-        "instructions",
-        "instructions_versions",
         "unfiled",
         "count",
         "count_by_path",
-        "context_generation",
     ]
     scope_object_write_actions = [
         "create",
@@ -216,14 +194,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "partial_update",
         "patch",
         "destroy",
-        "publish_instructions",
-        "delete_instructions",
         "move",
         "link",
         "log_view",
         "undo_delete",
-        "set_context_generation",
-        "publish_canvas",
     ]
 
     def _basename_regex(self, value: str) -> str:
@@ -517,16 +491,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
-    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
-        """Whether a registered-type row with no ref may be deleted as a bare row.
-
-        On the web surface every registered row references a real object, so a
-        ref-less row is a data-integrity error we refuse to delete. Surfaces where
-        registered types can legitimately be ref-less (desktop canvases store their
-        source in `meta`, not a backing Dashboard) override this to allow it.
-        """
-        return False
-
     def _ensure_can_delete(self, entry: FileSystem) -> None:
         stack: list[FileSystem] = [entry]
         seen: set[str] = set()
@@ -567,7 +531,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not is_file_system_type_registered(current.type):
                 continue
 
-            if remaining == 0 and not current.ref and not self._allow_delete_without_ref(current):
+            if remaining == 0 and not current.ref:
+                # A registered-type row with no ref is a data-integrity error we refuse to delete.
                 raise serializers.ValidationError(
                     {"detail": f"Cannot delete type '{current.type}' without a reference."}
                 )
@@ -605,9 +570,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return deleted_objects
 
         if not entry.ref:
-            if self._allow_delete_without_ref(entry):
-                entry.delete()
-                return deleted_objects
             raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
 
         entry_path = entry.path
@@ -1019,240 +981,3 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if items_to_update:
             for item in items_to_update:
                 item.save()
-
-
-class CanvasPublishSerializer(serializers.Serializer):
-    """Payload for publishing a freeform canvas's React source via the agent."""
-
-    code = serializers.CharField(allow_blank=True, trim_whitespace=False)
-    prompt = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
-    name = serializers.CharField(required=False, allow_blank=False, trim_whitespace=True)
-
-
-@extend_schema(extensions={"x-product": "core"})
-class DesktopFileSystemViewSet(FileSystemViewSet):
-    """
-    The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-    scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-    Adds per-folder, versioned markdown instructions describing the contents of a folder.
-    """
-
-    file_system_surface = "desktop"
-
-    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
-        # Desktop canvases are `dashboard`-typed rows whose source lives in `meta`,
-        # not a backing Dashboard, so they legitimately have no ref. Delete the bare
-        # row (nothing to cascade to) rather than refusing. Scope this to `dashboard`
-        # only — any other registered type with no ref is still a data-integrity
-        # error we refuse to delete, even on the desktop surface.
-        return entry.type == "dashboard"
-
-    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        super().perform_create(serializer)
-        instance = cast(FileSystem, serializer.instance)
-        self._ensure_blank_instructions_for_created_path(instance)
-
-    def _ensure_blank_instructions_for_created_path(self, instance: FileSystem) -> None:
-        """Give every desktop folder along the created path a blank instruction set.
-
-        Covers the created folder itself plus any parent folders auto-created by the serializer,
-        so a "channel" always has instructions from the moment it exists.
-        """
-        segments = split_path(instance.path)
-        candidate_paths = [join_path(segments[:depth_index]) for depth_index in range(1, len(segments))]
-        if instance.type == "folder":
-            candidate_paths.append(instance.path)
-        if not candidate_paths:
-            return
-
-        folders = self._scope_by_project(FileSystem.objects.filter(path__in=candidate_paths, type="folder"))
-        user = self.request.user if isinstance(self.request.user, User) else None
-        for folder in folders:
-            ensure_blank_folder_instructions(folder, user=user)
-
-    def _get_folder_or_400(self) -> FileSystem | Response:
-        instance = self.get_object()
-        if instance.type != "folder":
-            return Response(
-                {"detail": "Instructions can only be attached to folders."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        return instance
-
-    def _get_dashboard_or_400(self) -> FileSystem | Response:
-        instance = self.get_object()
-        if instance.type != "dashboard":
-            return Response(
-                {"detail": "Canvas code can only be published to dashboards."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        return instance
-
-    @extend_schema(
-        operation_id="desktop_file_system_canvas_partial_update",
-        request=CanvasPublishSerializer,
-        responses={200: FileSystemSerializer},
-    )
-    @action(methods=["PATCH"], detail=True, url_path="canvas")
-    def publish_canvas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Publish a new version of a freeform canvas's React source.
-
-        Merges into the dashboard row's `meta` (never replaces it), so existing
-        keys like `channelId`/`templateId` survive. Appends a full-file version
-        snapshot and points `currentVersionId` at it — the server-side mirror of
-        the app's dashboardsService.saveFreeform.
-        """
-        dashboard = self._get_dashboard_or_400()
-        if isinstance(dashboard, Response):
-            return dashboard
-
-        payload = CanvasPublishSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        code = payload.validated_data["code"]
-        prompt = payload.validated_data.get("prompt")
-        name = payload.validated_data.get("name")
-
-        now_ms = int(time.time() * 1000)
-        version: dict[str, Any] = {"id": str(uuid4()), "code": code, "createdAt": now_ms}
-        if prompt:
-            version["prompt"] = prompt
-
-        # Lock the row for the read-modify-write so concurrent publishes can't clobber
-        # each other's appended version (each would otherwise build `versions` from the
-        # same stale snapshot and the second write would drop the first).
-        with transaction.atomic():
-            dashboard = FileSystem.objects.select_for_update().get(pk=dashboard.pk)
-            meta = dict(dashboard.meta or {})
-            # Snapshot the live author context onto the version (reverting restores it).
-            existing_context = meta.get("context")
-            if isinstance(existing_context, str):
-                version["context"] = existing_context
-            versions = list(meta.get("versions") or [])
-            versions.append(version)
-
-            meta.update(
-                {
-                    "kind": "freeform",
-                    "code": code,
-                    "versions": versions,
-                    "currentVersionId": version["id"],
-                    "updatedAt": now_ms,
-                }
-            )
-            dashboard.meta = meta
-
-            update_fields = ["meta"]
-            if name:
-                # The canvas's display name is the leaf segment of its path; rename in place.
-                segments = split_path(dashboard.path)
-                segments[-1] = name
-                dashboard.path = join_path(segments)
-                dashboard.depth = len(segments)
-                update_fields += ["path", "depth"]
-
-            dashboard.save(update_fields=update_fields)
-
-        return Response(self.get_serializer(dashboard).data)
-
-    @extend_schema(responses={200: FolderInstructionsSerializer})
-    @action(methods=["GET"], detail=True)
-    def instructions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Return the latest non-deleted instructions for this folder."""
-        folder = self._get_folder_or_400()
-        if isinstance(folder, Response):
-            return folder
-
-        latest = get_latest_folder_instructions(folder)
-        if latest is None:
-            return Response({"detail": "This folder has no instructions."}, status=status.HTTP_404_NOT_FOUND)
-
-        return Response(FolderInstructionsSerializer(latest).data)
-
-    @extend_schema(request=FolderInstructionsPublishSerializer, responses={200: FolderInstructionsSerializer})
-    @instructions.mapping.put
-    @instructions.mapping.patch
-    def publish_instructions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Publish a new version of the folder's instructions."""
-        folder = self._get_folder_or_400()
-        if isinstance(folder, Response):
-            return folder
-
-        payload = FolderInstructionsPublishSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-
-        try:
-            published = publish_folder_instructions(
-                folder,
-                content=payload.validated_data["content"],
-                user=cast(User, request.user),
-                base_version=payload.validated_data.get("base_version"),
-            )
-        except FolderInstructionsVersionConflictError as err:
-            return Response(
-                {
-                    "detail": "The instructions changed since you opened them. Reload the latest version and try again.",
-                    "current_version": err.current_version,
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-        except FolderInstructionsVersionLimitError as err:
-            return Response(
-                {"detail": f"This folder has reached the maximum of {err.max_version} instruction versions."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        return Response(FolderInstructionsSerializer(published).data)
-
-    @extend_schema(request=None, responses={204: None})
-    @instructions.mapping.delete
-    def delete_instructions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Soft-delete every version of this folder's instructions."""
-        folder = self._get_folder_or_400()
-        if isinstance(folder, Response):
-            return folder
-
-        deleted_count = delete_folder_instructions(folder)
-        if deleted_count == 0:
-            return Response({"detail": "This folder has no instructions."}, status=status.HTTP_404_NOT_FOUND)
-
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @extend_schema(responses={200: FolderInstructionsVersionSerializer(many=True)})
-    @action(methods=["GET"], detail=True, url_path="instructions/versions")
-    def instructions_versions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List the version history for this folder's instructions, newest first."""
-        folder = self._get_folder_or_400()
-        if isinstance(folder, Response):
-            return folder
-
-        versions = get_folder_instructions_versions(folder)
-        page = self.paginate_queryset(versions)
-        if page is not None:
-            return self.get_paginated_response(FolderInstructionsVersionSerializer(page, many=True).data)
-        return Response(FolderInstructionsVersionSerializer(versions, many=True).data)
-
-    @extend_schema(responses={200: ContextGenerationSerializer})
-    @action(methods=["GET"], detail=True, url_path="context_generation")
-    def context_generation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Return the Task currently generating this folder's CONTEXT.md, or null if none."""
-        folder = self._get_folder_or_400()
-        if isinstance(folder, Response):
-            return folder
-
-        return Response(ContextGenerationSerializer({"task_id": get_context_generation_task_id(folder)}).data)
-
-    @extend_schema(request=ContextGenerationSetSerializer, responses={200: ContextGenerationSerializer})
-    @context_generation.mapping.put
-    def set_context_generation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Set or clear the Task associated with this folder's CONTEXT.md generation."""
-        folder = self._get_folder_or_400()
-        if isinstance(folder, Response):
-            return folder
-
-        payload = ContextGenerationSetSerializer(data=request.data, context={"folder_team": folder.team})
-        payload.is_valid(raise_exception=True)
-        task_id = payload.validated_data["task_id"]
-        set_context_generation_task_id(folder, task_id=task_id)
-
-        return Response(ContextGenerationSerializer({"task_id": task_id}).data)

@@ -112,6 +112,10 @@ def _run_detector_simulation(
             insight=alert.insight,
             team=team,
             detector_config=alert.detector_config or {"type": "zscore", "threshold": 0.95},
+            # Mirror the alert-check path (TrendsDetectorExtractor.extract): the monitored series
+            # is chosen by config.series_index. Without this the simulation defaults to series 0,
+            # so the investigation analyzes a different series than the one that actually fired.
+            series_index=(alert.config or {}).get("series_index", 0),
             date_from=date_from,
             user=alert.created_by,
         )

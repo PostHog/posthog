@@ -9,6 +9,7 @@ from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
+from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
@@ -240,14 +241,20 @@ def resolve_user_for_workspace(
 
     probe = workspace_result.candidates[0]
 
-    # Pass slack_email=None so the linked-user path short-circuits before
-    # users.info; the resolver fetches lazily on the email-fallback branch.
-    # Re-fetch on the failure branches below is a cache hit.
+    # In local dev, match the seeded user the single-integration resolver also
+    # uses. Keep this at the resolver layer so lower-level callers like channel
+    # approval can still exercise real or stubbed Slack emails under DEBUG.
+    slack_email = local_dev_slack_email()
+
+    # Pass slack_email=None outside local dev so the linked-user path
+    # short-circuits before users.info; the resolver fetches lazily on the
+    # email-fallback branch. Re-fetch on the failure branches below is a cache
+    # hit.
     posthog_user = resolve_posthog_user_from_event(
         slack_user_id=slack_user_id,
         probe_integration=probe,
         candidate_integrations=workspace_result.candidates,
-        slack_email=None,
+        slack_email=slack_email,
     )
     if posthog_user is None:
         slack_email = get_slack_email_for_user(probe, slack_user_id)

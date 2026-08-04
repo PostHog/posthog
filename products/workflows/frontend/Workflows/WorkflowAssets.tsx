@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { HedgehogGreek } from '@posthog/brand/hoggies'
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { LemonCollapse, LemonInput, LemonTable, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
@@ -13,6 +14,8 @@ import { HogFlowBatchJob } from './hogflows/types'
 import { MessageAsset } from './messageAssetsApi'
 import { workflowAssetsLogic } from './workflowAssetsLogic'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 function EmptyAssets(): JSX.Element {
     return (

@@ -8,6 +8,7 @@ import { postSection } from './ci-report/update-ci-report.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendDir = path.resolve(__dirname, '..')
+const WARNING_THRESHOLD_PERCENT = 2
 
 // The workflow measures `du -sb frontend/dist` after the PR build and after the base
 // build, writing each into these files. They are untracked, so both survive the
@@ -31,7 +32,7 @@ if (baseBytes === null) {
     console.warn('No base dist size measurement found — the section will not show a vs-base delta.')
 }
 
-const total = totalComparison(prBytes, baseBytes)
+const total = totalComparison(prBytes, baseBytes, { warningThresholdPercent: WARNING_THRESHOLD_PERCENT })
 const body = [
     'Total size of the built `frontend/dist` folder (all assets), compared against the base branch.',
     '',

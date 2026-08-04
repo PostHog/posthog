@@ -43,7 +43,7 @@ export function ComposerModelEffortPickers({
     const [effortOpen, setEffortOpen] = useState(false)
 
     return (
-        <div className="flex items-center gap-1 pl-2">
+        <div className="flex items-center gap-1">
             <DropdownMenu open={modelOpen} onOpenChange={setModelOpen}>
                 <DropdownMenuTrigger
                     render={

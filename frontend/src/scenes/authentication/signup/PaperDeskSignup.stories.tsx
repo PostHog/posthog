@@ -37,7 +37,6 @@ const meta: Meta<StoryArgs> = {
         viewMode: 'story',
         featureFlags: {
             [FEATURE_FLAGS.AUTH_FLOW_VARIANT]: 'paper-desk',
-            [FEATURE_FLAGS.PASSKEY_SIGNUP_ENABLED]: true,
         },
     },
     decorators: [

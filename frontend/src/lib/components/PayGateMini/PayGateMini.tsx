@@ -6,9 +6,9 @@ import { useEffect } from 'react'
 import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'

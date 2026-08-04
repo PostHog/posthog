@@ -1,14 +1,14 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
+import { isMultiSeriesFormula } from 'lib/utils/strings'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,6 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
+import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -25,34 +26,35 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
-import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip as TrendsTooltipLegacy } from '../shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    embedded?: boolean
 }
 
 const handleChartError = makeChartErrorHandler('trends-line-chart')
 
-export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-    const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
+export function TrendsLineChart({
+    context,
+    inSharedMode = false,
+    embedded = false,
+}: TrendsLineChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps, insight } = useValues(insightLogic)
 
     const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
-    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -134,6 +136,26 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    // The persons modal is intentionally unavailable for multi-series formulas (there's no
+    // single series of actors behind a computed ratio), so surface that instead of leaving
+    // the chart looking interactive with no explanation. On dashboard/card tiles a click
+    // instead opens the underlying insight, since there's nowhere else for the click to go.
+    const isFormulaDrillDownDisabled = !canHandleClick && isMultiSeriesFormula(formula)
+    const canNavigateToInsight = embedded && !inSharedMode && isFormulaDrillDownDisabled && !!insight.short_id
+    const canHandlePointInteraction = canHandleClick || canNavigateToInsight
+
+    const navigateToInsight = useCallback(() => {
+        if (!insight.short_id) {
+            return
+        }
+        router.actions.push(urls.insightView(insight.short_id, insightProps.dashboardId))
+    }, [insight.short_id, insightProps.dashboardId])
+
+    const noDrillDownFooter = isFormulaDrillDownDisabled
+        ? canNavigateToInsight
+            ? "Drill-down isn't available for formula insights. Click to view the insight."
+            : "Drill-down isn't available for formula insights"
+        : undefined
 
     const clickDeps = useMemo(
         () => ({
@@ -161,17 +183,27 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
 
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
-            handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            if (canHandleClick) {
+                handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            } else if (canNavigateToInsight) {
+                navigateToInsight()
+            }
         },
-        [clickDeps]
+        [canHandleClick, canNavigateToInsight, clickDeps, navigateToInsight]
     )
+
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            const onRowClick = canHandleClick
+            const onRowClick = canHandlePointInteraction
                 ? (datum: SeriesDatum) => {
-                      const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
-                      handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      if (canHandleClick) {
+                          const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
+                          handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      } else {
+                          navigateToInsight()
+                      }
                   }
                 : undefined
             const tooltipProps = {
@@ -188,12 +220,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 groupTypeLabel: resolvedGroupTypeLabel,
                 formatCompareLabel: context?.formatCompareLabel,
                 onRowClick,
+                footerOverride: noDrillDownFooter,
             }
-            return quillTooltipEnabled ? (
-                <InsightSeriesTooltip {...tooltipProps} />
-            ) : (
-                <TrendsTooltipLegacy {...tooltipProps} />
-            )
+            return <InsightSeriesTooltip {...tooltipProps} />
         },
         [
             timezone,
@@ -207,9 +236,11 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             baseCurrency,
             resolvedGroupTypeLabel,
             context?.formatCompareLabel,
+            canHandlePointInteraction,
             canHandleClick,
+            navigateToInsight,
+            noDrillDownFooter,
             clickDeps,
-            quillTooltipEnabled,
         ]
     )
 
@@ -221,9 +252,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 incompletenessOffsetFromEnd,
                 isStickiness,
                 getColor: getTrendsColor,
-                // With the quill legend on, hidden series are listed (dimmed) and excluded via
-                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
-                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
+                // of being dropped here, so the legend can restore them.
+                getHidden: undefined,
                 getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
@@ -234,9 +265,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             incompletenessOffsetFromEnd,
             isStickiness,
             getTrendsColor,
-            getTrendsHidden,
             getLabel,
-            quillLegendEnabled,
         ]
     )
 
@@ -265,8 +294,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 movingAverageIntervals: movingAverageIntervals ?? undefined,
                 showTrendLines: showTrendLines ?? undefined,
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
+                curve: chartStyleCurve(trendsFilter?.chartStyle),
                 showCrosshair: true,
-                tooltip: TOOLTIP_CONFIG,
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
                 legend: legendConfig,
             }),
         [
@@ -291,7 +321,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             showValuesOnSeries,
             valueLabelFormatter,
             legendConfig,
-            TOOLTIP_CONFIG,
         ]
     )
 
@@ -315,7 +344,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             theme={theme}
             config={config}
             tooltip={renderTooltip}
-            onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointClick={canHandlePointInteraction ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}
