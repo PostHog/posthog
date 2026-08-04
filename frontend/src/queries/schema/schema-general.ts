@@ -8350,6 +8350,9 @@ export const externalDataSources = [
     'Odoo',
     'Airbridge',
     'Snovio',
+    'Raisely',
+    'WindsorAi',
+    'Wix',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
