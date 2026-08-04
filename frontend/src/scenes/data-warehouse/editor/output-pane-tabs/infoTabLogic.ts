@@ -18,7 +18,7 @@ export interface InfoTableRow {
     type: 'source' | 'table'
     view_id?: string
     status?: string
-    last_run_at?: string
+    last_run_at?: string | null
 }
 
 export interface InfoTabLogicProps {
@@ -41,7 +41,7 @@ export interface infoTabLogicValues {
               view_id?: undefined
           }
         | {
-              last_run_at: string
+              last_run_at: string | null
               name: string
               status: string | undefined
               type: string
@@ -73,7 +73,7 @@ export interface infoTabLogicMeta {
                   view_id?: undefined
               }
             | {
-                  last_run_at: string
+                  last_run_at: string | null
                   name: string
                   status: string | undefined
                   type: string
