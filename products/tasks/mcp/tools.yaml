@@ -13,6 +13,64 @@ ui_apps:
         app_name: PostHog Loop Review
         description: Review card for a loop before creation, with a Create loop action.
 tools:
+    channel-create:
+        operation: task_channels_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Resolve or create a channel
+        description: >
+            Resolve-or-create a public channel by name (normalized to lowercase-dashed). Idempotent: returns the
+            existing channel when one with the name already exists. Use channel-list first when the request names an
+            existing channel.
+    channel-instructions-retrieve:
+        operation: task_channels_instructions_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read channel instructions
+        description: >
+            Read a channel's CONTEXT.md instructions (versioned markdown describing the channel's context). Returns the
+            latest `content` and its `version` — pass that version as `base_version` when publishing an update. A
+            channel with no instructions yet reads as a blank version 0.
+        param_overrides:
+            id:
+                description: ID of the channel whose instructions to read.
+    channel-list:
+        operation: task_channels_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List channels
+        description: >
+            List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve
+            a channel id from its name before creating or listing canvases or reading instructions.
+    channel-retrieve:
+        operation: task_channels_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a channel
+        description: One channel by id, including its name and type.
+        param_overrides:
+            id:
+                description: ID of the channel to read.
     code-invites-check-access-retrieve:
         operation: code_invites_check_access_retrieve
         enabled: false
@@ -214,8 +272,11 @@ tools:
     task-automations-run-create:
         operation: task_automations_run_create
         enabled: false
-    task-channels-create:
-        operation: task_channels_create
+    task-channels-context-generation-retrieve:
+        operation: task_channels_context_generation_retrieve
+        enabled: false
+    task-channels-context-generation-update:
+        operation: task_channels_context_generation_update
         enabled: false
     task-channels-destroy:
         operation: task_channels_destroy
@@ -226,11 +287,23 @@ tools:
     task-channels-feed-list:
         operation: task_channels_feed_list
         enabled: false
-    task-channels-list:
-        operation: task_channels_list
+    task-channels-instructions-destroy:
+        operation: task_channels_instructions_destroy
+        enabled: false
+    task-channels-instructions-partial-update:
+        operation: task_channels_instructions_partial_update
+        enabled: false
+    task-channels-instructions-update:
+        operation: task_channels_instructions_update
+        enabled: false
+    task-channels-instructions-versions-retrieve:
+        operation: task_channels_instructions_versions_retrieve
         enabled: false
     task-channels-partial-update:
         operation: task_channels_partial_update
+        enabled: false
+    task-channels-star-create:
+        operation: task_channels_star_create
         enabled: false
     task-mentions-list:
         operation: task_mentions_list

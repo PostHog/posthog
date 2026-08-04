@@ -71,9 +71,10 @@ class GithubEmptyRepositoryError(Exception):
 class GithubOrgNotFoundError(Exception):
     """GitHub returns 404 on the org-scoped endpoints (``/orgs/{org}/teams`` and the members
     fan-out) when the repository owner is a personal account rather than an organization, or the
-    token has no org access. There is nothing to sync in that case, so ``_fetch_page`` raises this on
-    org-scoped endpoints and the caller syncs zero rows — a benign skip, not a "repository not found"
-    that should fail the schema."""
+    token has no org access, and on the ``tolerate_not_found`` endpoints (issue types, repository
+    teams) whose resource simply does not exist for the repository. There is nothing to sync in
+    either case, so ``_fetch_page`` raises this for those endpoints and the caller syncs zero rows —
+    a benign skip, not a "repository not found" that should fail the schema."""
 
     pass
 
@@ -312,6 +313,17 @@ def validate_credentials(
     personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
 ) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
+    # A pasted clone URL (github.com/owner/repo.git) or a bare owner name otherwise reaches the API
+    # as a nonsense path, 404s, and gets reported as "not found or not accessible" — which points the
+    # user at permissions rather than the real problem, the identifier format. Catch the wrong shape
+    # before the request so the message names the fix.
+    repo = repository.strip()
+    if repo.count("/") != 1 or not all(repo.split("/")):
+        return (
+            False,
+            "Enter the repository as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
+        )
+
     url = f"{GITHUB_BASE_URL}/repos/{repository}"
     headers = _get_headers(personal_access_token, api_version=api_version)
 
@@ -575,6 +587,18 @@ def _rows_from_code_frequency(body: Any, repository: str) -> list[dict[str, Any]
     ]
 
 
+def _rows_from_punch_card(body: Any, repository: str) -> list[dict[str, Any]]:
+    """/stats/punch_card answers positional arrays ([day, hour, commits]) rather than objects, so
+    the columns are named here. day is 0-6 (Sunday to Saturday) and hour is 0-23."""
+    if not isinstance(body, list):
+        return []
+    return [
+        {"day": entry[0], "hour": entry[1], "commits": entry[2]}
+        for entry in body
+        if isinstance(entry, list | tuple) and len(entry) >= 3
+    ]
+
+
 def _rows_from_dependency_sbom(body: Any, repository: str) -> list[dict[str, Any]]:
     """/dependency-graph/sbom answers one SPDX document; its packages are the grain a dependency
     inventory is queried at. SPDXID is renamed so the column follows the rest of the source."""
@@ -602,6 +626,7 @@ _BODY_TRANSFORMS: dict[str, Callable[[Any, str], list[dict[str, Any]]]] = {
     "community_profile": _rows_from_community_profile,
     "participation_stats": _rows_from_participation_stats,
     "code_frequency_stats": _rows_from_code_frequency,
+    "punch_card_stats": _rows_from_punch_card,
     "dependency_sbom": _rows_from_dependency_sbom,
 }
 
@@ -1017,15 +1042,18 @@ def get_rows(
     else:
         url = _build_initial_url(config, repository, initial_params)
 
-    org_scoped = endpoint in ORG_SCOPED_ENDPOINTS
+    # A 404 is normally fatal (wrong repository, revoked access), but for the org-scoped tables and
+    # the endpoints flagged tolerate_not_found it just means the resource does not exist for this
+    # repository, so those sync zero rows instead of failing the schema.
+    skip_on_not_found = endpoint in ORG_SCOPED_ENDPOINTS or config.tolerate_not_found
     while True:
         try:
-            response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=org_scoped)
+            response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=skip_on_not_found)
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
             break
         except GithubOrgNotFoundError:
-            logger.debug(f"Github: no accessible org teams for {endpoint}, syncing zero rows: url={url}")
+            logger.debug(f"Github: {endpoint} not available for this repository, syncing zero rows: url={url}")
             break
         except GithubRepositoryTooLargeError:
             logger.debug(f"Github: repository too large for code frequency stats, syncing zero rows: url={url}")

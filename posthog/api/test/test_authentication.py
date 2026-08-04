@@ -225,6 +225,166 @@ class TestLoginAPI(APIBaseTest):
             },
         )
 
+    def test_login_refused_for_blocked_member_when_org_requires_verified_domain(self):
+        # A blocked member has no recovery action a session would enable, so they get a clear
+        # refusal instead of a fully gated app.
+        self.user.is_email_verified = True
+        self.user.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_blocked_admin_can_log_in_gated_and_recover_via_the_escape_hatch(self):
+        # The full recovery loop: a blocked admin whose session expired logs back in (gated to the
+        # whitelist), disables the setting through the escape hatch, and regains full access.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.user.is_email_verified = True
+        self.user.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)  # whitelisted
+        gated = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(gated.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(gated.json()["code"], "verified_domain_required")
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/").status_code, status.HTTP_200_OK)
+
+    def test_login_moves_user_to_an_organization_that_admits_them(self):
+        # A contractor in several orgs must not be locked out of all of them because one turned the
+        # setting on — they land in an org that still admits them instead of being refused.
+        self.user.is_email_verified = True
+        self.user.save()
+        permitted_org = Organization.objects.create(name="Permitted org")
+        Team.objects.create(organization=permitted_org, name="Permitted project")
+        OrganizationMembership.objects.create(organization=permitted_org, user=self.user)
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, permitted_org)
+
+    def test_live_session_is_cut_off_when_domain_enforcement_is_enabled(self):
+        # Enforcement is re-checked per request, like 2FA, so flipping the setting on takes effect for
+        # members who are already logged in and can't be walked around by switching organization.
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/").status_code, status.HTTP_200_OK)
+
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
+    def _second_org_with_team(self) -> tuple[Organization, Team]:
+        org = Organization.objects.create(name="Permitted org")
+        team = Team.objects.create(organization=org, name="Permitted project")
+        OrganizationMembership.objects.create(organization=org, user=self.user)
+        return org, team
+
+    def _enforce_current_test_org(self) -> None:
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+    def test_cross_org_member_cannot_reach_enforced_org_via_direct_api_access(self):
+        # The current organization is a UI preference routing never validates, so enforcement must
+        # hold against the URL-resolved organization — otherwise a member of a permitted org keeps
+        # full API access to the enforcing one by simply not making it current.
+        permitted_org, permitted_team = self._second_org_with_team()
+        self.user.current_organization = permitted_org
+        self.user.current_team = permitted_team
+        self.user.save()
+        self._enforce_current_test_org()
+        self.client.force_login(self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.get(f"/api/projects/{permitted_team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_personal_api_key_cannot_reach_enforced_org(self):
+        # Personal API keys never pass through session authentication, so this exercises the
+        # permission-layer gate: the same key works against a permitted org and not the enforcing one.
+        _, permitted_team = self._second_org_with_team()
+        self._enforce_current_test_org()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key", user=self.user, secure_value=hash_key_value(key_value), scopes=["*"]
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.get(f"/api/projects/{permitted_team.id}/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def _blocked_admin_parked_in_permitted_org(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        permitted_org, permitted_team = self._second_org_with_team()
+        self.user.current_organization = permitted_org
+        self.user.current_team = permitted_team
+        self.user.save()
+        self._enforce_current_test_org()
+        self.client.force_login(self.user)
+
+    def test_cross_org_admin_permission_chain_enforced_except_the_escape_hatch(self):
+        # OrganizationViewSet's update chain comes from dangerously_get_permissions, which must not
+        # skip domain enforcement — but the escape hatch (disabling the setting) must work through
+        # it, or a blocked admin could never recover the organization.
+        self._blocked_admin_parked_in_permitted_org()
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"name": "New name"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.enforce_verified_domains)
+
+    def test_cross_org_admin_cannot_create_invites_for_enforcing_org(self):
+        # Invite creation also runs on a custom permission chain; a member the org no longer admits
+        # must not be able to act in it, even when inviting a verified-domain email.
+        self._blocked_admin_parked_in_permitted_org()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/", {"target_email": "new@hogflix.com"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     def test_email_unverified_user_cant_log_in_if_email_available(

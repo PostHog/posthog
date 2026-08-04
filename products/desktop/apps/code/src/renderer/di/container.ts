@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { useDevFlagsStore } from "@features/dev-toolbar/devFlagsStore";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import type { TrpcRouter } from "@main/trpc/router";
+import { canvasApplicationModule } from "@posthog/core/canvas/canvas.module";
 import {
   CLOUD_TASK_CLIENT,
   type CloudTaskClient,
@@ -426,6 +427,10 @@ container.bind(SKILLS_WORKSPACE_CLIENT).toConstantValue({
 
 // sessions (cloud-artifact + title-generator)
 container.load(sessionsModule);
+
+// canvas generation orchestration (deps: task service, model resolver, title
+// generator — all renderer-bound; persistence effects come in via its gateway)
+container.load(canvasApplicationModule);
 container
   .bind(CLOUD_ARTIFACT_READ_FILE_AS_BASE64)
   .toConstantValue((filePath: string) =>
