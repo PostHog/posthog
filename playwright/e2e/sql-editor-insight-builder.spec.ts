@@ -101,7 +101,7 @@ test.describe('SQL editor insight builder', () => {
             await expect(page.getByRole('columnheader', { name: /result/i })).toBeVisible({ timeout: 60000 })
         })
 
-        await test.step('save as insight', async () => {
+        await test.step('save as insight navigates to the insight view', async () => {
             await dismissQuickStart(page)
             await page.getByRole('button', { name: 'Save as insight', exact: true }).click()
             // LemonModal's dialog element carries no accessible name, so match on content
@@ -110,12 +110,12 @@ test.describe('SQL editor insight builder', () => {
             await dialog.getByTestId('insight-name').fill(insightName)
             await dialog.getByRole('button', { name: 'Submit' }).click()
             await expect(dialog).not.toBeVisible({ timeout: 60000 })
-            await expect(page.locator('.scene-name h1 span').getByText(insightName, { exact: true })).toBeVisible({
-                timeout: 60000,
-            })
 
-            const hash = new URL(page.url()).hash
-            insightShortId = new URLSearchParams(hash.slice(1)).get('insight')
+            // The save hands the user their insight, like the classic editor
+            await expect(page).toHaveURL(/\/insights\/[A-Za-z0-9]+$/, { timeout: 60000 })
+            await expect(page.getByText(insightName, { exact: true }).first()).toBeVisible({ timeout: 60000 })
+
+            insightShortId = new URL(page.url()).pathname.split('/').pop() ?? null
             expect(insightShortId).toBeTruthy()
         })
 
@@ -123,7 +123,8 @@ test.describe('SQL editor insight builder', () => {
             // The reload-style URL (#q=...&output_tab=visualization&insight=...) races the lazy
             // canvas chunk, the insight fetch, and feature flags — the canvas must come back
             // showing the chart, never the "pick fields" empty state
-            await page.getByTestId('sql-builder-scene-tabs').getByText('Visualization').click()
+            await goToSqlEditor(page, `/sql?open_insight=${insightShortId}`)
+            await expect(page.getByTestId('sql-builder-canvas')).toBeVisible({ timeout: 60000 })
             await page.reload()
             await expect(page.getByTestId('editor-scene')).toBeVisible({ timeout: 60000 })
             await dismissQuickStart(page)

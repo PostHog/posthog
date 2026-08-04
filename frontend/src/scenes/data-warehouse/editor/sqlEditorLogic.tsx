@@ -2684,11 +2684,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 cache.timeouts = cache.timeouts || []
                 cache.timeouts.push(timeoutId)
 
-                // A builder save consumes the whole tab session — the editor must not keep a
-                // stale, unlinked copy of the insight that was just saved. Leaving for a
-                // dashboard, reset to a blank query; staying, rebind the tab to the saved
-                // insight (via open_insight below)
-                if (isBuilderInsight && dashboardId) {
+                // A builder save consumes the whole tab session — reset to a blank query before
+                // leaving, so returning to the SQL editor doesn't resurrect a stale, unlinked
+                // copy of the insight that was just saved. (The reset's URL writes land before
+                // the navigation below, and the debounced setQueryInput sync is guarded against
+                // stealing the URL back.)
+                if (isBuilderInsight) {
                     actions.createTab()
                     actions.setSourceQuery({
                         kind: NodeKind.DataVisualizationNode,
@@ -2711,18 +2712,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                     actions.setDashboardId(null)
                     router.actions.push(urls.dashboard(dashboardId, insight.short_id))
-                } else if (isBuilderInsight) {
-                    // The insight view can't edit a builder insight, so stay in the editor and
-                    // reopen through open_insight — the one path that hydrates the builder tab.
-                    // The toast must say so: "now viewing" would announce a navigation that
-                    // deliberately doesn't happen.
-                    lemonToast.success(`Saved "${insight.name || insight.derived_name || name}"`, {
-                        button: {
-                            label: 'View insight',
-                            action: () => router.actions.push(urls.insightView(insight.short_id)),
-                        },
-                    })
-                    router.actions.push(urls.sqlEditor({ insightShortId: insight.short_id }))
                 } else {
                     lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
                     router.actions.push(urls.insightView(insight.short_id))
@@ -2954,11 +2943,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                     actions.setDashboardId(null)
                     router.actions.push(urls.dashboard(dashboardId, savedInsight.short_id))
-                } else if (isBuilderInsight) {
-                    // Same as the save-as flow: the insight view can't edit a builder insight,
-                    // so an update keeps the user in the editor (the tab is already rebound to
-                    // the saved insight above)
-                    lemonToast.success('Insight updated')
                 } else {
                     lemonToast.info(
                         `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`

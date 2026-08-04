@@ -1,5 +1,6 @@
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
+import { snapCenterToCursor } from '@dnd-kit/modifiers'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -210,7 +211,9 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
                     <SideBar className="w-full" />
                 </BuilderColumnShell>
             </div>
-            <DragOverlay dropAnimation={null}>
+            {/* snapCenterToCursor: the overlay otherwise sits where the dragged element was,
+                leaving the label far from the pointer when the grab started off-center */}
+            <DragOverlay dropAnimation={null} modifiers={[snapCenterToCursor]}>
                 {activeDragLabel ? (
                     <span className="inline-flex items-center rounded bg-accent-highlight-secondary px-2 py-1 text-sm shadow-md">
                         {activeDragLabel}

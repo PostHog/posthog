@@ -1511,10 +1511,10 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.builder?.baseQuery).toEqual(edited)
         })
 
-        it('rebinds the tab to the saved insight after saving a builder insight', async () => {
-            // The insight view can't edit a builder insight, so the save must stay in the
-            // editor and reopen the saved insight — leaving the tab as an unlinked copy would
-            // fork a duplicate on the next save
+        it('navigates to the saved insight and resets the editor after saving a builder insight', async () => {
+            // Saving hands the user their insight, like the classic editor — and the editor tab
+            // must reset to blank, or returning to the SQL editor resurrects a stale, unlinked
+            // copy that forks a duplicate on the next save
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR], {
                 [FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR]: true,
@@ -1531,14 +1531,16 @@ describe('sqlEditorLogic', () => {
             logic.actions.setSourceQuery(MOCK_BUILDER_INSIGHT_QUERY)
 
             logic.actions.saveAsInsightSubmit('Rows by event')
-            await expectLogic(logic).toDispatchActions(['saveAsInsightSubmit', 'editInsight']).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
             expect(createSpy).toHaveBeenCalledTimes(1)
-            expect(router.values.searchParams.open_insight).toBeUndefined()
-            expect(router.values.hashParams.insight).toEqual(MOCK_BUILDER_INSIGHT_SHORT_ID)
-            expect(logic.values.activeTab?.insight?.short_id).toEqual(MOCK_BUILDER_INSIGHT_SHORT_ID)
-            expect(logic.values.queryInput).toEqual(MOCK_BUILDER_INSIGHT_QUERY.builder?.baseQuery)
-            expect(logic.values.sourceQuery.builder?.enabled).toBe(true)
+            // The router prefixes the project id onto the path
+            expect(router.values.location.pathname).toContain(urls.insightView(MOCK_BUILDER_INSIGHT_SHORT_ID))
+            expect(logic.values.queryInput).toEqual('')
+            expect(logic.values.sourceQuery.builder).toBeUndefined()
+            expect(logic.values.sourceQuery.source.query).toEqual('')
+            expect(logic.values.activeTab?.insight).toBeUndefined()
+            expect(logic.values.outputActiveTab).toEqual(OutputTab.Results)
             createSpy.mockRestore()
         })
 

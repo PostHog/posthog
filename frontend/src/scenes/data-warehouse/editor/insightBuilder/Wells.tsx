@@ -472,8 +472,9 @@ function Well({
                 ref={setNodeRef}
                 className={cn(
                     'flex flex-col gap-1 rounded border border-dashed p-1 transition-colors',
-                    // Empty wells keep a visible drop target; filled ones hug their pills
-                    centered && 'min-h-12 items-center justify-center text-center',
+                    // Empty wells keep a visible drop target sized like a well holding one pill —
+                    // noticeably taller reads as a big empty box rather than a slot to fill
+                    centered && 'min-h-9 items-center justify-center text-center',
                     isOver && !isFull && 'border-accent bg-accent-highlight-secondary',
                     isOver && isFull && 'border-warning bg-warning-highlight'
                 )}

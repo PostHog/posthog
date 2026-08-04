@@ -981,10 +981,23 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
                 <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                     <div className="flex min-h-[41px] items-center gap-2 ml-2">
                         {builderLayout ? (
-                            <div className="flex items-center gap-1 px-2 font-semibold">
-                                <IconTableChart />
-                                Results
-                            </div>
+                            <>
+                                <div className="flex items-center gap-1 px-2 font-semibold">
+                                    <IconTableChart />
+                                    Results
+                                </div>
+                                {resultsData.response ? (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        icon={<IconGraph />}
+                                        onClick={() => setActiveTab(OutputTab.Visualization)}
+                                        data-attr="sql-builder-visualize-results"
+                                    >
+                                        Visualize
+                                    </LemonButton>
+                                ) : null}
+                            </>
                         ) : (
                             <>
                                 {splitToggle}
