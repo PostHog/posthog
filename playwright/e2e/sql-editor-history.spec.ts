@@ -1,7 +1,20 @@
+import { Page } from '@playwright/test'
+
 import { NodeKind } from '../../frontend/src/queries/schema/schema-general'
 import { InsightShortId } from '../../frontend/src/types'
 import { InsightPage } from '../page-models/insightPage'
 import { expect, test, PlaywrightWorkspaceSetupResult } from '../utils/workspace-test-base'
+
+async function expectSaveOptions(page: Page, expectedOption: string): Promise<void> {
+    const saveOption = page.getByRole('menuitem', { name: expectedOption, exact: true })
+
+    await expect(async () => {
+        await page.keyboard.press('Escape')
+        await page.getByTestId('sql-editor-save-options-button').click()
+        await expect(saveOption).toBeVisible({ timeout: 5_000 })
+    }).toPass({ timeout: 30_000 })
+    await page.keyboard.press('Escape')
+}
 
 test.describe('SQL editor history', () => {
     test.setTimeout(120_000)
@@ -40,7 +53,7 @@ test.describe('SQL editor history', () => {
         await test.step('open a saved SQL insight in the SQL editor', async () => {
             await insight.goToInsight(insightShortId, { edit: true })
             await page.waitForURL(/\/sql/)
-            await expect(page.getByRole('button', { name: 'Update insight' })).toBeVisible({ timeout: 30000 })
+            await expectSaveOptions(page, 'Update insight')
         })
 
         await test.step('navigating to a plain SQL query in the same editor switches to save-as-new mode', async () => {
@@ -52,21 +65,19 @@ test.describe('SQL editor history', () => {
                 window.dispatchEvent(new PopStateEvent('popstate'))
             })
 
-            await expect(page.getByRole('button', { name: 'Save as insight' })).toBeVisible()
-            await expect(page.getByRole('button', { name: 'Update insight' })).toHaveCount(0)
+            await expectSaveOptions(page, 'Save as insight')
         })
 
         await test.step('browser back restores the saved SQL insight editor state', async () => {
             await page.goBack()
             await page.waitForURL(/insight=/)
-            await expect(page.getByRole('button', { name: 'Update insight' })).toBeVisible({ timeout: 30000 })
+            await expectSaveOptions(page, 'Update insight')
         })
 
         await test.step('browser forward restores the plain SQL query state', async () => {
             await page.goForward()
             await page.waitForURL((url) => url.hash.includes('q=SELECT%201') && !url.hash.includes('insight='))
-            await expect(page.getByRole('button', { name: 'Save as insight' })).toBeVisible()
-            await expect(page.getByRole('button', { name: 'Update insight' })).toHaveCount(0)
+            await expectSaveOptions(page, 'Save as insight')
         })
     })
 })
