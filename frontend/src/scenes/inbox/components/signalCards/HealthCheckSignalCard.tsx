@@ -3,7 +3,6 @@ import { Fragment } from 'react'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 import type { LemonTagType } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type {
@@ -214,9 +213,6 @@ export function HealthCheckSignalCard({ signal }: SignalCardProps): JSX.Element 
                     <Link to={extra.link} className="text-xs font-medium">
                         Open in PostHog
                     </Link>
-                    <span className="text-xs text-tertiary">
-                        <TZLabel time={signal.timestamp} />
-                    </span>
                 </div>
             </div>
         </SignalCardShell>
