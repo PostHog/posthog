@@ -1271,8 +1271,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # it. No GIN index: every read is already scoped to one team, and a team holds at most a
     # couple of dozen scouts, so `tags && ARRAY[...]` runs over a handful of rows.
     # `null=True` only so the AddField could land without a NOT NULL rewrite — the migration
-    # backfilled existing rows with `{}` and every write path sends a list, so readers treat
-    # NULL as empty rather than as anything meaningful.
+    # backfilled existing rows with `{}` and every write path sends a list, so NULL carries no
+    # meaning. Read through `tag_list` rather than this column so that stays an implementation
+    # detail instead of leaking a nullable `tags` into the API and its generated clients.
     tags = ArrayField(
         models.CharField(max_length=MAX_TAG_LENGTH),
         default=list,
@@ -1498,6 +1499,18 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         if self.status == self.Status.ACTIVE and self.status_changed_at is not None:
             anchor = max(anchor, self.status_changed_at)
         return timezone.now() < anchor + self.COLD_START_GRACE
+
+    @property
+    def tag_list(self) -> list[str]:
+        """`tags` with the nullable column's NULL folded away, for readers.
+
+        The API serializes this rather than the column so `tags` is a plain non-null list
+        everywhere downstream. Serializing the column directly would surface `null` in the
+        OpenAPI schema and, through the generated clients, force every consumer to tell "no
+        tags" apart from "not set" — a distinction the column does not actually carry, since
+        the AddField backfilled existing rows and every write path sends a list.
+        """
+        return self.tags or []
 
     def _get_before_update(self, **kwargs: Any) -> "SignalScoutConfig | None":
         # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed

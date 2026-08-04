@@ -2070,13 +2070,19 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "sweep paused, so the sweep never overrules a person twice."
         ),
     )
-    # Method field rather than the model field: rows predating the tags column read back NULL,
-    # and a consumer should never have to tell "no tags" apart from "null".
-    tags = serializers.SerializerMethodField(help_text=_SCOUT_TAGS_HELP_TEXT)
-
-    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
-    def get_tags(self, obj: SignalScoutConfig) -> list[str]:
-        return obj.tags or []
+    # Read through `tag_list`, not the column, so a pre-migration NULL reads as `[]`.
+    # Deliberately neither read-only nor a method field: both mark `tags` `readOnly` in the
+    # schema, which the generated TS clients emit as `readonly string[]` — not assignable to the
+    # update body's `string[]`, so a caller handing a fetched config straight to the patch call
+    # stops compiling. Every other read-only field here is a scalar, where `readonly` is
+    # invisible; an array is where it bites. This serializer is response-only at every call site
+    # (the write paths have their own serializers), so being writable-shaped costs nothing.
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        source="tag_list",
+        required=False,
+        help_text=_SCOUT_TAGS_HELP_TEXT,
+    )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
