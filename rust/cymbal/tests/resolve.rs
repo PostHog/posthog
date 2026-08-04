@@ -176,7 +176,7 @@ async fn sourcemap_nulls_dont_go_on_frames() {
         .lookup(SourcePosition::new(location.line - 1, location.column))
         .unwrap();
 
-    let res = Frame::from((&frame, token, 15));
+    let res = Frame::from((&frame, token, 15, false));
 
     assert!(!res.source.unwrap().contains('\0'));
 }

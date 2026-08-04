@@ -23,6 +23,9 @@ pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
+// A dart2js sourcemap lookup missed the exact generated line, but resolved via the
+// bounded lookback to an earlier generated line instead of dropping the frame.
+pub const DART2JS_APPROXIMATE_LOOKUP: &str = "cymbal_dart2js_approximate_lookup";
 // Client-expanded native inline groups, labeled by outcome: "replaced" when the
 // server expansion of the group's address superseded the client frames, "kept"
 // when resolution failed and the client expansion passed through.

@@ -133,6 +133,11 @@ impl OwnedSourceMapCache {
     pub fn get_dart_minified_names(&self) -> Option<&HashMap<String, String>> {
         self.dart_minified_names.as_ref()
     }
+
+    /// Whether this sourcemap was compiled by dart2js (Flutter Web).
+    pub fn is_dart2js(&self) -> bool {
+        self.dart_minified_names.is_some()
+    }
 }
 
 impl Countable for OwnedSourceMapCache {

@@ -2,13 +2,14 @@ use common_types::error_tracking::FrameId;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
-use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition};
+use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourceMapCache, SourcePosition};
 use tracing::warn;
 
 use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
     frames::{record_frame_resolution_failure, Frame},
     langs::CommonFrameMetadata,
+    metric_consts::DART2JS_APPROXIMATE_LOOKUP,
     sanitize_string,
     symbolication::symbol_store::{
         chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog,
@@ -86,17 +87,39 @@ impl RawJSFrame {
         let smc = sourcemap.get_smc();
 
         // Note: javascript stack frame lines are 1-indexed, so we have to subtract 1
-        let Some(location) = smc.lookup(SourcePosition::new(location.line - 1, location.column))
-        else {
-            return Err(JsResolveErr::TokenNotFound(
-                self.fn_name.clone(),
-                location.line,
-                location.column,
-            )
-            .into());
+        let position = SourcePosition::new(location.line - 1, location.column);
+        let (resolved_location, approximate) = match smc.lookup(position) {
+            Some(loc) => (loc, false),
+            None if sourcemap.is_dart2js() => match lookup_dart2js_fallback(&smc, position.line) {
+                Some(loc) => {
+                    metrics::counter!(DART2JS_APPROXIMATE_LOOKUP).increment(1);
+                    (loc, true)
+                }
+                None => {
+                    return Err(JsResolveErr::TokenNotFound(
+                        self.fn_name.clone(),
+                        location.line,
+                        location.column,
+                    )
+                    .into())
+                }
+            },
+            None => {
+                return Err(JsResolveErr::TokenNotFound(
+                    self.fn_name.clone(),
+                    location.line,
+                    location.column,
+                )
+                .into())
+            }
         };
 
-        Ok(Frame::from((self, location, context_lines)))
+        Ok(Frame::from((
+            self,
+            resolved_location,
+            context_lines,
+            approximate,
+        )))
     }
 
     // JS frames can only handle JS resolution errors - errors at the network level
@@ -186,9 +209,35 @@ impl RawJSFrame {
     }
 }
 
-impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
-    fn from(src: (&RawJSFrame, SourceLocation, usize)) -> Self {
-        let (raw_frame, token, context_lines) = src;
+/// How many generated lines to look back when a dart2js sourcemap has no mapping token on the
+/// frame's exact line. Bounded so a genuinely unmapped frame (e.g. native/SDK code) still fails
+/// fast rather than resolving to an arbitrary distant token.
+const DART2JS_LOOKBACK_LINES: u32 = 5;
+
+/// `SourceMapCache::lookup` refuses a greatest-lower-bound token that sits on an earlier
+/// generated line than the one queried - the right call for hand-written/webpack-bundled JS,
+/// where that means the position is genuinely unmapped. dart2js output is sparse enough that
+/// this is routinely wrong instead: whole generated lines carry no mapping token at all, and
+/// closure/tear-off frames often report a column below the first token on their line, so the
+/// nearest real token sits one or more lines back. Without this fallback those frames are
+/// dropped outright, even though the earlier line's token correctly identifies the enclosing
+/// method.
+fn lookup_dart2js_fallback<'smc>(
+    smc: &'smc SourceMapCache<'_>,
+    line: u32,
+) -> Option<SourceLocation<'smc>> {
+    for lines_back in 1..=DART2JS_LOOKBACK_LINES {
+        let earlier_line = line.checked_sub(lines_back)?;
+        if let Some(location) = smc.lookup(SourcePosition::new(earlier_line, u32::MAX)) {
+            return Some(location);
+        }
+    }
+    None
+}
+
+impl From<(&RawJSFrame, SourceLocation<'_>, usize, bool)> for Frame {
+    fn from(src: (&RawJSFrame, SourceLocation, usize, bool)) -> Self {
+        let (raw_frame, token, context_lines, approximate) = src;
 
         let resolved_name = match token.scope() {
             // The `$async$` prefix is a Dart/Flutter compiler artifact that appears in
@@ -241,6 +290,10 @@ impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
         };
 
         add_raw_to_junk(&mut res, raw_frame);
+        if approximate {
+            // UNWRAP - bool is always representable as json
+            res.add_junk("approximate_location", true).unwrap();
+        }
 
         res
     }
@@ -345,6 +398,60 @@ impl From<&RawJSFrame> for Frame {
 
 #[cfg(test)]
 mod test {
+    use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter, SourcePosition};
+
+    use super::{lookup_dart2js_fallback, DART2JS_LOOKBACK_LINES};
+
+    // Builds a SourceMapCache with a single mapping on generated line 0, and no mapping on
+    // any later generated line - mimicking a dart2js chunk where most generated lines carry no
+    // token at all.
+    fn sparse_dart2js_smc() -> Vec<u8> {
+        let mut builder = sourcemap::SourceMapBuilder::new(None);
+        let src_id = builder.add_source("orig.js");
+        builder.set_source_contents(src_id, Some("function original(){}\n"));
+        builder.add(0, 0, 0, 0, Some("orig.js"), None, false);
+        let sm = builder.into_sourcemap();
+
+        let mut json = Vec::new();
+        sm.to_writer(&mut json).unwrap();
+
+        // 11 generated lines, only the first of which has a mapping.
+        let minified_source = ";\n".repeat(11);
+
+        let smcw =
+            SourceMapCacheWriter::new(&minified_source, &String::from_utf8(json).unwrap()).unwrap();
+        let mut data = Vec::new();
+        smcw.serialize(&mut data).unwrap();
+        data
+    }
+
+    #[test]
+    fn dart2js_fallback_resolves_within_bounded_lookback() {
+        let data = sparse_dart2js_smc();
+        let smc = SourceMapCache::parse(&data).unwrap();
+
+        // The exact-line lookup rejects the cross-line GLB, exactly as it should for
+        // non-dart2js sourcemaps.
+        assert!(smc.lookup(SourcePosition::new(3, 5)).is_none());
+
+        // Within the bounded lookback, our fallback recovers the last mapped line instead of
+        // dropping the frame.
+        let resolved = lookup_dart2js_fallback(&smc, 3).expect("should find line 0's token");
+        assert_eq!(resolved.line(), 0);
+    }
+
+    #[test]
+    fn dart2js_fallback_gives_up_beyond_lookback_bound() {
+        let data = sparse_dart2js_smc();
+        let smc = SourceMapCache::parse(&data).unwrap();
+
+        let too_far = DART2JS_LOOKBACK_LINES + 5;
+        assert!(smc.lookup(SourcePosition::new(too_far, 5)).is_none());
+        // A genuinely unmapped frame (gap wider than the lookback bound) still fails, rather
+        // than resolving to an arbitrarily distant, misleading token.
+        assert!(lookup_dart2js_fallback(&smc, too_far).is_none());
+    }
+
     #[test]
     fn source_ref_generation() {
         let frame = super::RawJSFrame {
