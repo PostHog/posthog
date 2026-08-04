@@ -69,6 +69,7 @@ import type {
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
+    SignalSourceDormancyApi,
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
@@ -1461,6 +1462,23 @@ export const signalsSourceConfigsDestroy = async (
     return apiMutator<void>(getSignalsSourceConfigsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsSourceConfigsDormancyRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/dormancy/`
+}
+
+/**
+ * Enabled sources whose backing PostHog product has received no data recently, so they are configured but cannot fire. Separate from the source list because answering it probes several datastores; the result is cached per team.
+ */
+export const signalsSourceConfigsDormancyRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalSourceDormancyApi> => {
+    return apiMutator<SignalSourceDormancyApi>(getSignalsSourceConfigsDormancyRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -48937,10 +48937,10 @@ export namespace Schemas {
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
      */
-    export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
+    export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
 
-    export const SignalSourceConfigSourceProductEnum = {
+    export const SignalSourceProductEnum = {
       SessionReplay: 'session_replay',
       LlmAnalytics: 'llm_analytics',
       Github: 'github',
@@ -49038,7 +49038,7 @@ export namespace Schemas {
 
     export interface SignalSourceConfig {
       readonly id: string;
-      source_product: SignalSourceConfigSourceProductEnum;
+      source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
       config?: unknown;
@@ -57648,7 +57648,7 @@ export namespace Schemas {
 
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
-      source_product?: SignalSourceConfigSourceProductEnum;
+      source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
       config?: unknown;
@@ -68213,6 +68213,16 @@ export namespace Schemas {
       edited_report_ids: string[];
       /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
+    }
+
+    /**
+     * Which enabled sources are watching a PostHog product this project doesn't send data for.
+     */
+    export interface SignalSourceDormancy {
+      /** Source products whose backing PostHog product received no data in the lookback window. A source listed here can be enabled and correctly configured and still never fire. Only PostHog-native sources are judged; sources fed by an external tool are never listed, and the list is empty when a freshness probe failed rather than guessing. */
+      dormant_source_products: SignalSourceProductEnum[];
+      /** How many days of no data it takes for a source to be reported dormant. */
+      lookback_days: number;
     }
 
     export interface SignalUserAutonomyConfig {

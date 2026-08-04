@@ -27,6 +27,8 @@ import {
 } from 'products/engineering_analytics/frontend/generated/api'
 import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
+import { signalsSourceConfigsDormancyRetrieve } from 'products/signals/frontend/generated/api'
+import type { SignalSourceDormancyApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
@@ -204,6 +206,9 @@ export interface signalSourcesLogicValues {
     anomalyInvestigationConfig: SignalSourceConfig | null
     ciSignalsConfig: CISignalsConfigApi | null
     ciSignalsConfigLoading: boolean
+    dormantSourceProducts: Set<string>
+    sourceDormancy: SignalSourceDormancyApi | null
+    sourceDormancyLoading: boolean
     ciSignalsIsFullyEnabled: boolean
     conversationsConfig: SignalSourceConfig | null
     dataSourceSetupSource: WarehouseBackedSource | null
@@ -271,6 +276,21 @@ export interface signalSourcesLogicActions {
         source: WarehouseBackedSource
     }
     loadCiSignalsConfig: () => any
+    loadSourceDormancy: () => any
+    loadSourceDormancyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSourceDormancySuccess: (
+        sourceDormancy: SignalSourceDormancyApi | null,
+        payload?: any
+    ) => {
+        sourceDormancy: SignalSourceDormancyApi | null
+        payload?: any
+    }
     loadCiSignalsConfigFailure: (
         error: string,
         errorObject?: any
@@ -412,6 +432,7 @@ export interface signalSourcesLogicMeta {
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
         isSessionAnalysisRunning: (sessionAnalysisConfig: SignalSourceConfig | null) => boolean
+        dormantSourceProducts: (sourceDormancy: SignalSourceDormancyApi | null) => Set<string>
         enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null) => number
         hasNoSources: (sourceConfigs: SignalSourceConfig[] | null, enabledSourcesCount: number) => boolean
     }
@@ -477,6 +498,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     const response = await api.signalSourceConfigs.list()
                     return response.results
                 },
+            },
+        ],
+        // Loaded separately from the source list, which is on the inbox's critical path — answering
+        // this probes several datastores. A failure leaves it null, and null means "not judged".
+        sourceDormancy: [
+            null as SignalSourceDormancyApi | null,
+            {
+                loadSourceDormancy: async (): Promise<SignalSourceDormancyApi> =>
+                    await signalsSourceConfigsDormancyRetrieve(String(teamLogic.values.currentTeamId)),
             },
         ],
         ciSignalsConfig: [
@@ -805,6 +835,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         isSessionAnalysisRunning: [
             (s) => [s.sessionAnalysisConfig],
             (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
+        ],
+        // A set rather than the raw list so callers do a lookup, and an empty set until the load
+        // lands — an unanswered question must never render as a dormancy claim.
+        dormantSourceProducts: [
+            (s) => [s.sourceDormancy],
+            (sourceDormancy: SignalSourceDormancyApi | null): Set<string> =>
+                new Set(sourceDormancy?.dormant_source_products ?? []),
         ],
         enabledSourcesCount: [
             (s) => [s.sourceConfigs],
@@ -1205,6 +1242,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // The condition allows us to safely mount this logic for user without the product autonomy feature flag
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()
+                actions.loadSourceDormancy()
                 if (values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
                     actions.loadCiSignalsConfig()
                 }

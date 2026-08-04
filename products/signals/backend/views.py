@@ -131,11 +131,16 @@ from products.signals.backend.serializers import (
     SignalReportRefundSerializer,
     SignalReportSerializer,
     SignalSourceConfigSerializer,
+    SignalSourceDormancySerializer,
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
+from products.signals.backend.source_dormancy import (
+    LOOKBACK_DAYS as DORMANCY_LOOKBACK_DAYS,
+    dormant_source_products,
+)
 from products.signals.backend.task_attribution import (
     TASK_ID_HEADER,
     resolve_request_attribution,
@@ -266,6 +271,25 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # which for session-analysis rows makes a synchronous Temporal RPC — a potential N+1. The
         # span lets us see how much of the inbox load this endpoint accounts for.
         return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        responses={200: SignalSourceDormancySerializer},
+        description=(
+            "Enabled sources whose backing PostHog product has received no data recently, so they "
+            "are configured but cannot fire. Separate from the source list because answering it "
+            "probes several datastores; the result is cached per team."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def dormancy(self, request, *args, **kwargs) -> Response:
+        return Response(
+            SignalSourceDormancySerializer(
+                {
+                    "dormant_source_products": sorted(dormant_source_products(self.team)),
+                    "lookback_days": DORMANCY_LOOKBACK_DAYS,
+                }
+            ).data
+        )
 
     def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
         return (

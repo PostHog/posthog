@@ -143,15 +143,43 @@ def get_organization_data_freshness(organization_id: str, teams: list[Team]) -> 
     return result
 
 
-def _compute(teams: list[Team]) -> list[ProjectFreshness]:
-    if not teams:
-        return []
+@dataclass(frozen=True, kw_only=True)
+class TeamProductFreshness:
+    """Per-product recency for one team, and whether a probe failed while finding it.
 
+    The project-level API folds this down to one verdict and drops anything a failed probe could
+    have changed. A caller asking about an individual product needs the parts back: absence of a
+    product means "no data" only when `degraded` is false, since a store that was unreachable
+    looks exactly like a store with nothing in it.
+    """
+
+    last_data_at_by_product: dict[ProductKey, datetime]
+    degraded: bool
+
+
+def get_team_product_freshness(team: Team) -> TeamProductFreshness:
+    """Which products this team received data for recently. Cached per team."""
+    cache_key = f"team_product_freshness:v{_CACHE_SCHEMA_VERSION}:{team.id}"
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    found, degraded = _probe_all([team])
+    result = TeamProductFreshness(last_data_at_by_product=found[team.id], degraded=degraded)
+    safe_cache_set(cache_key, result, CACHE_TTL_SECONDS)
+    return result
+
+
+def _probe_all(teams: list[Team]) -> tuple[dict[int, dict[ProductKey, datetime]], bool]:
+    """Run every probe over `teams`, returning the latest data per team per product.
+
+    Second element is whether any probe failed, which is what stops a caller reading an absent
+    product as evidence of anything.
+    """
     now = datetime.now(UTC)
-    quiet_before = now - timedelta(days=QUIET_AFTER_DAYS)
     window = ProbeWindow(
         cutoff=now - timedelta(days=LOOKBACK_DAYS),
-        quiet_before=quiet_before,
+        quiet_before=now - timedelta(days=QUIET_AFTER_DAYS),
         horizon=now + timedelta(days=1),
     )
     specs = discover_data_sources()
@@ -169,7 +197,15 @@ def _compute(teams: list[Team]) -> list[ProjectFreshness]:
             degraded = True
             logger.warning("data_freshness_probe_failed", probe=name, error=str(e))
             capture_exception(e)
+    return by_team, degraded
 
+
+def _compute(teams: list[Team]) -> list[ProjectFreshness]:
+    if not teams:
+        return []
+
+    quiet_before = datetime.now(UTC) - timedelta(days=QUIET_AFTER_DAYS)
+    by_team, degraded = _probe_all(teams)
     return reportable([derive_freshness(team, by_team[team.id], quiet_before) for team in teams], degraded=degraded)
 
 

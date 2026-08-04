@@ -3749,10 +3749,9 @@ export interface ForgetResponseApi {
  * * `engineering_analytics` - Engineering analytics
  * * `google_search_console` - Google Search Console
  */
-export type SignalSourceConfigSourceProductEnumApi =
-    (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
+export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
-export const SignalSourceConfigSourceProductEnumApi = {
+export const SignalSourceProductEnumApi = {
     SessionReplay: 'session_replay',
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
@@ -3850,7 +3849,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
 
 export interface SignalSourceConfigApi {
     readonly id: string
-    source_product: SignalSourceConfigSourceProductEnumApi
+    source_product: SignalSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
     config?: unknown
@@ -3871,7 +3870,7 @@ export interface PaginatedSignalSourceConfigListApi {
 
 export interface PatchedSignalSourceConfigApi {
     readonly id?: string
-    source_product?: SignalSourceConfigSourceProductEnumApi
+    source_product?: SignalSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
     config?: unknown
@@ -3879,6 +3878,16 @@ export interface PatchedSignalSourceConfigApi {
     readonly updated_at?: string
     /** @nullable */
     readonly status?: string | null
+}
+
+/**
+ * Which enabled sources are watching a PostHog product this project doesn't send data for.
+ */
+export interface SignalSourceDormancyApi {
+    /** Source products whose backing PostHog product received no data in the lookback window. A source listed here can be enabled and correctly configured and still never fire. Only PostHog-native sources are judged; sources fed by an external tool are never listed, and the list is empty when a freshness probe failed rather than guessing. */
+    dormant_source_products: SignalSourceProductEnumApi[]
+    /** How many days of no data it takes for a source to be reported dormant. */
+    lookback_days: number
 }
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]

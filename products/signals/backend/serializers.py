@@ -17,7 +17,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_CHOICES, SignalSourceProduct, SignalSourceType
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .models import (
@@ -161,6 +161,23 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             config.setdefault("sample_rate", DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE)
             validated_data["config"] = config
         return super().create(validated_data)
+
+
+class SignalSourceDormancySerializer(serializers.Serializer):
+    """Which enabled sources are watching a PostHog product this project doesn't send data for."""
+
+    dormant_source_products = serializers.ListField(
+        child=serializers.ChoiceField(choices=SIGNAL_SOURCE_PRODUCT_CHOICES),
+        help_text=(
+            "Source products whose backing PostHog product received no data in the lookback window. "
+            "A source listed here can be enabled and correctly configured and still never fire. "
+            "Only PostHog-native sources are judged; sources fed by an external tool are never "
+            "listed, and the list is empty when a freshness probe failed rather than guessing."
+        ),
+    )
+    lookback_days = serializers.IntegerField(
+        help_text="How many days of no data it takes for a source to be reported dormant."
+    )
 
 
 class SignalTeamConfigSerializer(serializers.ModelSerializer):

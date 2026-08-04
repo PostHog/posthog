@@ -559,6 +559,8 @@ SPECTACULAR_SETTINGS = {
         #    both the no-x-spec-enum-id type-hint path and the inline-choices ChoiceField
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
+        # Shared by SignalSourceConfig.source_product and SignalSourceDormancy.dormant_source_products.
+        "SignalSourceProductEnum": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_CHOICES",
         "SignalReportRefundReasonEnum": "products.signals.backend.models.SignalReportRefund.Reason",
         "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
         "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
