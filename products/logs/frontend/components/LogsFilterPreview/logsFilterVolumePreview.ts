@@ -51,7 +51,10 @@ export function buildSparklineSeries(
     }
     const timeOrder: string[] = []
     const seenTimes = new Set<string>()
-    const byService: Record<string, Map<string, number>> = {}
+    // A Map, not a plain object: service names come from ingested logs, so a log claiming
+    // `service.name: "__proto__"` would otherwise resolve to an inherited value instead of a
+    // bucket and throw on `.set`, taking the whole editor down.
+    const byService = new Map<string, Map<string, number>>()
     const serviceTotals = new Map<string, number>()
     const bucketTotals = new Map<string, number>()
     let total = 0
@@ -62,7 +65,11 @@ export function buildSparklineSeries(
         }
         const svc = point.service || 'unknown'
         const value = metric === 'bytes' ? (point.bytes_uncompressed ?? 0) : point.count
-        const bucket = byService[svc] ?? (byService[svc] = new Map())
+        let bucket = byService.get(svc)
+        if (!bucket) {
+            bucket = new Map()
+            byService.set(svc, bucket)
+        }
         bucket.set(point.time, (bucket.get(point.time) ?? 0) + value)
         serviceTotals.set(svc, (serviceTotals.get(svc) ?? 0) + value)
         bucketTotals.set(point.time, (bucketTotals.get(point.time) ?? 0) + value)
@@ -76,13 +83,13 @@ export function buildSparklineSeries(
     const series: SparklineTimeSeries[] = topServices.map(([service], index) => ({
         name: service,
         color: dataColorVars[index % dataColorVars.length],
-        values: timeOrder.map((t) => byService[service]?.get(t) ?? 0),
+        values: timeOrder.map((t) => byService.get(service)?.get(t) ?? 0),
     }))
     if (otherServices.length > 0) {
         // Roll up the long tail into a single "Others" series so the chart still adds up to total volume,
         // and the rate-limit reference line lines up against an honest stacked max.
         const othersValues = timeOrder.map((t) =>
-            otherServices.reduce((sum, [service]) => sum + (byService[service]?.get(t) ?? 0), 0)
+            otherServices.reduce((sum, [service]) => sum + (byService.get(service)?.get(t) ?? 0), 0)
         )
         series.push({
             name: `Others (${otherServices.length} services)`,

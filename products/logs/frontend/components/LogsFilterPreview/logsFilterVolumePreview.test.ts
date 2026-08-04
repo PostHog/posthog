@@ -44,6 +44,18 @@ describe('buildSparklineSeries', () => {
         expect(buildSparklineSeries(points, 'count').total).toEqual(200)
     })
 
+    it.each(['__proto__', 'constructor', 'toString'])(
+        'handles an ingested service name of %p without crashing',
+        (service) => {
+            // Service names come from ingested logs. With a plain-object accumulator these keys
+            // resolve to inherited values instead of a bucket and throw on `.set`.
+            const data = buildSparklineSeries([point(T1, service, 2), point(T2, service, 3)], 'count')
+
+            expect(data.series).toEqual([expect.objectContaining({ name: service, values: [2, 3] })])
+            expect(data.total).toEqual(5)
+        }
+    )
+
     it('labels a blank service as unknown', () => {
         expect(buildSparklineSeries([point(T1, '', 1)], 'count').series[0].name).toEqual('unknown')
     })

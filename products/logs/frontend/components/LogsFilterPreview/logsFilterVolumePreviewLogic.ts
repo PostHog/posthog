@@ -89,6 +89,13 @@ export const logsFilterVolumePreviewLogic = kea<logsFilterVolumePreviewLogicType
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
             },
         ],
+        // kea-loaders keeps the last successful value when a request fails. Consumers treat any
+        // non-null value as describing the current filter, so a failed refresh would otherwise
+        // chart the *previous* filter's volume and project storage from it. Dropping the value
+        // routes the UI to its error-and-retry state instead.
+        filterPreview: {
+            loadFilterPreviewFailure: () => null,
+        },
     }),
 
     loaders(({ values }) => ({

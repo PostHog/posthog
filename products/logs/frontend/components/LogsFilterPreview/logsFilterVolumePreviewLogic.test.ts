@@ -16,14 +16,16 @@ const nonEmptyGroup: UniversalFiltersGroup = {
 describe('logsFilterVolumePreviewLogic', () => {
     let logic: ReturnType<typeof logsFilterVolumePreviewLogic.build>
     let sparklineCalls: number
+    let sparklineFails: boolean
 
     beforeEach(() => {
         sparklineCalls = 0
+        sparklineFails = false
         useMocks({
             post: {
                 '/api/environments/:team_id/logs/sparkline/': () => {
                     sparklineCalls += 1
-                    return [200, SPARKLINE_ROWS]
+                    return sparklineFails ? [500, { detail: 'boom' }] : [200, SPARKLINE_ROWS]
                 },
             },
         })
@@ -54,6 +56,26 @@ describe('logsFilterVolumePreviewLogic', () => {
 
         expect(logic.values.filterPreview).toEqual(SPARKLINE_ROWS)
         expect(sparklineCalls).toEqual(1)
+    })
+
+    it('drops the previous result when a later filter fails to load', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilterGroup(nonEmptyGroup)
+        })
+            .toDispatchActions(['loadFilterPreviewSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.filterPreview).toEqual(SPARKLINE_ROWS)
+
+        // Without clearing on failure, this stale value would be charted — and projected from —
+        // as if it described the newly selected filter.
+        sparklineFails = true
+        await expectLogic(logic, () => {
+            logic.actions.setFilterGroup({ ...nonEmptyGroup, type: FilterLogicalOperator.Or })
+        })
+            .toDispatchActions(['loadFilterPreviewFailure'])
+            .toFinishAllListeners()
+
+        expect(logic.values.filterPreview).toBeNull()
     })
 
     it('debounces rapid filter edits into a single request', async () => {
