@@ -17,7 +17,6 @@ import { SpaceSection } from "@posthog/ui/features/canvas/components/SpaceSectio
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
@@ -62,7 +61,6 @@ export function SpacesSidebarNav() {
   const toggleOnlyMyTasks = useSpacesSidebarStore((s) => s.toggleOnlyMyTasks);
   const spaceOrder = useSpacesSidebarStore((s) => s.spaceOrder);
   const setSpaceOrder = useSpacesSidebarStore((s) => s.setSpaceOrder);
-  const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   const me = pinnedSpaces.find((c) => c.name === PERSONAL_CHANNEL_NAME);
   // The user's drag order over the starred set; spaces they've never dragged
@@ -96,9 +94,9 @@ export function SpacesSidebarNav() {
     <div className="flex h-full min-h-0 flex-col">
       <ChannelNav />
 
-      {/* The create entry point, now that the floating button is gone. Files
-          into the space you're in; the composer's space selector can retarget
-          it. */}
+      {/* The create entry point, now that the floating button is gone. The
+          global button defaults to #me — the composer's space chip is where
+          to retarget; a space's own "+" pre-fills that space instead. */}
       <div className="shrink-0 px-2 pb-1.5">
         <Button
           variant="outline"
@@ -108,12 +106,9 @@ export function SpacesSidebarNav() {
             track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
               action_type: "new_task_open",
               surface: "sidebar",
-              channel_id: currentChannelId ?? me?.id,
+              channel_id: me?.id,
             });
-            openTaskInput({
-              channelId: currentChannelId ?? me?.id,
-              space: "website",
-            });
+            openTaskInput({ channelId: me?.id, space: "website" });
           }}
         >
           <PlusIcon size={14} />

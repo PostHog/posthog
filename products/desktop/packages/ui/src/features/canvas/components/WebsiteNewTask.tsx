@@ -1,24 +1,14 @@
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
-import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { CHANNEL_TASK_SUGGESTIONS } from "@posthog/ui/features/canvas/channelTaskSuggestions";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelContextPanel } from "@posthog/ui/features/canvas/components/ChannelContextPanel";
+import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
-import {
-  PERSONAL_CHANNEL_NAME,
-  useBackendChannel,
-} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useBackendChannel } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
@@ -120,89 +110,60 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
     [channelId, fileTask, navigate, queryClient],
   );
 
-  // The selectable spaces, personal first then alphabetical. Switching
-  // navigates to that space's own new-task route; the composer's draft lives
-  // in the shared "task-input" draft store, so text typed before switching
-  // survives the navigation.
-  const spaceOptions = useMemo(
-    () =>
-      [...channels].sort((a, b) => {
-        if (a.name === PERSONAL_CHANNEL_NAME) return -1;
-        if (b.name === PERSONAL_CHANNEL_NAME) return 1;
-        return a.name.localeCompare(b.name);
-      }),
-    [channels],
+  // Retargeting navigates to that space's own new-task route; the composer's
+  // draft lives in the shared "task-input" draft store, so text typed before
+  // switching survives the navigation.
+  const handleSpaceChange = useCallback(
+    (nextChannelId: string) => {
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "new_task_open",
+        surface: "new_task",
+        channel_id: nextChannelId,
+      });
+      void navigate({
+        to: "/website/$channelId/new",
+        params: { channelId: nextChannelId },
+      });
+    },
+    [navigate],
   );
 
   return (
     <Flex className="h-full min-w-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Which space the task will file into — the sidebar's New session
-            button lands here with a default, and this is where to retarget. */}
-        <div className="flex shrink-0 items-center gap-1.5 px-4 pt-3">
-          <span className="text-[12px] text-muted-foreground">Space</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="outline" size="sm" className="gap-1.5">
-                  {channelName ?? "Choose a space"}
-                  <CaretDownIcon size={12} className="text-muted-foreground" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="start">
-              {spaceOptions.map((space) => (
-                <DropdownMenuItem
-                  key={space.id}
-                  onClick={() => {
-                    if (space.id === channelId) return;
-                    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-                      action_type: "new_task_open",
-                      surface: "new_task",
-                      channel_id: space.id,
-                    });
-                    void navigate({
-                      to: "/website/$channelId/new",
-                      params: { channelId: space.id },
-                    });
-                  }}
-                >
-                  <span className="min-w-0 flex-1 truncate">{space.name}</span>
-                  {space.id === channelId && <CheckIcon size={14} />}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <div className="min-h-0 min-w-0 flex-1">
-          <TaskInput
-            onTaskCreated={onTaskCreated}
-            channelContext={channelContext}
-            channelName={channelName}
-            channelId={backendChannel?.id}
-            channelContextId={channelId}
-            allowNoRepo
-            // So a prompt handed to openTaskInput survives routing into a channel.
-            initialPrompt={view.initialPrompt}
-            initialPromptKey={view.taskInputRequestId}
-            initialCloudRepository={view.initialCloudRepository}
-            initialModel={view.initialModel}
-            initialMode={view.initialMode}
-            reportAssociation={view.reportAssociation}
-            suggestions={CHANNEL_TASK_SUGGESTIONS}
-            onSuggestionSelect={(label) =>
-              track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-                action_type: "new_task_suggestion",
-                surface: "new_task",
-                channel_id: channelId,
-                suggestion_label: label,
-              })
-            }
-            onContextChipClick={
-              channelContext ? handleContextChipClick : undefined
-            }
-          />
-        </div>
+      <div className="min-w-0 flex-1">
+        <TaskInput
+          // Beside the Cloud/Local chip: which space the task files into.
+          // Arriving from a space's own "+" this is pre-filled; the sidebar's
+          // global New session lands on #me.
+          spaceSelector={
+            <SpaceSelect value={channelId} onChange={handleSpaceChange} />
+          }
+          onTaskCreated={onTaskCreated}
+          channelContext={channelContext}
+          channelName={channelName}
+          channelId={backendChannel?.id}
+          channelContextId={channelId}
+          allowNoRepo
+          // So a prompt handed to openTaskInput survives routing into a channel.
+          initialPrompt={view.initialPrompt}
+          initialPromptKey={view.taskInputRequestId}
+          initialCloudRepository={view.initialCloudRepository}
+          initialModel={view.initialModel}
+          initialMode={view.initialMode}
+          reportAssociation={view.reportAssociation}
+          suggestions={CHANNEL_TASK_SUGGESTIONS}
+          onSuggestionSelect={(label) =>
+            track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+              action_type: "new_task_suggestion",
+              surface: "new_task",
+              channel_id: channelId,
+              suggestion_label: label,
+            })
+          }
+          onContextChipClick={
+            channelContext ? handleContextChipClick : undefined
+          }
+        />
       </div>
       <ResizableSidebar
         open={contextPanelOpen && !!channelContext}
