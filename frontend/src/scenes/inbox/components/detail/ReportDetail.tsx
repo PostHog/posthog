@@ -1,4 +1,5 @@
 import { BindLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { ReactNode, useCallback, useState } from 'react'
 
 import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
@@ -82,9 +83,9 @@ export function ReportDetailBadges({
     )
 }
 
-/** Shared explainer for the finding count in the meta line and the Evidence section. */
-const FINDINGS_TOOLTIP =
-    'Signals are the individual pieces of evidence – from your connected sources and scouts – that were grouped into this report.'
+/** Shared explainer for the signal count in the meta line and the Evidence section. */
+const SIGNALS_TOOLTIP =
+    'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
 
 /**
  * Single meta line under the title: status/actionability chips, then dot-separated stats
@@ -110,7 +111,7 @@ function ReportDetailMeta({
     const stats: ReactNode[] = []
     if (evidenceCount > 0) {
         stats.push(
-            <Tooltip title={FINDINGS_TOOLTIP}>
+            <Tooltip title={SIGNALS_TOOLTIP}>
                 <span className="tabular-nums cursor-help">
                     {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
                 </span>
@@ -297,6 +298,12 @@ export function InboxDetailFrame({
     diffStat,
     children,
 }: InboxDetailFrameProps): JSX.Element {
+    const { searchParams } = useValues(router)
+    // A `?back=` internal path (set by surfaces embedding inbox cards, e.g. the customer analytics
+    // feed) redirects the back button there instead of the inbox list tab.
+    const rawBack = searchParams.back
+    const backOverride =
+        typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
     const logicProps = { reportId: report.id, report }
     const {
         reportSignals,
@@ -375,7 +382,7 @@ export function InboxDetailFrame({
                             </LemonMarkdown>
                         ) : (
                             <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                                No summary yet – an agent is still investigating.
+                                No summary yet. An agent is still investigating.
                             </p>
                         )}
                         {trailingCharts.length > 0 && (
@@ -403,7 +410,7 @@ export function InboxDetailFrame({
                             collapsible
                             onToggleCollapsed={captureSectionToggle('evidence')}
                             rightSlot={
-                                <Tooltip title={FINDINGS_TOOLTIP}>
+                                <Tooltip title={SIGNALS_TOOLTIP}>
                                     <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
                                         {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
                                     </span>
@@ -436,10 +443,10 @@ export function InboxDetailFrame({
                     type="tertiary"
                     size="small"
                     icon={<IconArrowLeft />}
-                    to={urls.inbox(tab)}
+                    to={backOverride ?? urls.inbox(tab)}
                     className="-ml-2 w-fit"
                 >
-                    {INBOX_TAB_LABEL[tab]}
+                    {backOverride ? 'Back' : INBOX_TAB_LABEL[tab]}
                 </LemonButton>
                 <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between @2xl:gap-4">
                     {/* Priority square anchors the title; everything else collapses into the meta line. */}

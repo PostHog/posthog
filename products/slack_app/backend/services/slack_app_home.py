@@ -15,8 +15,8 @@ in `products/slack_app/backend/api.py` are the ones that actually call
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -32,6 +32,19 @@ from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
+from products.slack_app.backend.services.slack_app_home_stats import (
+    DEFAULT_STATS_WINDOW_DAYS,
+    OUTCOME_CANCELLED,
+    OUTCOME_DONE,
+    OUTCOME_FAILED,
+    OUTCOME_RUNNING,
+    STATS_MAX_TASKS,
+    STATS_WINDOW_OPTIONS,
+    ModelUsage,
+    StatsState,
+    build_stats_state,
+    coerce_window_days,
+)
 from products.slack_app.backend.services.slack_settings import (
     AIPreferences,
     build_ai_preferences_payload,
@@ -61,12 +74,15 @@ ACTION_TASKS_REFRESH = "slack_app_home:tasks_refresh"
 # can't share one id — they both carry the target page as `value`.
 ACTION_TASKS_PAGE_PREV = "slack_app_home:tasks_page_prev"
 ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
+ACTION_STATS_WINDOW = "slack_app_home:stats_window"
+ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 
 # Single block_id for the whole controls row. Block Kit only persists
 # state in `view.state.values` under blocks that carry a `block_id`, so
 # both the repo and the status dropdowns live under the same key here and
 # the handler can read them back on each pick.
 BLOCK_TASKS_CONTROLS = "block_tasks_controls"
+BLOCK_STATS_CONTROLS = "block_stats_controls"
 
 # Sentinel value the "All …" options carry — Slack rejects empty `value`
 # strings, so the resolver treats this as "no filter".
@@ -327,6 +343,35 @@ class TasksState:
 
 
 @dataclass(frozen=True)
+class HomeViewState:
+    """The Home tab's control settings, as they stood when the user clicked.
+
+    Slack holds no server-side state for a published Home tab; each `block_actions`
+    payload instead carries the whole view's inputs. Reading them into one object means
+    an action on any card republishes the others exactly as they were, instead of
+    resetting them to their defaults.
+    """
+
+    selected_repo: str | None = None
+    selected_status: str | None = None
+    tasks_page: int = 0
+    stats_window_days: int = DEFAULT_STATS_WINDOW_DAYS
+    stats_force_refresh: bool = False
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> HomeViewState:
+        # Block Kit only persists state under blocks carrying a `block_id`, so each
+        # card's controls row shares one key. Absent blocks (a card the viewer doesn't
+        # get) simply fall back to defaults.
+        values = (payload.get("view") or {}).get("state", {}).get("values", {}) or {}
+        return cls(
+            selected_repo=_selected_value(values, BLOCK_TASKS_CONTROLS, ACTION_TASKS_FILTER_REPO),
+            selected_status=_selected_value(values, BLOCK_TASKS_CONTROLS, ACTION_TASKS_FILTER_STATUS),
+            stats_window_days=coerce_window_days(_selected_value(values, BLOCK_STATS_CONTROLS, ACTION_STATS_WINDOW)),
+        )
+
+
+@dataclass(frozen=True)
 class AccountState:
     """Inputs the renderer needs to draw the optional account-link card.
 
@@ -349,6 +394,7 @@ def render_home_view(
     account_state: AccountState | None = None,
     project_state: ProjectState | None = None,
     tasks_state: TasksState | None = None,
+    stats_state: StatsState | None = None,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -357,13 +403,20 @@ def render_home_view(
 
     blocks.extend(_header_blocks())
 
-    # Section 1 — project routing. Personal pick on top; admins get an
+    # Section 1 — workspace activity: aggregates across everyone's Slack-started work,
+    # rather than the calling user's own. Admin-only, and first because it's the reason
+    # an admin opens the tab at all — the settings below are set once and rarely revisited.
+    if stats_state is not None:
+        blocks.append({"type": "divider"})
+        blocks.extend(_stats_section_blocks(stats_state))
+
+    # Section 2 — project routing. Personal pick on top; admins get an
     # editable workspace default below, others see it as read-only context.
     if project_state and project_state.has_anything_to_show:
         blocks.append({"type": "divider"})
         blocks.extend(_project_section_blocks(project_state, is_admin=is_admin))
 
-    # Section 2 — AI model settings: which model handles those mentions.
+    # Section 3 — AI model settings: which model handles those mentions.
     # Headline shows the effective triple (and its source); personal /
     # workspace controls underneath mirror the project routing layout.
     blocks.append({"type": "divider"})
@@ -371,13 +424,13 @@ def render_home_view(
     blocks.extend(_personal_section_blocks(user_row))
     blocks.extend(_workspace_section_blocks(workspace_row, is_admin=is_admin))
 
-    # Section 3 — account linking: shown before Tasks so the connect
+    # Section 4 — account linking: shown before Tasks so the connect
     # prompt is visible while the Tasks list is still empty. Flag-gated.
     if account_state and account_state.enabled:
         blocks.append({"type": "divider"})
         blocks.extend(_account_section_blocks(account_state))
 
-    # Section 4 — your tasks: a quiet list of tasks the calling user
+    # Section 5 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
     # the bot pinging the activity feed for every transition.
     if tasks_state is not None:
@@ -400,6 +453,60 @@ def _section_title(title: str, subtitle: str | None = None) -> dict:
 def _subsection_label(text: str) -> dict:
     """Bold mrkdwn line in a `context` block — smaller than a section title."""
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": f"*{text}*"}]}
+
+
+def _refreshed_at_blocks(epoch: int) -> list[dict]:
+    """ "Last refreshed" line, rendered in the viewer's own timezone by Slack.
+
+    Empty when the card has never been resolved, so callers can `extend` unconditionally.
+    """
+    if not epoch:
+        return []
+    return [
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"_Last refreshed <!date^{epoch}^{{date_short_pretty}} at {{time}}|just now>_",
+                }
+            ],
+        }
+    ]
+
+
+def _static_select(
+    *,
+    action_id: str,
+    placeholder: str,
+    pairs: Iterable[tuple[str, str]],
+    selected: str | None = None,
+) -> dict[str, Any]:
+    """A `static_select` built from `(value, label)` pairs.
+
+    `selected` is honoured only when it matches one of the pairs, so a stale value from a
+    cached view can't produce an `initial_option` Slack rejects.
+    """
+    options = [{"text": {"type": "plain_text", "text": label, "emoji": True}, "value": value} for value, label in pairs]
+    element: dict[str, Any] = {
+        "type": "static_select",
+        "action_id": action_id,
+        "placeholder": {"type": "plain_text", "text": placeholder},
+        "options": options,
+    }
+    initial = next((o for o in options if o["value"] == selected), None)
+    if initial:
+        element["initial_option"] = initial
+    return element
+
+
+def _provider_for_runtime_adapter(runtime_adapter: str | None) -> str:
+    """The gateway `owned_by` a runtime adapter implies — the inverse of
+    `_PROVIDER_TO_RUNTIME_ADAPTER`, so the two can't drift when an adapter is added."""
+    for provider, adapter in _PROVIDER_TO_RUNTIME_ADAPTER.items():
+        if adapter == runtime_adapter:
+            return provider
+    return "anthropic"
 
 
 def _header_blocks() -> list[dict]:
@@ -675,21 +782,7 @@ def _tasks_section_blocks(state: TasksState) -> list[dict]:
 
     if state.has_any_tasks:
         blocks.append(_tasks_controls_block(state))
-        if state.refreshed_at_epoch:
-            blocks.append(
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": (
-                                f"_Last refreshed <!date^{state.refreshed_at_epoch}"
-                                "^{date_short_pretty} at {time}|just now>_"
-                            ),
-                        }
-                    ],
-                }
-            )
+        blocks.extend(_refreshed_at_blocks(state.refreshed_at_epoch))
 
     if not state.items:
         empty_text = (
@@ -836,10 +929,252 @@ def _tasks_controls_block(state: TasksState) -> dict:
     return {"type": "actions", "block_id": BLOCK_TASKS_CONTROLS, "elements": elements}
 
 
+# Display caps for the stats card. These live with the renderer rather than the resolver
+# because they describe what gets drawn, not what the workspace did.
+#
+# Charts are drawn as text. Block Kit does have a native `data_visualization` block, but
+# `views.publish` rejects it on the App Home surface with "Unsupported block type" — note
+# that `blocks.validate` accepts it, so the schema check is not proof a surface takes it.
+_STATS_MAX_BREAKDOWN_ROWS = 6
+# Breakdown labels and bars share a half-width column, so both are tighter than the
+# full-width sparkline row above them.
+_STATS_COLUMN_LABEL_CHARS = 14
+_STATS_BAR_WIDTH = 8
+# Slack renders `section.fields` in two columns and rejects more than 10 cells.
+_STATS_MAX_FIELDS = 10
+
+# Eight levels of block-fill, so a sparkline reads as a shape rather than a row of dots.
+_SPARK_LEVELS = "▁▂▃▄▅▆▇█"
+
+_OUTCOME_EMOJI: dict[str, str] = {
+    OUTCOME_DONE: "🦔",
+    OUTCOME_FAILED: "❌",
+    OUTCOME_CANCELLED: "🚫",
+    OUTCOME_RUNNING: "🔄",
+}
+
+
+def _stats_section_blocks(state: StatsState) -> list[dict]:
+    """Render the workspace-activity card: a KPI grid, two text charts, a leaderboard."""
+    blocks: list[dict] = [
+        _section_title(
+            "📊 Workspace activity",
+            "What your team shipped with @PostHog. Only workspace admins see this.",
+        ),
+        _stats_controls_block(state),
+    ]
+
+    if not state.has_data:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "_Nobody has started a task from Slack in this window._"},
+            }
+        )
+        return blocks
+
+    blocks.append(_stats_headline_block(state))
+    blocks.extend(
+        block
+        for block in (
+            _stats_outcomes_block(state),
+            _stats_trend_block(state),
+            _stats_breakdowns_block(state),
+        )
+        if block
+    )
+    blocks.extend(_stats_footnote_blocks(state))
+    return blocks
+
+
+def _stats_controls_block(state: StatsState) -> dict:
+    return {
+        "type": "actions",
+        "block_id": BLOCK_STATS_CONTROLS,
+        "elements": [
+            _static_select(
+                action_id=ACTION_STATS_WINDOW,
+                placeholder="Pick a window",
+                pairs=((str(days), label) for days, label in STATS_WINDOW_OPTIONS),
+                selected=str(state.window_days),
+            ),
+            {
+                "type": "button",
+                "action_id": ACTION_STATS_REFRESH,
+                "value": str(state.window_days),
+                "text": {"type": "plain_text", "text": "Refresh", "emoji": True},
+            },
+        ],
+    }
+
+
+def _stats_headline_block(state: StatsState) -> dict:
+    merge_rate = state.merge_rate_percent
+    cells = [
+        ("Tasks", str(state.tasks_started)),
+        ("Opened a PR", str(state.tasks_with_pr)),
+        ("Merged", str(state.tasks_merged)),
+        ("Merge rate", "—" if merge_rate is None else f"{merge_rate}%"),
+        ("Median run", _format_duration(state.median_cycle_seconds)),
+        ("People", str(state.active_people)),
+    ]
+    # `fields` lays out in two columns, so six KPIs cost three rows instead of the six
+    # lines a stack of sections would take. Slack caps this at 10 cells.
+    return {
+        "type": "section",
+        "fields": [{"type": "mrkdwn", "text": f"*{label}*\n{value}"} for label, value in cells[:_STATS_MAX_FIELDS]],
+    }
+
+
+def _format_duration(seconds: int | None) -> str:
+    """Compact wall-clock label — `45s`, `12m`, `2h 5m`, `3d`."""
+    if seconds is None:
+        return "—"
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m"
+    hours, mins = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h {mins}m" if mins else f"{hours}h"
+    return f"{hours // 24}d"
+
+
+def _stats_outcomes_block(state: StatsState) -> dict | None:
+    """Outcome split as a muted text line — it's the least interesting of the four
+    breakdowns, and giving up its chart keeps the card inside Slack's per-surface
+    data-visualization budget."""
+    if not state.outcomes:
+        return None
+    parts = [f"{_OUTCOME_EMOJI.get(s.label, '')} {s.value} {s.label.lower()}".strip() for s in state.outcomes]
+    return {"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(parts)}]}
+
+
+def _stats_trend_block(state: StatsState) -> dict | None:
+    """PRs opened vs merged per bucket, as two sparklines on one line.
+
+    Skipped when the window produced no PRs — a flat line of minima is noise.
+    """
+    buckets = state.trend
+    if not buckets or not state.tasks_with_pr:
+        return None
+
+    # One shared peak so the two lines are read against each other, not each rescaled.
+    peak = max(max(b.opened, b.merged) for b in buckets)
+    opened = _sparkline([b.opened for b in buckets], peak)
+    merged = _sparkline([b.merged for b in buckets], peak)
+    span = f"{buckets[0].label} → {buckets[-1].label}"
+    return {
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": f"*PRs* `{opened}` opened · `{merged}` merged   _{span}_",
+            }
+        ],
+    }
+
+
+def _stats_breakdowns_block(state: StatsState) -> dict | None:
+    """Models and people side by side.
+
+    `section.fields` is Block Kit's only two-column layout, so the two breakdowns share
+    one block instead of stacking. Each column is fenced: the counts only line up under a
+    monospace font, and proportional text leaves them ragged.
+    """
+    columns = [column for column in (_stats_models_column(state), _stats_people_column(state)) if column]
+    if not columns:
+        return None
+    return {"type": "section", "fields": [{"type": "mrkdwn", "text": column} for column in columns]}
+
+
+def _stats_models_column(state: StatsState) -> str | None:
+    """Share of runs per model, with the long tail folded into "Other"."""
+    if not state.models:
+        return None
+
+    fits = len(state.models) <= _STATS_MAX_BREAKDOWN_ROWS
+    head = state.models if fits else state.models[: _STATS_MAX_BREAKDOWN_ROWS - 1]
+    tail = () if fits else state.models[_STATS_MAX_BREAKDOWN_ROWS - 1 :]
+
+    rows = [(_stats_model_label(usage), usage.value) for usage in head if usage.value > 0]
+    other = sum(usage.value for usage in tail)
+    if other > 0:
+        rows.append(("Other", other))
+    if not rows:
+        return None
+
+    peak = max(value for _, value in rows)
+    width = max(len(label) for label, _ in rows)
+    lines = "\n".join(f"{label:<{width}} {_bar(value, peak)} {value:>3}" for label, value in rows)
+    return f"*Models*\n```\n{lines}\n```"
+
+
+def _stats_people_column(state: StatsState) -> str | None:
+    """Leaderboard as text: who started how many, and how many of those merged."""
+    people = state.people[:_STATS_MAX_BREAKDOWN_ROWS]
+    if not people:
+        return None
+
+    names = [_truncate(person.name, _STATS_COLUMN_LABEL_CHARS) for person in people]
+    width = max(len(name) for name in names)
+    lines = "\n".join(f"{name:<{width}} {person.tasks:>3} {person.merged:>4}" for name, person in zip(names, people))
+    return f"*Most active* _tasks · merged_\n```\n{lines}\n```"
+
+
+def _truncate(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _sparkline(values: list[int], peak: int) -> str:
+    """Render counts as block-fill characters, scaled against `peak`."""
+    if peak <= 0:
+        return _SPARK_LEVELS[0] * len(values)
+    top = len(_SPARK_LEVELS) - 1
+    return "".join(_SPARK_LEVELS[min(top, value * top // peak)] for value in values)
+
+
+def _bar(value: int, peak: int, width: int = _STATS_BAR_WIDTH) -> str:
+    """Fixed-width bar. Any non-zero value keeps at least one filled cell, so a small
+    count reads as present rather than absent."""
+    if peak <= 0 or value <= 0:
+        return "░" * width
+    filled = min(width, max(1, round(value * width / peak)))
+    return "█" * filled + "░" * (width - filled)
+
+
+def _stats_model_label(usage: ModelUsage) -> str:
+    """Display label for a model, truncated so the bar column stays aligned."""
+    label = _format_model_id(usage.model, owned_by=_provider_for_runtime_adapter(usage.runtime_adapter))
+    return _truncate(label, _STATS_COLUMN_LABEL_CHARS)
+
+
+def _stats_footnote_blocks(state: StatsState) -> list[dict]:
+    blocks: list[dict] = []
+    if state.truncated:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"_Counting the {STATS_MAX_TASKS} most recent tasks — "
+                            "older activity in this window is excluded._"
+                        ),
+                    }
+                ],
+            }
+        )
+    blocks.extend(_refreshed_at_blocks(state.refreshed_at_epoch))
+    return blocks
+
+
 def _row_summary(row: SlackSettings | None) -> str:
     if not row or not row.runtime_adapter or not row.model:
         return "_(none)_"
-    owned_by = "openai" if row.runtime_adapter == "codex" else "anthropic"
+    owned_by = _provider_for_runtime_adapter(row.runtime_adapter)
     parts = [
         f"*Model:* {_format_model_id(row.model, owned_by=owned_by)}",
         f"*Runtime:* {_label(row.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}",
@@ -1042,9 +1377,11 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
 
     slack = SlackIntegration(integration)
     is_admin = _is_admin(slack, integration, slack_user_id)
+    accessible = _accessible_integrations(integration, slack_user_id)
     account_state = _resolve_account_state(integration, slack_user_id)
-    project_state = _resolve_project_state(integration, slack_user_id)
-    tasks_state = _resolve_tasks_state(integration, slack_user_id)
+    project_state = _resolve_project_state(integration, slack_user_id, accessible=accessible)
+    tasks_state = _resolve_tasks_state(integration, slack_user_id, accessible=accessible)
+    stats_state = _resolve_stats_state(integration, accessible=accessible, is_admin=is_admin)
 
     view = render_home_view(
         effective=effective,
@@ -1054,6 +1391,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
         account_state=account_state,
         project_state=project_state,
         tasks_state=tasks_state,
+        stats_state=stats_state,
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
@@ -1083,6 +1421,14 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     if not is_slack_app_home_enabled(integration):
         return HttpResponse(status=200)
 
+    # The Home tab keeps no server-side view state — every payload carries the whole
+    # view's inputs instead. Read them all back once so any action republishes with the
+    # controls the user had dialled in, rather than resetting its neighbours' cards.
+    view_state = HomeViewState.from_payload(payload)
+
+    def republish(state: HomeViewState = view_state) -> None:
+        _republish_home(integration, slack_user_id, view_state=state)
+
     if action_id == ACTION_EDIT_PERSONAL and trigger_id:
         _open_edit_modal(integration, slack_user_id, scope="personal", trigger_id=trigger_id)
         return HttpResponse(status=200)
@@ -1097,17 +1443,17 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
 
     if action_id == ACTION_RESET_PERSONAL:
         _clear_personal_override(integration, slack_user_id)
-        _republish_home(integration, slack_user_id)
+        republish()
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_PROJECT_PERSONAL:
         _apply_project_pick(integration, slack_user_id=slack_user_id, action=action, scope="personal")
-        _republish_home(integration, slack_user_id)
+        republish()
         return HttpResponse(status=200)
 
     if action_id == ACTION_RESET_PROJECT_PERSONAL:
         _clear_project_personal(integration, slack_user_id)
-        _republish_home(integration, slack_user_id)
+        republish()
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_PROJECT_WORKSPACE:
@@ -1116,7 +1462,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
             _post_ephemeral_admin_only(slack, payload)
             return HttpResponse(status=200)
         _apply_project_pick(integration, slack_user_id=None, action=action, scope="workspace")
-        _republish_home(integration, slack_user_id)
+        republish()
         return HttpResponse(status=200)
 
     if action_id == ACTION_UNLINK_ACCOUNT:
@@ -1125,7 +1471,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         # cached view shouldn't be allowed to drive deletes.
         if is_slack_app_oauth_enabled(integration, integration.integration_id):
             _unlink_user_account(integration, slack_user_id)
-        _republish_home(integration, slack_user_id)
+        republish()
         return HttpResponse(status=200)
 
     if action_id in (
@@ -1135,7 +1481,6 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         ACTION_TASKS_PAGE_PREV,
         ACTION_TASKS_PAGE_NEXT,
     ):
-        selected_repo, selected_status = _read_tasks_filters_from_payload(payload)
         # Filter changes snap back to page 0; Refresh / Prev / Next carry the
         # target page as the button value so the Home tab stays stateless.
         if action_id in (ACTION_TASKS_REFRESH, ACTION_TASKS_PAGE_PREV, ACTION_TASKS_PAGE_NEXT):
@@ -1145,13 +1490,13 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
                 page = 0
         else:
             page = 0
-        _republish_home(
-            integration,
-            slack_user_id,
-            selected_repo=selected_repo,
-            selected_status=selected_status,
-            page=page,
-        )
+        republish(replace(view_state, tasks_page=page))
+        return HttpResponse(status=200)
+
+    if action_id in (ACTION_STATS_WINDOW, ACTION_STATS_REFRESH):
+        # The window pick already rode in on the view state; only Refresh additionally
+        # needs to bypass the aggregate cache.
+        republish(replace(view_state, stats_force_refresh=action_id == ACTION_STATS_REFRESH))
         return HttpResponse(status=200)
 
     if action_id in (MODAL_ACTION_RUNTIME_ADAPTER, MODAL_ACTION_MODEL):
@@ -1395,22 +1740,30 @@ def _republish_home(
     integration: Integration,
     slack_user_id: str,
     *,
-    selected_repo: str | None = None,
-    selected_status: str | None = None,
-    page: int = 0,
+    view_state: HomeViewState | None = None,
 ) -> None:
+    view_state = view_state or HomeViewState()
     user_row, workspace_row = _load_rows(integration, slack_user_id)
     effective = resolve_ai_preferences(integration, slack_user_id)
     slack = SlackIntegration(integration)
     is_admin = _is_admin(slack, integration, slack_user_id)
+    accessible = _accessible_integrations(integration, slack_user_id)
     account_state = _resolve_account_state(integration, slack_user_id)
-    project_state = _resolve_project_state(integration, slack_user_id)
+    project_state = _resolve_project_state(integration, slack_user_id, accessible=accessible)
     tasks_state = _resolve_tasks_state(
         integration,
         slack_user_id,
-        selected_repo=selected_repo,
-        selected_status=selected_status,
-        page=page,
+        accessible=accessible,
+        selected_repo=view_state.selected_repo,
+        selected_status=view_state.selected_status,
+        page=view_state.tasks_page,
+    )
+    stats_state = _resolve_stats_state(
+        integration,
+        accessible=accessible,
+        is_admin=is_admin,
+        window_days=view_state.stats_window_days,
+        force_refresh=view_state.stats_force_refresh,
     )
     view = render_home_view(
         effective=effective,
@@ -1420,6 +1773,7 @@ def _republish_home(
         account_state=account_state,
         project_state=project_state,
         tasks_state=tasks_state,
+        stats_state=stats_state,
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
@@ -1439,6 +1793,7 @@ def _resolve_tasks_state(
     integration: Integration,
     slack_user_id: str,
     *,
+    accessible: list[Integration],
     selected_repo: str | None = None,
     selected_status: str | None = None,
     page: int = 0,
@@ -1473,12 +1828,7 @@ def _resolve_tasks_state(
     if not mappings:
         return TasksState()
 
-    candidates = list(
-        Integration.objects.filter(kind="slack", integration_id=slack_team_id)
-        .select_related("team", "team__organization")
-        .order_by("id")
-    )
-    accessible_team_ids = {c.team_id for c in _filter_accessible_integrations(integration, slack_user_id, candidates)}
+    accessible_team_ids = {c.team_id for c in accessible}
     if not accessible_team_ids:
         return TasksState()
 
@@ -1582,22 +1932,6 @@ def _format_relative(when: datetime | None, *, now: datetime) -> str:
     return when.strftime("%b %d")
 
 
-def _read_tasks_filters_from_payload(payload: dict) -> tuple[str | None, str | None]:
-    """Pull current filter selections off the Home tab view state.
-
-    The Home tab is stateless — each pick triggers a `block_actions` payload
-    that carries the *whole* view's input state, so the handler can re-publish
-    honouring whatever the user has dialled in. Block Kit only persists
-    state under blocks that carry a `block_id`, so the controls row uses
-    a single fixed `BLOCK_TASKS_CONTROLS` key for every select inside it.
-    """
-    values = (payload.get("view") or {}).get("state", {}).get("values", {}) or {}
-    controls = values.get(BLOCK_TASKS_CONTROLS, {})
-    repo = (controls.get(ACTION_TASKS_FILTER_REPO, {}).get("selected_option") or {}).get("value")
-    status = (controls.get(ACTION_TASKS_FILTER_STATUS, {}).get("selected_option") or {}).get("value")
-    return repo, status
-
-
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
     slack_team_id = integration.integration_id
     if not is_slack_app_oauth_enabled(integration, slack_team_id):
@@ -1630,16 +1964,71 @@ def _resolve_account_state(integration: Integration, slack_user_id: str) -> Acco
     return AccountState(enabled=True, linked_email=None, link_url=link_url)
 
 
-def _resolve_project_state(integration: Integration, slack_user_id: str) -> ProjectState:
-    candidates = list(
-        Integration.objects.filter(kind="slack", integration_id=integration.integration_id)
+def _workspace_integrations(slack_team_id: str) -> list[Integration]:
+    """Every PostHog project this Slack workspace is connected to."""
+    return list(
+        Integration.objects.filter(kind="slack", integration_id=slack_team_id)
         .select_related("team", "team__organization")
         .order_by("id")
     )
+
+
+def _accessible_integrations(integration: Integration, slack_user_id: str) -> list[Integration]:
+    """The workspace's projects this Slack user can actually reach in PostHog.
+
+    Resolved once per publish and handed to every card: it costs a `UserPermissions`
+    build plus three queries, and all three cards want the same answer. It is also the
+    authorization boundary for the whole tab, so it should have exactly one definition.
+    """
+    return _filter_accessible_integrations(
+        integration, slack_user_id, _workspace_integrations(integration.integration_id)
+    )
+
+
+def _resolve_stats_state(
+    integration: Integration,
+    *,
+    accessible: list[Integration],
+    is_admin: bool,
+    window_days: int = DEFAULT_STATS_WINDOW_DAYS,
+    force_refresh: bool = False,
+) -> StatsState | None:
+    """Workspace activity aggregates, or None when the card shouldn't render at all.
+
+    Admin-only, and rides the same `slack-app-home` gate as the rest of the tab — the
+    callers already returned early when that flag is off.
+
+    Scoped to the projects this admin can already reach: being a Slack workspace admin
+    says nothing about PostHog org membership, so the card must never widen what its
+    viewer could otherwise see.
+    """
+    if not is_admin:
+        return None
+
+    accessible_team_ids = {c.team_id for c in accessible}
+    if not accessible_team_ids:
+        return None
+
+    try:
+        return build_stats_state(
+            slack_workspace_id=integration.integration_id,
+            accessible_team_ids=accessible_team_ids,
+            window_days=window_days,
+            force_refresh=force_refresh,
+        )
+    except Exception:
+        # The card is supplementary — a failed aggregate shouldn't cost the user their
+        # settings and task list too.
+        logger.exception("slack_app_home_stats_resolve_failed", integration_id=integration.id)
+        return None
+
+
+def _resolve_project_state(
+    integration: Integration, slack_user_id: str, *, accessible: list[Integration]
+) -> ProjectState:
+    candidates = _workspace_integrations(integration.integration_id)
     if not candidates:
         return ProjectState()
-
-    accessible = _filter_accessible_integrations(integration, slack_user_id, candidates)
 
     user_row = (
         SlackSettings.objects.filter(

@@ -840,6 +840,9 @@ tools:
     signals-report-pr-review-comments-create:
         operation: signals_report_pr_review_comments_create
         enabled: false
+    signals-reports-feedback-create:
+        operation: signals_reports_feedback_create
+        enabled: false
     signals-reports-refund-create:
         operation: signals_reports_refund_create
         enabled: false

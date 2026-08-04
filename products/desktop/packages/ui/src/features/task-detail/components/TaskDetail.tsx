@@ -245,6 +245,7 @@ export function TaskDetail({
         <Box className={`min-w-0 flex-1 ${isExpanded ? "hidden" : ""}`}>
           {runtime === "pi" && (
             <PiSessionView
+              key={taskId}
               taskId={taskId}
               taskRunId={selectedTaskRunId}
               isCloud={isCloud}
