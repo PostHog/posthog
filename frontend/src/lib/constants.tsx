@@ -189,6 +189,7 @@ export const FEATURE_FLAGS = {
     BATCH_EXPORT_EARLIEST_BACKFILL: 'batch-export-earliest-backfill', // owner: #team-batch-exports, allow backfilling from beginning of time
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: #team-growth, used to enable custom CSS for teams who want to have fun
+    EXPERIMENT_EXPOSURE_EVENT: 'experiment-exposure-event', // owner: #team-experiments, switches new experiments to the dedicated exposure event
     GAME_CENTER: 'game-center', // owner: everybody, this is just internal for now
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: #team-web-analytics, used to reward beta users for web analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: #team-batch-exports, allow batch exports to be run every 5min/15min
@@ -306,7 +307,6 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_RATE_LIMITING_PER_ISSUE: 'error-tracking-rate-limiting-per-issue', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RECOMMENDATIONS: 'error-tracking-recommendations', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
-    ERROR_TRACKING_SOURCE_MAPS_BANNER: 'error-tracking-source-maps-banner', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
     EXPERIMENT_CLEANUP_E2E_DUMMY: 'experiment-cleanup-e2e-dummy', // owner: @jurajmajerik #team-experiments multivariate=control,test, throwaway dogfood flag validating the flag-cleanup PR flow end to end
@@ -375,6 +375,7 @@ export const FEATURE_FLAGS = {
     MANAGED_MIGRATIONS_TRIAL_RUNS: 'managed-migrations-trial-runs', // owner: #team-ingestion, gates trial runs for managed migrations
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
+    MARKETING_ANALYTICS_ATTRIBUTION: 'marketing-analytics-attribution', // owner: @jabahamondes #team-web-analytics — gates the Attribution tab
     MARKETING_ANALYTICS_COSTS_PRECOMPUTATION: 'marketing-analytics-costs-precomputation', // owner: @jabahamondes #team-web-analytics — gates reading the native cost precompute table
     MARKETING_ANALYTICS_DRILL_DOWN: 'marketing-analytics-drill-down', // owner: @jabahamondes  #team-web-analytics
     MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN: 'marketing-analytics-extended-drill-down', // owner: @jabahamondes  #team-web-analytics

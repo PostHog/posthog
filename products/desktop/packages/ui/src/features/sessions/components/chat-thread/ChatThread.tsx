@@ -6,7 +6,6 @@ import {
   Scroll,
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
-import type { ContextUsage } from "@posthog/core/sessions/contextUsage";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -96,8 +95,8 @@ import { SessionUpdateView } from "@posthog/ui/features/sessions/components/sess
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
-  CHAT_CONTENT_GUTTER,
   CHAT_CONTENT_MAX_WIDTH,
+  CHAT_CONTENT_PADDING_INLINE,
 } from "@posthog/ui/features/sessions/constants";
 import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
 import { useAgentConversationItems } from "@posthog/ui/features/sessions/hooks/useAgentConversationItems";
@@ -907,7 +906,7 @@ function ThreadScrollBody({
   items: ConversationItem[];
   rows: TurnRow[];
   renderItem: (item: ConversationItem) => ReactNode;
-  /** Status row (duration / context usage) pinned as the last item in the thread. */
+  /** Status row (duration / diff stats) pinned as the last item in the thread. */
   footer?: ReactNode;
   keyboardFocusedMessageId?: string | null;
   /** Clears keyboard-focused message state on any pointer interaction with the thread. */
@@ -924,10 +923,12 @@ function ThreadScrollBody({
   }, [rows]);
 
   // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
-  // mirroring the legacy ConversationView container.
+  // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
+  // width the query basis for everything inside it — the panel is resizable and splittable, so the
+  // viewport says nothing useful about how much room a row actually has.
   return (
     <ChatMessageScroller
-      className="group/thread"
+      className="@container/thread group/thread"
       onPointerDownCapture={onUserInteract}
     >
       <MessageMinimap items={items} />
@@ -937,7 +938,7 @@ function ThreadScrollBody({
         <ChatMessageScrollerContent
           className="gap-4 py-4 pb-8"
           density="default"
-          style={{ paddingInline: CHAT_CONTENT_GUTTER }}
+          style={{ paddingInline: CHAT_CONTENT_PADDING_INLINE }}
         >
           {keyedRows.map(({ item, key }) => (
             <ThreadRow
@@ -1041,7 +1042,6 @@ interface SharedChatThreadProps {
   repoPath?: string | null;
   task?: Task;
   taskId?: string;
-  usage?: ContextUsage | null;
   footerState?: Omit<BuildResult, "items">;
 }
 
@@ -1114,7 +1114,6 @@ function ChatThreadRenderer({
   repoPath,
   task,
   taskId,
-  usage,
   footerState,
   promptRecallRef,
 }: ChatThreadRendererProps) {
@@ -1241,7 +1240,6 @@ function ChatThreadRenderer({
         promptStartedAt={promptStartedAt}
         task={task}
         taskId={taskId}
-        usage={usage}
         footerState={footerState}
       />
     </>

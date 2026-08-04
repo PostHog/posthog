@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from products.managed_warehouse.backend import sink_state
-from products.managed_warehouse.backend.facade.contracts import DuckgresSinkStateCreateInput, DuckgresSinkStateRecord
+from products.managed_warehouse.backend import sink_state, source_job_state
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresSinkStateCreateInput,
+    DuckgresSinkStateRecord,
+    ManagedWarehouseSourceJobUpdate,
+)
 
 __all__ = [
     "count_sink_states",
@@ -11,6 +15,7 @@ __all__ = [
     "get_sink_state",
     "list_sink_states",
     "replace_sink_state",
+    "record_source_job_state",
     "sink_state_exists",
 ]
 
@@ -37,3 +42,7 @@ def count_sink_states() -> int:
 
 def sink_state_exists(state_id: UUID) -> bool:
     return sink_state.sink_state_exists_for_test(state_id)
+
+
+def record_source_job_state(input: ManagedWarehouseSourceJobUpdate) -> None:
+    source_job_state.record_source_job_state(input)

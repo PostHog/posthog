@@ -15,8 +15,8 @@ import {
   type ThreadScrollResume,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
 import {
-  CHAT_CONTENT_GUTTER,
   CHAT_CONTENT_MAX_WIDTH,
+  CHAT_CONTENT_PADDING_INLINE,
 } from "@posthog/ui/features/sessions/constants";
 import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import {
@@ -416,7 +416,7 @@ export function VirtualThreadScrollBody({
   return (
     <>
       <ChatMessageScroller
-        className="group/thread"
+        className="@container/thread group/thread"
         onPointerDownCapture={onUserInteract}
       >
         <MessageMinimap
@@ -430,7 +430,7 @@ export function VirtualThreadScrollBody({
           <ChatMessageScrollerContent
             className="block"
             density="default"
-            style={{ paddingInline: CHAT_CONTENT_GUTTER }}
+            style={{ paddingInline: CHAT_CONTENT_PADDING_INLINE }}
           >
             <div className="relative w-full" style={{ height: totalSize }}>
               {virtualItems.map((virtualItem) => {

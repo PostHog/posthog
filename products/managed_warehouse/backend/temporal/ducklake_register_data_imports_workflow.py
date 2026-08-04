@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 import json
 import uuid
@@ -38,6 +40,11 @@ from products.managed_warehouse.backend.common import (
     get_duckgres_server_for_organization,
     is_dev_mode,
 )
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseSourceJobStatus,
+    ManagedWarehouseSourceJobUpdate,
+    ManagedWarehouseSourceJobWorkflow,
+)
 from products.managed_warehouse.backend.storage import connect_to_duckgres, setup_duckgres_session
 from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_bytes_metric,
@@ -48,13 +55,91 @@ from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_rows_metric,
     get_ducklake_register_data_imports_stale_metric,
     get_ducklake_register_data_imports_started_metric,
+    record_ducklake_register_data_imports_stage_duration,
 )
+from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
 DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-registration-workflow"
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
+S3_COPY_BATCH_SIZE = 16
+_SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
+
+
+def _register_source_job_update(
+    *,
+    inputs: DuckLakeRegisterDataImportsInputs,
+    status: ManagedWarehouseSourceJobStatus,
+    started_at: dt.datetime,
+    finished_at: dt.datetime | None = None,
+    latest_error: str | None = None,
+) -> ManagedWarehouseSourceJobUpdate:
+    workflow_id = None
+    workflow_run_id = None
+    if workflow.in_workflow():
+        workflow_info = workflow.info()
+        workflow_id = workflow_info.workflow_id
+        workflow_run_id = workflow_info.run_id
+    return ManagedWarehouseSourceJobUpdate(
+        team_id=inputs.team_id,
+        schema_ids=[inputs.schema_id],
+        source_job_id=inputs.job_id,
+        attempt_id=f"{inputs.job_id}:{_generation_token(inputs.prepared_queryable_folder)}",
+        workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
+        status=status,
+        started_at=started_at,
+        finished_at=finished_at,
+        latest_error=latest_error,
+        workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
+    )
+
+
+async def _record_register_source_job_state(
+    *,
+    inputs: DuckLakeRegisterDataImportsInputs,
+    status: ManagedWarehouseSourceJobStatus,
+    started_at: dt.datetime,
+    finished_at: dt.datetime | None = None,
+    latest_error: str | None = None,
+) -> None:
+    await workflow.execute_activity(
+        record_managed_warehouse_source_job_activity,
+        _register_source_job_update(
+            inputs=inputs,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+            latest_error=latest_error,
+        ),
+        start_to_close_timeout=dt.timedelta(seconds=30),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+
+async def _record_register_terminal_source_job_state(
+    *,
+    inputs: DuckLakeRegisterDataImportsInputs,
+    status: ManagedWarehouseSourceJobStatus,
+    started_at: dt.datetime,
+    finished_at: dt.datetime,
+) -> None:
+    try:
+        await _record_register_source_job_state(
+            inputs=inputs,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
+    except Exception:
+        await _record_register_source_job_state(
+            inputs=inputs,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
 
 
 def _stage_timer(*, stage: str, team_id: int, schema_id: str) -> ExecutionTimeRecorder:
@@ -63,6 +148,7 @@ def _stage_timer(*, stage: str, team_id: int, schema_id: str) -> ExecutionTimeRe
         "Execution duration of one post-gate DuckLake data import registration stage.",
         {"stage": stage, "team_id": str(team_id), "schema_id": schema_id},
         log=True,
+        histogram_recorder=record_ducklake_register_data_imports_stage_duration,
     )
 
 
@@ -130,7 +216,7 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
         return False
 
     try:
-        return feature_enabled_or_false(
+        flag_enabled = feature_enabled_or_false(
             DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
             str(team.uuid),
             groups={
@@ -148,6 +234,26 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
         await logger.awarning("Failed to evaluate DuckLake data imports registration feature flag", error=str(error))
         capture_exception(error)
         return False
+
+    if not flag_enabled:
+        return False
+
+    # The flag alone is not sufficient: registration resolves the team's schema through
+    # the duckgres control plane, which only knows orgs with a provisioned server, so a
+    # flag-enabled team in an unprovisioned org would fail the prepare activity with a
+    # spurious "control plane unreachable" error. Dev mode has no DuckgresServer rows
+    # (connections come from env vars), so the check applies only to real deployments.
+    if is_dev_mode():
+        return True
+
+    server = await database_sync_to_async(get_duckgres_server_by_team_org)(inputs.team_id)
+    if server is None:
+        await logger.ainfo(
+            "No DuckgresServer provisioned for team's organization; skipping DuckLake data imports registration"
+        )
+        return False
+
+    return True
 
 
 @activity.defn
@@ -182,7 +288,7 @@ async def prepare_ducklake_data_imports_registration_activity(
 
         prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
         ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
-        ducklake_table_name = duckgres_data_imports_table_name(schema)
+        ducklake_table_name = await database_sync_to_async(duckgres_data_imports_table_name)(schema)
         landing_uri = await database_sync_to_async(_resolve_data_imports_landing_uri)(
             team_id=inputs.team_id,
             ducklake_schema_name=ducklake_schema_name,
@@ -238,23 +344,23 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             logger.info("Skipping stale prepared Parquet generation before catalog swap")
             return False
 
-    get_ducklake_register_data_imports_files_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-        float(len(landing_paths))
-    )
-    get_ducklake_register_data_imports_rows_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-        float(registered_rows)
-    )
-    get_ducklake_register_data_imports_bytes_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-        float(copied_bytes)
-    )
+        get_ducklake_register_data_imports_files_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+            float(len(landing_paths))
+        )
+        get_ducklake_register_data_imports_rows_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+            float(registered_rows)
+        )
+        get_ducklake_register_data_imports_bytes_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+            float(copied_bytes)
+        )
 
-    logger.info(
-        "Copied, verified, and registered prepared Parquet files in DuckLake",
-        ducklake_table=f"{inputs.metadata.ducklake_schema_name}.{inputs.metadata.ducklake_table_name}",
-        file_count=len(landing_paths),
-        landing_uri=inputs.metadata.landing_uri,
-    )
-    return True
+        logger.info(
+            "Copied, verified, and registered prepared Parquet files in DuckLake",
+            ducklake_table=f"{inputs.metadata.ducklake_schema_name}.{inputs.metadata.ducklake_table_name}",
+            file_count=len(landing_paths),
+            landing_uri=inputs.metadata.landing_uri,
+        )
+        return True
 
 
 def _is_valid_queryable_folder(queryable_folder: str) -> bool:
@@ -331,6 +437,8 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
     if not parquet_paths:
         raise ApplicationError(f"No prepared Parquet files found under {source_uri}", non_retryable=True)
 
+    source_copy_paths: list[str] = []
+    landing_copy_paths: list[str] = []
     landing_paths: list[str] = []
     for source_path_value in parquet_paths:
         source_path = source_path_value.removeprefix("s3://")
@@ -338,8 +446,11 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
         if relative_path == source_path or relative_path.startswith("../"):
             raise ApplicationError(f"Prepared file escaped source prefix: {source_path}", non_retryable=True)
         landing_path = f"{landing_prefix}/{relative_path}"
-        s3.copy(source_path, landing_path)
+        source_copy_paths.append(source_path)
+        landing_copy_paths.append(landing_path)
         landing_paths.append(f"s3://{landing_path}")
+
+    s3.copy(source_copy_paths, landing_copy_paths, batch_size=S3_COPY_BATCH_SIZE)
 
     copied_bytes = 0
     if isinstance(found, dict):
@@ -523,13 +634,20 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         if not should_register:
-            logger.info("DuckLake data imports registration workflow disabled by feature flag")
+            logger.info("DuckLake data imports registration gated off (flag disabled or no DuckgresServer)")
             return
 
+        track_source_job_state = workflow.patched(_SOURCE_JOB_STATE_PATCH_ID)
         schema_id = str(inputs.schema_id)
         get_ducklake_register_data_imports_started_metric(team_id=inputs.team_id, schema_id=schema_id).add(1)
         status = "failed"
         try:
+            if track_source_job_state:
+                await _record_register_source_job_state(
+                    inputs=inputs,
+                    status=ManagedWarehouseSourceJobStatus.RUNNING,
+                    started_at=workflow_started_at,
+                )
             metadata = await workflow.execute_activity(
                 prepare_ducklake_data_imports_registration_activity,
                 inputs,
@@ -538,6 +656,13 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             )
             if metadata is None:
                 status = "stale"
+                if track_source_job_state:
+                    await _record_register_terminal_source_job_state(
+                        inputs=inputs,
+                        status=ManagedWarehouseSourceJobStatus.STALE,
+                        started_at=workflow_started_at,
+                        finished_at=workflow.now(),
+                    )
                 logger.info("Prepared Parquet generation is stale; nothing to register")
                 return
 
@@ -555,10 +680,34 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             )
             if not copy_applied:
                 status = "stale"
+                if track_source_job_state:
+                    await _record_register_terminal_source_job_state(
+                        inputs=inputs,
+                        status=ManagedWarehouseSourceJobStatus.STALE,
+                        started_at=workflow_started_at,
+                        finished_at=workflow.now(),
+                    )
                 logger.info("Prepared Parquet generation became stale; registration skipped")
                 return
 
             status = "completed"
+            if track_source_job_state:
+                await _record_register_terminal_source_job_state(
+                    inputs=inputs,
+                    status=ManagedWarehouseSourceJobStatus.COMPLETED,
+                    started_at=workflow_started_at,
+                    finished_at=workflow.now(),
+                )
+        except Exception as error:
+            if track_source_job_state and status == "failed":
+                await _record_register_source_job_state(
+                    inputs=inputs,
+                    status=ManagedWarehouseSourceJobStatus.FAILED,
+                    started_at=workflow_started_at,
+                    finished_at=workflow.now(),
+                    latest_error=str(error),
+                )
+            raise
         finally:
             finished_at = workflow.now()
             duration_seconds = (finished_at - workflow_started_at).total_seconds()
