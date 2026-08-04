@@ -968,7 +968,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_emitted` — `emit_signal()` after Temporal dispatch succeeds
 - `signal_assigned_to_report` — grouping assigned the signal (+ `report_id`, `is_new_report`, `promoted`)
 - `signal_report_reresearch_skipped` — signal hit an already-researched report past the re-research cap, so no new run spawned (+ `report_id`, `signal_count`, `status`, `threshold`). Fires per suppressed signal
-- `signal_report_quota_paused` — a quota gate observed the team's org over its self-driving credits limit (+ `stage`: `promotion` | `summary_entry` | `pre_repo_selection` | `pre_research` | `autostart` | `manual_create` | `implementation_run`, `enforced`, `report_id`). See Billing limit enforcement
+- `signal_report_quota_paused` — a quota gate observed the team's org over its self-driving credits limit (+ `stage`: `promotion` | `summary_entry` | `pre_repo_selection` | `pre_research` | `autostart` | `manual_create` | `task_create` | `implementation_run`, `enforced`, `report_id`). See Billing limit enforcement
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
@@ -1187,7 +1187,7 @@ Gates, in pipeline order:
 | `summary_entry`                       | `SignalReportSummaryWorkflow`, before any work           | Workflow exits; report stays `candidate`                                                                                                                                                   |
 | `pre_repo_selection` / `pre_research` | `SignalReportSummaryWorkflow`, between the heavy steps   | Workflow reverts the report `in_progress → candidate` and exits; an in-flight research **activity** is never interrupted                                                                   |
 | `autostart`                           | `maybe_autostart_implementation_task` (all callers)      | No implementation task is created — the step that would lead to the billable PR                                                                                                            |
-| manual task creation                  | tasks facade `create_task` / `create_and_run_task`       | Creating a self-driving implementation task (e.g. "start work" from a report) returns 402 with a raise-the-limit message; `create_pr=False` sessions (research, repo selection) are exempt |
+| `manual_create` / `task_create`       | tasks facade `create_task` / `create_and_run_task`       | Creating a self-driving implementation task (e.g. "start work" from a report) returns 402 with a raise-the-limit message; `create_pr=False` sessions (research, repo selection) are exempt. `task_create` is the facade backstop behind auto-start, kept as its own stage so the manual path stays attributable |
 | `implementation_run`                  | `enforce_self_driving_run_quota` (process-task workflow) | A PR-opening (`create_pr`) run that hasn't recorded its PR yet re-checks every 5 minutes and cancels itself through the standard cancellation path                                         |
 
 **The billable event re-evaluates the quota immediately.**

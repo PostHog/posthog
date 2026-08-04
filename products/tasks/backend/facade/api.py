@@ -961,7 +961,10 @@ def create_and_run_task(
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
-        enforce_self_driving_pr_quota(team, report_id=signal_report_id)
+        # Distinct stage from create_task's `manual_create`: the main caller here is the
+        # auto-start pipeline, whose over-quota hits must not pollute the manual-path
+        # dark-launch bucket.
+        enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     task = Task.create_and_run(
         team=team,
@@ -2201,12 +2204,12 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
     transaction.on_commit(_dispatch)
 
 
-def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None) -> None:
+def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
     """Refuse to create a PR-opening self-driving task while the team's org is over its self-driving
     credits quota with enforcement on. The implementation task is the step that leads to the
     billable PR, so the manual create-from-report path must respect the same limit as the pipeline
     auto-start gate (products/signals/backend/auto_start.py). Emits `signal_report_quota_paused`
-    (stage `manual_create`) whenever the org is limited, so this gate stays measurable during the
+    at ``stage`` whenever the org is limited, so each caller's gate stays measurable during the
     dark launch like every other gate. Raises ``QuotaLimitExceeded`` (402).
     """
     from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
@@ -2218,7 +2221,7 @@ def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None) -
 
     gate = self_driving_quota_gate(team)
     if gate.limited:
-        capture_signal_report_quota_paused(team, report_id=report_id, stage="manual_create", enforced=gate.enforced)
+        capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=gate.enforced)
     if gate.enforced:
         raise QuotaLimitExceeded(
             "Your organization reached its self-driving pull request limit. "

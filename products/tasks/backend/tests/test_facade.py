@@ -865,8 +865,9 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 repository="posthog/posthog",
             )
         self.assertFalse(Task.objects.filter(team=self.team).exists())
-        # The manual gate must stay measurable like every other gate.
-        self.assertEqual(capture_mock.call_args.kwargs["stage"], "manual_create")
+        # The facade gate keeps its own stage: its main caller is the auto-start pipeline, whose
+        # over-quota hits must not pollute the manual-path (`manual_create`) telemetry bucket.
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
         self.assertTrue(capture_mock.call_args.kwargs["enforced"])
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -910,7 +911,7 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 repository="posthog/posthog",
             )
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
-        self.assertEqual(capture_mock.call_args.kwargs["stage"], "manual_create")
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
         self.assertFalse(capture_mock.call_args.kwargs["enforced"])
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -939,7 +940,11 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
 
         SignalReport = apps.get_model("signals", "SignalReport")
         report = SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
-        with self._enforced_gate(), self.assertRaises(QuotaLimitExceeded):
+        with (
+            self._enforced_gate(),
+            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
+            self.assertRaises(QuotaLimitExceeded),
+        ):
             facade.create_task(
                 self.team.id,
                 self.user.id,
@@ -952,6 +957,9 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 },
             )
         self.assertFalse(Task.objects.filter(team=self.team).exists())
+        # Genuinely manual creations keep the `manual_create` stage, distinct from the facade
+        # backstop's `task_create`.
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "manual_create")
 
 
 class TestSelfDrivingQuotaRefreshDispatch(TestCase):
