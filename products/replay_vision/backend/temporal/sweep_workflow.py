@@ -139,6 +139,20 @@ class SweepScannerWorkflow(PostHogWorkflow):
             ),
         )
         if not find_result.candidates:
+            # Advance through the covered settle horizon so `last_swept_at` reflects sweep liveness
+            # instead of freezing on low-yield scanners. Gated on swept_through: short-circuit paths
+            # (scanner disabled, access revoked) and pre-deploy histories return None and skip this.
+            if find_result.swept_through is not None:
+                await wf.execute_activity(
+                    advance_scanner_watermark_activity,
+                    AdvanceScannerWatermarkInputs(
+                        scanner_id=inputs.scanner_id,
+                        new_last_swept_at=find_result.swept_through,
+                        new_last_seen_session_id="",
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=30),
+                    retry_policy=common.RetryPolicy(maximum_attempts=3),
+                )
             return
 
         # First failure aborts the gather and skips the advance; UNIQUE(scanner_id, session_id) dedups retries.

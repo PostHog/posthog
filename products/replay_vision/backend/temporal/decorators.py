@@ -6,11 +6,18 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any, TypeVar, cast
 
-from django.db import close_old_connections
+from django.db import connections
 
 from products.replay_vision.backend.temporal.metrics import record_activity_duration, record_side_effect_failure
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+
+def _close_stale_db_connections() -> None:
+    # The atomic-block guard keeps this a no-op inside test transactions, where closing is fatal.
+    for conn in connections.all(initialized_only=True):
+        if not conn.in_atomic_block:
+            conn.close_if_unusable_or_obsolete()
 
 
 def track_activity(name: str | None = None, side_effect: str | None = None) -> Callable[[F], F]:
@@ -47,7 +54,7 @@ def track_activity(name: str | None = None, side_effect: str | None = None) -> C
         @wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             # Long-lived worker threads accumulate expired Postgres connections between activity runs.
-            close_old_connections()
+            _close_stale_db_connections()
             started = time.monotonic()
             try:
                 result = fn(*args, **kwargs)

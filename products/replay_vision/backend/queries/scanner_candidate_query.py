@@ -16,7 +16,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
-from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.queries.session_recording_list_from_query import (
+    UNSCORED_SURFACING_SCORE,
+    SessionRecordingListFromQuery,
+)
 
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
 from products.replay_vision.backend.temporal.constants import (
@@ -41,8 +44,9 @@ DEFAULT_MAX_EXECUTION_SECONDS = 180
 # Calibrated from the prod score distribution: focused keeps roughly the top 25% of sessions, balanced the top 65%.
 FOCUSED_SURFACING_THRESHOLD = 0.30
 BALANCED_SURFACING_THRESHOLD = 0.10
-# Below balanced so unscored sessions are skipped by both filtered modes.
-NULL_SURFACING_SCORE_FALLBACK = 0.0
+# Unscored sessions get the same neutral score the recordings list shows, so a session visible
+# as eligible in the UI is also eligible to the sweep (passes both filtered-mode thresholds).
+NULL_SURFACING_SCORE_FALLBACK = UNSCORED_SURFACING_SCORE
 
 _SURFACING_THRESHOLDS = {
     SamplingMode.FOCUSED: FOCUSED_SURFACING_THRESHOLD,

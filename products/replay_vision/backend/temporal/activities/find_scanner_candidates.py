@@ -1,10 +1,12 @@
+import datetime as dt
+
 from pydantic import ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     ScannerCandidateQuery,
@@ -44,6 +46,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         ) from exc
 
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
+    # Taken before the query runs so it can only understate what the query actually covered.
+    swept_through = dt.datetime.now(dt.UTC) - SETTLE_INTERVAL
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
@@ -61,4 +65,5 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
         # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
         saturated=len(candidates) == limit,
+        swept_through=swept_through,
     )

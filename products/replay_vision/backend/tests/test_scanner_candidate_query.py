@@ -158,8 +158,15 @@ def test_surfacing_score_predicate_rejects_unknown_mode():
         surfacing_score_predicate("focussed")
 
 
-def test_null_fallback_stays_below_balanced_threshold():
-    assert NULL_SURFACING_SCORE_FALLBACK < BALANCED_SURFACING_THRESHOLD
+def test_null_fallback_passes_both_filtered_thresholds():
+    assert NULL_SURFACING_SCORE_FALLBACK >= FOCUSED_SURFACING_THRESHOLD
+    assert NULL_SURFACING_SCORE_FALLBACK >= BALANCED_SURFACING_THRESHOLD
+
+
+def test_null_fallback_matches_recordings_list_default():
+    from posthog.session_recordings.queries.session_recording_list_from_query import UNSCORED_SURFACING_SCORE
+
+    assert NULL_SURFACING_SCORE_FALLBACK == UNSCORED_SURFACING_SCORE
 
 
 @pytest.mark.parametrize(
