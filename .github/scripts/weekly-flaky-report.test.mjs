@@ -6,19 +6,24 @@ import {
     buildQueue,
     CLUSTER_MIN_TESTS,
     enrich,
+    fetchCandidatePools,
     fetchTrunkQuarantined,
     flakyTestsUrl,
+    REPORT_RUNNERS,
     selectReportCandidates,
     tableRows,
 } from './weekly-flaky-report.mjs'
 
 describe('weekly flaky report', () => {
-    it('requests pytest candidates for the current repository before the endpoint limit', () => {
-        const url = flakyTestsUrl()
+    it('builds runner-specific endpoint URLs before the endpoint limit', () => {
+        const pytestUrl = flakyTestsUrl('pytest')
+        const jestUrl = flakyTestsUrl('jest')
 
-        assert.equal(url.searchParams.get('runner'), 'pytest')
-        assert.equal(url.searchParams.get('repo'), 'PostHog/posthog')
-        assert.equal(url.searchParams.get('limit'), '100')
+        assert.deepEqual(REPORT_RUNNERS, ['pytest'])
+        assert.equal(pytestUrl.searchParams.get('runner'), 'pytest')
+        assert.equal(jestUrl.searchParams.get('runner'), 'jest')
+        assert.equal(jestUrl.searchParams.get('repo'), 'PostHog/posthog')
+        assert.equal(jestUrl.searchParams.get('limit'), '100')
     })
 
     it('builds a Slack table with supported cells and structured links', () => {
@@ -85,14 +90,14 @@ describe('weekly flaky report', () => {
         })
     })
 
-    it('keeps proved pytest flakes and excludes Jest and unproved master bursts', () => {
+    it('selects proved flakes for the requested runner', () => {
         const common = {
             failed_run_count: 4,
             failed_pr_count: 1,
             master_failed_run_count: 3,
             quarantined_failed_run_count: 0,
         }
-        const candidates = selectReportCandidates([
+        const items = [
             { ...common, runner: 'pytest', selector: 'test_proved.py::test_proved', classification: 'confirmed_flake' },
             {
                 ...common,
@@ -101,11 +106,37 @@ describe('weekly flaky report', () => {
                 classification: 'suspected_regression',
             },
             { ...common, runner: 'jest', selector: 'test_report.ts', classification: 'confirmed_flake' },
-        ])
+        ]
 
         assert.deepEqual(
-            candidates.map((candidate) => candidate.selector),
+            selectReportCandidates(items, 'pytest').map((candidate) => candidate.selector),
             ['test_proved.py::test_proved']
+        )
+        assert.deepEqual(
+            selectReportCandidates(items, 'jest').map((candidate) => candidate.selector),
+            ['test_report.ts']
+        )
+    })
+
+    it('fetches each runner into its own candidate pool', async () => {
+        const requestedRunners = []
+        const pools = await fetchCandidatePools(['pytest', 'jest'], async (runner) => {
+            requestedRunners.push(runner)
+            return {
+                items: [
+                    { runner, selector: `${runner}.test`, classification: 'confirmed_flake' },
+                    { runner: runner === 'pytest' ? 'jest' : 'pytest', selector: 'other.test' },
+                ],
+            }
+        })
+
+        assert.deepEqual(requestedRunners, ['pytest', 'jest'])
+        assert.deepEqual(
+            pools.map(({ runner, candidates }) => [runner, candidates.map((candidate) => candidate.selector)]),
+            [
+                ['pytest', ['pytest.test']],
+                ['jest', ['jest.test']],
+            ]
         )
     })
 
@@ -143,7 +174,7 @@ describe('weekly flaky report', () => {
         ]
 
         for (const { label, enabled, runHogql } of cases) {
-            const trunkFor = await fetchTrunkQuarantined(runHogql, enabled)
+            const trunkFor = await fetchTrunkQuarantined('pytest', runHogql, enabled)
 
             assert.equal(trunkFor(item), null, label)
         }
@@ -151,12 +182,12 @@ describe('weekly flaky report', () => {
 
     it('matches Trunk rows to a product suite reported product-relative', async () => {
         const trunkFor = await fetchTrunkQuarantined(
+            'pytest',
             async () => ({
                 results: [
                     [
                         'products/example/backend/tests/test_migration.py::MigrationTest::test_backfill',
                         '2026-07-29T09:14:22.000Z',
-                        'AUTO_QUARANTINE',
                     ],
                 ],
             }),
