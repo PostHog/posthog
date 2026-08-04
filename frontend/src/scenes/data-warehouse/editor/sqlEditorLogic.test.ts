@@ -1498,7 +1498,7 @@ describe('sqlEditorLogic', () => {
             limit: 1000,
         }
 
-        it('offers only the PostHog tables visible in the schema sidebar', () => {
+        it('offers every sidebar table while excluding hidden PostHog tables', () => {
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
 
@@ -1509,15 +1509,27 @@ describe('sqlEditorLogic', () => {
                     events: { id: 'events', name: 'events', type: 'posthog', fields: {} },
                     sessions: { id: 'sessions', name: 'sessions', type: 'posthog', fields: {} },
                     groups: { id: 'groups', name: 'groups', type: 'posthog', fields: {} },
+                    custom_orders: { id: 'custom_orders', name: 'custom_orders', type: 'data_warehouse', fields: {} },
+                    system_metrics: { id: 'system_metrics', name: 'system_metrics', type: 'system', fields: {} },
+                    revenue_view: {
+                        id: 'revenue_view',
+                        name: 'revenue_view',
+                        type: 'view',
+                        fields: {},
+                        query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                    },
                 },
                 joins: [],
             })
 
             expect(biLogic.values.availableDataSources).toEqual([
+                { table: 'custom_orders', connectionId: undefined },
                 { table: 'events', connectionId: undefined },
                 { table: 'groups', connectionId: undefined },
                 { table: 'persons', connectionId: undefined },
+                { table: 'revenue_view', connectionId: undefined },
                 { table: 'sessions', connectionId: undefined },
+                { table: 'system_metrics', connectionId: undefined },
             ])
 
             biLogic.unmount()

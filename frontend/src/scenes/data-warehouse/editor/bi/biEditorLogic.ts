@@ -411,10 +411,16 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 allTables: DatabaseSchemaTable[],
                 posthogTables: DatabaseSchemaTable[],
                 databaseConnectionId: string | null
-            ): BIDataSource[] =>
-                (databaseConnectionId ? allTables : posthogTables)
+            ): BIDataSource[] => {
+                const visiblePosthogTableNames = new Set(posthogTables.map((table) => table.name))
+                const availableTables = databaseConnectionId
+                    ? allTables
+                    : allTables.filter((table) => table.type !== 'posthog' || visiblePosthogTableNames.has(table.name))
+
+                return availableTables
                     .map((table) => ({ table: table.name, connectionId: databaseConnectionId ?? undefined }))
-                    .sort((first, second) => first.table.localeCompare(second.table)),
+                    .sort((first, second) => first.table.localeCompare(second.table))
+            },
         ],
         generatedQuery: [
             (selectors) => [selectors.config],
