@@ -417,6 +417,54 @@ def scopes_outside_ceiling(
     return sorted(to_check - allowed)
 
 
+def clamp_scopes_to_ceiling(
+    requested: Iterable[str],
+    app_scopes: Iterable[str],
+    *,
+    allow_wildcard_under_empty_ceiling: bool = False,
+) -> list[str]:
+    """The grantable subset of a `/authorize` scope request.
+
+    Where `scopes_within_ceiling` answers whether the whole request is grantable,
+    this resolves it to what the token should actually carry. An ungrantable scope
+    is dropped, never fatal: `/authorize` does not reject on scope grounds at all.
+    Scopes are retired and renamed as a matter of routine, and a client pinning a
+    hardcoded list has no way to see that coming. The resource metadata's
+    `scopes_supported` is resource-wide, so a client cannot discover a narrower
+    per-app ceiling before it asks either. RFC 6749 section 3.3 lets the server
+    fully or partially ignore the requested scope as long as the token response
+    reports what was granted, which oauthlib does whenever it differs.
+
+    An empty return is a real outcome, not an error: the client asked for nothing
+    grantable and gets an identity-only token. That client will 403 on every
+    resource call, so `oauth_scopes_clamped` is the signal that matters here.
+
+    Clamping can only ever grant less than the ceiling already allowed, so the
+    ceiling stays the sole authority on what a token may hold. Resolution mirrors
+    `scopes_within_ceiling` exactly:
+
+    - `ALWAYS_ALLOWED_SCOPES` (OIDC + introspection) pass through untouched.
+    - Under an explicit ceiling, `*` resolves to the whole ceiling rather than
+      staying a wildcard, which is strictly less than the bypass `*` grants in
+      `posthog/permissions.py`.
+    - Under an empty ceiling, `*` is kept verbatim when the caller grandfathers it,
+      because narrowing it there would strip the legacy client's full access.
+    """
+    always_allowed = set(requested) & ALWAYS_ALLOWED_SCOPES
+    resource_requested = set(requested) - ALWAYS_ALLOWED_SCOPES
+    if not resource_requested:
+        return sorted(always_allowed)
+
+    ceiling = resolve_ceiling(app_scopes)
+    if ceiling is not None:
+        granted = (ceiling - {"*"}) if "*" in resource_requested else (resource_requested & ceiling)
+    else:
+        allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
+        granted = resource_requested & allowed
+
+    return sorted(granted | always_allowed)
+
+
 def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:
     """Cap previously-granted scopes at an app's current ceiling (refresh-time).
 
