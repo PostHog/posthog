@@ -6,6 +6,7 @@ from django.db import models
 
 ResourceKind = Literal[
     "Action",
+    "ButtonTile",
     "Cohort",
     "Dashboard",
     "DashboardTile",
