@@ -1,9 +1,4 @@
-import {
-  File,
-  FolderSimple,
-  GithubLogo,
-  Paperclip,
-} from "@phosphor-icons/react";
+import { File, FolderSimple, GithubLogo, Plus } from "@phosphor-icons/react";
 import {
   deriveFileLabel,
   type FileAttachment,
@@ -67,7 +62,7 @@ export function AttachmentMenu({
   const [menuOpen, setMenuOpen] = useState(false);
   const [issuePickerOpen, setIssuePickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const paperclipRef = useRef<HTMLButtonElement>(null);
+  const attachButtonRef = useRef<HTMLButtonElement>(null);
   const showAddDirectoryDialog = useAddDirectoryDialogStore((s) => s.show);
 
   const { data: ghStatus } = useQuery({
@@ -185,7 +180,7 @@ export function AttachmentMenu({
         <DropdownMenuTrigger
           render={
             <Button
-              ref={paperclipRef}
+              ref={attachButtonRef}
               type="button"
               variant="default"
               size="icon-sm"
@@ -193,7 +188,7 @@ export function AttachmentMenu({
               aria-label={attachTooltip}
               title={attachTooltip}
             >
-              <Paperclip size={iconSize} weight="bold" />
+              <Plus size={iconSize} weight="bold" />
             </Button>
           }
         />
@@ -235,7 +230,7 @@ export function AttachmentMenu({
         open={issuePickerOpen}
         onOpenChange={setIssuePickerOpen}
         onSelect={handleIssueSelect}
-        anchor={paperclipRef}
+        anchor={attachButtonRef}
       />
     </>
   );

@@ -2048,6 +2048,7 @@ class ExternalDataSourceType(StrEnum):
     CAMPFIRE = "Campfire"
     CRISP = "Crisp"
     KOMMO = "Kommo"
+    GOOGLE_MERCHANT_CENTER = "GoogleMerchantCenter"
     AXIOM = "Axiom"
     PLIVO = "Plivo"
     DATA_FOR_SEO = "DataForSEO"
@@ -2940,6 +2941,17 @@ class NeighborDirection(StrEnum):
     AFTER = "after"
 
 
+class MarketingAnalyticsAttributionBreakdown(StrEnum):
+    CHANNEL = "channel"
+    SOURCE = "source"
+    CAMPAIGN = "campaign"
+    MEDIUM = "medium"
+    CONTENT = "content"
+    TERM = "term"
+    REFERRING_DOMAIN = "referring_domain"
+    LANDING_PAGE = "landing_page"
+
+
 class MarketingAnalyticsBaseColumns(StrEnum):
     ID = "ID"
     CAMPAIGN = "Campaign"
@@ -3212,6 +3224,7 @@ class NodeKind(StrEnum):
     WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
     MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
+    MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"

@@ -670,14 +670,27 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
 
-    def test_falls_back_to_normal_cursor_when_tier_disallows_no_timeout(self):
+    @parameterized.expand(
+        [
+            (
+                "atlas_tier_disallows_no_timeout",
+                "noTimeout cursors are disallowed in this atlas tier, full error: {'ok': 0, 'errmsg': "
+                "'noTimeout cursors are disallowed in this atlas tier', 'code': 8000, 'codeName': 'AtlasError'}",
+            ),
+            (
+                "view_rejects_no_timeout_via_aggregation",
+                "Option noCursorTimeout not supported in aggregation, full error: {'ok': 0, 'errmsg': "
+                "'Option noCursorTimeout not supported in aggregation', 'code': 9, 'codeName': 'FailedToParse'}",
+            ),
+        ]
+    )
+    def test_falls_back_to_normal_cursor_when_no_timeout_is_rejected(self, _name: str, error_message: str):
         # Regression: some Atlas tiers (free/shared) reject no_cursor_timeout=True outright with
-        # OperationFailure code 8000, which previously failed the sync permanently. This fires on
-        # the very first read, so the fallback cursor must run instead and yield the real rows.
-        notimeout_error = OperationFailure(
-            "noTimeout cursors are disallowed in this atlas tier, full error: {'ok': 0, 'errmsg': "
-            "'noTimeout cursors are disallowed in this atlas tier', 'code': 8000, 'codeName': 'AtlasError'}"
-        )
+        # OperationFailure code 8000, and MongoDB rewrites find() against a view into an
+        # aggregate() where noCursorTimeout isn't a valid option — both fail permanently without
+        # this fallback. Both fire on the very first read, so the fallback cursor must run instead
+        # and yield the real rows.
+        notimeout_error = OperationFailure(error_message)
         collection = _FakeCollection([], error=notimeout_error, fallback_docs=[{"_id": "1"}, {"_id": "2"}])
 
         rows = self._run_get_rows(collection)
