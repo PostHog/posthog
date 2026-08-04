@@ -13251,6 +13251,18 @@ export namespace Schemas {
       issues: UtmIssue[];
     }
 
+    export type MatchField = typeof MatchField[keyof typeof MatchField];
+
+
+    export const MatchField = {
+      CampaignName: 'campaign_name',
+      CampaignId: 'campaign_id',
+    } as const;
+
+    export interface CampaignFieldPreference {
+      match_field: MatchField;
+    }
+
     export interface CampaignMappingSuggestion {
       /** Integration key the campaign values belong to */
       integration: string;
@@ -42281,6 +42293,156 @@ export namespace Schemas {
       snapshot_id: string;
     }
 
+    export type MarketingAnalyticsActionConversionGoalResponse = { [key: string]: unknown } | null;
+
+    export type MarketingAnalyticsActionConversionGoalSchemaMap = {[key: string]: string | unknown};
+
+    /**
+     * A conversion goal counted from an action.
+     */
+    export interface MarketingAnalyticsActionConversionGoal {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      id: number;
+      kind: 'ActionsNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name: string;
+      optionalInFunnel?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
+      response?: MarketingAnalyticsActionConversionGoalResponse;
+      schema_map: MarketingAnalyticsActionConversionGoalSchemaMap;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * Mapping of integration type to the campaign field used when matching campaigns.
+     */
+    export interface MarketingAnalyticsCampaignFieldPreferences {[key: string]: CampaignFieldPreference}
+
+    /**
+     * Mapping of integration type to canonical campaign name to the aliases folded into it.
+     */
+    export interface MarketingAnalyticsCampaignNameMappings {[key: string]: {[key: string]: string[]}}
+
+    export type MarketingAnalyticsEventConversionGoalResponse = { [key: string]: unknown } | null;
+
+    export type MarketingAnalyticsEventConversionGoalSchemaMap = {[key: string]: string | unknown};
+
+    /**
+     * A conversion goal counted from events.
+     */
+    export interface MarketingAnalyticsEventConversionGoal {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      /** The event or `null` for all events. */
+      event?: string | null;
+      kind: 'EventsNode';
+      limit?: number | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name: string;
+      optionalInFunnel?: boolean | null;
+      /** Columns to order by */
+      orderBy?: string[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
+      response?: MarketingAnalyticsEventConversionGoalResponse;
+      schema_map: MarketingAnalyticsEventConversionGoalSchemaMap;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type MarketingAnalyticsWarehouseConversionGoalResponse = { [key: string]: unknown } | null;
+
+    export type MarketingAnalyticsWarehouseConversionGoalSchemaMap = {[key: string]: string | unknown};
+
+    /**
+     * A conversion goal counted from a data warehouse table.
+     */
+    export interface MarketingAnalyticsWarehouseConversionGoal {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      distinct_id_field: string;
+      dw_source_type?: string | null;
+      id: string;
+      id_field: string;
+      kind: 'DataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name: string;
+      optionalInFunnel?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
+      response?: MarketingAnalyticsWarehouseConversionGoalResponse;
+      schema_map: MarketingAnalyticsWarehouseConversionGoalSchemaMap;
+      table_name: string;
+      timestamp_field: string;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * The conversion goals configured for marketing analytics, in display order.
+     */
+    export type MarketingAnalyticsConversionGoalList = (MarketingAnalyticsEventConversionGoal | MarketingAnalyticsActionConversionGoal | MarketingAnalyticsWarehouseConversionGoal)[];
+
+    /**
+     * Mapping of integration type to the custom UTM source values folded into it.
+     */
+    export interface MarketingAnalyticsCustomSourceMappings {[key: string]: string[]}
+
+    export interface SourceMap {
+      ad_group_id?: string | null;
+      ad_group_name?: string | null;
+      ad_id?: string | null;
+      ad_name?: string | null;
+      campaign?: string | null;
+      clicks?: string | null;
+      cost?: string | null;
+      currency?: string | null;
+      date?: string | null;
+      id?: string | null;
+      impressions?: string | null;
+      reported_conversion?: string | null;
+      reported_conversion_value?: string | null;
+      source?: string | null;
+    }
+
+    /**
+     * Mapping of external data source id to that source's column mapping.
+     */
+    export interface MarketingAnalyticsSourceMapping {[key: string]: SourceMap}
+
     export interface MarketingDiagnosticResponse {
       /** Per-integration cross-domain diagnostics */
       integrations: IntegrationDiagnostic[];
@@ -54414,17 +54576,30 @@ export namespace Schemas {
     }
 
     export interface TeamMarketingAnalyticsConfig {
-      sources_map?: unknown;
-      conversion_goals?: unknown;
+      /** Column mapping per external data source, keyed by source id. Tells marketing analytics which column holds campaign, source, cost, clicks and impressions for that source. */
+      sources_map?: MarketingAnalyticsSourceMapping;
+      /** Conversion goals to attribute against, in display order. Each goal points at an event, an action or a data warehouse table, and carries a schema_map describing which fields hold the UTM parameters, the timestamp and the distinct id. Replaces the whole list on write. */
+      conversion_goals?: MarketingAnalyticsConversionGoalList;
       /**
+         * How many days back a touchpoint can be credited for a conversion. Between 1 and 90.
          * @minimum 1
          * @maximum 90
          */
       attribution_window_days?: number;
+      /** How credit is split across touchpoints when a person saw several campaigns before converting.
+       *
+       * * `first_touch` - First Touch
+       * * `last_touch` - Last Touch
+       * * `linear` - Linear
+       * * `time_decay` - Time Decay
+       * * `position_based` - Position Based */
       attribution_mode?: AttributionModeEnum;
-      campaign_name_mappings?: unknown;
-      custom_source_mappings?: unknown;
-      campaign_field_preferences?: unknown;
+      /** Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching. */
+      campaign_name_mappings?: MarketingAnalyticsCampaignNameMappings;
+      /** Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration. */
+      custom_source_mappings?: MarketingAnalyticsCustomSourceMappings;
+      /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
+      campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferences;
     }
 
     export interface TeamCustomerAnalyticsConfig {
