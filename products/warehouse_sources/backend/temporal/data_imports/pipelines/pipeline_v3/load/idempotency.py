@@ -7,6 +7,7 @@ from asgiref.sync import async_to_sync
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
@@ -89,7 +90,11 @@ def is_batch_already_processed(
             batch_index=batch_index,
             error=str(e),
         )
-        capture_exception(e)
+        # get_delta_table already re-raises known-transient object-store blips as
+        # NonReportableError (see delta_table_helper._capture_unless_transient) and
+        # intentionally skips reporting them itself — don't undo that here.
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
         raise
 
 
