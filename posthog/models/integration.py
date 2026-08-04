@@ -4535,14 +4535,8 @@ class AzureBlobIntegration:
         return None
 
 
-class AWSCredentialIntegrationError(Exception):
-    """Error raised when AWS credentials are not valid."""
-
-    pass
-
-
-class S3CredentialIntegrationError(Exception):
-    """Error raised when an S3-family credential integration is not valid."""
+class IntegrationError(Exception):
+    """Error raised when an integration or its inputs are not valid."""
 
     pass
 
@@ -4558,7 +4552,7 @@ def _read_aws_credentials(integration: Integration) -> AWSKeyPair:
             integration.sensitive_config["aws_access_key_id"], integration.sensitive_config["aws_secret_access_key"]
         )
     except KeyError as e:
-        raise AWSCredentialIntegrationError(f"Integration is not valid: {str(e)} missing")
+        raise IntegrationError(f"Integration is not valid: {str(e)} missing")
 
 
 def _create_unique_aws_integration(
@@ -4584,7 +4578,7 @@ def _create_unique_aws_integration(
     )
 
 
-class DuplicateNameError(Exception):
+class DuplicateNameError(IntegrationError):
     pass
 
 
@@ -4645,10 +4639,19 @@ def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: st
     return True
 
 
-def _return_non_empty_str_from_config(config: Mapping, key: str) -> str | None:
+def _return_non_empty_str_from_config(
+    config: Mapping,
+    key: str,
+    friendly_name: str,
+    kind: str,
+) -> str:
     if (value := config.get(key)) is not None and isinstance(value, str) and len(value) > 0:
         return value
-    return None
+    raise IntegrationError(f"{friendly_name} is required for an {kind} integration")
+
+
+def _return_non_empty_str_from_config_for_aws(config: Mapping, key: str, friendly_name: str) -> str:
+    return _return_non_empty_str_from_config(config, key, friendly_name=friendly_name, kind="AWS")
 
 
 def validate_aws_credentials(aws_access_key_id: str, aws_secret_access_key: str) -> str:
@@ -4676,9 +4679,9 @@ def validate_aws_credentials(aws_access_key_id: str, aws_secret_access_key: str)
         identity = client.get_caller_identity()
     except ClientError as e:
         message = e.response.get("Error", {}).get("Message") or str(e)
-        raise AWSCredentialIntegrationError(f"AWS credentials are not valid: {message}")
+        raise IntegrationError(f"AWS credentials are not valid: {message}")
     except BotoCoreError as e:
-        raise AWSCredentialIntegrationError(f"Could not validate AWS credentials: {e}")
+        raise IntegrationError(f"Could not validate AWS credentials: {e}")
 
     return identity["Account"]
 
@@ -4693,7 +4696,7 @@ class AWSRoleBasedIntegration:
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != self.integration_kind:
-            raise AWSCredentialIntegrationError(
+            raise IntegrationError(
                 "Integration provided is not the expected AWS integration"
                 f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
@@ -4701,7 +4704,7 @@ class AWSRoleBasedIntegration:
         try:
             self.aws_role_arn = integration.config["aws_role_arn"]
         except KeyError:
-            raise AWSCredentialIntegrationError("AWS integration is not valid: 'aws_role_arn' missing")
+            raise IntegrationError("AWS integration is not valid: 'aws_role_arn' missing")
 
     @classmethod
     def integration_from_config(
@@ -4711,13 +4714,8 @@ class AWSRoleBasedIntegration:
         created_by: "User | None" = None,
         **config,
     ) -> Integration:
-        name = _return_non_empty_str_from_config(config, "name")
-        if not name:
-            raise AWSCredentialIntegrationError("A name is required for an AWS integration")
-
-        aws_role_arn = _return_non_empty_str_from_config(config, "aws_role_arn")
-        if not aws_role_arn:
-            raise AWSCredentialIntegrationError("A valid role ARN is required for an AWS integration")
+        name = _return_non_empty_str_from_config_for_aws(config, "name", "A name")
+        aws_role_arn = _return_non_empty_str_from_config_for_aws(config, "aws_role_arn", "A valid role ARN")
 
         if not is_unique_aws_role_by_organization_id(aws_role_arn, organization_id):
             raise ValidationError("Cannot create AWS integration: Invalid role")
@@ -4760,7 +4758,7 @@ class AWSCredentialsIntegration:
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != self.integration_kind:
-            raise AWSCredentialIntegrationError(
+            raise IntegrationError(
                 "Integration provided is not the expected AWS integration"
                 f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
@@ -4787,17 +4785,15 @@ class AWSCredentialsIntegration:
         created_by: "User | None" = None,
         **config,
     ) -> Integration:
-        name = _return_non_empty_str_from_config(config, "name")
-        if not name:
-            raise AWSCredentialIntegrationError("A name is required for an AWS integration")
-
-        aws_access_key_id = _return_non_empty_str_from_config(config, "aws_access_key_id")
-        if not aws_access_key_id:
-            raise AWSCredentialIntegrationError("Access key ID is required for an AWS integration")
-
-        aws_secret_access_key = _return_non_empty_str_from_config(config, "aws_secret_access_key")
-        if not aws_secret_access_key:
-            raise AWSCredentialIntegrationError("Secret access key is required for an AWS integration")
+        name = _return_non_empty_str_from_config_for_aws(config, "name", "A name")
+        aws_access_key_id = _return_non_empty_str_from_config_for_aws(
+            config,
+            "aws_access_key_id",
+            "Access key ID",
+        )
+        aws_secret_access_key = _return_non_empty_str_from_config_for_aws(
+            config, "aws_secret_access_key", "Secret access key"
+        )
 
         # Fail fast on invalid/expired credentials, and capture the (non-sensitive) account id.
         account_id = validate_aws_credentials(aws_access_key_id, aws_secret_access_key)
@@ -4837,6 +4833,10 @@ class AWSRedshiftIntegration(AWSCredentialsIntegration):
     )
 
 
+def _return_non_empty_str_from_config_for_s3_compatible(config: Mapping, key: str, friendly_name: str) -> str:
+    return _return_non_empty_str_from_config(config, key, friendly_name=friendly_name, kind="S3-compatible")
+
+
 class S3CompatibleIntegration:
     """An S3-compatible storage integration (Cloudflare R2, DigitalOcean Spaces, Hetzner, etc.).
 
@@ -4854,7 +4854,7 @@ class S3CompatibleIntegration:
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE:
-            raise S3CredentialIntegrationError(
+            raise IntegrationError(
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
         self.integration = integration
@@ -4862,7 +4862,7 @@ class S3CompatibleIntegration:
         try:
             self.endpoint_url = integration.config["endpoint_url"]
         except KeyError:
-            raise S3CredentialIntegrationError("S3-compatible integration is missing required field: 'endpoint_url'")
+            raise IntegrationError("S3-compatible integration is missing required field: 'endpoint_url'")
 
     @property
     def aws_access_key_id(self) -> str:
@@ -4879,26 +4879,23 @@ class S3CompatibleIntegration:
         created_by: "User | None" = None,
         **config,
     ) -> Integration:
-        name = _return_non_empty_str_from_config(config, "name")
-        if not name:
-            raise S3CredentialIntegrationError("A name is required for an S3-compatible integration")
-
-        aws_access_key_id = _return_non_empty_str_from_config(config, "aws_access_key_id")
-        if not aws_access_key_id:
-            raise S3CredentialIntegrationError("Access key ID is required for an S3-compatible integration")
-
-        aws_secret_access_key = _return_non_empty_str_from_config(config, "aws_secret_access_key")
-        if not aws_secret_access_key:
-            raise S3CredentialIntegrationError("Secret access key is required for an S3-compatible integration")
-
-        endpoint_url = _return_non_empty_str_from_config(config, "endpoint_url")
-        if not endpoint_url:
-            raise S3CredentialIntegrationError("Endpoint URL is required for an S3-compatible integration")
+        name = _return_non_empty_str_from_config_for_s3_compatible(
+            config,
+            "name",
+            friendly_name="A name",
+        )
+        aws_access_key_id = _return_non_empty_str_from_config_for_s3_compatible(
+            config, "aws_access_key_id", "Access key ID"
+        )
+        aws_secret_access_key = _return_non_empty_str_from_config_for_s3_compatible(
+            config, "aws_secret_access_key", "Secret access key"
+        )
+        endpoint_url = _return_non_empty_str_from_config_for_s3_compatible(config, "endpoint_url", "Endpoint URL")
 
         # SSRF protection — credentials must not be testable against an attacker-controlled endpoint.
         allowed, error = is_url_allowed(endpoint_url)
         if not allowed:
-            raise S3CredentialIntegrationError(f"Invalid endpoint URL: {error}")
+            raise IntegrationError(f"Invalid endpoint URL: {error}")
 
         return _create_unique_named_integration(
             team_id=team_id,
@@ -5124,8 +5121,14 @@ class TLS(NamedTuple):
     ssl_root_cert: str | Literal["system"] = MISSING_CERT_PATH
 
 
-class PostgreSQLIntegration:
+_PostgreSQLServerKindType = Literal[Integration.IntegrationKind.AWS_REDSHIFT, Integration.IntegrationKind.POSTGRESQL]
+
+
+class PostgreSQLServerIntegration:
+    """Base class for any integration targetting a PostgreSQL-server."""
+
     integration: Integration
+    integration_kind: ClassVar[_PostgreSQLServerKindType]
 
     def __init__(self, integration: Integration) -> None:
         self.integration = integration
@@ -5134,17 +5137,52 @@ class PostgreSQLIntegration:
     def integration_from_config(
         cls,
         team_id: int,
-        host: str,
-        port: int,
-        user: str,
-        password: str,
-        ssl_mode: Literal["prefer", "require", "verify-ca", "verify-full"] = "require",
-        ssl_root_cert: str | Literal["system"] | None = None,
         created_by: User | None = None,
+        **config,
     ) -> Integration:
+        from products.batch_exports.backend.api.batch_export import resolve_and_validate_host
+
+        host = _return_non_empty_str_from_config(config, "host", friendly_name="Host", kind=cls.integration_kind)
+        try:
+            resolve_and_validate_host(host)
+        except ValueError:
+            raise IntegrationError("Provided host '{host}' is not valid")
+
+        port = config.get("port", None)
+        try:
+            port = int(port)
+            if port is None or port > 65535 or port < 0:
+                raise IntegrationError("A valid port is required for an {self.integration_kind} integration")
+        except (TypeError, ValueError):
+            raise IntegrationError("Port must be an integer")
+
+        user = _return_non_empty_str_from_config(
+            config,
+            "user",
+            friendly_name="A username",
+            kind=cls.integration_kind,
+        )
+        password = _return_non_empty_str_from_config(
+            config,
+            "password",
+            friendly_name="A password",
+            kind=cls.integration_kind,
+        )
+
+        ssl_mode = config.get("ssl_mode", "require")
+        if ssl_mode not in ("require", "verify-ca", "verify-full"):
+            raise IntegrationError("SSL mode must be one of: require, verify-ca, verify-full")
+
+        ssl_root_cert = config.get("ssl_root_cert", None)
+        if ssl_mode in ("verify-ca", "verify-full"):
+            if not ssl_root_cert:
+                raise IntegrationError("SSL root certificate must be provided when verifying server certificates")
+            if not isinstance(ssl_root_cert, str):
+                raise IntegrationError("SSL root certificate must be a string")
+
         integration, _ = Integration.objects.update_or_create(
             team_id=team_id,
-            kind=Integration.IntegrationKind.POSTGRESQL,
+            kind=cls.integration_kind,
             integration_id=f"{team_id}-{host}-{port}-{user}",
             defaults={
                 "config": {
@@ -5182,6 +5220,16 @@ class PostgreSQLIntegration:
         else:
             # Preserve the default ssl_root_cert if one was not provided
             return TLS(ssl_mode=self.integration.config["ssl_mode"])
+
+
+class PostgreSQLIntegration(PostgreSQLServerIntegration):
+    integration_kind: ClassVar[Literal[Integration.IntegrationKind.POSTGRESQL]] = Integration.IntegrationKind.POSTGRESQL
+
+
+class RedshiftIntegration(PostgreSQLServerIntegration):
+    integration_kind: ClassVar[Literal[Integration.IntegrationKind.AWS_REDSHIFT]] = (
+        Integration.IntegrationKind.AWS_REDSHIFT
+    )
 
 
 @receiver(models.signals.post_delete, sender=Integration)

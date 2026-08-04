@@ -38,7 +38,6 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     TLS,
     Authority,
-    AWSCredentialIntegrationError,
     AWSS3Integration,
     Credentials,
     DatabricksIntegration,
@@ -52,12 +51,12 @@ from posthog.models.integration import (
     GoogleCloudServiceAccountIntegration,
     InstagramIntegration,
     Integration,
+    IntegrationError,
     JiraIntegration,
     LinearIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
     S3CompatibleIntegration,
-    S3CredentialIntegrationError,
     SlackIntegration,
     SnowflakeIntegration,
     SnowflakeIntegrationError,
@@ -3436,7 +3435,7 @@ class TestAWSS3IntegrationModel(BaseTest):
         assert AWSS3Integration(integration).aws_account_id == "123456789012"
 
     def test_integration_from_config_requires_name(self):
-        with pytest.raises(AWSCredentialIntegrationError, match="A name is required"):
+        with pytest.raises(IntegrationError, match="A name is required"):
             AWSS3Integration.integration_from_config(
                 team_id=self.team.pk,
                 name="",
@@ -3474,23 +3473,21 @@ class TestAWSS3IntegrationModel(BaseTest):
             {"Error": {"Code": "InvalidClientTokenId", "Message": "The security token is invalid."}},
             "GetCallerIdentity",
         )
-        with pytest.raises(
-            AWSCredentialIntegrationError, match="AWS credentials are not valid: The security token is invalid."
-        ):
+        with pytest.raises(IntegrationError, match="AWS credentials are not valid: The security token is invalid."):
             validate_aws_credentials("key", "secret")
 
     def test_wrapping_wrong_kind_raises(self):
         integration = Integration.objects.create(
             team=self.team, kind=Integration.IntegrationKind.S3_COMPATIBLE, integration_id="x"
         )
-        with pytest.raises(AWSCredentialIntegrationError, match="is not the expected AWS integration"):
+        with pytest.raises(IntegrationError, match="is not the expected AWS integration"):
             AWSS3Integration(integration)
 
     def test_wrapping_missing_credentials_raises(self):
         integration = Integration.objects.create(
             team=self.team, kind=Integration.IntegrationKind.AWS_S3, integration_id="x", sensitive_config={}
         )
-        with pytest.raises(AWSCredentialIntegrationError, match="missing"):
+        with pytest.raises(IntegrationError, match="missing"):
             AWSS3Integration(integration)
 
 
@@ -3515,7 +3512,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         assert integration.display_name == "my-r2 (access key, https://account.r2.cloudflarestorage.com)"
 
     def test_integration_from_config_requires_endpoint_url(self):
-        with pytest.raises(S3CredentialIntegrationError, match="Endpoint URL is required"):
+        with pytest.raises(IntegrationError, match="Endpoint URL is required"):
             S3CompatibleIntegration.integration_from_config(
                 team_id=self.team.pk,
                 name="my-r2",
@@ -3545,7 +3542,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
     # is_url_allowed bypasses validation in DEBUG/test mode, so force the production path to exercise rejection.
     @override_settings(FORCE_URL_VALIDATION=True)
     def test_integration_from_config_rejects_internal_endpoint(self):
-        with pytest.raises(S3CredentialIntegrationError, match="Invalid endpoint URL"):
+        with pytest.raises(IntegrationError, match="Invalid endpoint URL"):
             S3CompatibleIntegration.integration_from_config(
                 team_id=self.team.pk,
                 name="my-r2",
@@ -3562,7 +3559,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
             config={"name": "x"},
             sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
         )
-        with pytest.raises(S3CredentialIntegrationError, match="missing required field: 'endpoint_url'"):
+        with pytest.raises(IntegrationError, match="missing required field: 'endpoint_url'"):
             S3CompatibleIntegration(integration)
 
 
@@ -4453,7 +4450,7 @@ class TestPostgreSQLIntegrationModel(BaseTest):
     def test_integration_from_config(self, _name, overrides, expected_tls):
         kwargs = {
             "team_id": self.team.pk,
-            "host": "db.example.com",
+            "host": "localhost",
             "port": 5432,
             "user": "exporter",
             "password": "super-secret",
@@ -4463,7 +4460,7 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         integration = PostgreSQLIntegration.integration_from_config(**kwargs)  # type: ignore
         pq = PostgreSQLIntegration(integration)
 
-        assert pq.authority() == Authority(host="db.example.com", port=5432)
+        assert pq.authority() == Authority(host="localhost", port=5432)
         assert pq.credentials() == Credentials(user="exporter", password="super-secret")
         assert pq.tls() == expected_tls
 
