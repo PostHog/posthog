@@ -17,7 +17,9 @@ variants. Not the exposure query's `exposure_session_id`, which is the person's 
 exposure session only: the playlist ANDs these ids with its own exposure filter, so ids it
 would reject are wasted slots out of the cap, and the later sessions `exposure_session_id`
 omits are exactly where drop-off and conversion happen. `exposure_session_id` is the right
-source for a future person-scoped bucket, not for a session-scoped one.
+source for a future person-scoped bucket, not for a session-scoped one. The default exposure
+event goes through the same `resolve_default_exposure_event` rollout resolution the analysis
+queries apply, so an experiment whose results count `$experiment_exposure` is bucketed on it too.
 
 Whether an event can match sessions at all is decided here, from the same `EventProperty` fact
 the taxonomy `seen_together` endpoint serves the tab: an event never ingested with a
@@ -63,10 +65,12 @@ from posthog.utils import get_safe_cache, safe_cache_set
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT,
     build_exposure_event_conditions,
     get_exposure_event_and_property,
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
+    resolve_default_exposure_event,
 )
 from products.experiments.backend.metric_events import (
     MetricEventSource,
@@ -256,7 +260,12 @@ def get_experiment_session_bucket(
     limit = min(limit, MAX_SESSION_BUCKET_LIMIT)
 
     requested = _resolve_requested_metrics(experiment, metric_uuids)
-    exposure_event, _ = get_exposure_event_and_property(experiment.feature_flag.key, experiment.exposure_criteria)
+    # The same rollout resolution the analysis queries apply, so the bucket population is counted
+    # on the event the experiment's results actually read.
+    default_exposure_event = resolve_default_exposure_event(team, experiment.start_date)
+    exposure_event, _ = get_exposure_event_and_property(
+        experiment.feature_flag.key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
+    )
 
     # One EventProperty read covers both linkability decisions — whether the exposure event can
     # match sessions at all, and which metrics can. The verdict must be the endpoint's own:
@@ -271,16 +280,22 @@ def get_experiment_session_bucket(
     for metric in requested:
         lookup_names |= _concrete_event_names(metric)
     never_linked = _never_session_linked_events(team, lookup_names)
-    use_exposure_fallback = exposure_event == DEFAULT_EXPOSURE_EVENT and exposure_event in never_linked
+    # Both default exposure events mean "this user was enrolled via the flag", which the stamped
+    # flag property implies too, so either can take the fallback.
+    use_exposure_fallback = (
+        exposure_event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT) and exposure_event in never_linked
+    )
     if exposure_event in never_linked and not use_exposure_fallback:
-        # Only the default event has a stand-in. Custom criteria assert that something specific
+        # Only the default events have a stand-in. Custom criteria assert that something specific
         # happened, which the stamped flag property doesn't imply, so falling back would answer
         # over "the flag was active in this session" — a wider population than the criteria name.
         raise SessionBucketUnavailable(CUSTOM_EXPOSURE_UNLINKABLE_REASON)
 
     considered, excluded = _partition_metrics(requested, bucket, never_linked)
 
-    cache_key = _cache_key(team, user, experiment, bucket, considered, variant, window_start, window_end, limit)
+    cache_key = _cache_key(
+        team, user, experiment, bucket, considered, variant, window_start, window_end, limit, default_exposure_event
+    )
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
@@ -296,6 +311,7 @@ def get_experiment_session_bucket(
         window_end=window_end,
         limit=limit,
         use_exposure_fallback=use_exposure_fallback,
+        default_exposure_event=default_exposure_event,
     )
     result = SessionBucketScan(
         candidate_session_ids=candidate_session_ids,
@@ -324,6 +340,7 @@ def _cache_key(
     window_start: datetime,
     window_end: datetime,
     limit: int,
+    default_exposure_event: str,
 ) -> str:
     # The version segment must be bumped whenever SessionBucketScan changes shape: entries are
     # pickled, so a deploy would otherwise restore instances missing the new fields.
@@ -339,6 +356,9 @@ def _cache_key(
             # Part of the key even though the cut happens on read: the scan over-fetches a
             # multiple of the limit, so a larger one looks further than a cached smaller one did.
             limit,
+            # The rollout flag can flip which event the default exposure reads mid-window, and a
+            # scan computed on the other event must not be served after the flip.
+            default_exposure_event,
             # Property restrictions are compiled into the SQL, so unlike recording access they
             # can't be re-filtered on read; a restriction change has to miss the cache instead.
             sorted(get_restricted_properties_for_team(user=user, team=team)),
@@ -533,9 +553,12 @@ def _query_bucket_sessions(
     window_end: datetime,
     limit: int,
     use_exposure_fallback: bool,
+    default_exposure_event: str,
 ) -> tuple[list[str], bool]:
     flag_key = experiment.feature_flag.key
-    _event, variant_property = get_exposure_event_and_property(flag_key, experiment.exposure_criteria)
+    _event, variant_property = get_exposure_event_and_property(
+        flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
+    )
     if use_exposure_fallback:
         variant_property = f"$feature/{flag_key}"
 
@@ -558,7 +581,9 @@ def _query_bucket_sessions(
             # flag's value on each event rather than the exposure response.
             return variant_condition
         conditions = [
-            *build_exposure_event_conditions(experiment.exposure_criteria, team, flag_key),
+            *build_exposure_event_conditions(
+                experiment.exposure_criteria, team, flag_key, default_exposure_event=default_exposure_event
+            ),
             variant_condition,
         ]
         return ast.And(exprs=conditions) if len(conditions) > 1 else conditions[0]
