@@ -253,7 +253,7 @@ function McpServersWidget(): JSX.Element {
             {scoutServers.length > 0 && (
                 <div className="flex items-center gap-1 pt-1">
                     {scoutServers.slice(0, 6).map((server) => (
-                        <ServerIcon key={server.id} iconDomain={server.icon_domain} size={16} />
+                        <ServerIcon key={server.id} iconDomain={server.icon_domain} serverUrl={server.url} size={16} />
                     ))}
                     {scoutServers.length > 6 && (
                         <span className="text-[11px] text-muted">+{scoutServers.length - 6}</span>
