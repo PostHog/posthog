@@ -498,7 +498,7 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
 
 
 def send_child_message_to_parent(child_run_id: str | UUID, team_id: int, message: str) -> None:
-    child_run = TaskRun.objects.for_team(team_id).filter(id=child_run_id).first()
+    child_run = TaskRun.objects.filter(team_id=team_id, id=child_run_id).first()
     if child_run is None:
         raise ValueError("Calling run was not found")
 
