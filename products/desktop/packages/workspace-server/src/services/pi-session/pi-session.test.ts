@@ -477,14 +477,21 @@ describe("PiSessionService extension UI", () => {
       done: false,
       value: pendingRequest,
     });
+    const queuedRequest = { ...request, id: "queued-extension" };
+    extensionHandlers[0](queuedRequest);
     await iterator.return?.();
-    await vi.waitFor(() =>
+    await vi.waitFor(() => {
       expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith({
         type: "extension_ui_response",
         id: pendingRequest.id,
         cancelled: true,
-      }),
-    );
+      });
+      expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith({
+        type: "extension_ui_response",
+        id: queuedRequest.id,
+        cancelled: true,
+      });
+    });
 
     const orphanedRequest = { ...request, id: "orphaned-extension" };
     extensionHandlers[0](orphanedRequest);

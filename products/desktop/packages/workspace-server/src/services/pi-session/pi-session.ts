@@ -437,7 +437,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
         if (streamSignal.aborted || this.sessions.get(taskId) !== session) {
           return;
         }
-        yield this.prepareExtensionEvent(session, event);
+        yield this.prepareExtensionEvent(event);
       }
 
       while (true) {
@@ -449,7 +449,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
           return;
         }
         nextLiveEvent = liveEvents.next();
-        yield this.prepareExtensionEvent(session, result.value);
+        yield this.prepareExtensionEvent(result.value);
       }
     } finally {
       session.extensionSubscriberCount -= 1;
@@ -648,28 +648,30 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       if (this.sessions.get(taskId) !== session) {
         return;
       }
-      if (
-        isPiExtensionDialogRequest(event) &&
-        session.extensionSubscriberCount === 0
-      ) {
-        if (!session.hasHadExtensionSubscriber) {
-          session.startupExtensionDialogs.push(event);
-        } else {
-          void session.client
-            .respondToExtensionUI({
-              type: "extension_ui_response",
-              id: event.id,
-              cancelled: true,
-            })
-            .catch((error) =>
-              this.log.warn("Failed to cancel orphaned Pi extension dialog", {
-                taskId,
-                requestId: event.id,
-                error,
-              }),
-            );
+      if (isPiExtensionDialogRequest(event)) {
+        session.outstandingExtensionDialogs.add(event.id);
+        if (session.extensionSubscriberCount === 0) {
+          if (!session.hasHadExtensionSubscriber) {
+            session.startupExtensionDialogs.push(event);
+          } else {
+            session.outstandingExtensionDialogs.delete(event.id);
+            void session.client
+              .respondToExtensionUI({
+                type: "extension_ui_response",
+                id: event.id,
+                cancelled: true,
+              })
+              .catch((error) => {
+                session.outstandingExtensionDialogs.add(event.id);
+                this.log.warn("Failed to cancel orphaned Pi extension dialog", {
+                  taskId,
+                  requestId: event.id,
+                  error,
+                });
+              });
+          }
+          return;
         }
-        return;
       }
       session.extensionEvents.emit("event", event);
     });
@@ -677,15 +679,8 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     return session;
   }
 
-  private prepareExtensionEvent(
-    session: ManagedPiSession,
-    event: PiExtensionEvent,
-  ): PiExtensionEvent {
-    const parsed = piExtensionEventSchema.parse(event);
-    if (isPiExtensionDialogRequest(parsed)) {
-      session.outstandingExtensionDialogs.add(parsed.id);
-    }
-    return parsed;
+  private prepareExtensionEvent(event: PiExtensionEvent): PiExtensionEvent {
+    return piExtensionEventSchema.parse(event);
   }
 
   private async cancelOutstandingExtensionDialogs(
