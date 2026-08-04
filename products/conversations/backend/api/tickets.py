@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
 
@@ -110,6 +110,16 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Optional TipTap rich content JSON for formatted messages.",
+    )
+    idempotency_key = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Client-generated UUID that makes this reply retry-safe. Generate one per composed "
+            "reply and reuse it on every retry: if the first request already posted the reply but "
+            "its response was lost, the retry returns that original message with status 200 "
+            "instead of posting a duplicate to the customer. Unique per project."
+        ),
     )
 
     def validate_message(self, value: str) -> str:
@@ -1102,6 +1112,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         request=TicketReplyRequestSerializer,
         responses={
             201: OpenApiResponse(response=TicketMessageSerializer),
+            200: OpenApiResponse(
+                response=TicketMessageSerializer,
+                description="A reply already exists for this idempotency key; the original is returned unchanged.",
+            ),
         },
     )
     @action(
@@ -1116,6 +1130,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         With is_private=false, the reply is delivered to the customer via the
         ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
         the message is stored as an internal note only visible to team members.
+
+        Pass idempotency_key to make the request retry-safe: a repeat with the
+        same key returns the already-posted reply with status 200 rather than
+        delivering a duplicate.
         """
         ticket = self.get_object()
 
@@ -1130,21 +1148,44 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         data = serializer.validated_data
 
         is_private = data["is_private"]
+        idempotency_key = data.get("idempotency_key")
 
-        comment = Comment.objects.create(
-            team=self.team,
-            created_by=request.user,
-            scope="conversations_ticket",
-            item_id=str(ticket.id),
-            content=data["message"],
-            rich_content=data.get("rich_content"),
-            item_context={"author_type": "support", "is_private": is_private},
-        )
+        replayed = self._reply_for_idempotency_key(idempotency_key) if idempotency_key else None
+        if replayed is not None:
+            return Response(TicketMessageSerializer(self._serialize_message(replayed, ticket)).data)
+
+        create_kwargs = {
+            "team": self.team,
+            "created_by": request.user,
+            "scope": "conversations_ticket",
+            "item_id": str(ticket.id),
+            "content": data["message"],
+            "rich_content": data.get("rich_content"),
+            "item_context": {"author_type": "support", "is_private": is_private},
+            "idempotency_key": idempotency_key,
+        }
+
+        if not idempotency_key:
+            comment = Comment.objects.create(**create_kwargs)
+        else:
+            try:
+                # Atomic so a losing race savepoints its failed INSERT instead of breaking the
+                # surrounding transaction, leaving us able to query for the winner.
+                with transaction.atomic():
+                    comment = Comment.objects.create(**create_kwargs)
+            except IntegrityError:
+                replayed = self._reply_for_idempotency_key(idempotency_key)
+                if replayed is None:
+                    raise
+                return Response(TicketMessageSerializer(self._serialize_message(replayed, ticket)).data)
 
         return Response(
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
             status=drf_status.HTTP_201_CREATED,
         )
+
+    def _reply_for_idempotency_key(self, idempotency_key: uuid.UUID) -> Comment | None:
+        return Comment.objects.filter(team_id=self.team_id, idempotency_key=idempotency_key).first()
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],

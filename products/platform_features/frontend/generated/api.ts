@@ -884,6 +884,9 @@ export const getCommentsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/comments/`
 }
 
+/**
+ * Create a comment. Pass `idempotency_key` to make the request retry-safe: a repeat with the same key returns the already-created comment with status 200 rather than creating a duplicate.
+ */
 export const commentsCreate = async (
     projectId: string,
     commentApi: NonReadonly<CommentApi>,

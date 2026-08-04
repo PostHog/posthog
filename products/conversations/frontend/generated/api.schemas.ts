@@ -953,6 +953,11 @@ export interface TicketReplyRequestApi {
     is_private?: boolean
     /** Optional TipTap rich content JSON for formatted messages. */
     rich_content?: unknown
+    /**
+     * Client-generated UUID that makes this reply retry-safe. Generate one per composed reply and reuse it on every retry: if the first request already posted the reply but its response was lost, the retry returns that original message with status 200 instead of posting a duplicate to the customer. Unique per project.
+     * @nullable
+     */
+    idempotency_key?: string | null
 }
 
 export interface BulkUpdateStatusRequestApi {

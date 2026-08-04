@@ -767,6 +767,11 @@ export interface CommentApi {
     deleted?: boolean | null
     mentions?: number[]
     slug?: string
+    /**
+     * Client-generated UUID that makes creating this comment retry-safe. Generate one per composed comment and reuse it on every retry: if the first request already committed but its response was lost, the retry returns that original comment with status 200 instead of creating a duplicate. Unique per project. Omit it and each request creates a new comment.
+     * @nullable
+     */
+    idempotency_key?: string | null
     /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
     is_task?: boolean
     /** The user who marked this task complete. Null for open tasks and non-task comments. */
@@ -808,6 +813,11 @@ export interface PatchedCommentApi {
     deleted?: boolean | null
     mentions?: number[]
     slug?: string
+    /**
+     * Client-generated UUID that makes creating this comment retry-safe. Generate one per composed comment and reuse it on every retry: if the first request already committed but its response was lost, the retry returns that original comment with status 200 instead of creating a duplicate. Unique per project. Omit it and each request creates a new comment.
+     * @nullable
+     */
+    idempotency_key?: string | null
     /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
     is_task?: boolean
     /** The user who marked this task complete. Null for open tasks and non-task comments. */

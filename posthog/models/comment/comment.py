@@ -35,13 +35,23 @@ class Comment(UUIDTModel, RootTeamMixin):
     completed_by = models.ForeignKey(
         "User",
         on_delete=models.SET_NULL,
+        related_name="+",
         null=True,
         blank=True,
-        related_name="+",
         db_index=False,
     )
 
+    # Client-supplied key that makes creation retry-safe when the response is lost.
+    idempotency_key = models.UUIDField(null=True, blank=True)
+
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "idempotency_key"],
+                condition=models.Q(idempotency_key__isnull=False),
+                name="posthog_comment_team_idem_key_uniq",
+            ),
+        ]
         indexes = [
             models.Index(fields=["team_id", "scope", "item_id"]),
             # Optimized for conversations polling: filters deleted=False, orders by -created_at

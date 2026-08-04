@@ -126,6 +126,9 @@ const conversationsTicketsReplyCreate = (): ToolBase<
         if (params.rich_content !== undefined) {
             body['rich_content'] = params.rich_content
         }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
+        }
         const result = await context.api.request<Schemas.TicketMessage>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/reply/`,

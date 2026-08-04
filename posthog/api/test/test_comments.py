@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
@@ -8,7 +9,8 @@ from django.conf import settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import User
+from posthog.api.comments import CommentViewSet
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url, extract_plain_text_from_rich_content
@@ -1135,3 +1137,85 @@ class TestCommentTasks(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/comments?{query}")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == expected_count
+
+
+class TestCommentIdempotency(APIBaseTest):
+    def _post(self, idempotency_key: str | None = None, content: str = "A reply") -> Any:
+        payload: dict[str, Any] = {"content": content, "scope": "Notebook"}
+        if idempotency_key is not None:
+            payload["idempotency_key"] = idempotency_key
+        return self.client.post(f"/api/projects/{self.team.id}/comments", payload)
+
+    def test_repeat_with_same_key_returns_the_original_comment(self) -> None:
+        key = str(uuid4())
+
+        first = self._post(key)
+        assert first.status_code == status.HTTP_201_CREATED
+
+        second = self._post(key, content="edited after a lost response")
+
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json()["id"] == first.json()["id"]
+        assert second.json()["content"] == "A reply"
+        assert Comment.objects.filter(team=self.team).count() == 1
+
+    def test_key_is_never_returned_to_the_client(self) -> None:
+        key = str(uuid4())
+        assert "idempotency_key" not in self._post(key).json()
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/comments").json()["results"]
+        assert "idempotency_key" not in listed[0]
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_losing_a_concurrent_race_returns_the_winner_without_resending_mentions(
+        self, mock_send_mention_email
+    ) -> None:
+        key = str(uuid4())
+        mentioned = User.objects.create_and_join(self.organization, "mentioned@posthog.com", None)
+        rich_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "ph-mention", "attrs": {"id": mentioned.id}}]}],
+        }
+        winner = Comment.objects.create(
+            team=self.team, scope="Notebook", content="winner", created_by=self.user, idempotency_key=key
+        )
+        mock_send_mention_email.reset_mock()
+
+        # The pre-check misses, so the INSERT itself hits the unique constraint — the path a
+        # genuinely concurrent retry takes.
+        with mock.patch.object(CommentViewSet, "_comment_for_idempotency_key", side_effect=[None, winner]):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/comments",
+                {"content": "loser", "scope": "Notebook", "idempotency_key": key, "rich_content": rich_content},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(winner.id)
+        assert response.json()["content"] == "winner"
+        assert Comment.objects.filter(team=self.team).count() == 1
+        assert not mock_send_mention_email.called
+
+    def test_keyless_creates_are_not_deduplicated(self) -> None:
+        assert self._post().status_code == status.HTTP_201_CREATED
+        assert self._post().status_code == status.HTTP_201_CREATED
+        assert Comment.objects.filter(team=self.team).count() == 2
+
+    def test_the_same_key_in_another_project_creates_its_own_comment(self) -> None:
+        key = str(uuid4())
+        other_team = Team.objects.create(organization=self.organization, name="other")
+
+        first = self._post(key)
+        second = self.client.post(
+            f"/api/projects/{other_team.id}/comments",
+            {"content": "A reply", "scope": "Notebook", "idempotency_key": key},
+        )
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert second.json()["id"] != first.json()["id"]
+
+    def test_malformed_key_is_rejected(self) -> None:
+        response = self._post("not-a-uuid")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "idempotency_key"
+        assert not Comment.objects.filter(team=self.team).exists()

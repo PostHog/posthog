@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 
@@ -31,7 +32,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
-from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
+from products.conversations.backend.api.tickets import TicketReplyRequestSerializer, TicketViewSet
 from products.conversations.backend.models import Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
@@ -2388,6 +2389,45 @@ class TestTicketReplyAPI(APIBaseTest):
         serializer = TicketReplyRequestSerializer(data={"message": "hi", "rich_content": {"amount": Decimal("1.2")}})
         assert not serializer.is_valid()
         assert "rich_content" in serializer.errors
+
+    def test_reply_repeat_with_same_key_returns_the_original_reply(self, mock_on_commit):
+        key = str(uuid.uuid4())
+
+        first = self.client.post(self.url, {"message": "A reply", "idempotency_key": key}, format="json")
+        second = self.client.post(self.url, {"message": "A reply", "idempotency_key": key}, format="json")
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json()["id"] == first.json()["id"]
+        assert Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).count() == 1
+
+    def test_reply_losing_a_concurrent_race_returns_the_winner(self, mock_on_commit):
+        key = str(uuid.uuid4())
+        winner = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="winner",
+            item_context={"author_type": "support", "is_private": False},
+            idempotency_key=key,
+        )
+
+        # The pre-check misses, so the INSERT itself hits the unique constraint — the path a
+        # genuinely concurrent retry takes.
+        with patch.object(TicketViewSet, "_reply_for_idempotency_key", side_effect=[None, winner]):
+            response = self.client.post(self.url, {"message": "loser", "idempotency_key": key}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(winner.id)
+        assert response.json()["content"] == "winner"
+        assert Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).count() == 1
+
+    def test_reply_keyless_repeats_are_not_deduplicated(self, mock_on_commit):
+        self.client.post(self.url, {"message": "A reply"}, format="json")
+        self.client.post(self.url, {"message": "A reply"}, format="json")
+
+        assert Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).count() == 2
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)

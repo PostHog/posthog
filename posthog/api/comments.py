@@ -1,12 +1,13 @@
 from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 from django.core import exceptions as django_exceptions
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema
-from rest_framework import exceptions, pagination, serializers, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import exceptions, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -75,6 +76,18 @@ class CommentSerializer(serializers.ModelSerializer):
     deleted = ClassicBehaviorBooleanFieldSerializer()
     mentions = serializers.ListField(child=serializers.IntegerField(), write_only=True, required=False)
     slug = serializers.CharField(write_only=True, required=False)
+    idempotency_key = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Client-generated UUID that makes creating this comment retry-safe. Generate one per "
+            "composed comment and reuse it on every retry: if the first request already committed "
+            "but its response was lost, the retry returns that original comment with status 200 "
+            "instead of creating a duplicate. Unique per project. Omit it and each request creates "
+            "a new comment."
+        ),
+    )
     is_task = serializers.BooleanField(
         default=False,
         required=False,
@@ -271,6 +284,57 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     @extend_schema(parameters=[CommentListQueryParamsSerializer])
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        description=(
+            "Create a comment. Pass `idempotency_key` to make the request retry-safe: a repeat "
+            "with the same key returns the already-created comment with status 200 rather than "
+            "creating a duplicate."
+        ),
+        responses={
+            201: CommentSerializer,
+            200: OpenApiResponse(
+                response=CommentSerializer,
+                description="A comment already exists for this idempotency key; the original is returned unchanged.",
+            ),
+        },
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        idempotency_key = serializer.validated_data.get("idempotency_key")
+        if not idempotency_key:
+            self.perform_create(serializer)
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED,
+                headers=self.get_success_headers(serializer.data),
+            )
+
+        replayed = self._comment_for_idempotency_key(idempotency_key)
+        if replayed is None:
+            try:
+                # Atomic so a losing race savepoints its failed INSERT instead of breaking the
+                # surrounding transaction, leaving us able to query for the winner.
+                with transaction.atomic():
+                    self.perform_create(serializer)
+            except IntegrityError:
+                replayed = self._comment_for_idempotency_key(idempotency_key)
+                if replayed is None:
+                    raise
+
+        if replayed is not None:
+            return Response(CommentSerializer(replayed, context=self.get_serializer_context()).data)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED,
+            headers=self.get_success_headers(serializer.data),
+        )
+
+    def _comment_for_idempotency_key(self, idempotency_key: UUID) -> Comment | None:
+        return Comment.objects.filter(team_id=self.team_id, idempotency_key=idempotency_key).first()
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()

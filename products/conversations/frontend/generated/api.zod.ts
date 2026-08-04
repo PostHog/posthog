@@ -258,6 +258,10 @@ export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
  * With is_private=false, the reply is delivered to the customer via the
  * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
  * the message is stored as an internal note only visible to team members.
+ *
+ * Pass idempotency_key to make the request retry-safe: a repeat with the
+ * same key returns the already-posted reply with status 200 rather than
+ * delivering a duplicate.
  */
 export const conversationsTicketsReplyCreateBodyMessageMax = 5000
 
@@ -273,6 +277,12 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
                 "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
             ),
         rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+        idempotency_key: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Client-generated UUID that makes this reply retry-safe. Generate one per composed reply and reuse it on every retry: if the first request already posted the reply but its response was lost, the retry returns that original message with status 200 instead of posting a duplicate to the customer. Unique per project.'
+            ),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
 

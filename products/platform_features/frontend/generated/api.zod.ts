@@ -349,6 +349,9 @@ export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Create a comment. Pass `idempotency_key` to make the request retry-safe: a repeat with the same key returns the already-created comment with status 200 rather than creating a duplicate.
+ */
 export const commentsCreateBodyIsTaskDefault = false
 export const commentsCreateBodyItemIdMax = 72
 
@@ -358,6 +361,12 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
+    idempotency_key: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Client-generated UUID that makes creating this comment retry-safe. Generate one per composed comment and reuse it on every retry: if the first request already committed but its response was lost, the retry returns that original comment with status 200 instead of creating a duplicate. Unique per project. Omit it and each request creates a new comment.'
+        ),
     is_task: zod
         .boolean()
         .default(commentsCreateBodyIsTaskDefault)
@@ -381,6 +390,12 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
+    idempotency_key: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Client-generated UUID that makes creating this comment retry-safe. Generate one per composed comment and reuse it on every retry: if the first request already committed but its response was lost, the retry returns that original comment with status 200 instead of creating a duplicate. Unique per project. Omit it and each request creates a new comment.'
+        ),
     is_task: zod
         .boolean()
         .default(commentsUpdateBodyIsTaskDefault)
@@ -404,6 +419,12 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
+    idempotency_key: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Client-generated UUID that makes creating this comment retry-safe. Generate one per composed comment and reuse it on every retry: if the first request already committed but its response was lost, the retry returns that original comment with status 200 instead of creating a duplicate. Unique per project. Omit it and each request creates a new comment.'
+        ),
     is_task: zod
         .boolean()
         .default(commentsPartialUpdateBodyIsTaskDefault)
