@@ -6610,6 +6610,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "kafka-manager"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "axum-test-helper",
+ "common-alloc",
+ "common-metrics",
+ "envconfig",
+ "health",
+ "kafka-manager-types",
+ "metrics",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.4.13",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "kafka-manager-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "keyed-stash"
 version = "0.1.0"
 dependencies = [

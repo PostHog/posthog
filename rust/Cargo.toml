@@ -58,6 +58,8 @@ members = [
   "ingestion-consumer",
   "ingestion-control-plane",
   "kafka-deduplicator",
+  "kafka-manager",
+  "kafka-manager-types",
   "personhog-common",
   "personhog-coordination",
   "personhog-identity",
