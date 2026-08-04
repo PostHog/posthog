@@ -71,6 +71,15 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub update_count_skip_threshold: usize,
 
+    // Period an event definition's last_seen_at is floored to for dedup purposes, which bounds
+    // how often we re-issue its write: once per (team, name) per period, per pod. The stored
+    // value is generated fresh at write time, so a coarser period only means a staler
+    // last_seen_at in the DB. Its only consumers are staleness filters, so read them before
+    // raising this: `?exclude_stale=true` compares against 30 days, but the event-screenshots
+    // Temporal workflow shortlists event types on a 3 hour window.
+    #[envconfig(from = "EVENTDEF_LAST_SEEN_FLOOR_SECS", default = "3600")]
+    pub eventdef_last_seen_floor_secs: i64,
+
     // Do everything except actually write to the DB
     #[envconfig(default = "true")]
     pub skip_writes: bool,
