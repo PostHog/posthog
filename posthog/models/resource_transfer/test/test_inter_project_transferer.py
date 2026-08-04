@@ -300,6 +300,37 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         assert new_tiles[0].dashboard == new_dashboards[0]
         assert new_tiles[0].widget == new_widgets[0]
 
+    def test_duplicates_dashboard_with_button_tile(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        button_tile = ButtonTile.objects.create(
+            team=self.team,
+            url="https://example.com",
+            text="Click me",
+            placement="right",
+            style="secondary",
+        )
+        DashboardTile.objects.create(dashboard=dashboard, button_tile=button_tile, team=self.team)
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+
+        new_dashboards = [r for r in results if isinstance(r, Dashboard)]
+        new_button_tiles = [r for r in results if isinstance(r, ButtonTile)]
+        new_tiles = [r for r in results if isinstance(r, DashboardTile)]
+
+        assert len(new_dashboards) == 1
+        assert len(new_button_tiles) == 1
+        assert len(new_tiles) == 1
+
+        assert new_button_tiles[0].pk != button_tile.pk
+        assert new_button_tiles[0].team == dest_team
+        assert new_button_tiles[0].url == "https://example.com"
+        assert new_button_tiles[0].text == "Click me"
+        assert new_button_tiles[0].placement == "right"
+        assert new_button_tiles[0].style == "secondary"
+        assert new_tiles[0].dashboard == new_dashboards[0]
+        assert new_tiles[0].button_tile == new_button_tiles[0]
+
     def test_does_not_modify_source_resources(self) -> None:
         dest_team = self._create_destination_team()
         insight = Insight.objects.create(team=self.team, name="My insight")
