@@ -17,6 +17,7 @@ vi.mock('@/lib/posthog', () => ({
 
 import { trackExecuteSqlGeneration, trackInitEvent, trackToolCall } from '@/hono/analytics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
 
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
@@ -116,16 +117,146 @@ describe('Hono MCP analytics contexts', () => {
         expect(properties.mcp_session_vendor_client).toBeUndefined()
     })
 
-    it('stamps $mcp_tool_category from the catalogued tool definition', async () => {
-        await trackToolCall('query-logs', 5, false, makeState())
+    describe('client identity live-first fallback', () => {
+        // $mcp_client_name is the property this whole fix targets: `clientInfo` arrives
+        // only on `initialize`, so it was empty on every tool call that followed. The
+        // same live-first-then-session precedence applies to every field a live request
+        // can carry.
+        it.each([
+            ['$mcp_client_name', 'mcpClientName'],
+            ['$mcp_client_version', 'mcpClientVersion'],
+            ['$mcp_protocol_version', 'mcpProtocolVersion'],
+            ['$mcp_consumer', 'mcpConsumer'],
+            ['mcp_vendor_client', 'mcpVendorClient'],
+        ] as const)(
+            '%s: live value wins when both live and session values are present',
+            async (eventProp, contextField) => {
+                const state = makeState({
+                    requestContext: { ...makeState().requestContext, [contextField]: 'live-value' },
+                    sessionContext: { ...makeState().sessionContext, [contextField]: 'session-value' },
+                })
+                await trackToolCall('user-get', 12, false, state)
 
-        expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_tool_category).toBe('Logs')
+                expect(mockCaptureToolCall.mock.calls[0]![0].properties[eventProp]).toBe('live-value')
+            }
+        )
+
+        it.each([
+            ['$mcp_client_name', 'mcpClientName'],
+            ['$mcp_client_version', 'mcpClientVersion'],
+            ['$mcp_protocol_version', 'mcpProtocolVersion'],
+            ['$mcp_consumer', 'mcpConsumer'],
+            ['mcp_vendor_client', 'mcpVendorClient'],
+        ] as const)(
+            '%s: falls back to the session-pinned value when the live request has none (the tools/call case)',
+            async (eventProp, contextField) => {
+                const state = makeState({
+                    requestContext: { ...makeState().requestContext, [contextField]: undefined },
+                    sessionContext: { ...makeState().sessionContext, [contextField]: 'session-value' },
+                })
+                await trackToolCall('user-get', 12, false, state)
+
+                expect(mockCaptureToolCall.mock.calls[0]![0].properties[eventProp]).toBe('session-value')
+            }
+        )
+
+        it.each([
+            ['$mcp_client_name', 'mcpClientName'],
+            ['$mcp_client_version', 'mcpClientVersion'],
+            ['$mcp_protocol_version', 'mcpProtocolVersion'],
+            ['$mcp_consumer', 'mcpConsumer'],
+            ['mcp_vendor_client', 'mcpVendorClient'],
+        ] as const)(
+            '%s: stays undefined (never an empty string) when both live and session values are absent',
+            async (eventProp, contextField) => {
+                const state = makeState({
+                    requestContext: { ...makeState().requestContext, [contextField]: undefined },
+                    sessionContext: { ...makeState().sessionContext, [contextField]: undefined },
+                })
+                await trackToolCall('user-get', 12, false, state)
+
+                expect(mockCaptureToolCall.mock.calls[0]![0].properties[eventProp]).toBeUndefined()
+            }
+        )
+
+        it('initialize with no session context is unchanged: live request value is used as-is', async () => {
+            await trackInitEvent(makeState({ sessionContext: null }))
+
+            expect(mockCaptureInitialize.mock.calls[0]![0].properties).toMatchObject({
+                $mcp_client_name: 'Claude Desktop',
+                $mcp_client_version: '2.0',
+                $mcp_protocol_version: '2025-03-26',
+                $mcp_consumer: 'request-consumer',
+                mcp_vendor_client: 'ClaudeAI',
+            })
+        })
+
+        it('initialize with no session context and no live value stays undefined', async () => {
+            const state = makeState({
+                sessionContext: null,
+                requestContext: { ...makeState().requestContext, mcpClientName: undefined },
+            })
+            await trackInitEvent(state)
+
+            expect(mockCaptureInitialize.mock.calls[0]![0].properties.$mcp_client_name).toBeUndefined()
+        })
+
+        it.each([
+            ['$mcp_client_user_agent', 'clientUserAgent'],
+            ['$mcp_transport', 'transport'],
+            ['$mcp_session_id', 'mcpSessionId'],
+            ['$mcp_conversation_id', 'mcpConversationId'],
+            ['$mcp_mode', 'mode'],
+            ['$mcp_region', 'region'],
+        ] as const)(
+            '%s is per-request only: it stays undefined even when the live request has none, regardless of session context',
+            async (eventProp, contextField) => {
+                const state = makeState({
+                    requestContext: { ...makeState().requestContext, [contextField]: undefined },
+                })
+                await trackToolCall('user-get', 12, false, state)
+
+                expect(mockCaptureToolCall.mock.calls[0]![0].properties[eventProp]).toBeUndefined()
+            }
+        )
+
+        it('mcp_runtime is a static constant, unaffected by request or session context', async () => {
+            await trackToolCall('user-get', 12, false, makeState())
+
+            expect(mockCaptureToolCall.mock.calls[0]![0].properties.mcp_runtime).toBe('hono')
+        })
     })
 
-    it('omits $mcp_tool_category for tools without a catalogued definition', async () => {
+    it('stamps $mcp_tool_category and $mcp_tool_description from the catalogued tool definition', async () => {
+        await trackToolCall('query-logs', 5, false, makeState())
+
+        const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+        expect(properties.$mcp_tool_category).toBe('Logs')
+        // query-logs' catalogued description is ~13 KB, so this assertion also locks in
+        // the capture-side clip. Description capture died silently once before (the hono
+        // migration dropped it while the category stamp survived), so the two are asserted
+        // together at the same call site.
+        expect(properties.$mcp_tool_description).toBe(
+            getToolDefinition('query-logs').description.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
+        )
+        expect((properties.$mcp_tool_description as string).length).toBe(MAX_CAPTURED_DESCRIPTION_LENGTH)
+    })
+
+    it('omits $mcp_tool_category and $mcp_tool_description for tools without a catalogued definition', async () => {
         await trackToolCall('exec', 5, false, makeState())
 
         expect(mockCaptureToolCall.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_category')
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_description')
+    })
+
+    it('prefers the served description over the catalog text, clipped', async () => {
+        // execute-sql advertises a per-request formatted description, so stamping
+        // the catalog text would record words the agent never saw.
+        const served = 'served '.repeat(200)
+        await trackToolCall('query-logs', 5, false, makeState(), undefined, undefined, served)
+
+        const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+        expect(properties.$mcp_tool_description).toBe(served.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH))
     })
 
     describe('trackExecuteSqlGeneration', () => {

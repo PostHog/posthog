@@ -122,6 +122,8 @@ jobs:
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
+                        - 'products/managed_warehouse/backend/**'
+                        # Backward compatibility for unrebased PRs; remove after August 14, 2026.
                         - 'posthog/ducklake/**'
                         - 'common/hogvm/**'
                         # Test infrastructure used by dagster tests
@@ -149,6 +151,7 @@ jobs:
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
+                        - 'products/signals/backend/**/*.py'
                         - 'products/marketing_analytics/backend/**/*.py'
                         - 'products/ai_observability/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'

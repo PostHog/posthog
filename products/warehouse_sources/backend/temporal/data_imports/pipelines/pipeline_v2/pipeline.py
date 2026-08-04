@@ -20,21 +20,17 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     advance_xmin_state,
-    cdp_producer_clear_chunks,
     cleanup_memory,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     persist_primary_keys,
-    person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
-    stage_chunk_for_person_property_sink,
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
-    write_chunk_for_cdp_producer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     run_post_load_operations,
@@ -51,13 +47,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import setup_partitioning
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
-    PersonPropertyRowSink,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sinks import (
+    PipelineSinks,
+    build_pipeline_sinks,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
@@ -82,10 +79,10 @@ class PipelineNonDLT(Generic[ResumableData]):
     _logger: FilteringBoundLogger
     _is_incremental: bool
     _reset_pipeline: bool
-    _delta_table_helper: DeltaTableHelper
+    _delta_table_ref: DeltaTableRef
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
     _internal_schema = HogQLSchema()
-    _cdp_producer: CDPProducer
+    _sinks: PipelineSinks
     _batcher: Batcher
     _load_id: int
 
@@ -122,7 +119,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
         self._is_incremental = schema.is_incremental or schema.is_webhook or schema.is_xmin
 
-        self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
+        self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
         self._resumable_source_manager = resumable_source_manager
         # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
@@ -135,10 +132,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             schema_name=self._schema.name,
         )
         self._internal_schema = HogQLSchema()
-        self._cdp_producer = CDPProducer(
-            team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
-        )
-        self._person_property_sink = PersonPropertyRowSink(
+        self._sinks = build_pipeline_sinks(
             team_id=self._job.team_id,
             schema_id=self._schema.id,
             job_id=job_id,
@@ -165,8 +159,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             await self._logger.ainfo("Resumable source detected - attempting to resume previous import")
 
         try:
-            await cdp_producer_clear_chunks(self._cdp_producer)
-            await person_property_sink_clear_chunks(self._person_property_sink)
+            await self._sinks.clear()
 
             await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
@@ -189,13 +182,13 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             # Revive a corrupt-`_delta_log` table (from an interrupted repartition swap or OOM-crashed
             # merge) before extraction so it self-heals in this run instead of looping forever.
-            await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
+            await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_ref, self._logger)
 
             await handle_reset_or_full_refresh(
                 self._reset_pipeline,
                 should_resume,
                 self._schema,
-                self._delta_table_helper,
+                self._delta_table_ref,
                 self._logger,
                 webhook_only=self._resource.webhook_only,
             )
@@ -208,7 +201,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             # `_post_run_operations`) cleans up before adding more small files. Skipped
             # cheaply when the table is healthy; see DeltaMaintenance.run_scheduled.
             if not is_first_ever_sync:
-                await DeltaMaintenance(self._delta_table_helper).run_scheduled(
+                await DeltaMaintenance(self._delta_table_ref).run_scheduled(
                     self._schema, partition_count_fallback=self._resource.partition_count
                 )
 
@@ -266,7 +259,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             await advance_xmin_state(self._resource, self._schema, self._logger)
 
-            result = PipelineResult(should_trigger_cdp_producer=await self._cdp_producer.should_produce_table())
+            result = PipelineResult(should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run())
             if isinstance(prepared_queryable_folder, str):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
             return result
@@ -278,12 +271,12 @@ class PipelineNonDLT(Generic[ResumableData]):
             # captured, obscuring the real import error that's already driving retry
             # classification and the user-facing message.
             await self._logger.adebug("Cleaning up delta table helper")
-            delta_table = self._delta_table_helper.get_delta_table.cache_pop(self._delta_table_helper)
+            delta_table = self._delta_table_ref.get_delta_table.cache_pop(self._delta_table_ref)
             if delta_table:
                 del delta_table
 
             del self._resource
-            del self._delta_table_helper
+            del self._delta_table_ref
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
@@ -308,8 +301,8 @@ class PipelineNonDLT(Generic[ResumableData]):
     async def _process_pa_table(
         self, pa_table: pa.Table, index: int, resuming_sync: bool, row_count: int, is_first_ever_sync: bool
     ):
-        delta_table = await self._delta_table_helper.get_delta_table()
-        previous_file_uris = await self._delta_table_helper.get_file_uris()
+        delta_table = await self._delta_table_ref.get_delta_table()
+        previous_file_uris = await self._delta_table_ref.get_file_uris()
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
@@ -343,7 +336,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         should_overwrite_table = index == 0 and not resuming_sync
 
-        delta_table = await self._delta_table_helper.write_to_deltalake(
+        delta_table = await DeltaWriter(self._delta_table_ref).write(
             pa_table,
             write_type,
             should_overwrite_table=should_overwrite_table,
@@ -352,8 +345,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
-        await write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
-        await stage_chunk_for_person_property_sink(self._person_property_sink, index, pa_table)
+        await self._sinks.stage_chunk(index, pa_table)
 
         (
             self._last_incremental_field_value,
@@ -376,7 +368,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         # available to start using
         # TODO - enable this for all source types
         if is_first_ever_sync and supports_partial_data_loading(self._schema):
-            file_uris = await self._delta_table_helper.get_file_uris()
+            file_uris = await self._delta_table_ref.get_file_uris()
 
             await self._process_partial_data(
                 previous_file_uris=previous_file_uris,
@@ -437,7 +429,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             job=self._job,
             schema=self._schema,
             source=self._source,
-            delta_table_helper=self._delta_table_helper,
+            delta_table_ref=self._delta_table_ref,
             row_count=row_count,
             table_schema_dict=self._internal_schema.to_hogql_types(),
             resource_name=self._resource_name,
