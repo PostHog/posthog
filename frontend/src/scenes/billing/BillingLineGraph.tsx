@@ -11,15 +11,11 @@ import { makeChartErrorHandler } from 'products/product_analytics/frontend/insig
 import { BillingPeriodMarkers } from './BillingPeriodMarkers'
 import type { BillingPeriodMarker } from './BillingPeriodMarkers'
 
-export type { BillingPeriodMarker }
-
 export interface BillingSeriesType {
     id: number
     label: string
     data: number[]
     dates: string[]
-    valueFormatter?: (value: number) => string
-    showLegend?: boolean
 }
 
 export interface BillingLineGraphProps {
@@ -38,10 +34,6 @@ const defaultFormatter = (value: number): string => value.toLocaleString()
 const handleChartError = makeChartErrorHandler('billing-line-chart')
 
 const NO_MARKERS: BillingPeriodMarker[] = []
-
-export function SeriesColorDot({ colorIndex }: { colorIndex: number }): JSX.Element {
-    return <div className={`series-color-dot series-color-dot-${colorIndex % 15}`} />
-}
 
 export function BillingLineGraph({
     series,
@@ -65,7 +57,7 @@ export function BillingLineGraph({
                     key: String(s.id),
                     label: s.label,
                     data: s.data,
-                    color: getSeriesColor(s.id % 15),
+                    color: getSeriesColor(s.id),
                 })),
         [series, hiddenSeries]
     )
@@ -75,7 +67,7 @@ export function BillingLineGraph({
             xAxis: { timezone: 'UTC', interval },
             yAxis: { tickFormatter: valueFormatter },
             legend: { show: showLegend, position: 'bottom', interactive: false },
-            tooltip: { sortedByValue: true, valueFormatter: (value: number) => valueFormatter(value) },
+            tooltip: { sortedByValue: true, valueFormatter },
         }),
         [interval, valueFormatter, showLegend]
     )

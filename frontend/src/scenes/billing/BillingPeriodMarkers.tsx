@@ -34,11 +34,6 @@ export function resolveMarkerX(markerTs: number, labelTimestamps: number[], labe
     return null
 }
 
-// The label must not drive the chart's crosshair or tooltip, which track the wrapper's mouse events.
-const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
-    e.stopPropagation()
-}
-
 function BillingPeriodExplanation(): JSX.Element {
     return (
         <div className="p-2">
@@ -56,27 +51,30 @@ function BillingPeriodExplanation(): JSX.Element {
 }
 
 /**
- * Dashed vertical lines marking each billing period start, plus a hoverable label on the most recent
- * one. Renders as a chart overlay child, reading pixel positions off the chart's own scales.
+ * Renders as a chart overlay child, reading pixel positions off the chart's own scales.
  */
 export function BillingPeriodMarkers({ markers }: { markers: BillingPeriodMarker[] }): JSX.Element | null {
     const { labels, scales, dimensions, theme } = useChartLayout()
 
+    const labelTimestamps = useMemo(() => labels.map((label) => dayjs.utc(label).valueOf()), [labels])
+
     const positions = useMemo(() => {
-        const labelTimestamps = labels.map((label) => dayjs.utc(label).valueOf())
+        if (!markers.length) {
+            return []
+        }
         const labelX = labels.map((label) => scales.x(label) ?? NaN)
         return markers
             .map((marker) => resolveMarkerX(marker.date.utc().startOf('day').valueOf(), labelTimestamps, labelX))
             .filter((left): left is number => left !== null && isFinite(left))
         // eslint-disable-next-line react-hooks/exhaustive-deps -- only `scales.x` is read; `scales` itself is unused.
-    }, [markers, labels, scales.x])
+    }, [markers, labels, labelTimestamps, scales.x])
 
     if (!positions.length) {
         return null
     }
 
-    const lineColor = theme.axisLineColor ?? theme.axisColor ?? 'currentColor'
-    const labelLeft = positions[positions.length - 1]
+    const lineColor = theme.axisLineColor
+    const labelLeft = Math.max(...positions)
 
     // Positions and the theme's line color resolve at runtime from the chart's scales, so they stay
     // inline — everything static is a utility class.
@@ -85,6 +83,7 @@ export function BillingPeriodMarkers({ markers }: { markers: BillingPeriodMarker
             {positions.map((left, idx) => (
                 <div
                     key={`billing-period-line-${idx}`}
+                    data-attr="billing-period-marker-line"
                     className="absolute -translate-x-1/2 border-l-2 border-dashed"
                     style={{
                         left,
@@ -95,10 +94,9 @@ export function BillingPeriodMarkers({ markers }: { markers: BillingPeriodMarker
                 />
             ))}
             <div
+                data-attr="billing-period-marker-label"
                 className="absolute -translate-x-1/2 pointer-events-auto cursor-default"
                 style={{ left: labelLeft, top: dimensions.plotTop }}
-                onMouseEnter={stopPointerPropagation}
-                onMouseMove={stopPointerPropagation}
             >
                 <Tooltip title={<BillingPeriodExplanation />} placement="bottom">
                     <div className="flex items-center gap-1 px-2 py-1 text-xs font-normal whitespace-nowrap rounded-sm border border-primary bg-surface-primary text-secondary">

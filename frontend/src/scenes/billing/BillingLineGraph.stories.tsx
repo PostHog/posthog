@@ -36,10 +36,6 @@ export const WithBillingPeriodMarker: Story = {
     args: { billingPeriodMarkers: [{ date: dayjs.utc('2024-03-01') }] },
 }
 
-export const WithLegendAndHiddenSeries: Story = {
-    args: { showLegend: true, hiddenSeries: [2] },
-}
-
 export const AsSpend: Story = {
     args: {
         series: [seriesFrom(0, 'Product analytics', 420, 160), seriesFrom(1, 'Session replay', 130, 40)],

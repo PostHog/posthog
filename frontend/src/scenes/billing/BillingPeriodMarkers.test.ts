@@ -1,7 +1,6 @@
 import { resolveMarkerX } from './BillingPeriodMarkers'
 
 describe('resolveMarkerX', () => {
-    // Three evenly spaced monthly buckets at 100px intervals.
     const labelTimestamps = [
         Date.UTC(2026, 0, 1), // Jan 1
         Date.UTC(2026, 1, 1), // Feb 1
@@ -14,10 +13,9 @@ describe('resolveMarkerX', () => {
     })
 
     it('interpolates a marker that falls between two labels', () => {
-        // Jan 16 is roughly halfway through the 31-day January bucket.
+        // Jan 16 is 15 days into the 31-day January bucket: (15 / 31) * 100 = 48.387...
         const x = resolveMarkerX(Date.UTC(2026, 0, 16), labelTimestamps, labelX)
-        expect(x).toBeGreaterThan(45)
-        expect(x).toBeLessThan(55)
+        expect(x).toBeCloseTo((15 / 31) * 100, 5)
     })
 
     it.each([
@@ -25,6 +23,13 @@ describe('resolveMarkerX', () => {
         ['after the last label', Date.UTC(2026, 2, 2)],
     ])('returns null for a marker %s', (_, markerTs) => {
         expect(resolveMarkerX(markerTs, labelTimestamps, labelX)).toBeNull()
+    })
+
+    it.each([
+        ['on the first label', Date.UTC(2026, 0, 1), 0],
+        ['on the last label', Date.UTC(2026, 2, 1), 200],
+    ])('resolves a marker landing exactly %s as an in-range x', (_, markerTs, expectedX) => {
+        expect(resolveMarkerX(markerTs, labelTimestamps, labelX)).toBe(expectedX)
     })
 
     it('resolves an exact match on a single-bucket chart, which has no interval to interpolate', () => {
