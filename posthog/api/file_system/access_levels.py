@@ -16,6 +16,7 @@ from posthog.api.file_system.deletion import (
     ModelRegistration,
     get_file_system_registration,
     get_non_pk_keyed_file_system_types,
+    is_pk_keyed_file_system_type,
 )
 from posthog.models import Team
 from posthog.rbac.user_access_control import (
@@ -238,22 +239,22 @@ def bulk_file_system_access_levels(
             continue
         registrations_by_type[entry_type] = registration
         needs_creator = any(created_by_id is None for created_by_id in creator_by_provided_ref.values())
-        id_keyed = registration.lookup_field == "id"
-        if id_keyed and not needs_creator:
+        pk_keyed = is_pk_keyed_file_system_type(registration)
+        if pk_keyed and not needs_creator:
             continue
 
         refs = list(creator_by_provided_ref)
         # When we only need the ref->pk translation (not a fresh creator lookup), serve it from
         # the cache and only query the refs still missing - a warm cache takes the UNION off the
         # request entirely. Creator lookups always hit the DB so they never read stale creators.
-        if not id_keyed and not needs_creator:
+        if not pk_keyed and not needs_creator:
             cached_pks = _get_cached_ref_pks(project_id, entry_type, team_id, refs)
             for ref, pk in cached_pks.items():
                 translated[(entry_type, ref, team_id)] = (pk, None)
             refs = [ref for ref in refs if ref not in cached_pks]
             if not refs:
                 continue
-        if not id_keyed:
+        if not pk_keyed:
             cacheable_groups.add((entry_type, team_id))
         refs_needing_query_by_type.setdefault(entry_type, set()).update(refs)
 

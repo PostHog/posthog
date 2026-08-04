@@ -159,9 +159,20 @@ def get_file_system_registration(type_string: str) -> ModelRegistration | None:
     return _MODEL_REGISTRY.get(type_string)
 
 
+def is_pk_keyed_file_system_type(registration: ModelRegistration) -> bool:
+    """Whether a type's file system `ref` holds its object's primary key.
+
+    Compares against the model's own pk name rather than the literal "id", because Django lets a
+    model name its primary key any column: a registration whose lookup field is that column is
+    pk-keyed even when it isn't called "id".
+    """
+    model = apps.get_model(registration.app_label, registration.model_name)
+    return registration.lookup_field == model._meta.pk.name
+
+
 def get_non_pk_keyed_file_system_types() -> list[str]:
     """Registered types whose file system `ref` is something other than the object's primary key."""
-    return [type_string for type_string, reg in _MODEL_REGISTRY.items() if reg.lookup_field != "id"]
+    return [type_string for type_string, reg in _MODEL_REGISTRY.items() if not is_pk_keyed_file_system_type(reg)]
 
 
 def _resolve_user(user: Any | None) -> Any | None:
