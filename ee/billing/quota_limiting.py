@@ -945,7 +945,7 @@ def _append_todays_usage_patch(
     if not existing_resource:
         return
 
-    new_todays_usage = todays_report[field]  # type: ignore[literal-required]
+    new_todays_usage = cast(dict[str, int | float], todays_report)[field]
     if existing_resource.get("todays_usage") == new_todays_usage:
         return
 
