@@ -85,6 +85,7 @@ import {
     TaggersTestHogCreateBody,
 } from '@/generated/ai_observability/api'
 import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import {
     withPostHogUrl,
     withInformationalResponse,
@@ -1872,6 +1873,324 @@ const llmaTraceReviewUpdate = (): ToolBase<
     },
 })
 
+// --- Query wrapper schemas from schema.json ---
+
+const AssistantDateRange = z.object({
+    date_from: z.string().describe('ISO8601 date string.'),
+    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
+})
+
+const AssistantDurationRange = z.object({
+    date_from: z
+        .string()
+        .describe(
+            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
+        ),
+})
+
+const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
+
+const integer = z.coerce.number().int()
+
+const AssistantStringOrBooleanValuePropertyFilterOperator = z.enum([
+    'exact',
+    'is_not',
+    'icontains',
+    'not_icontains',
+    'regex',
+    'not_regex',
+])
+
+const AssistantGenericPropertyFilterType = z.enum(['event', 'person', 'session', 'feature'])
+
+const AssistantNumericValuePropertyFilterOperator = z.enum(['exact', 'gt', 'lt'])
+
+const AssistantArrayPropertyFilterOperator = z.enum(['exact', 'is_not'])
+
+const AssistantDateTimePropertyFilterOperator = z.enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+
+const AssistantSetPropertyFilterOperator = z.enum(['is_set', 'is_not_set'])
+
+const AssistantGenericPropertyFilter = z.union([
+    z.object({
+        key: z.string().describe('Use one of the properties the user has provided in the plan.'),
+        operator: AssistantStringOrBooleanValuePropertyFilterOperator.describe(
+            '`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.'
+        ),
+        type: AssistantGenericPropertyFilterType,
+        value: z
+            .string()
+            .describe(
+                'Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.'
+            ),
+    }),
+    z.object({
+        key: z.string().describe('Use one of the properties the user has provided in the plan.'),
+        operator: AssistantNumericValuePropertyFilterOperator,
+        type: AssistantGenericPropertyFilterType,
+        value: z.coerce.number(),
+    }),
+    z.object({
+        key: z.string().describe('Use one of the properties the user has provided in the plan.'),
+        operator: AssistantArrayPropertyFilterOperator.describe(
+            '`exact` - exact match of any of the values. `is_not` - does not match any of the values.'
+        ),
+        type: AssistantGenericPropertyFilterType,
+        value: z
+            .array(z.string())
+            .describe(
+                'Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false".'
+            ),
+    }),
+    z.object({
+        key: z.string().describe('Use one of the properties the user has provided in the plan.'),
+        operator: AssistantDateTimePropertyFilterOperator,
+        type: AssistantGenericPropertyFilterType,
+        value: z.string().describe('Value must be a date in ISO 8601 format.'),
+    }),
+    z.object({
+        key: z.string().describe('Use one of the properties the user has provided in the plan.'),
+        operator: AssistantSetPropertyFilterOperator.describe(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+        ),
+        type: AssistantGenericPropertyFilterType,
+    }),
+])
+
+const AssistantGroupPropertyFilter = z.union([
+    z.object({
+        group_type_index: integer.describe('Index of the group type from the group mapping.'),
+        key: z.string().describe('Use one of the properties the user has provided in the plan.'),
+        operator: AssistantStringOrBooleanValuePropertyFilterOperator.describe(
+            '`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.'
+        ),
+        type: z.literal('group').default('group'),
+        value: z
+            .string()
+            .describe(
+                'Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.'
+            ),
+    }),
+    z.object({
+        group_type_index: integer.describe('Index of the group type from the group mapping.'),
+        key: z.string().describe('Use one of the properties the user has provided in the plan.'),
+        operator: AssistantNumericValuePropertyFilterOperator,
+        type: z.literal('group').default('group'),
+        value: z.coerce.number(),
+    }),
+    z.object({
+        group_type_index: integer.describe('Index of the group type from the group mapping.'),
+        key: z.string().describe('Use one of the properties the user has provided in the plan.'),
+        operator: AssistantArrayPropertyFilterOperator.describe(
+            '`exact` - exact match of any of the values. `is_not` - does not match any of the values.'
+        ),
+        type: z.literal('group').default('group'),
+        value: z
+            .array(z.string())
+            .describe(
+                'Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false".'
+            ),
+    }),
+    z.object({
+        group_type_index: integer.describe('Index of the group type from the group mapping.'),
+        key: z.string().describe('Use one of the properties the user has provided in the plan.'),
+        operator: AssistantDateTimePropertyFilterOperator,
+        type: z.literal('group').default('group'),
+        value: z.string().describe('Value must be a date in ISO 8601 format.'),
+    }),
+    z.object({
+        group_type_index: integer.describe('Index of the group type from the group mapping.'),
+        key: z.string().describe('Use one of the properties the user has provided in the plan.'),
+        operator: AssistantSetPropertyFilterOperator.describe(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+        ),
+        type: z.literal('group').default('group'),
+    }),
+])
+
+const AssistantCohortPropertyFilter = z.object({
+    key: z.literal('id').default('id'),
+    operator: z.enum(['in', 'not_in']).default('in'),
+    type: z
+        .literal('cohort')
+        .describe(
+            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples:\n- Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }`\n- Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`'
+        )
+        .default('cohort'),
+    value: integer.describe('The cohort ID to filter by.'),
+})
+
+const AssistantElementPropertyFilter = z.union([
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantStringOrBooleanValuePropertyFilterOperator.describe(
+            '`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.'
+        ),
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z
+            .string()
+            .describe(
+                'Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.'
+            ),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantNumericValuePropertyFilterOperator,
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z.coerce.number(),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantArrayPropertyFilterOperator.describe(
+            '`exact` - exact match of any of the values. `is_not` - does not match any of the values.'
+        ),
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z
+            .array(z.string())
+            .describe(
+                'Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false".'
+            ),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantDateTimePropertyFilterOperator,
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z.string().describe('Value must be a date in ISO 8601 format.'),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantSetPropertyFilterOperator.describe(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+        ),
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+    }),
+])
+
+const AssistantHogQLPropertyFilter = z.object({
+    key: z
+        .string()
+        .describe(
+            "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`"
+        ),
+    type: z
+        .literal('hogql')
+        .describe(
+            "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters."
+        )
+        .default('hogql'),
+})
+
+const AssistantFlagPropertyFilter = z.object({
+    key: z.string().describe('The feature flag key.'),
+    operator: z.literal('flag_evaluates_to').default('flag_evaluates_to'),
+    type: z
+        .literal('flag')
+        .describe(
+            'Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }`\n- Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }`'
+        )
+        .default('flag'),
+    value: z
+        .union([z.coerce.boolean(), z.string()])
+        .describe('`true`/`false` for boolean flags, or a variant name string for multivariate flags.'),
+})
+
+const AssistantPropertyFilter = z.union([
+    AssistantGenericPropertyFilter,
+    AssistantGroupPropertyFilter,
+    AssistantCohortPropertyFilter,
+    AssistantElementPropertyFilter,
+    AssistantHogQLPropertyFilter,
+    AssistantFlagPropertyFilter,
+])
+
+const AssistantTracesQuery = z.object({
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
+    filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe('Exclude internal and test users by applying the respective filters.')
+        .default(true)
+        .optional(),
+    groupKey: z.string().describe('Filter traces by group key. Requires `groupTypeIndex` to be set.').optional(),
+    groupTypeIndex: integer.describe('Group type index when filtering by group.').optional(),
+    kind: z.literal('TracesQuery').default('TracesQuery'),
+    limit: integer.describe('Maximum number of traces to return.').default(100).optional(),
+    offset: integer.describe('Number of traces to skip for pagination.').default(0).optional(),
+    personId: z.string().describe('Filter traces by a specific person UUID.').optional(),
+    properties: z
+        .array(AssistantPropertyFilter)
+        .describe(
+            'Property filters to narrow results. Use event properties like `$ai_model`, `$ai_provider`, `$ai_trace_id`, etc. to filter traces.'
+        )
+        .default([])
+        .optional(),
+    randomOrder: z.coerce
+        .boolean()
+        .describe(
+            'Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.'
+        )
+        .default(false)
+        .optional(),
+})
+
+const AssistantTraceQuery = z.object({
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
+    kind: z.literal('TraceQuery').default('TraceQuery'),
+    properties: z
+        .array(AssistantPropertyFilter)
+        .describe('Property filters to narrow events within the trace.')
+        .default([])
+        .optional(),
+    traceId: z
+        .string()
+        .describe('The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).'),
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-clustering-config-get': llmaClusteringConfigGet,
     'llma-clustering-config-set-event-filters': llmaClusteringConfigSetEventFilters,
@@ -1939,4 +2258,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-trace-review-get': llmaTraceReviewGet,
     'llma-trace-review-list': llmaTraceReviewList,
     'llma-trace-review-update': llmaTraceReviewUpdate,
+    'query-llm-traces-list': createQueryWrapper({
+        name: 'query-llm-traces-list',
+        schema: AssistantTracesQuery,
+        kind: 'TracesQuery',
+    }),
+    'query-llm-trace': createQueryWrapper({ name: 'query-llm-trace', schema: AssistantTraceQuery, kind: 'TraceQuery' }),
 }
