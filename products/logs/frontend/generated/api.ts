@@ -24,7 +24,9 @@ import type {
     LogsMetricRuleApi,
     LogsMetricRulesListParams,
     LogsRetentionRuleApi,
+    LogsRetentionRuleNameSuggestionApi,
     LogsRetentionRuleReorderApi,
+    LogsRetentionRuleSuggestNameApi,
     LogsRetentionRulesListParams,
     LogsRetentionRulesReorderCreateParams,
     LogsSamplingRuleApi,
@@ -744,6 +746,26 @@ export const logsRetentionRulesReorderCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsRetentionRuleReorderApi),
+    })
+}
+
+export const getLogsRetentionRulesSuggestNameCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/retention_rules/suggest_name/`
+}
+
+/**
+ * Suggest a human-readable name for a retention rule from its retention tier and filter group. Used by the create form as an auto-suggest; nothing is persisted. Returns an empty name when a suggestion can't be generated.
+ */
+export const logsRetentionRulesSuggestNameCreate = async (
+    projectId: string,
+    logsRetentionRuleSuggestNameApi: LogsRetentionRuleSuggestNameApi,
+    options?: RequestInit
+): Promise<LogsRetentionRuleNameSuggestionApi> => {
+    return apiMutator<LogsRetentionRuleNameSuggestionApi>(getLogsRetentionRulesSuggestNameCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleSuggestNameApi),
     })
 }
 
