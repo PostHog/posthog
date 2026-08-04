@@ -7,13 +7,19 @@ an untouched catalog template when they toggle it (the gateway API's
 set_template_enabled action). Servers with no row follow the team's
 `default_servers_enabled` posture."""
 
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
 import structlog
 
 from posthog.models import User
 
-from .models import MCPGatewayServer, MCPServerInstallation, MCPServiceAccountServerAccess, TeamMCPGatewayConfig
+from .models import (
+    MCPGatewayServer,
+    MCPMemberServerRevocation,
+    MCPServerInstallation,
+    MCPServiceAccountServerAccess,
+    TeamMCPGatewayConfig,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -21,7 +27,7 @@ _GATEWAY_SERVER_NAME_MAX_LENGTH = 200
 
 # Query-string key naming whose credential a proxy call rides. Several members
 # can team-share the same server with the same agent, so the gateway server id
-# alone no longer identifies one grant.
+# alone does not identify one grant.
 AGENT_GRANT_CREDENTIAL_OWNER_PARAM = "credential_owner"
 
 
@@ -96,18 +102,26 @@ def installation_for_agent_grant(
     )
 
 
-def reachable_agent_grants(credential_owner_id: int | None) -> Q:
+def reachable_agent_grants(team_id: int, credential_owner_id: int | None) -> Q:
     """The grants an agent run may use: the run's own credential owner's grants
     at any scope, plus every member's team-scoped grants.
 
     A run with no credential owner (an autonomous support reply, a creatorless
     scout) reaches team-scoped grants only. Grant rows with no user resolve for
     nobody, so they are excluded from every lane.
+
+    An admin's per-member revocation of the server applies here as well as on
+    the member paths. Otherwise a member whose access an admin turned off would
+    keep lending that credential to every agent run through a team-scoped grant.
     """
+    revoked_for_grant_owner = MCPMemberServerRevocation.objects.for_team(team_id).filter(
+        gateway_server_id=OuterRef("gateway_server_id"),
+        user_id=OuterRef("user_id"),
+    )
     reachable = Q(scope="team")
     if credential_owner_id is not None:
         reachable |= Q(user_id=credential_owner_id)
-    return reachable & Q(user__isnull=False)
+    return reachable & Q(user__isnull=False) & ~Q(Exists(revoked_for_grant_owner))
 
 
 def agent_grant_owner_label(access: MCPServiceAccountServerAccess) -> str:

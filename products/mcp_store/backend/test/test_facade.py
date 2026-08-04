@@ -10,6 +10,7 @@ from products.mcp_store.backend.facade.api import get_active_installations, get_
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
+    MCPMemberServerRevocation,
     MCPServerInstallation,
     MCPServerTemplate,
     MCPServiceAccount,
@@ -469,6 +470,48 @@ class TestGetInstallationsForSandbox(BaseTest):
             f"/api/mcp_store/gateway/servers/{server.id}/proxy/?credential_owner={self.user.id}",
             f"/api/mcp_store/gateway/servers/{server.id}/proxy/?credential_owner={teammate.id}",
         }
+
+    @parameterized.expand(
+        [
+            ("credential_deleted", "deleted"),
+            ("oauth_needs_reauth", "unready_oauth"),
+            ("installation_disabled", "disabled"),
+        ]
+    )
+    def test_broken_own_grant_does_not_suppress_a_working_team_share(self, _name: str, breakage: str) -> None:
+        account = self._support_agent()
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        server = self._create_gateway_server(name="Shared server", url="https://shared.example.com/mcp")
+        own_kwargs: dict = {"gateway_server": server, "url": server.url}
+        if breakage == "unready_oauth":
+            own_kwargs |= {"auth_type": "oauth", "sensitive_configuration": {"needs_reauth": True}}
+        if breakage == "disabled":
+            own_kwargs |= {"is_enabled": False}
+        own = self._create_installation(**own_kwargs)
+        teammate_installation = self._create_installation(user=teammate, gateway_server=server, url=server.url)
+        own_grant = self._grant(account, server, user=self.user, installation=own)
+        self._grant(account, server, user=teammate, installation=teammate_installation, scope="team")
+        if breakage == "deleted":
+            own.delete()
+            own_grant.refresh_from_db()
+            assert own_grant.installation_id is None
+
+        results = self._agent_results(self.user.id)
+
+        assert [result.id for result in results] == [str(teammate_installation.id)]
+
+    @parameterized.expand([("nobodys_run", False), ("owners_own_run", True)])
+    def test_revoked_members_team_share_is_not_mounted(self, _name: str, run_has_owner: bool) -> None:
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Revoked", url="https://revoked.example.com/mcp")
+        installation = self._create_installation(gateway_server=server, url=server.url)
+        self._grant(account, server, user=self.user, installation=installation, scope="team")
+        admin = User.objects.create_and_join(self.organization, "revoking-admin@posthog.com", "password")
+        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+            team_id=self.team.id, gateway_server=server, user=self.user, revoked_by=admin
+        )
+
+        assert self._agent_results(self.user.id if run_has_owner else None) == []
 
     def test_team_scoped_grant_without_a_user_is_never_mounted(self) -> None:
         account = self._support_agent()

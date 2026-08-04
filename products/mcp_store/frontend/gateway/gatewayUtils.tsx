@@ -52,7 +52,7 @@ const AGENT_GRANT_SCOPE_OPTIONS: { value: MCPAgentGrantScopeEnumApi; label: stri
         value: 'team',
         label: 'All team agents',
         tooltip:
-            "The agent uses your connection for every run in this project, including runs nobody started. Teammates still can't use the connection themselves.",
+            "The agent uses your connection for every run in this project, including runs nobody started. Teammates can't use the connection directly, but agents act through it on their runs too.",
     },
 ]
 

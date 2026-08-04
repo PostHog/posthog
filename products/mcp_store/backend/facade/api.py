@@ -135,34 +135,65 @@ def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstall
     )
 
 
-def _grants_for_agent_run(
+def _mounts_for_agent_run(
     team_id: int,
     agent_account: MCPServiceAccount,
     credential_owner_id: int | None,
-) -> list[MCPServiceAccountServerAccess]:
-    """The grants this run mounts, after resolving per-server precedence.
+) -> list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]:
+    """The (grant, credential) pairs this run mounts.
 
-    The run's own credential owner wins a server outright: when they granted it
-    themselves, teammates' team shares of that same server are left out, so the
-    run acts through its own person's connection rather than borrowing one.
-    Servers the owner has no grant for mount every team share side by side.
+    Health resolution runs before per-server precedence, not after. A grant only
+    becomes a candidate once its credential still resolves, is enabled, sits on a
+    server the team has left on, and (for OAuth) holds a usable token. Precedence
+    is then applied over what survived, so a broken credential of the run's own
+    owner falls out of the way of teammates' working team shares instead of
+    suppressing them and mounting nothing for that server.
+
+    Among the survivors of one server, the run's own credential owner wins
+    outright, so the run acts through its own person's connection rather than
+    borrowing one. Servers the owner has no working grant for mount every
+    surviving team share side by side.
+
+    That precedence is the default mount choice, not a gateway invariant: the
+    agent catalog lists every reachable grant and the proxy's `credential_owner`
+    query parameter lets a run name a teammate's team share instead. Selection
+    is confined to the grants the run already reaches, so it never escalates.
     """
-    rows = list(
+    rows = (
         MCPServiceAccountServerAccess.objects.for_team(team_id)
         .filter(service_account=agent_account)
-        .filter(reachable_agent_grants(credential_owner_id))
+        .filter(reachable_agent_grants(team_id, credential_owner_id))
         .select_related("installation__template", "installation__gateway_server", "user")
         .order_by("created_at", "id")
     )
-    by_server: dict[uuid.UUID, list[MCPServiceAccountServerAccess]] = defaultdict(list)
-    for row in rows:
-        by_server[row.gateway_server_id].append(row)
 
-    selected: list[MCPServiceAccountServerAccess] = []
-    for server_rows in by_server.values():
-        own = [row for row in server_rows if row.user_id == credential_owner_id] if credential_owner_id else []
-        selected.extend(own or server_rows)
-    return selected
+    healthy_by_server: dict[uuid.UUID, list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]] = defaultdict(
+        list
+    )
+    for access in rows:
+        # Same resolution the gateway proxy and the API serializers use, so a
+        # grant whose credential drifted off its team, server, or owner is
+        # dropped here too instead of being mounted into the sandbox.
+        installation = installation_for_agent_access(access)
+        if installation is None or not installation.is_enabled:
+            continue
+        # The admin kill switch overrides grants: a server turned off for the
+        # team is withheld from agents too.
+        if installation.gateway_server is None or not installation.gateway_server.is_team_enabled:
+            continue
+        if not _is_oauth_ready(installation):
+            continue
+        healthy_by_server[access.gateway_server_id].append((access, installation))
+
+    mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
+    for server_mounts in healthy_by_server.values():
+        own = (
+            [(access, installation) for access, installation in server_mounts if access.user_id == credential_owner_id]
+            if credential_owner_id
+            else []
+        )
+        mounts.extend(own or server_mounts)
+    return mounts
 
 
 def _agent_installation_infos(
@@ -281,21 +312,7 @@ def get_installations_for_sandbox(
         agent_mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
         if agent_key is not None:
             if agent_account is not None:
-                for access in _grants_for_agent_run(team_id, agent_account, credential_owner_id):
-                    # Same resolution the gateway proxy and the API serializers
-                    # use, so a grant whose credential drifted off its team,
-                    # server, or owner is dropped here too instead of being
-                    # mounted into the sandbox.
-                    installation = installation_for_agent_access(access)
-                    if installation is None or not installation.is_enabled:
-                        continue
-                    # The admin kill switch overrides grants: a server turned
-                    # off for the team is withheld from agents too.
-                    if installation.gateway_server is None or not installation.gateway_server.is_team_enabled:
-                        continue
-                    if not _is_oauth_ready(installation):
-                        continue
-                    agent_mounts.append((access, installation))
+                agent_mounts = _mounts_for_agent_run(team_id, agent_account, credential_owner_id)
         else:
             shared_queryset = base_queryset.filter(scope="shared")
             shared_queryset = shared_queryset.filter(

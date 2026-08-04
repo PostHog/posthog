@@ -866,6 +866,30 @@ class TestMCPGatewayServerAPI(APIBaseTest):
             .exists()
         )
 
+    def test_deleting_a_credential_owner_leaves_the_audit_trail_intact(self) -> None:
+        self._make_admin()
+        owner = User.objects.create_and_join(self.organization, "deprovisioned@posthog.com", "password")
+        event = MCPAuditEvent.objects.for_team(self.team.id).create(
+            team=self.team,
+            credential_owner=owner,
+            grant_scope="team",
+            actor_label="posthog-scout",
+            server_name="Notion",
+            tool_name="search",
+            decision="allowed",
+        )
+
+        owner_id = owner.id
+        owner.delete()
+
+        # SET_NULL would rewrite the row and erase the attribution the column exists for,
+        # on top of seq-scanning this deliberately unindexed table on every user deletion.
+        event.refresh_from_db()
+        assert (event.credential_owner_id, event.actor_label) == (owner_id, "posthog-scout")
+        response = self.client.get(f"/api/projects/{self.team.id}/mcp_gateway/audit/")
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["id"], row["credential_owner"]) for row in response.json()["results"]] == [(str(event.id), None)]
+
 
 class TestMCPGatewayConfigAPI(APIBaseTest):
     def _api_url(self, suffix: str = "") -> str:
@@ -1590,6 +1614,34 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert proxy_response.status_code == expected_status
         assert mock_proxy.called is reachable
         assert [entry["id"] for entry in catalog_response.json()["results"]] == ([str(server.id)] if reachable else [])
+
+    @parameterized.expand([("nobodys_run", False), ("owners_own_run", True)])
+    @patch("products.mcp_store.backend.presentation.agent_views.proxy_mcp_request")
+    def test_agent_lane_honors_an_admins_per_member_revocation(
+        self, _name: str, run_has_owner: bool, mock_proxy
+    ) -> None:
+        mock_proxy.return_value = HttpResponse('{"jsonrpc": "2.0"}', content_type="application/json")
+        account = self._active_scout_account()
+        server, _installation = self._server_granted_by(
+            account, self.user, scope="team", url="https://mcp.revoked.example.com/mcp"
+        )
+        admin = User.objects.create_and_join(self.organization, "revoking-admin@posthog.com", "password")
+        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+            team_id=self.team.id, gateway_server=server, user=self.user, revoked_by=admin
+        )
+        owner_id = self.user.id if run_has_owner else None
+        client = self._agent_client(account, create_gateway_agent_token(account, credential_owner_id=owner_id))
+
+        catalog_response = client.get("/api/mcp_store/gateway/servers/")
+        proxy_response = client.post(
+            f"/api/mcp_store/gateway/servers/{server.id}/proxy/?credential_owner={self.user.id}",
+            data={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+            format="json",
+        )
+
+        assert catalog_response.json()["results"] == []
+        assert proxy_response.status_code == status.HTTP_404_NOT_FOUND
+        assert not mock_proxy.called
 
     @patch("products.mcp_store.backend.presentation.agent_views.proxy_mcp_request")
     def test_proxy_uses_the_credential_named_in_the_query_string(self, mock_proxy) -> None:

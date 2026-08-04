@@ -754,7 +754,18 @@ class MCPAuditEventSerializer(serializers.ModelSerializer):
         help_text="Agent that made the call, if any. Null for member calls."
     )
     credential_owner = UserBasicSerializer(
-        read_only=True, allow_null=True, help_text="Member whose connection an agent call used. Null for member calls."
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Member whose connection an agent call used. Null for member calls "
+            "and for owners whose account has since been deleted."
+        ),
+    )
+    grant_scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
+        allow_blank=True,
+        read_only=True,
+        help_text="Scope of the agent grant the call used. Blank for member calls.",
     )
 
     class Meta:
@@ -778,16 +789,12 @@ class MCPAuditEventSerializer(serializers.ModelSerializer):
             "tool_name",
             "decision",
             "actor_label",
-            "grant_scope",
         ]
         extra_kwargs = {
             "server_name": {"help_text": "Gateway server name at call time (denormalized)."},
             "tool_name": {"help_text": "Tool that was called."},
             "decision": {"help_text": "How the gateway decided the call."},
             "actor_label": {"help_text": "Denormalized actor label (email or handle) that survives deletion."},
-            "grant_scope": {
-                "help_text": ("Scope of the agent grant the call used: 'personal', 'team', or empty for member calls.")
-            },
         }
 
     @extend_schema_field(AuditActorServiceAccountSerializer(allow_null=True))

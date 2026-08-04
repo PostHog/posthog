@@ -88,7 +88,8 @@ export function GatewayAgentScene(): JSX.Element {
                 <div className="text-sm text-secondary">
                     You share your own connections. A personal share lets {account.name} use one when it runs for you. A
                     team share lets it use one for every {account.name} run in this project, including runs nobody
-                    started. Either way, teammates never get access to your connection.
+                    started. Teammates can't use the connection directly, but a team share means agents act through it
+                    on their runs too.
                 </div>
                 {account.agent_key === 'support' && (
                     <div className="text-sm text-secondary">

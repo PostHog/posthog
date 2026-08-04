@@ -528,9 +528,14 @@ class MCPAuditEvent(TeamScopedRootMixin, UUIDModel):
     # unanswerable after the fact. Both stay empty for member calls.
     # db_index=False: nothing filters the trail by credential owner, and building an
     # index on an existing audit table would lock it for the length of the build.
+    # DO_NOTHING with db_constraint=False because the alternatives both cost more than
+    # the dangling id does: SET_NULL would make every user deletion (SCIM
+    # deprovisioning included) seq-scan and rewrite this whole unindexed table, and it
+    # would erase the attribution the column exists to preserve. Read paths render a
+    # deleted owner as absent, and actor_label keeps the denormalized identity.
     credential_owner = models.ForeignKey(
         "posthog.User",
-        on_delete=models.SET_NULL,
+        on_delete=models.DO_NOTHING,
         null=True,
         blank=True,
         related_name="+",
