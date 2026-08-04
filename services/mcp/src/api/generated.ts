@@ -13317,7 +13317,6 @@ export namespace Schemas {
       readonly pinned: boolean;
       /** @nullable */
       readonly pinned_at: string | null;
-      readonly is_home: boolean;
       /**
          * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
          * @nullable
@@ -13522,8 +13521,6 @@ export namespace Schemas {
          * @maxLength 64
          */
       template_id?: string;
-      /** Create the canvas as the channel's home board (at most one per channel). */
-      is_home?: boolean;
     }
 
     /**
@@ -17510,6 +17507,8 @@ export namespace Schemas {
       readonly error: string | null;
       readonly created_at: string;
       readonly last_run_at: string;
+      /** When the job row last changed. For finished jobs this is when the run reached its terminal status. */
+      readonly updated_at: string;
       /** @nullable */
       readonly workflow_id: string | null;
       /** @nullable */
@@ -44313,6 +44312,8 @@ export namespace Schemas {
 
     /**
      * * `opened` - OPENED
+     * * `ready_for_review` - READY_FOR_REVIEW
+     * * `converted_to_draft` - CONVERTED_TO_DRAFT
      * * `ci_started` - CI_STARTED
      * * `ci_finished` - CI_FINISHED
      * * `merged` - MERGED
@@ -44323,6 +44324,8 @@ export namespace Schemas {
 
     export const PRLifecycleEventKindEnum = {
       Opened: 'opened',
+      ReadyForReview: 'ready_for_review',
+      ConvertedToDraft: 'converted_to_draft',
       CiStarted: 'ci_started',
       CiFinished: 'ci_finished',
       Merged: 'merged',
@@ -44330,9 +44333,11 @@ export namespace Schemas {
     } as const;
 
     export interface PRLifecycleEvent {
-      /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+      /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
        *
        * * `opened` - OPENED
+       * * `ready_for_review` - READY_FOR_REVIEW
+       * * `converted_to_draft` - CONVERTED_TO_DRAFT
        * * `ci_started` - CI_STARTED
        * * `ci_finished` - CI_FINISHED
        * * `merged` - MERGED
@@ -44341,7 +44346,7 @@ export namespace Schemas {
       /** When the event occurred. */
       at: string;
       /**
-         * Optional detail, e.g. workflow name and conclusion for CI events.
+         * Optional detail: workflow name and conclusion for CI events, the acting user's login for draft/ready transitions.
          * @nullable
          */
       detail?: string | null;
@@ -60375,6 +60380,11 @@ export namespace Schemas {
          * @nullable
          */
       open_to_merge_seconds: number | null;
+      /**
+         * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
+         * @nullable
+         */
+      ready_to_merge_seconds: number | null;
       /** GitHub label names on the pull request. */
       labels: string[];
       /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
@@ -77906,10 +77916,6 @@ export namespace Schemas {
      * Only return canvases in this channel.
      */
     channel?: string;
-    /**
-     * Filter by channel-home status.
-     */
-    is_home?: boolean;
     /**
      * Number of results to return per page.
      */

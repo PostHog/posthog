@@ -1,5 +1,4 @@
 import {
-  ArrowCounterClockwiseIcon,
   ArrowUUpLeftIcon,
   ArrowUUpRightIcon,
   ClockCounterClockwiseIcon,
@@ -72,7 +71,7 @@ import {
   shouldClearCanvasBrowse,
 } from "./canvasVersionNavigation";
 import { handleFreeformDataRequest } from "./freeformDataBridge";
-import { useCanvasNavigation, useHomeCanvasReset } from "./useHomeCanvasView";
+import { useCanvasNavigation } from "./useCanvasNavigation";
 import { usePinnedArtifact } from "./usePinnedArtifact";
 
 // A freeform (React-in-iframe) canvas. The rendered output is, in priority
@@ -144,13 +143,6 @@ export function FreeformCanvasView({
     () => channels.find((c) => c.id === channelId)?.name ?? "",
     [channels, channelId],
   );
-
-  // The "Reset to default" affordance, shown only on a channel's home canvas.
-  const {
-    isHomeCanvas,
-    isResetting,
-    reset: onResetToDefault,
-  } = useHomeCanvasReset({ channelId, dashboardId, threadId });
 
   // Run status derivation (cloud vs local) lives in a pure, tested helper; a
   // terminal run record always ends "running" so a stale session can't strand
@@ -485,18 +477,6 @@ export function FreeformCanvasView({
                       onClick={() => void onRevert()}
                     >
                       {isReverting ? "Reverting…" : "Revert to this version"}
-                    </Button>
-                  )}
-                  {isHomeCanvas && (
-                    <Button
-                      size="sm"
-                      variant="default"
-                      className="ml-1"
-                      disabled={isGenerating || isResetting}
-                      onClick={onResetToDefault}
-                    >
-                      <ArrowCounterClockwiseIcon size={14} />
-                      {isResetting ? "Resetting…" : "Reset to default"}
                     </Button>
                   )}
                 </>

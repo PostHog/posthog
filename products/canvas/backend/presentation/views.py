@@ -3,7 +3,6 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -19,7 +18,6 @@ from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
-from posthog.utils import str_to_bool
 
 from products.canvas.backend import build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
@@ -111,7 +109,6 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "channel", OpenApiTypes.UUID, required=False, description="Only return canvases in this channel."
             ),
-            OpenApiParameter("is_home", bool, required=False, description="Filter by channel-home status."),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -134,9 +131,6 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 except ValueError:
                     return queryset.none()
                 queryset = queryset.filter(channel_id=channel_id)
-            is_home = self.request.query_params.get("is_home")
-            if is_home is not None:
-                queryset = queryset.filter(is_home=str_to_bool(is_home))
         return queryset.order_by("-created_at")
 
     @extend_schema(
@@ -154,28 +148,18 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # someone else's personal channel must be refused here too.
         if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
             return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            # Savepoint so losing the is_home uniqueness race doesn't poison
-            # the request's transaction.
-            with transaction.atomic():
-                canvas = Canvas.objects.create(
-                    team_id=self.team_id,
-                    channel_id=channel_id,
-                    name=payload.validated_data["name"],
-                    template_id=payload.validated_data["template_id"],
-                    is_home=payload.validated_data["is_home"],
-                    created_by=user,
-                    # A sandbox-created canvas is its task's deliverable: bind
-                    # the two at birth so the client can show the run on the
-                    # canvas and nest the task under it — composer-initiated
-                    # generations have no client-side create to record it.
-                    generation_task_id=self._sandbox_task_id(request),
-                )
-        except IntegrityError:
-            return Response(
-                {"detail": "This channel already has a home canvas.", "code": "home_canvas_exists"},
-                status=status.HTTP_409_CONFLICT,
-            )
+        canvas = Canvas.objects.create(
+            team_id=self.team_id,
+            channel_id=channel_id,
+            name=payload.validated_data["name"],
+            template_id=payload.validated_data["template_id"],
+            created_by=user,
+            # A sandbox-created canvas is its task's deliverable: bind
+            # the two at birth so the client can show the run on the
+            # canvas and nest the task under it — composer-initiated
+            # generations have no client-side create to record it.
+            generation_task_id=self._sandbox_task_id(request),
+        )
         return Response(CanvasSerializer(canvas).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(

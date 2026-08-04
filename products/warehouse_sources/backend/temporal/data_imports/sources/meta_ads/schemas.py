@@ -355,7 +355,10 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "created_time",
             "business_country_code",
             "business_name",
-            "business",
+            # No `business`: reading it needs the `business_management` scope, which the Meta
+            # OAuth consent doesn't request (`ads_read` only) — see `AD_ACCOUNT_FIELDS` in
+            # meta_ads.py, which excludes it from the account-listing request for the same reason.
+            # Meta 400s the whole request when it's asked for, failing this table's sync outright.
             "funding_source_details",
             "disable_reason",
             "is_prepay_account",
