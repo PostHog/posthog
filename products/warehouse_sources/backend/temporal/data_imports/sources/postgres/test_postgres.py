@@ -1945,16 +1945,33 @@ class TestResolveHostaddrWithTimeout:
             assert _resolve_hostaddr_with_timeout(host, 5432, 15) is None
         getaddrinfo_mock.assert_not_called()
 
-    def test_resolved_hostname_returns_first_address(self):
+    def test_resolved_hostname_returns_every_address_in_order(self):
+        # A dual-stack host resolving to more than one address must return all of them, in order —
+        # collapsing to just the first would defeat psycopg's own per-address failover and turn an
+        # unreachable address family (e.g. no IPv6 egress) into a hard connection failure instead of
+        # falling back to the other address.
         addrinfo = [
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::5", 5432)),
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
-            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.6", 5432)),
         ]
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
             return_value=addrinfo,
         ):
-            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == "10.0.0.5"
+            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["2001:db8::5", "10.0.0.5"]
+
+    def test_resolved_hostname_dedupes_repeated_addresses(self):
+        # getaddrinfo can repeat an address across otherwise-distinct tuples (e.g. differing canonical
+        # names); a duplicate must not produce a duplicate connection attempt.
+        addrinfo = [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
+        ]
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            return_value=addrinfo,
+        ):
+            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["10.0.0.5"]
 
     def test_genuine_resolution_failure_falls_through(self):
         # A host that doesn't resolve must return None (not raise) so psycopg connects as before and
@@ -1982,6 +1999,73 @@ class TestResolveHostaddrWithTimeout:
         # Must stay retryable: it must not carry any of the non-retryable resolution fragments.
         assert "could not translate host name" not in message
         assert "Name or service not known" not in message
+
+
+# A dual-stack host (e.g. Neon) can resolve to both an IPv6 and an IPv4 address. Passing psycopg a
+# single pre-resolved `hostaddr` collapses its connection attempt to just that one address, so a
+# network that can't route that address family (no IPv6 egress) fails outright instead of falling
+# back to the other address the way an unresolved `host` would. `_connect_to_postgres` must expand
+# every resolved address into a matching-length comma-separated `host`/`hostaddr` pair so psycopg's
+# own attempt loop (`Connection.connect`) still tries each one in turn.
+class TestConnectToPostgresMultiAddressFailover:
+    def test_expands_every_resolved_address_for_psycopg_failover(self):
+        addrinfo = [
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::1", 5432)),
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("203.0.113.5", 5432)),
+        ]
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+            ) as mock_settings,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                return_value=addrinfo,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
+            ) as connect_mock,
+        ):
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            _connect_to_postgres(
+                host="db.example.com",
+                port=5432,
+                database="postgres",
+                user="user",
+                password="password",
+            )
+
+        assert connect_mock.call_args.kwargs["host"] == "db.example.com,db.example.com"
+        assert connect_mock.call_args.kwargs["hostaddr"] == "2001:db8::1,203.0.113.5"
+
+    def test_single_resolved_address_keeps_plain_host_and_hostaddr(self):
+        addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("203.0.113.5", 5432))]
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+            ) as mock_settings,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                return_value=addrinfo,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
+            ) as connect_mock,
+        ):
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            _connect_to_postgres(
+                host="db.example.com",
+                port=5432,
+                database="postgres",
+                user="user",
+                password="password",
+            )
+
+        assert connect_mock.call_args.kwargs["host"] == "db.example.com"
+        assert connect_mock.call_args.kwargs["hostaddr"] == "203.0.113.5"
 
 
 # Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy)

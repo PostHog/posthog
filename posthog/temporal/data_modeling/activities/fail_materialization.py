@@ -1,3 +1,4 @@
+import datetime as dt
 import dataclasses
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -102,6 +103,7 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     job.status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
     job.rows_materialized = 0
     job.error = sanitized_error
+    job.last_run_at = dt.datetime.now(dt.UTC)
     job.save()
 
     return node, job
