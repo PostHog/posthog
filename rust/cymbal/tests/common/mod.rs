@@ -21,7 +21,6 @@ use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
 use cymbal::stages::pipeline::ParsedPipelineItem;
 use cymbal::stages::resolution::{
-    event_release::ReleaseCache,
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
     },
@@ -33,7 +32,7 @@ use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::{
     batch::Batch,
     event::AnyEvent,
-    exception_event::{ExceptionEvent, Parsed, Resolved},
+    exception_event::{ExceptionEvent, Parsed},
     operator::TeamId,
     stage::Stage,
     Exception, Stacktrace,
@@ -47,7 +46,6 @@ use cymbal_proto::cymbal::resolution::v1::{
 };
 use futures::{Stream, StreamExt};
 use tokio::sync::mpsc;
-use tokio::sync::Semaphore;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -336,14 +334,6 @@ pub fn unbound_addr() -> SocketAddr {
 }
 
 pub fn make_config(max_retries: u32, deadline: Duration) -> RemoteResolutionConfig {
-    make_config_with_sample_rate(max_retries, deadline, 1.0)
-}
-
-pub fn make_config_with_sample_rate(
-    max_retries: u32,
-    deadline: Duration,
-    sample_rate: f64,
-) -> RemoteResolutionConfig {
     RemoteResolutionConfig {
         host: "test-only".to_string(),
         port: 0,
@@ -356,7 +346,6 @@ pub fn make_config_with_sample_rate(
         // production defaults are tuned for thundering-herd mitigation.
         retry_backoff: Duration::from_millis(1),
         retry_max_backoff: Duration::from_millis(2),
-        sample_rate,
         routing_jitter: 0.0,
         routing_acceptance_concurrency: 10,
         overload_ejection_initial: Duration::ZERO,
@@ -376,20 +365,6 @@ pub async fn make_ctx(
     deadline: Duration,
 ) -> RemoteResolutionContext {
     let config = make_config(max_retries, deadline);
-    let pool = EndpointPool::from_addrs(config.clone(), addrs).expect("build pool");
-    if !addrs.is_empty() {
-        wait_until_routable(&pool).await;
-    }
-    RemoteResolutionContext::new(pool, config)
-}
-
-pub async fn make_ctx_with_sample_rate(
-    addrs: &[SocketAddr],
-    max_retries: u32,
-    deadline: Duration,
-    sample_rate: f64,
-) -> RemoteResolutionContext {
-    let config = make_config_with_sample_rate(max_retries, deadline, sample_rate);
     let pool = EndpointPool::from_addrs(config.clone(), addrs).expect("build pool");
     if !addrs.is_empty() {
         wait_until_routable(&pool).await;
@@ -449,29 +424,15 @@ impl SymbolResolver for NoopResolver {
 }
 
 pub fn remote_stage(ctx: RemoteResolutionContext) -> ResolutionStage {
-    ResolutionStage {
-        symbol_resolver: Arc::new(NoopResolver),
-        symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
-        posthog_pool: None,
-        release_cache: ReleaseCache::disabled(),
-        remote: Some(ctx),
-    }
+    ResolutionStage { remote: ctx }
 }
 
-pub fn local_stage() -> ResolutionStage {
-    ResolutionStage {
-        symbol_resolver: Arc::new(NoopResolver),
-        symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
-        posthog_pool: None,
-        release_cache: ReleaseCache::disabled(),
-        remote: None,
-    }
-}
-
+// The stage resolves frames in place and leaves events Parsed; the Parsed -> Resolved flip
+// belongs to EventReleaseStage, outside these fixtures.
 pub async fn process_one(
     stage: ResolutionStage,
     evt: ExceptionEvent<Parsed>,
-) -> Result<ExceptionEvent<Resolved>, UnhandledError> {
+) -> Result<ExceptionEvent<Parsed>, UnhandledError> {
     let batch: Batch<ParsedPipelineItem> = Batch::from(vec![Ok(evt)]);
     let result = stage.process(batch).await?;
     let mut items: Vec<_> = result.into_iter().collect();

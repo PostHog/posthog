@@ -25,14 +25,18 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
+from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
+from posthog.utils import absolute_uri
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
+from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
@@ -73,6 +77,7 @@ from products.tasks.backend.models import (
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
+    TaskRunLivingArtifactChartRequestSerializer,
 )
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
@@ -230,6 +235,67 @@ class BaseTaskAPITest(TestCase):
             timezone="Europe/London",
             enabled=True,
         )
+
+
+class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
+    def _built_in_agent_client(self) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Built-in agent sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=f"task:read task:write {MCP_BUILT_IN_AGENT_SCOPE}",
+            scoped_teams=[self.team.id],
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    def test_can_read_and_create_tasks(self) -> None:
+        self.create_task()
+        client = self._built_in_agent_client()
+
+        assert client.get("/api/projects/@current/tasks/").status_code == status.HTTP_200_OK
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Child task", "description": "Follow-up work"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Task.objects.filter(title="Child task").exists()
+
+    def test_cannot_create_or_run_task_automations(self) -> None:
+        automation = self.create_automation()
+        client = self._built_in_agent_client()
+
+        assert (
+            client.post(
+                "/api/projects/@current/task_automations/",
+                {
+                    "name": "Scheduled child",
+                    "prompt": "Escape agent grants later",
+                    "repository": "posthog/posthog",
+                    "cron_expression": "0 9 * * *",
+                    "timezone": "UTC",
+                },
+                format="json",
+            ).status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            client.post(f"/api/projects/@current/task_automations/{automation.id}/run/").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert not TaskAutomation.objects.filter(task__title="Scheduled child").exists()
 
 
 class TestTaskCreatorScoping(BaseTaskAPITest):
@@ -1247,7 +1313,82 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["title"], "New Task")
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
+        self.assertEqual(data["repositories"], ["posthog/posthog"])
         self.assertEqual(data["runtime"], Task.Runtime.ACP)
+
+    @patch("products.tasks.backend.facade.api._find_idling_warm_run")
+    def test_create_task_with_multiple_repositories(self, mock_find_warm_run):
+        mock_find_warm_run.return_value = None
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            repository_cache=[
+                {"id": 1, "name": "posthog", "full_name": "posthog/posthog"},
+                {"id": 2, "name": "code", "full_name": "posthog/code"},
+            ],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Cross-repo task",
+                "description": "Update both services",
+                "github_integration": integration.id,
+                "repositories": ["PostHog/PostHog", "PostHog/Code"],
+                "branch": "main",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
+        self.assertEqual(task.create_run().state["repositories"], task.repositories)
+        mock_find_warm_run.assert_not_called()
+
+        update = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"repository": "posthog/posthog"},
+            format="json",
+        )
+        self.assertEqual(update.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.repository, "posthog/posthog")
+        self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
+
+    def test_create_task_rejects_repository_outside_integration(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            repository_cache=[{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Invalid task",
+                "github_integration": integration.id,
+                "repositories": ["posthog/code"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Invalid legacy task",
+                "github_integration": integration.id,
+                "repository": "posthog/code",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_task_with_pi_runtime(self):
         response = self.client.post(
@@ -1338,20 +1479,38 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
+    def test_create_task_with_posthog_ai_origin_product(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New PostHog AI task",
+                "description": "Created from the PostHog AI task tracker",
+                "origin_product": Task.OriginProduct.POSTHOG_AI,
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.POSTHOG_AI)
+
     @parameterized.expand(
         [
-            ("image_builder",),
-            ("experiments",),
-            ("onboarding",),
+            (Task.OriginProduct.IMAGE_BUILDER,),
+            (Task.OriginProduct.EXPERIMENTS,),
+            (Task.OriginProduct.SIGNALS_SCOUT,),
+            (Task.OriginProduct.SUPPORT_REPLY,),
+            (Task.OriginProduct.ONBOARDING,),
         ]
     )
-    def test_create_task_rejects_internal_origin(self, origin: str):
+    def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
                 "title": "New Task",
                 "description": "New Description",
-                "origin_product": origin,
+                "origin_product": origin_product,
                 "repository": "posthog/posthog",
             },
             format="json",
@@ -3859,6 +4018,7 @@ class TestTaskRepositoriesAction(BaseTaskAPITest):
             description="",
             origin_product=Task.OriginProduct.USER_CREATED,
             repository="posthog/posthog",
+            repositories=["posthog/posthog", "posthog/code"],
         )
         # Duplicate of an existing repo should be collapsed.
         Task.objects.create(
@@ -3882,7 +4042,7 @@ class TestTaskRepositoriesAction(BaseTaskAPITest):
 
         self.assertEqual(
             response.json(),
-            {"repositories": ["posthog/posthog", "posthog/posthog-js"]},
+            {"repositories": ["posthog/code", "posthog/posthog", "posthog/posthog-js"]},
         )
 
     def test_excludes_soft_deleted_tasks(self):
@@ -5249,12 +5409,35 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
+        assert isinstance(run.output, dict)
         self.assertEqual(
             run.output,
             {
                 "head_branch": "posthog-code/update-readme",
                 "pr_url": "https://github.com/org/repo/pull/2",
+                "pr_urls": ["https://github.com/org/repo/pull/2"],
             },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {
+                "output": {
+                    "pr_url": "https://github.com/org/repo/pull/2",
+                    "pr_urls": [
+                        "https://github.com/org/repo/pull/2",
+                        "https://github.com/org/other/pull/3",
+                    ],
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual(
+            run.output["pr_urls"],
+            ["https://github.com/org/repo/pull/2", "https://github.com/org/other/pull/3"],
         )
 
     def test_partial_update_does_not_restore_stale_state(self):
@@ -6394,7 +6577,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["artifacts"], run.artifacts)
+        returned_artifacts = response.json()["artifacts"]
+        # The finalize response augments each entry with a presigned download URL that is not
+        # persisted on the manifest, so compare the stored fields separately from the URL.
+        self.assertEqual([{k: v for k, v in a.items() if k != "url"} for a in returned_artifacts], run.artifacts)
+        self.assertTrue(all(a.get("url") for a in returned_artifacts))
         mock_head_object.assert_not_called()
         mock_tag.assert_not_called()
 
@@ -8292,6 +8479,268 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
                 status.HTTP_403_FORBIDDEN,
                 f"Expected 403 but got {response.status_code} for {scope} on {method} {url}",
             )
+
+
+class TestLivingArtifactChartRequestValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("both", {"name": "c", "query": {"kind": "TrendsQuery"}, "insight_id": 1}),
+            ("neither", {"name": "c"}),
+        ]
+    )
+    def test_requires_exactly_one_of_query_or_insight_id(self, _name, body):
+        serializer = TaskRunLivingArtifactChartRequestSerializer(data=body)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("query", serializer.errors)
+
+
+class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
+    CHART_QUERY: ClassVar[dict[str, Any]] = {
+        "kind": "InsightVizNode",
+        "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+    }
+    DELIVERY_URL = "https://app.dev/exporter/export-1.png?token=abc"
+
+    def _post_chart(self, scopes, body):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        return self._post_chart_to_run(scopes, body, task=task, run_id=str(run.id))
+
+    def _auth_headers(self, scopes):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="chart test key",
+            secure_value=hash_key_value(api_key_value),
+            scopes=scopes,
+        )
+        self.client.force_authenticate(None)
+        return {"authorization": f"Bearer {api_key_value}"}
+
+    def _post_chart_to_run(self, scopes, body, *, task, run_id):
+        return self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run_id}/living_artifacts/chart/",
+            body,
+            format="json",
+            headers=self._auth_headers(scopes),
+        )
+
+    def _teammates_experiments_run(self):
+        # Experiments tasks are team-readable but stay creator-driven, so a teammate may read
+        # this run's artifacts and must not be able to mutate them.
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.create_organization_user("experiment-ender"),
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+        return task, TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+    def _post_chart_with_session(self, body):
+        # Session auth skips scope enforcement, so the query-access check is the only gate here.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        self.client.force_authenticate(self.user)
+        return self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/chart/",
+            body,
+            format="json",
+        )
+
+    def _rendered_asset(self, **kwargs):
+        asset = MagicMock(id=321, exception=None, **kwargs)
+        asset.get_subscription_delivery_content_url.return_value = self.DELIVERY_URL
+        return asset
+
+    @parameterized.expand([("task_write_only", ["task:write"]), ("query_read_only", ["query:read"])])
+    def test_rejects_key_missing_either_scope(self, _name, scopes):
+        response = self._post_chart(scopes, {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def _artifact_response(self):
+        return {
+            "id": "a1",
+            "task_id": "t1",
+            "run_id": "r1",
+            "team_id": self.team.id,
+            "name": "Chart",
+            "artifact_type": "file",
+            "adapter": "slack_file",
+            "status": "active",
+            "location": {},
+            "metadata": {},
+            "current_version": 1,
+            "versions": [],
+        }
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_renders_and_registers_artifact_with_both_scopes(self, mock_render, mock_create):
+        mock_asset = self._rendered_asset()
+        mock_render.return_value = (mock_asset, b"png-bytes")
+        mock_create.return_value = (self._artifact_response(), None)
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["export_asset_id"], 321)
+        mock_render.assert_called_once()
+        render_kwargs = mock_render.call_args.kwargs
+        self.assertEqual(render_kwargs["team"], self.team)
+        self.assertEqual(render_kwargs["created_by"], self.user)
+        self.assertIsNone(render_kwargs["insight_id"])
+        sent_query = render_kwargs["export_context"]["source"]
+        self.assertEqual(sent_query["kind"], "InsightVizNode")
+        self.assertEqual(sent_query["source"]["kind"], self.CHART_QUERY["source"]["kind"])
+        self.assertEqual(sent_query["source"]["series"], self.CHART_QUERY["source"]["series"])
+        expected_url = absolute_uri(f"/project/{self.team.id}/insights/new") + f"#q={quote(json.dumps(sent_query))}"
+        self.assertEqual(data["url"], expected_url)
+        # The delivery token authenticates anonymously and bypasses the org's
+        # publicly-shared-resources setting, so it must not be minted here and persisted
+        # where any task:read reader could lift it.
+        mock_asset.get_subscription_delivery_content_url.assert_not_called()
+        self.assertEqual(
+            mock_create.call_args.kwargs["artifact"],
+            {
+                "name": "Chart.png",
+                "artifact_type": TaskArtifactType.FILE,
+                "adapter": TaskArtifactAdapter.SLACK_FILE,
+                "content_type": "image/png",
+                "content_bytes": b"png-bytes",
+                "metadata": {"posthog_url": expected_url},
+                # Beside metadata, not inside it: metadata is caller-writable, and this id is
+                # what lets delivery mint an anonymous url for the asset.
+                "export_asset_id": 321,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "dataviz_node",
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                "InsightVizNode",
+            ),
+            ("bare_hogql", {"kind": "HogQLQuery", "query": "SELECT 1"}, "InsightVizNode"),
+            (
+                "datatable_node",
+                {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                "InsightVizNode",
+            ),
+            ("string_query", "SELECT 1", "InsightVizNode"),
+            ("list_kind", {"kind": ["TrendsQuery"]}, "InsightVizNode"),
+            (
+                "invalid_source_kind",
+                {"kind": "InsightVizNode", "source": {"kind": "NotAQuery"}},
+                "Invalid insight query",
+            ),
+            # Reaches upgrade(), which raises TypeError comparing a str version against an int.
+            (
+                "unupgradable_version",
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "version": "abc"}},
+                "Invalid insight query",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_non_chartable_queries_rejected_before_render(self, _name, query, expected_error, mock_render):
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": query})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_error, response.json()["error"])
+        mock_render.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_unknown_run_rejected_before_render(self, mock_render):
+        response = self._post_chart_to_run(
+            ["task:write", "query:read"],
+            {"name": "Chart", "query": self.CHART_QUERY},
+            task=self.create_task(),
+            run_id="00000000-0000-0000-0000-000000000000",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_render.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_render_failure_returns_typed_400(self, mock_render):
+        mock_render.return_value = (MagicMock(id=322, exception="Query exploded"), None)
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Chart render failed")
+
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_render_value_error_surfaces_message_as_400(self, mock_render):
+        mock_render.side_effect = ValueError("Insight not found")
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "insight_id": 404})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Insight not found")
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_renders_saved_insight_and_links_to_it(self, mock_render, mock_create):
+        asset = self._rendered_asset(insight_id=7)
+        asset.insight.short_id = "ins123"
+        mock_render.return_value = (asset, b"png-bytes")
+        mock_create.return_value = (self._artifact_response(), None)
+        response = self._post_chart(["task:write", "query:read"], {"name": "Saved chart", "insight_id": 7})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expected_url = absolute_uri(f"/project/{self.team.id}/insights/ins123")
+        self.assertEqual(response.json()["url"], expected_url)
+        render_kwargs = mock_render.call_args.kwargs
+        self.assertEqual(render_kwargs["insight_id"], 7)
+        self.assertIsNone(render_kwargs["export_context"])
+        self.assertEqual(mock_create.call_args.kwargs["artifact"]["name"], "Saved chart.png")
+        self.assertEqual(
+            mock_create.call_args.kwargs["artifact"]["metadata"],
+            {"posthog_url": expected_url},
+        )
+        self.assertEqual(mock_create.call_args.kwargs["artifact"]["export_asset_id"], 321)
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_registration_error_returns_typed_400(self, mock_render, mock_create):
+        asset = self._rendered_asset()
+        mock_render.return_value = (asset, b"png-bytes")
+        mock_create.return_value = (None, "Slack channel not connected")
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Slack channel not connected")
+        asset.delete.assert_called_once()
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_run_vanishing_before_registration_returns_404(self, mock_render, mock_create):
+        mock_render.return_value = (self._rendered_asset(), b"png-bytes")
+        mock_create.return_value = (None, None)
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_session_auth_without_query_access_is_rejected(self, mock_render, mock_check):
+        mock_check.side_effect = lambda resource, required_level: resource != "query"
+        response = self._post_chart_with_session({"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_render.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_charting_a_readable_but_uncontrollable_run_returns_404(self, mock_render):
+        task, run = self._teammates_experiments_run()
+        response = self._post_chart_to_run(
+            ["task:write", "query:read"],
+            {"name": "Chart", "query": self.CHART_QUERY},
+            task=task,
+            run_id=str(run.id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_render.assert_not_called()
+
+    def test_listing_artifacts_on_a_readable_run_still_allowed(self):
+        task, run = self._teammates_experiments_run()
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/",
+            headers=self._auth_headers(["task:read"]),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):

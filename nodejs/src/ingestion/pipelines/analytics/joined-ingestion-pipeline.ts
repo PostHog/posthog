@@ -168,6 +168,7 @@ export function createJoinedIngestionPipeline<
         groupsPrefetchEnabled,
         groupTypeManager,
         flagCalledPersonlessDefaultTeams: perDistinctIdOptions.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+        personlessWritesDisabledTeams: perDistinctIdOptions.PERSONLESS_WRITES_DISABLED_TEAMS,
         hogTransformer,
         cdpHogWatcherSampleRate,
     }

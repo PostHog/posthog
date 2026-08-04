@@ -4,7 +4,6 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { dayjs } from 'lib/dayjs'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -22,7 +21,7 @@ import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 import type { TeamPublicType } from '../../../frontend/src/types'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
-import { BUCKET_FORMAT, buildBucketKeys, normalizeBucket, resolveWindow, startOfBucket } from './timeBuckets'
+import { BUCKET_FORMAT, buildBucketKeys, lastBucketIsInProgress, normalizeBucket, resolveWindow } from './timeBuckets'
 
 export interface DateFilter {
     dateFrom: string | null
@@ -269,24 +268,8 @@ export function deltaPct(current: number, previous: number): number | null {
 }
 
 // Window resolution, bucket keys, and the BUCKET_FORMAT contract are shared with the tab/detail
-// surfaces — see ./timeBuckets. The dashboard adds only the KPI-comparison window and in-progress
-// tail below, built on those shared primitives.
-
-// True when the final bucket is the current, still-running interval (open-ended window), so the
-// chart can dash that segment as "in progress" rather than letting the partial period read as data
-// loss. Needs ≥2 buckets to have a segment to dash; `now` is injectable so the logic stays testable.
-export function lastBucketIsInProgress(
-    bucketKeys: string[],
-    timezone: string,
-    interval: IntervalType,
-    now: dayjs.Dayjs = dayjs()
-): boolean {
-    if (bucketKeys.length < 2) {
-        return false
-    }
-    const currentBucket = startOfBucket(now.tz(timezone), interval).format(BUCKET_FORMAT)
-    return bucketKeys[bucketKeys.length - 1] === currentBucket
-}
+// surfaces — see ./timeBuckets. The dashboard adds only the KPI-comparison window below, built on
+// those shared primitives.
 
 // Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.
 export function buildDailyActivity(rows: ActivityRow[], bucketKeys: string[]): DailyActivity {
@@ -423,6 +406,7 @@ export interface mcpDashboardOverviewLogicValues {
     harnessRowsLoading: boolean
     intentClusterCount: KPIMetric
     interval: IntervalType
+    kpiIncompleteTail: boolean
     kpis: KPIData
     kpisLoading: boolean
     notableSessions: NotableSession[]
@@ -619,6 +603,7 @@ export interface mcpDashboardOverviewLogicMeta {
         interval: (dateFilter: DateFilter) => IntervalType
         bucketKeys: (dateFilter: DateFilter, timezone: string, interval: IntervalType) => string[]
         activityIncompleteTail: (bucketKeys: string[], timezone: string, interval: IntervalType) => boolean
+        kpiIncompleteTail: (kpis: KPIData, timezone: string, interval: IntervalType) => boolean
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
         notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
@@ -868,6 +853,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.bucketKeys, s.timezone, s.interval],
             (bucketKeys: string[], timezone: string, interval: IntervalType): boolean =>
                 lastBucketIsInProgress(bucketKeys, timezone, interval),
+        ],
+        // Read off the KPI sparkline's own labels, not `bucketKeys`: the sparkline is not zero-filled,
+        // so on a day with no calls yet its last point is yesterday, which is settled.
+        kpiIncompleteTail: [
+            (s) => [s.kpis, s.timezone, s.interval],
+            (kpis: KPIData, timezone: string, interval: IntervalType): boolean =>
+                lastBucketIsInProgress(kpis.sessions.sparklineLabels, timezone, interval),
         ],
         dailyActivity: [
             (s) => [s.activityRows, s.bucketKeys],

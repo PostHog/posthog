@@ -121,14 +121,13 @@ pub const LINKING_STAGE: &str = "cymbal_issue_processing_time";
 pub const GROUPING_STAGE: &str = "cymbal_exception_grouping_stage";
 pub const ALERTING_STAGE: &str = "cymbal_exception_alerting_stage";
 pub const RATE_LIMITING_STAGE: &str = "cymbal_rate_limiting_stage";
+pub const EVENT_RELEASE_STAGE: &str = "cymbal_event_release_stage";
 pub const RATE_LIMIT_OUTCOMES: &str = "cymbal_error_tracking_rate_limiter_outcomes";
 pub const RATE_LIMIT_FAIL_OPEN: &str = "cymbal_error_tracking_rate_limiter_fail_open";
 pub const RATE_LIMIT_METRIC_EMIT: &str = "cymbal_error_tracking_rate_limiter_metric_emit";
 pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";
 
 // Operators
-pub const FRAME_RESOLVER_OPERATOR: &str = "cymbal_frame_batch_time";
-pub const EXCEPTION_RESOLVER_OPERATOR: &str = "cymbal_exception_exception_resolver_operator";
 pub const LEGACY_ORDER_RESOLVER_OPERATOR: &str = "cymbal_exception_legacy_order_resolver_operator";
 pub const EVENT_RELEASE_RESOLVER_OPERATOR: &str =
     "cymbal_exception_event_release_resolver_operator";
@@ -149,7 +148,6 @@ pub const BYPASS_RULES_DISABLED: &str = "cymbal_bypass_rules_disabled";
 // fixed enums rather than free-form messages.
 pub const REMOTE_RESOLUTION_REQUESTS: &str = "cymbal_remote_resolution_requests_total";
 pub const REMOTE_RESOLUTION_LATENCY: &str = "cymbal_remote_resolution_latency_ms";
-pub const REMOTE_RESOLUTION_SAMPLING: &str = "cymbal_remote_resolution_sampling_total";
 pub const REMOTE_RESOLUTION_POOL_SIZE: &str = "cymbal_remote_resolution_pool_size";
 pub const REMOTE_RESOLUTION_ENDPOINTS_BY_STATE: &str =
     "cymbal_remote_resolution_endpoints_by_state";

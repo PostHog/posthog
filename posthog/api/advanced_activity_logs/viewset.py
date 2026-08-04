@@ -35,7 +35,7 @@ from posthog.tasks import exporter
 from products.exports.backend.models.exported_asset import ExportedAsset
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
-from .filters import AdvancedActivityLogFilterManager
+from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
 from .utils import get_activity_log_lookback_restriction
 
 
@@ -357,6 +357,9 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         default=100,
         help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
     )
+
+    def validate_detail_filters(self, value: Any) -> dict[str, Any]:
+        return validate_detail_filters(value)
 
 
 class ActivityLogFlatExportSerializer(serializers.ModelSerializer):

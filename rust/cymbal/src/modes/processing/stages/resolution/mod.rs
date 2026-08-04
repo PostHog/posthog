@@ -1,26 +1,17 @@
 use std::sync::Arc;
 
-use sqlx::PgPool;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-pub mod event_release;
 pub mod exception;
 pub mod frame;
-pub mod legacy;
 pub mod remote;
 
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
     metric_consts::RESOLUTION_STAGE,
-    stages::pipeline::{ParsedPipelineItem, ResolvedPipelineItem},
-    stages::resolution::{
-        event_release::{EventReleaseResolver, ReleaseCache},
-        exception::ExceptionResolver,
-        frame::FrameResolver,
-        legacy::LegacyOrderResolver,
-        remote::resolver::{resolve_batch, RemoteResolutionContext},
-    },
+    stages::pipeline::ParsedPipelineItem,
+    stages::resolution::remote::resolver::{resolve_batch, RemoteResolutionContext},
     symbolication::symbol::SymbolResolver,
     types::{
         batch::Batch,
@@ -30,36 +21,28 @@ use crate::{
 
 #[derive(Clone)]
 pub struct ResolutionStage {
+    pub remote: RemoteResolutionContext,
+}
+
+#[derive(Clone)]
+pub struct LocalResolutionContext {
     pub symbol_resolver: Arc<dyn SymbolResolver>,
     pub symbol_resolution_limiter: Arc<Semaphore>,
-    /// Used to resolve the event-level release id (`$release_id`) to its release row. `None` on the
-    /// remote resolution server, which only symbolicates frames and never resolves event releases.
-    pub posthog_pool: Option<PgPool>,
-    /// Caches event-level release lookups (`$release_id` and mobile app-metadata hash) so the
-    /// per-event resolution doesn't re-hit Postgres for the same release. Lives on `AppContext`,
-    /// cloned in here per batch.
-    pub release_cache: ReleaseCache,
-    /// When `Some`, the resolution stage can route sampled events through the
-    /// remote `cymbal.resolution.v1` client path. Unsampled events still use
-    /// local exception+frame resolution. There is no local fallback for events
-    /// selected for remote processing: if the remote pool can't serve the
-    /// request, the orchestration layer surfaces an unhandled error.
-    pub remote: Option<RemoteResolutionContext>,
 }
 
 impl From<&Arc<AppContext>> for ResolutionStage {
     fn from(app_context: &Arc<AppContext>) -> Self {
         Self {
-            symbol_resolver: app_context.as_ref().symbol_resolver.clone(),
-            symbol_resolution_limiter: app_context.as_ref().symbol_resolution_limiter.clone(),
-            posthog_pool: Some(app_context.as_ref().posthog_pool.clone()),
-            release_cache: app_context.as_ref().release_cache.clone(),
-            remote: app_context.as_ref().remote_resolution.clone(),
+            remote: app_context
+                .as_ref()
+                .remote_resolution
+                .clone()
+                .expect("processing app context requires remote resolution"),
         }
     }
 }
 
-impl ResolutionStage {
+impl LocalResolutionContext {
     pub async fn acquire_symbol_resolution_permit(
         &self,
     ) -> Result<OwnedSemaphorePermit, UnhandledError> {
@@ -73,37 +56,15 @@ impl ResolutionStage {
 
 impl Stage for ResolutionStage {
     type Input = ParsedPipelineItem;
-    type Output = ResolvedPipelineItem;
+    // Frames are resolved in place and events stay Parsed; `EventReleaseStage` owns the
+    // Parsed -> Resolved flip so release resolution can read the resolved frames.
+    type Output = ParsedPipelineItem;
 
     fn name(&self) -> &'static str {
         RESOLUTION_STAGE
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
-        if let Some(remote) = self.remote.clone() {
-            // Remote mode: the stage owns orchestration across the incoming
-            // batch, including deterministic rollout sampling. Sampled events
-            // use grouped exception-level Resolve items, and unsampled events use
-            // the local exception/frame operators. Both paths materialize the
-            // resolved event metadata before returning.
-            let resolved = resolve_batch(batch, remote, self.clone())
-                .await?
-                .apply_operator(LegacyOrderResolver, self.clone())
-                .await?
-                .apply_operator(EventReleaseResolver, self.clone())
-                .await?;
-            return Ok(resolved.map(|item, ()| item.map(|event| event.into_resolved()), &mut ()));
-        }
-
-        let resolved = batch
-            .apply_operator(ExceptionResolver, self.clone())
-            .await?
-            .apply_operator(FrameResolver, self.clone())
-            .await?
-            .apply_operator(LegacyOrderResolver, self.clone())
-            .await?
-            .apply_operator(EventReleaseResolver, self.clone())
-            .await?;
-        Ok(resolved.map(|item, ()| item.map(|event| event.into_resolved()), &mut ()))
+        resolve_batch(batch, self.remote).await
     }
 }

@@ -8,6 +8,7 @@ use crate::{
     metric_consts::EXCEPTION_PROCESSING_PIPELINE,
     stages::{
         alerting::AlertingStage,
+        event_release::EventReleaseStage,
         grouping::GroupingStage,
         linking::LinkingStage,
         post_processing::{PostProcessingHandler, PostProcessingStage},
@@ -57,6 +58,9 @@ impl Stage for ExceptionEventPipeline {
         batch
             // Resolve stack traces
             .apply_stage(ResolutionStage::from(&self.app_context))
+            .await?
+            // Resolve the event-level release and flip to Resolved
+            .apply_stage(EventReleaseStage::from(&self.app_context))
             .await?
             // Group events by fingerprint
             .apply_stage(GroupingStage::from(&self.app_context))
