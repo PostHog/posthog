@@ -56,26 +56,19 @@ class FileSystemAccessEntry:
 # the high-traffic list endpoint on every page load - the query that translates short_id refs
 # to pks otherwise runs per request and adds DB pool load under contention.
 #
-# The version is v2 because the key gained a team_id segment. Under v1 the two layouts are
-# ambiguous: an entry written for ref "7:abc" produces the same key as team_id 7 with ref "abc",
-# so a v1 read after deploy could return a different object's pk.
-_REF_PK_CACHE_PREFIX = "fs_ref_pk:v2"
+# Keyed by project rather than by team: a project and its team always share an id, so a team
+# segment would only repeat the project one.
+_REF_PK_CACHE_PREFIX = "fs_ref_pk:v1"
 _REF_PK_CACHE_TTL = 60 * 60
 
 
-def _ref_pk_cache_key(project_id: int, entry_type: str, team_id: int, ref: str) -> str:
-    return f"{_REF_PK_CACHE_PREFIX}:{project_id}:{entry_type}:{team_id}:{ref}"
+def _ref_pk_cache_key(project_id: int, entry_type: str, ref: str) -> str:
+    return f"{_REF_PK_CACHE_PREFIX}:{project_id}:{entry_type}:{ref}"
 
 
-def _get_cached_ref_pks(project_id: int, entry_type: str, team_id: int, refs: list[str]) -> dict[str, str]:
-    """Return the subset of refs whose pk is already cached for this team. Cache failures
-    degrade to a miss.
-
-    Keyed by team_id, not just ref: short_id uniqueness (insight, notebook, session recording
-    playlist) is enforced per team, not per project, so the same short_id can legitimately
-    belong to a different real object in every team.
-    """
-    key_to_ref = {_ref_pk_cache_key(project_id, entry_type, team_id, ref): ref for ref in refs}
+def _get_cached_ref_pks(project_id: int, entry_type: str, refs: list[str]) -> dict[str, str]:
+    """Return the subset of refs whose pk is already cached. Cache failures degrade to a miss."""
+    key_to_ref = {_ref_pk_cache_key(project_id, entry_type, ref): ref for ref in refs}
     try:
         cached = cache.get_many(list(key_to_ref))
     except Exception:
@@ -84,13 +77,10 @@ def _get_cached_ref_pks(project_id: int, entry_type: str, team_id: int, refs: li
     return {key_to_ref[key]: str(pk) for key, pk in cached.items()}
 
 
-def _set_cached_ref_pks(project_id: int, pk_by_type_team_ref: dict[tuple[str, int, str], str]) -> None:
-    if not pk_by_type_team_ref:
+def _set_cached_ref_pks(project_id: int, pk_by_type_ref: dict[tuple[str, str], str]) -> None:
+    if not pk_by_type_ref:
         return
-    to_set = {
-        _ref_pk_cache_key(project_id, entry_type, team_id, ref): pk
-        for (entry_type, team_id, ref), pk in pk_by_type_team_ref.items()
-    }
+    to_set = {_ref_pk_cache_key(project_id, entry_type, ref): pk for (entry_type, ref), pk in pk_by_type_ref.items()}
     try:
         cache.set_many(to_set, timeout=_REF_PK_CACHE_TTL)
     except Exception:
@@ -201,13 +191,9 @@ def bulk_file_system_access_levels(
     another team's object. Collapsing those into one (type, ref) entry would let whichever
     team's level was resolved last silently override the other's.
 
-    The ref->pk translation is team-scoped for the same reason: short_id uniqueness (insight,
-    notebook, session recording playlist) is enforced per team, not per project - notebook
-    creation in particular accepts a caller-chosen short_id - so the same ref can legitimately
-    translate to a different real object, with a different creator, in every team. Resolving it
-    once per (type, ref) rather than per (type, ref, team_id) would let an attacker-owned object
-    in one team stand in for a real object of the same ref in another, passing that attacker's
-    own pk and creator into the victim team's access check.
+    Translated rows are keyed the same way, by the team the matched object actually belongs to,
+    rather than by whichever group triggered the lookup. The pk cache above is keyed by project
+    instead, which is the same thing while a project and its team share an id.
     """
     results: dict[tuple[str, str, int], Optional[AccessControlLevel]] = {}
     user_id = user_access_control.user.id
@@ -232,7 +218,7 @@ def bulk_file_system_access_levels(
     # team's group triggered the lookup.
     refs_needing_query_by_type: dict[str, set[str]] = {}
     registrations_by_type: dict[str, ModelRegistration] = {}
-    cacheable_groups: set[tuple[str, int]] = set()  # (type, team_id) pairs safe to backfill the pk cache
+    cacheable_types: set[str] = set()  # types safe to backfill the pk cache
     for (entry_type, team_id), creator_by_provided_ref in entries_by_type_team.items():
         registration = get_file_system_registration(entry_type)
         if not registration:
@@ -248,14 +234,14 @@ def bulk_file_system_access_levels(
         # the cache and only query the refs still missing - a warm cache takes the UNION off the
         # request entirely. Creator lookups always hit the DB so they never read stale creators.
         if not pk_keyed and not needs_creator:
-            cached_pks = _get_cached_ref_pks(project_id, entry_type, team_id, refs)
+            cached_pks = _get_cached_ref_pks(project_id, entry_type, refs)
             for ref, pk in cached_pks.items():
                 translated[(entry_type, ref, team_id)] = (pk, None)
             refs = [ref for ref in refs if ref not in cached_pks]
             if not refs:
                 continue
         if not pk_keyed:
-            cacheable_groups.add((entry_type, team_id))
+            cacheable_types.add(entry_type)
         refs_needing_query_by_type.setdefault(entry_type, set()).update(refs)
 
     translation_querysets = [
@@ -267,12 +253,12 @@ def bulk_file_system_access_levels(
         union_qs = translation_querysets[0]
         if len(translation_querysets) > 1:
             union_qs = union_qs.union(*translation_querysets[1:], all=True)
-        pk_cache_updates: dict[tuple[str, int, str], str] = {}
+        pk_cache_updates: dict[tuple[str, str], str] = {}
         for row_type, ref_value, pk_value, row_team_id, created_by_id in union_qs:
             ref_str, pk_str = str(ref_value), str(pk_value)
             translated[(row_type, ref_str, row_team_id)] = (pk_str, created_by_id)
-            if (row_type, row_team_id) in cacheable_groups:
-                pk_cache_updates[(row_type, row_team_id, ref_str)] = pk_str
+            if row_type in cacheable_types:
+                pk_cache_updates[(row_type, ref_str)] = pk_str
         _set_cached_ref_pks(project_id, pk_cache_updates)
 
     access_controls_by_team = _user_access_controls_by_team(
