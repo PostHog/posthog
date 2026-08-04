@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
 
-import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     buildMCPAnalyticsGroups,
@@ -53,6 +53,10 @@ function buildBaseProperties(
             : {}),
         mcp_runtime: 'hono',
         mcp_vendor_client: requestContext.mcpVendorClient,
+        // Stamped on every event so catalog-on vs catalog-off cohorts can be split
+        // in analytics; the flag only gates instructions content, so nothing else
+        // on the event reveals whether the agent was steered toward the catalog.
+        $mcp_data_catalog_enabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
         ...buildMCPSessionAnalyticsProperties(state.sessionContext),
     }
     return { properties, groups }
@@ -199,6 +203,85 @@ export async function trackExecuteSqlGeneration(
                 $ai_span_name: EXECUTE_SQL_TOOL_NAME,
                 $ai_input: [{ role: 'user', content: intentMeta?.intent ?? '' }],
                 $ai_output_choices: [{ role: 'assistant', content: query }],
+                $ai_latency: meta.durationMs / 1000,
+                $ai_is_error: meta.isError,
+                ...(meta.errorMessage ? { $ai_error: meta.errorMessage } : {}),
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
+const DATA_CATALOG_TOOL_CATEGORY = 'Data catalog'
+const CATALOG_TRUST_SURFACE_PATTERN =
+    /information_schema\.(metrics|certifications|relationships|relationship_proposals|tables)/i
+const MAX_SPAN_STATE_LENGTH = 30_000
+
+export interface ToolSpanMeta {
+    durationMs: number
+    isError: boolean
+    errorMessage?: string
+    input?: unknown
+    output?: unknown
+}
+
+function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
+    if (getToolCategory(toolName) === DATA_CATALOG_TOOL_CATEGORY) {
+        return true
+    }
+    if (toolName !== EXECUTE_SQL_TOOL_NAME) {
+        return false
+    }
+    const query = (input as { query?: unknown } | null | undefined)?.query
+    return typeof query === 'string' && CATALOG_TRUST_SURFACE_PATTERN.test(query)
+}
+
+function serializeSpanState(value: unknown): string | undefined {
+    if (value === undefined) {
+        return undefined
+    }
+    try {
+        const serialized = typeof value === 'string' ? value : JSON.stringify(value)
+        return serialized?.slice(0, MAX_SPAN_STATE_LENGTH)
+    } catch {
+        return undefined
+    }
+}
+
+/**
+ * Captures an `$ai_span` per data-catalog-relevant tool call, joining the same
+ * MCP-session trace as the execute-sql `$ai_generation` events. Trace-target
+ * online evaluations then see catalog reads and writes with their args AND
+ * results (e.g. which metrics a lookup returned), which the `$mcp_tool_call`
+ * event never carries. Scoped to Data catalog tools plus execute-sql calls that
+ * reference a catalog trust surface: capturing every tool's results would
+ * balloon ai_events for traffic the catalog evals never judge.
+ */
+export async function trackToolSpan(toolName: string, state: ResolvedState, meta: ToolSpanMeta): Promise<void> {
+    try {
+        if (!shouldCaptureToolSpan(toolName, meta.input)) {
+            return
+        }
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+        const { properties, groups } = buildBaseProperties(state, analyticsContext)
+        const toolCategory = getToolCategory(toolName)
+        const inputState = serializeSpanState(meta.input)
+        const outputState = serializeSpanState(meta.output)
+
+        getPostHogClient().capture({
+            distinctId: state.distinctId,
+            event: '$ai_span',
+            groups,
+            properties: {
+                ...properties,
+                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
+                $ai_trace_id: sessionUuid ?? randomUUID(),
+                $ai_span_name: toolName,
+                ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
+                ...(inputState !== undefined ? { $ai_input_state: inputState } : {}),
+                ...(outputState !== undefined ? { $ai_output_state: outputState } : {}),
                 $ai_latency: meta.durationMs / 1000,
                 $ai_is_error: meta.isError,
                 ...(meta.errorMessage ? { $ai_error: meta.errorMessage } : {}),

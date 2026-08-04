@@ -15,7 +15,7 @@ vi.mock('@/lib/posthog', () => ({
     })),
 }))
 
-import { trackExecuteSqlGeneration, trackInitEvent, trackToolCall } from '@/hono/analytics'
+import { trackExecuteSqlGeneration, trackInitEvent, trackToolCall, trackToolSpan } from '@/hono/analytics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
 
@@ -198,6 +198,63 @@ describe('Hono MCP analytics contexts', () => {
             await trackExecuteSqlGeneration(toolName, args, makeState(), { durationMs: 5, isError: false })
 
             expect(mockCapture).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('trackToolSpan', () => {
+        it.each([
+            ['a Data catalog tool', 'data-catalog-metric-run', { name: 'mrr' }, true],
+            [
+                'execute-sql referencing a trust surface',
+                'execute-sql',
+                { query: 'SELECT name FROM system.information_schema.metrics' },
+                true,
+            ],
+            ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, false],
+            ['a non-catalog tool', 'query-logs', { query: 'SELECT 1' }, false],
+        ])('gates capture for %s', async (_case, toolName, input, captured) => {
+            await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
+
+            const spanCalls = mockCapture.mock.calls.filter(([payload]) => payload.event === '$ai_span')
+            expect(spanCalls).toHaveLength(captured ? 1 : 0)
+        })
+
+        it('joins the MCP session trace and truncates oversized results', async () => {
+            await trackToolSpan('data-catalog-metric-run', makeState(), {
+                durationMs: 1500,
+                isError: false,
+                input: { name: 'mrr' },
+                output: 'x'.repeat(50_000),
+            })
+
+            const payload = mockCapture.mock.calls[0]![0]
+            expect(payload.event).toBe('$ai_span')
+            expect(payload.properties).toMatchObject({
+                $ai_span_name: 'data-catalog-metric-run',
+                // Must match the execute-sql generations' trace id, or the span
+                // detaches from the session trace evaluations are scoped to.
+                $ai_trace_id: 'session-uuid',
+                $session_id: 'session-uuid',
+                $ai_input_state: JSON.stringify({ name: 'mrr' }),
+                $ai_latency: 1.5,
+                $ai_is_error: false,
+                $mcp_tool_category: 'Data catalog',
+            })
+            expect(payload.properties.$ai_output_state).toHaveLength(30_000)
+        })
+
+        it('records the error message on failed calls', async () => {
+            await trackToolSpan('data-catalog-metric-run', makeState(), {
+                durationMs: 200,
+                isError: true,
+                errorMessage: 'metric not found',
+                input: { name: 'bogus' },
+            })
+
+            expect(mockCapture.mock.calls[0]![0].properties).toMatchObject({
+                $ai_is_error: true,
+                $ai_error: 'metric not found',
+            })
         })
     })
 })
