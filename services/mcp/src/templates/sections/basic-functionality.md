@@ -6,7 +6,7 @@ Collected data (used for analytics): events (recorded from SDKs, always associat
 
 Created data (the user's business activity in PostHog): actions (unify multiple events or filter conditions into one); insights; data warehouse (connected sources and custom views); SQL queries (ClickHouse SQL over collected data and the warehouse schema); surveys (questionnaires, e.g. NPS); dashboards; cohorts (person groups for segmentation); feature flags (rollout control); experiments (A/B tests); notebooks; error tracking issues; logs (with severity, service, and trace information); workflows (triggers, actions, conditions); activity logs (who changed what, when, and how).
 
-IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
+IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks. PostHog ships changes daily, so tools and features newer than your training data likely exist — check what's new via the 'docs-search' tool or the changelog (https://posthog.com/changelog.md) before concluding a capability doesn't exist.
 
 If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
 
