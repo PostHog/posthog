@@ -41,7 +41,6 @@ class CanvasSerializer(serializers.ModelSerializer):
             "generation_task_id",
             "pinned",
             "pinned_at",
-            "is_home",
             "current_version_id",
             "published_build_id",
             "created_by",
@@ -66,11 +65,6 @@ class CanvasCreateSerializer(serializers.Serializer):
     channel_id = serializers.UUIDField(help_text="Id of the channel the canvas belongs to.")
     template_id = serializers.CharField(
         required=False, default="freeform", max_length=64, help_text="Canvas template identifier."
-    )
-    is_home = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="Create the canvas as the channel's home board (at most one per channel).",
     )
 
 
