@@ -334,7 +334,7 @@ export const manifest: ProductManifest = {
         },
         aiObservabilityPlayground: (): string => '/ai-observability/playground',
         aiObservabilityDatasets: (): string => '/ai-evals/datasets',
-        aiObservabilityDataset: (id: string, params?: { item?: string; export?: string }): string =>
+        aiObservabilityDataset: (id: string, params?: { item?: string }): string =>
             combineUrl(`/ai-evals/datasets/${id}`, params).url,
         aiObservabilityTags: (): string => '/ai-evals/taggers',
         aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,

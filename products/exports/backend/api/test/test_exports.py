@@ -35,6 +35,7 @@ from posthog.tasks import exporter
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER
 from products.exports.backend.tasks.image_exporter import export_image
@@ -586,7 +587,7 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)
 
-    def test_dataset_exports_are_hidden_from_generic_export_list(self) -> None:
+    def test_dataset_exports_are_visible_to_their_creator_in_the_export_list(self) -> None:
         dataset_export = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.JSONL,
@@ -597,19 +598,26 @@ class TestExports(APIBaseTest):
             },
             created_by=self.user,
         )
+        other_user = User.objects.create_and_join(self.organization, "dataset-export-peer@posthog.com", "password")
+        other_dataset_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": "c5a78135-2418-42ab-b721-e493a6743d3b",
+                "dataset_revision": 1,
+            },
+            created_by=other_user,
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/exports")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertNotIn(dataset_export.id, {result["id"] for result in response.json()["results"]})
+        results_by_id = {result["id"]: result for result in response.json()["results"]}
+        self.assertEqual(results_by_id[dataset_export.id]["export_format"], ExportedAsset.ExportFormat.JSONL)
+        self.assertNotIn(other_dataset_export.id, results_by_id)
 
-    @parameterized.expand(
-        [
-            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
-            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
-        ]
-    )
-    def test_dataset_exports_are_hidden_from_generic_export_endpoints(self, _name, url_template) -> None:
+    def test_dataset_exports_are_hidden_from_generic_retrieve(self) -> None:
         dataset_export = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.JSONL,
@@ -622,9 +630,31 @@ class TestExports(APIBaseTest):
             content=b"{}\n",
         )
 
-        response = self.client.get(url_template.format(team_id=self.team.id, export_id=dataset_export.id))
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{dataset_export.id}")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_dataset_export_content_redirects_to_dataset_endpoint(self) -> None:
+        dataset_id = "302b0ee8-18a2-45d1-91a9-1a347853f6e5"
+        dataset_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": dataset_id,
+                "dataset_revision": 1,
+            },
+            created_by=self.user,
+            content=b"{}\n",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{dataset_export.id}/content")
+
+        self.assertRedirects(
+            response,
+            f"/api/projects/{self.team.id}/datasets/{dataset_id}/exports/{dataset_export.id}/content",
+            fetch_redirect_response=False,
+        )
 
     def test_dataset_id_metadata_does_not_hide_an_ordinary_export(self) -> None:
         ordinary_export = ExportedAsset.objects.create(
@@ -713,6 +743,35 @@ class TestExports(APIBaseTest):
         self.assertIsNone(stuck_export.exception)
         self.assertIsNone(recent_export.exception)
         self.assertIsNone(completed_export.exception)
+
+    @parameterized.expand(
+        [
+            (
+                "standard_export_timeout",
+                timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 31),
+                False,
+            ),
+            ("dataset_workflow_timeout", EXPORT_WORKFLOW_TIMEOUT + timedelta(seconds=31), True),
+        ]
+    )
+    def test_list_uses_the_dataset_workflow_timeout(self, _name, age: timedelta, expected_failed: bool) -> None:
+        with freeze_time(now() - age):
+            dataset_export = ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.JSONL,
+                export_context={
+                    "kind": DATASET_EXPORT_KIND,
+                    "dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5",
+                    "dataset_revision": 1,
+                },
+                created_by=self.user,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results_by_id = {result["id"]: result for result in response.json()["results"]}
+        self.assertEqual(results_by_id[dataset_export.id]["exception"] is not None, expected_failed)
 
     def test_retrieve_shows_stuck_export_as_failed_in_response(self) -> None:
         with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):

@@ -45,7 +45,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadDatasetItemDetails', // Dataset item modals render their own retry state
     'loadDatasetItemVersions', // Dataset item modals render their own retry state
     'exportDataset', // Dataset scenes render their own retry state
-    'loadDatasetExport', // Dataset scenes render their own retry state
 ]
 
 /*

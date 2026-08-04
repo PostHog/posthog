@@ -29772,11 +29772,73 @@ export namespace Schemas {
      * * `video/mp4` - video/mp4
      * * `image/gif` - image/gif
      * * `application/json` - application/json
+     * * `application/x-ndjson` - application/x-ndjson
      */
-    export type ExportFormatEnum = typeof ExportFormatEnum[keyof typeof ExportFormatEnum];
+    export type ExportedAssetExportFormatEnum = typeof ExportedAssetExportFormatEnum[keyof typeof ExportedAssetExportFormatEnum];
 
 
-    export const ExportFormatEnum = {
+    export const ExportedAssetExportFormatEnum = {
+      ImagePng: 'image/png',
+      ApplicationPdf: 'application/pdf',
+      TextCsv: 'text/csv',
+      ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      VideoWebm: 'video/webm',
+      VideoMp4: 'video/mp4',
+      ImageGif: 'image/gif',
+      ApplicationJson: 'application/json',
+      ApplicationXNdjson: 'application/x-ndjson',
+    } as const;
+
+    /**
+     * Standard ExportedAsset serializer that doesn't return content.
+     */
+    export interface ExportedAsset {
+      readonly id: number;
+      /** @nullable */
+      dashboard?: number | null;
+      /** @nullable */
+      insight?: number | null;
+      /** File format of the generated export.
+       *
+       * * `image/png` - image/png
+       * * `application/pdf` - application/pdf
+       * * `text/csv` - text/csv
+       * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+       * * `video/webm` - video/webm
+       * * `video/mp4` - video/mp4
+       * * `image/gif` - image/gif
+       * * `application/json` - application/json
+       * * `application/x-ndjson` - application/x-ndjson */
+      readonly export_format: ExportedAssetExportFormatEnum;
+      readonly created_at: string;
+      readonly has_content: boolean;
+      export_context?: unknown;
+      readonly filename: string;
+      /** @nullable */
+      readonly expires_after: string | null;
+      /** @nullable */
+      readonly exception: string | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+    }
+
+    /**
+     * * `image/png` - image/png
+     * * `application/pdf` - application/pdf
+     * * `text/csv` - text/csv
+     * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+     * * `video/webm` - video/webm
+     * * `video/mp4` - video/mp4
+     * * `image/gif` - image/gif
+     * * `application/json` - application/json
+     */
+    export type ExportedAssetCreateExportFormatEnum = typeof ExportedAssetCreateExportFormatEnum[keyof typeof ExportedAssetCreateExportFormatEnum];
+
+
+    export const ExportedAssetCreateExportFormatEnum = {
       ImagePng: 'image/png',
       ApplicationPdf: 'application/pdf',
       TextCsv: 'text/csv',
@@ -29790,7 +29852,7 @@ export namespace Schemas {
     /**
      * Standard ExportedAsset serializer that doesn't return content.
      */
-    export interface ExportedAsset {
+    export interface ExportedAssetCreate {
       readonly id: number;
       /** @nullable */
       dashboard?: number | null;
@@ -29806,7 +29868,7 @@ export namespace Schemas {
        * * `video/mp4` - video/mp4
        * * `image/gif` - image/gif
        * * `application/json` - application/json */
-      export_format: ExportFormatEnum;
+      export_format: ExportedAssetCreateExportFormatEnum;
       readonly created_at: string;
       readonly has_content: boolean;
       export_context?: unknown;

@@ -11,8 +11,6 @@ import {
     datasetsArchive,
     datasetsCreate,
     datasetsExportsCreate,
-    datasetsExportsRetrieve,
-    getDatasetsExportsContentRetrieveUrl,
     datasetsList,
     datasetsPartialUpdate,
     datasetsRevisionsList,
@@ -103,13 +101,5 @@ export const datasetsApi = {
 
     exportDataset(id: string, revision?: number): Promise<DatasetExportReadApi> {
         return datasetsExportsCreate(getCurrentProjectId(), id, revision === undefined ? {} : { revision })
-    },
-
-    getExport(id: string, exportId: number): Promise<DatasetExportReadApi> {
-        return datasetsExportsRetrieve(getCurrentProjectId(), id, String(exportId))
-    },
-
-    getExportContentUrl(id: string, exportId: number): string {
-        return getDatasetsExportsContentRetrieveUrl(getCurrentProjectId(), id, String(exportId))
     },
 }

@@ -93,7 +93,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         canManageDataset,
         isHistoricalRevision,
         filters,
-        isExportingDataset,
+        datasetExportLoading,
         datasetLoadError,
     } = useValues(aiObservabilityDatasetLogic)
     const {
@@ -104,7 +104,6 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         restoreDataset,
         exportDataset,
         setDatasetFormValue,
-        sceneMounted,
         onUnmount,
     } = useActions(aiObservabilityDatasetLogic)
     const { searchParams } = useValues(router)
@@ -139,10 +138,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
     }
 
     // TRICKY: Scene logic is not unmounted. Workaround.
-    useEffect(() => {
-        sceneMounted()
-        return () => onUnmount()
-    }, [onUnmount, sceneMounted])
+    useEffect(() => () => onUnmount(), [onUnmount])
 
     if (isDatasetMissing) {
         return <NotFound object="dataset" />
@@ -227,7 +223,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                             <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
                             <SceneMenuBarSeparator />
                             <SceneMenuBarItem
-                                disabled={isExportingDataset}
+                                disabled={datasetExportLoading}
                                 onClick={() => exportDataset(filters.revision ?? undefined)}
                                 data-attr={`${RESOURCE_TYPE}-menubar-export`}
                             >
@@ -328,8 +324,6 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         datasetExport,
         datasetExportLoading,
         datasetExportLoadError,
-        datasetExportErrorOperation,
-        datasetExportRetryId,
     } = useValues(aiObservabilityDatasetLogic)
     const {
         closeModalAndRefetchDatasetItems,
@@ -339,8 +333,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         loadDatasetItemVersions,
         setFilters,
         exportDataset,
-        loadDatasetExport,
-        downloadDatasetExport,
+        viewExports,
     } = useActions(aiObservabilityDatasetLogic)
     const { searchParams } = useValues(router)
     const selectedItemReadOnly = !canEditDataset || !!selectedDatasetItem?.archived
@@ -394,47 +387,23 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
                 {datasetExportLoadError ? (
                     <LemonBanner
                         type="error"
-                        action={
-                            datasetExportErrorOperation === 'status' && datasetExportRetryId !== null
-                                ? {
-                                      children: 'Check again',
-                                      onClick: () => loadDatasetExport({ exportId: datasetExportRetryId }),
-                                      loading: datasetExportLoading,
-                                  }
-                                : {
-                                      children: 'Try again',
-                                      onClick: () => exportDataset(filters.revision ?? undefined),
-                                      loading: datasetExportLoading,
-                                  }
-                        }
-                    >
-                        {datasetExportLoadError.detail || "Couldn't check the dataset export. Try again."}
-                    </LemonBanner>
-                ) : datasetExport?.status === 'pending' ? (
-                    <LemonBanner type="info">
-                        Preparing revision {datasetExport.dataset_revision} for download. You can keep working while it
-                        finishes.
-                    </LemonBanner>
-                ) : datasetExport?.status === 'failed' ? (
-                    <LemonBanner
-                        type="error"
                         action={{
                             children: 'Try again',
                             onClick: () => exportDataset(filters.revision ?? undefined),
                             loading: datasetExportLoading,
                         }}
                     >
-                        {datasetExport.exception || "Couldn't create the dataset export. Try again."}
+                        {datasetExportLoadError.detail || "Couldn't add the dataset to exports. Try again."}
                     </LemonBanner>
-                ) : datasetExport?.status === 'complete' ? (
+                ) : datasetExport ? (
                     <LemonBanner
-                        type="success"
+                        type="info"
                         action={{
-                            children: 'Download',
-                            onClick: () => downloadDatasetExport(datasetExport.id),
+                            children: 'View exports',
+                            onClick: viewExports,
                         }}
                     >
-                        Revision {datasetExport.dataset_revision} is ready to download.
+                        Dataset revision {datasetExport.dataset_revision} was added to exports.
                     </LemonBanner>
                 ) : null}
             </div>
@@ -508,7 +477,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
         canManageDataset,
         isHistoricalRevision,
         isArchivingDataset,
-        isExportingDataset,
+        datasetExportLoading,
     } = useValues(aiObservabilityDatasetLogic)
     const {
         archiveDatasetItem,
@@ -700,7 +669,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                     <LemonButton
                         type="secondary"
                         onClick={() => exportDataset(filters.revision ?? undefined)}
-                        loading={isExportingDataset}
+                        loading={datasetExportLoading}
                         data-attr="export-dataset"
                         icon={<IconDownload />}
                         size="small"

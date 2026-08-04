@@ -971,7 +971,6 @@ export const productUrls = {
         id: string,
         params?: {
             item?: string
-            export?: string
         }
     ): string => combineUrl(`/ai-evals/datasets/${id}`, params).url,
     aiObservabilityTags: (): string => '/ai-evals/taggers',

@@ -2752,10 +2752,12 @@ export interface SharingConfigurationApi {
  * * `video/mp4` - video/mp4
  * * `image/gif` - image/gif
  * * `application/json` - application/json
+ * * `application/x-ndjson` - application/x-ndjson
  */
-export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
+export type ExportedAssetExportFormatEnumApi =
+    (typeof ExportedAssetExportFormatEnumApi)[keyof typeof ExportedAssetExportFormatEnumApi]
 
-export const ExportFormatEnumApi = {
+export const ExportedAssetExportFormatEnumApi = {
     ImagePng: 'image/png',
     ApplicationPdf: 'application/pdf',
     TextCsv: 'text/csv',
@@ -2765,6 +2767,7 @@ export const ExportFormatEnumApi = {
     VideoMp4: 'video/mp4',
     ImageGif: 'image/gif',
     ApplicationJson: 'application/json',
+    ApplicationXNdjson: 'application/x-ndjson',
 } as const
 
 /**
@@ -2776,7 +2779,7 @@ export interface ExportedAssetApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
-    /** File format to generate. Dataset JSONL exports use the dataset export endpoint.
+    /** File format of the generated export.
      *
      * * `image/png` - image/png
      * * `application/pdf` - application/pdf
@@ -2785,8 +2788,9 @@ export interface ExportedAssetApi {
      * * `video/webm` - video/webm
      * * `video/mp4` - video/mp4
      * * `image/gif` - image/gif
-     * * `application/json` - application/json */
-    export_format: ExportFormatEnumApi
+     * * `application/json` - application/json
+     * * `application/x-ndjson` - application/x-ndjson */
+    readonly export_format: ExportedAssetExportFormatEnumApi
     readonly created_at: string
     readonly has_content: boolean
     export_context?: unknown
@@ -2809,6 +2813,66 @@ export interface PaginatedExportedAssetListApi {
     /** @nullable */
     previous?: string | null
     results: ExportedAssetApi[]
+}
+
+/**
+ * * `image/png` - image/png
+ * * `application/pdf` - application/pdf
+ * * `text/csv` - text/csv
+ * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * * `video/webm` - video/webm
+ * * `video/mp4` - video/mp4
+ * * `image/gif` - image/gif
+ * * `application/json` - application/json
+ */
+export type ExportedAssetCreateExportFormatEnumApi =
+    (typeof ExportedAssetCreateExportFormatEnumApi)[keyof typeof ExportedAssetCreateExportFormatEnumApi]
+
+export const ExportedAssetCreateExportFormatEnumApi = {
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetCreateApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    /** File format to generate. Dataset JSONL exports use the dataset export endpoint.
+     *
+     * * `image/png` - image/png
+     * * `application/pdf` - application/pdf
+     * * `text/csv` - text/csv
+     * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+     * * `video/webm` - video/webm
+     * * `video/mp4` - video/mp4
+     * * `image/gif` - image/gif
+     * * `application/json` - application/json */
+    export_format: ExportedAssetCreateExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: boolean
+    export_context?: unknown
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface FileSystemApi {

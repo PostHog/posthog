@@ -2,8 +2,9 @@ from datetime import timedelta
 from typing import Any, Literal
 
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils.timezone import now
 
 import structlog
@@ -33,7 +34,8 @@ from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
-from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset, get_content_response
+from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
+from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
 from products.product_analytics.backend.models.insight import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
@@ -57,12 +59,9 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
     """Standard ExportedAsset serializer that doesn't return content."""
 
     export_format = serializers.ChoiceField(
-        choices=[
-            export_format
-            for export_format in ExportedAsset.get_supported_format_values()
-            if export_format != ExportedAsset.ExportFormat.JSONL
-        ],
-        help_text="File format to generate. Dataset JSONL exports use the dataset export endpoint.",
+        choices=ExportedAsset.get_supported_format_values(),
+        read_only=True,
+        help_text="File format of the generated export.",
     )
     has_content = serializers.BooleanField(read_only=True)
     filename = serializers.CharField(read_only=True)
@@ -88,9 +87,12 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         """Override to show stuck exports as having an exception."""
         data = super().to_representation(instance)
 
-        # Check if this export is stuck (created over HOGQL_INCREASED_MAX_EXECUTION_TIME seconds ago,
-        # has no content, and has no recorded exception)
-        timeout_threshold = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 30)
+        timeout = (
+            EXPORT_WORKFLOW_TIMEOUT
+            if instance.is_dataset_export
+            else timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME)
+        )
+        timeout_threshold = now() - timeout - timedelta(seconds=30)
         if (
             timeout_threshold
             and instance.created_at < timeout_threshold
@@ -442,6 +444,17 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         )
 
 
+class ExportedAssetCreateSerializer(ExportedAssetSerializer):
+    export_format = serializers.ChoiceField(
+        choices=[
+            export_format
+            for export_format in ExportedAsset.get_supported_format_values()
+            if export_format != ExportedAsset.ExportFormat.JSONL
+        ],
+        help_text="File format to generate. Dataset JSONL exports use the dataset export endpoint.",
+    )
+
+
 @extend_schema(extensions={"x-product": "core"})
 class ExportedAssetViewSet(
     TeamAndOrgViewSetMixin,
@@ -455,19 +468,13 @@ class ExportedAssetViewSet(
     queryset = ExportedAsset.objects.order_by("-created_at")
     serializer_class = ExportedAssetSerializer
 
-    def safely_get_queryset(self, queryset):
-        """
-        List shows only exports you created (quota + history are per user).
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        return ExportedAssetCreateSerializer if self.action == "create" else ExportedAssetSerializer
 
-        Dataset exports use dataset-scoped endpoints. Other exports without
-        export_context.session_recording_id are only readable by their author; session recording
-        exports are readable by project members who pass viewer checks in safely_get_object.
-        """
+    def safely_get_queryset(self, queryset):
+        """List shows only exports created by the current user."""
         if self.action == "list":
-            queryset = queryset.filter(created_by=self.request.user).exclude(
-                export_format=ExportedAsset.ExportFormat.JSONL,
-                export_context__kind=DATASET_EXPORT_KIND,
-            )
+            queryset = queryset.filter(created_by=self.request.user)
 
             session_recording_filter = self.request.query_params.get("session_recording_id")
             if session_recording_filter:
@@ -490,7 +497,7 @@ class ExportedAssetViewSet(
         instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
         export_context = instance.export_context or {}
 
-        if instance.is_dataset_export:
+        if instance.is_dataset_export and self.action != "content":
             raise NotFound()
 
         if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
@@ -529,6 +536,20 @@ class ExportedAssetViewSet(
     @action(methods=["GET"], detail=True, required_scopes=["export:read"])
     def content(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.get_object()
+        if instance.is_dataset_export:
+            dataset_id = (instance.export_context or {}).get("dataset_id")
+            if not isinstance(dataset_id, str):
+                raise NotFound()
+            return HttpResponseRedirect(
+                reverse(
+                    "project_datasets-export-content",
+                    kwargs={
+                        "parent_lookup_team_id": instance.team_id,
+                        "pk": dataset_id,
+                        "export_id": instance.id,
+                    },
+                )
+            )
         return get_content_response(
             instance,
             download=request.query_params.get("download") == "true",
