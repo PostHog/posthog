@@ -1,8 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { IconDatabase, IconPlus } from '@posthog/icons'
+import { IconCheckCircle, IconDatabase, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
@@ -13,7 +13,7 @@ import { sourceWizardLogic } from '../../scenes/NewSourceScene/sourceWizardLogic
 import { DataWarehouseWizardBlock } from './DataWarehouseWizardBlock'
 import { SourceIcon } from './SourceIcon'
 
-export type InlineSourceSetupView = 'selection' | 'connecting'
+export type InlineSourceSetupView = 'selection' | 'connecting' | 'connected'
 
 interface SourceItem {
     id: ExternalDataSourceType
@@ -57,16 +57,22 @@ function InternalInlineSourceSetup({
     const availableConnectors = connectors.filter((c: SourceConfig) => !c.unreleasedSource)
 
     // Resume an OAuth round-trip: an OAuth source redirects the whole page to the provider and
-    // back to this onboarding URL with ?kind=<source>. On mount, re-open the wizard for that
-    // source so the user lands back where they left off (credentials are restored by the wizard
-    // from the state saved before the redirect). Runs once — subsequent picks use the grid.
+    // back to this onboarding URL with ?kind=<source>. Re-open the wizard for that source
+    // when the connectors are available so the user lands back where they left off (credentials
+    // are restored by the wizard from the state saved before the redirect).
+    // Runs once the kind param is consumed — subsequent picks use the grid.
+    const oauthResumed = useRef(false)
     useEffect(() => {
         const kind = searchParams.kind
-        if (!kind) {
+        if (!kind || oauthResumed.current) {
             return
+        }
+        if (availableConnectors.length === 0) {
+            return // connectors not loaded yet — will re-run when they are
         }
         const match = availableConnectors.find((c) => c.name.toLowerCase() === String(kind).toLowerCase())
         if (match) {
+            oauthResumed.current = true
             setSelectedSource(match.name)
             setCurrentView('connecting')
         }
@@ -74,8 +80,7 @@ function InternalInlineSourceSetup({
         // wizard back open after the connection has already been handled.
         const { kind: _kind, ...restParams } = searchParams
         replace(location.pathname, restParams)
-        // oxlint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [searchParams, availableConnectors])
     const featuredSources = availableConnectors.filter((c: SourceConfig) => c.featured)
     const hiddenSources = availableConnectors.filter((c: SourceConfig) => !c.featured)
 
@@ -102,9 +107,13 @@ function InternalInlineSourceSetup({
     }
 
     const handleFormSuccess = (): void => {
-        setCurrentView('selection')
+        setCurrentView('connected')
         setSelectedSource(null)
         onClear()
+    }
+
+    const handleContinueAfterConnect = (): void => {
+        setCurrentView('selection')
         onComplete?.()
     }
 
@@ -193,6 +202,22 @@ function InternalInlineSourceSetup({
                             initialSource={selectedSource}
                             autoConfigureTables={autoConfigureTables}
                         />
+                    </div>
+                </LemonCard>
+            )}
+
+            {/* Connected Success State */}
+            {currentView === 'connected' && (
+                <LemonCard hoverEffect={false}>
+                    <div className="flex flex-col items-center gap-4 text-center py-8">
+                        <IconCheckCircle className="text-success text-5xl shrink-0" />
+                        <h3 className="text-xl font-semibold m-0">Source connected</h3>
+                        <p className="text-muted mb-0">
+                            Your source has been connected successfully. You can now query its data alongside your product data.
+                        </p>
+                        <LemonButton type="primary" center onClick={handleContinueAfterConnect}>
+                            Continue
+                        </LemonButton>
                     </div>
                 </LemonCard>
             )}
