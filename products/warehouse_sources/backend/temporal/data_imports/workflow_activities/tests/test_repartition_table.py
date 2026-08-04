@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     RepartitionActivityInputs,
     _maybe_flag_pre_extraction,
     _maybe_repartition_table,
+    _rewrite_deadline,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
@@ -101,6 +103,36 @@ class TestRepartitionActivityDeltaFolder:
         assert await_args is not None
         assert await_args.kwargs["table_ref"] is mock_helper_cls.return_value
         assert mock_job_model.objects.get.call_args.kwargs == {"id": JOB_ID}
+
+
+NO_ACTIVITY_CONTEXT = object()
+
+
+class TestRewriteDeadline:
+    @parameterized.expand(
+        [
+            ("outside_an_activity", NO_ACTIVITY_CONTEXT, None),
+            ("no_declared_timeout", None, None),
+            ("timeout_shorter_than_the_margin", dt.timedelta(minutes=1), None),
+            ("timeout_leaves_a_budget", dt.timedelta(hours=6), 22300.0),
+        ]
+    )
+    def test_deadline_is_set_only_when_there_is_budget_to_derive(
+        self, _name: str, timeout: object, expected: float | None
+    ) -> None:
+        info = MagicMock()
+        info.start_to_close_timeout = timeout
+        info_fn = (
+            MagicMock(side_effect=RuntimeError("not in an activity context"))
+            if timeout is NO_ACTIVITY_CONTEXT
+            else MagicMock(return_value=info)
+        )
+
+        with (
+            patch(f"{MODULE}.activity.info", info_fn),
+            patch(f"{MODULE}.time", MagicMock(monotonic=MagicMock(return_value=1000.0))),
+        ):
+            assert _rewrite_deadline() == expected
 
 
 class TestBudgetExhaustion:

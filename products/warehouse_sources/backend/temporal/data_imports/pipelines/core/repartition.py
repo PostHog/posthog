@@ -462,10 +462,6 @@ async def _rewrite_into_temp(
     last_claim_check: float | None = None
 
     while True:
-        if deadline is not None and time.monotonic() >= deadline:
-            raise RepartitionBudgetExceededError(
-                f"rewrite exceeded its activity budget after {rows_written} rows written to {temp_uri}"
-            )
         if ensure_claim is not None:
             now = time.monotonic()
             if last_claim_check is None or now - last_claim_check >= claim_recheck_interval_seconds:
@@ -474,6 +470,15 @@ async def _rewrite_into_temp(
         batch = await asyncio.to_thread(_read_next_batch, reader)
         if batch is None:
             break
+        # Deliberately after the read, so exhausting the reader always beats the deadline. Checking
+        # first would let a rewrite that has already copied every row be discarded and charged an
+        # attempt because it happened to cross the deadline on the iteration that would have hit
+        # EOF, which is likeliest for a table whose rewrite lands near the budget: exactly the ones
+        # this deadline exists to rescue.
+        if deadline is not None and time.monotonic() >= deadline:
+            raise RepartitionBudgetExceededError(
+                f"rewrite exceeded its activity budget after {rows_written} rows written to {temp_uri}"
+            )
 
         table = pa.Table.from_batches([batch])
         if table.num_rows == 0:
