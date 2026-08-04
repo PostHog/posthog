@@ -3,9 +3,7 @@ import { useValues } from 'kea'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -61,8 +59,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         showConfidenceIntervals,
         showMovingAverage,
     } = useValues(trendsDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
+    // Hide weekends is superseded by the days-of-week date filter and is being sunset: the option
+    // only renders on insights that already have it enabled, so it can be turned off but not on.
+    const hideWeekendsEnabled = !!trendsFilter?.hideWeekends
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (smoothing, multiple axes, alert/annotation overlays, statistical analysis).
@@ -262,7 +261,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
+        (trendsFilter?.hideWeekends ? 1 : 0) +
         (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
