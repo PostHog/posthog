@@ -24563,7 +24563,10 @@
                 "Hyros",
                 "Odoo",
                 "Airbridge",
-                "Snovio"
+                "Snovio",
+                "Raisely",
+                "WindsorAi",
+                "Wix"
             ],
             "type": "string"
         },
