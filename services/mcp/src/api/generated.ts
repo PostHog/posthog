@@ -12515,6 +12515,34 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    export interface BulkOptOutEntry {
+      /**
+         * The recipient identifier to opt out (e.g. email address).
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Message category key for this recipient. Overrides the request-level category_key. */
+      category_key?: string;
+    }
+
+    export interface BulkAddOptOutsRequest {
+      /** Recipients to opt out, at most 1000 per request. */
+      opt_outs: BulkOptOutEntry[];
+      /** Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages. */
+      category_key?: string;
+    }
+
+    export interface BulkAddOptOutsResult {
+      /** Number of opt-out entries received. */
+      total: number;
+      /** Number of recipient and category pairs recorded as opted out. */
+      opted_out: number;
+      /** Number of entries skipped because their category_key doesn't exist. */
+      skipped: number;
+      /** The first few entry-level problems, so the caller can fix their list. */
+      errors: string[];
+    }
+
     /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
@@ -13907,6 +13935,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `certified` - certified
+     * * `deprecated` - deprecated
+     */
+    export type ProposedStatusEnum = typeof ProposedStatusEnum[keyof typeof ProposedStatusEnum];
+
+
+    export const ProposedStatusEnum = {
+      Certified: 'certified',
+      Deprecated: 'deprecated',
+    } as const;
+
+    /**
      * Input for proposing a certification: address the target by id or (convenience) by name.
      */
     export interface CertificationCreate {
@@ -13920,6 +13960,11 @@ export namespace Schemas {
       view_name?: string;
       /** Why this mark exists. */
       notes?: string;
+      /** Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).
+       *
+       * * `certified` - certified
+       * * `deprecated` - deprecated */
+      proposed_status?: ProposedStatusEnum;
     }
 
     export type ChangeRequestApprovalsItem = { [key: string]: unknown };
@@ -17183,6 +17228,8 @@ export namespace Schemas {
       readonly target_name: string;
       /** proposed, certified (prefer this source), or deprecated (avoid this source). */
       readonly status: string;
+      /** The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled. */
+      readonly proposed_status: string;
       /** Why this mark exists, e.g. 'canonical MRR source'. */
       notes?: string;
       /** User who last set certified/deprecated, or null. */
@@ -42568,6 +42615,11 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    export interface MessagingError {
+      /** Human-readable description of what went wrong. */
+      error: string;
+    }
+
     /**
      * * `viewed` - viewed
      */
@@ -45548,6 +45600,26 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ObjectMediaPreview[];
+    }
+
+    /**
+     * OpenAPI shape for the paginated opt-outs response, so the generated clients get the
+     * {count, next, previous, results} envelope instead of an untyped object.
+     */
+    export interface PaginatedOptOuts {
+      /** Total number of opted-out recipients for the category. */
+      count: number;
+      /**
+         * URL for the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      results: MessagePreferences[];
     }
 
     export interface PaginatedOrganizationDomainList {
@@ -77857,7 +77929,7 @@ export namespace Schemas {
 
     export type CohortsListParams = {
     /**
-     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     * Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.
      */
     basic?: boolean;
     /**
@@ -83212,6 +83284,22 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type MessagingPreferencesExportOptOutsCsvRetrieveParams = {
+    /**
+     * Message category key to export. If omitted, exports recipients opted out of all marketing messages.
+     */
+    category_key?: string;
+    };
+
+    export type MessagingPreferencesOptOutsRetrieveParams = {
+    /**
+     * Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.
+     */
+    category_key?: string;
+    page?: number;
+    page_size?: number;
     };
 
     export type MessagingSuppressionsSuppressionsRetrieveParams = {
