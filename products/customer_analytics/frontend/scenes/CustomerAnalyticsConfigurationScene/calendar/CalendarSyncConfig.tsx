@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { ICONS } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
 export function CalendarSyncConfig(): JSX.Element {
@@ -17,9 +18,11 @@ export function CalendarSyncConfig(): JSX.Element {
             {calendarIntegrations.map((integration) => (
                 <IntegrationView key={integration.id} integration={integration} />
             ))}
-            <div>
+            <div className="flex">
                 <LemonButton
-                    type="secondary"
+                    type="primary"
+                    size="small"
+                    icon={<img src={ICONS['google-calendar']} className="h-4 w-4" alt="" />}
                     disableClientSideRouting
                     loading={integrationsLoading}
                     to={api.integrations.authorizeUrl({
