@@ -23,7 +23,7 @@ export const aiObservabilityEmptyState: SceneProductEmptyState = {
         text: {
             'needs-setup': {
                 headline: 'See how your AI is doing in the wild',
-                lead: "Capture LLM sessions in full detail. See how it's being used, catch errors and regressions in real-time, and get alerted when it happens.",
+                lead: "Capture LLM sessions in full detail. See how it's being used, catch errors and regressions in real-time, and get alerted when they happen.",
                 hint: 'Point the wizard at your project root. Setup costs are on us, no API key needed:',
             },
         },
