@@ -335,6 +335,20 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 delete searchParams['search']
             }
 
+            // urlToAction replaces the whole filter state, so every filter has to round-trip
+            // through the URL or changing one would reset the others
+            if (values.cohortFilters.type != null) {
+                searchParams['type'] = values.cohortFilters.type
+            } else {
+                delete searchParams['type']
+            }
+
+            if (values.cohortFilters.created_by_id != null) {
+                searchParams['created_by_id'] = values.cohortFilters.created_by_id
+            } else {
+                delete searchParams['created_by_id']
+            }
+
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
         setCohortSorting: () => {

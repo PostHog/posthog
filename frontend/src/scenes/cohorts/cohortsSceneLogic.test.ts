@@ -129,6 +129,26 @@ describe('cohortsSceneLogic', () => {
                         cohortFilters: expect.objectContaining({ created_by_id: 123 }),
                     })
             })
+
+            it('keeps the type and created_by_id filters when searching', async () => {
+                router.actions.push(urls.cohorts())
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+
+                logic.actions.setCohortFilters({ type: 'static', created_by_id: 123, page: 1 })
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+
+                await expectLogic(logic, () => {
+                    logic.actions.setCohortFilters({ search: 'New', page: 1 })
+                })
+                    .toDispatchActions(['loadCohortsSuccess'])
+                    .toMatchValues({
+                        cohortFilters: expect.objectContaining({
+                            search: 'New',
+                            type: 'static',
+                            created_by_id: 123,
+                        }),
+                    })
+            })
         })
 
         describe('cohort operations', () => {
