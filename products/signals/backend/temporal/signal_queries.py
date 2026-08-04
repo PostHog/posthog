@@ -661,6 +661,47 @@ def fetch_report_ids_for_scout_names(team: Team, scout_names: list[str]) -> set[
     return {row[0] for row in (result.results or []) if row[0]}
 
 
+def fetch_report_ids_for_scout_prefix(team: Team, scout_prefix: str) -> set[str]:
+    """Return the set of report IDs that have at least one non-deleted signal authored by a scout
+    whose skill_name starts with `scout_prefix`.
+
+    Prefix matching lets a scout family (e.g. every customer-analytics scout named
+    `signals-scout-customer-analytics*`) surface new members without callers updating a name list.
+    Same dedup, ordering, and cap semantics as `fetch_report_ids_for_scout_names`.
+    """
+    ch_query = f"""
+        SELECT report_id
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted,
+                JSONExtractString(metadata, 'extra', 'skill_name') as skill_name,
+                timestamp
+            FROM ({_deduped_signals_subquery()})
+        )
+        WHERE NOT is_deleted
+          AND report_id != ''
+          AND skill_name != ''
+          AND startsWith(skill_name, {{scout_prefix}})
+        GROUP BY report_id
+        ORDER BY max(timestamp) DESC
+        LIMIT {_REPORT_ID_FILTER_CAP}
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFilterByScoutPrefix",
+        query=ch_query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "scout_prefix": ast.Constant(value=scout_prefix),
+        },
+    )
+
+    return {row[0] for row in (result.results or []) if row[0]}
+
+
 # ---------------------------------------------------------------------------
 # fetch_report_ids_for_source_ids — synchronous, for the scout reverse lookup
 # ---------------------------------------------------------------------------

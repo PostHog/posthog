@@ -160,7 +160,7 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
             {/* Time window the finding refers to. */}
             {timeRange && (
                 <div className="text-xs text-tertiary mb-2">
-                    {humanFriendlyDetailedTime(timeRange.date_from)} – {humanFriendlyDetailedTime(timeRange.date_to)}
+                    {humanFriendlyDetailedTime(timeRange.date_from)} to {humanFriendlyDetailedTime(timeRange.date_to)}
                 </div>
             )}
 
