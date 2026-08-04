@@ -2096,6 +2096,62 @@
             "readOnlyHint": true
         }
     },
+    "dashboard-group-create": {
+        "description": "Create a named group at the bottom of a dashboard.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create dashboard group",
+        "title": "Create dashboard group",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-group-delete": {
+        "description": "Delete a group and either delete its member tiles or move them to the ungrouped section.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Delete dashboard group",
+        "title": "Delete dashboard group",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-group-move-tile": {
+        "description": "Move a content tile into a group or into the ungrouped section.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Move tile to dashboard group",
+        "title": "Move tile to dashboard group",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-group-update": {
+        "description": "Rename a dashboard group or update its full-width grid position.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard group",
+        "title": "Update dashboard group",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-insights-run": {
         "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. Supports variables_override and filters_override query params to run insights with one-off overrides without persisting; see the parameter descriptions for the exact JSON shape required.",
         "category": "Dashboards",

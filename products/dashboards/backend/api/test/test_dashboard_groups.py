@@ -3,8 +3,11 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.helpers.dashboard_templates import create_from_template
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_group import DashboardGroup
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 
@@ -60,3 +63,32 @@ class TestDashboardGroups(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_template_remaps_group_membership(self) -> None:
+        template = DashboardTemplate(
+            template_name="Grouped template",
+            dashboard_description="",
+            dashboard_filters={},
+            tags=[],
+            tiles=[
+                {
+                    "type": "GROUP",
+                    "group_key": "acquisition",
+                    "name": "Acquisition",
+                    "layouts": {"sm": {"x": 0, "y": 0, "w": 12, "h": 1}},
+                },
+                {
+                    "type": "TEXT",
+                    "group_key": "acquisition",
+                    "body": "Signups",
+                    "layouts": {"sm": {"x": 0, "y": 1, "w": 12, "h": 2}},
+                },
+            ],
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="From template")
+
+        create_from_template(dashboard, template, self.user)
+
+        group = dashboard.groups.get()
+        self.assertEqual(group.name, "Acquisition")
+        self.assertEqual(group.member_tiles.get().text.body, "Signups")

@@ -81,6 +81,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { DashboardGroupApi } from 'products/dashboards/frontend/generated/api.schemas'
 import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
@@ -2487,6 +2488,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     text?: TextModel
     button_tile?: ButtonTileModel
     widget?: DashboardWidgetModel
+    parent_group_id?: string | null
     deleted?: boolean
     is_cached?: boolean
     order?: number
@@ -2682,6 +2684,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organ
 
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
+    groups?: DashboardGroupApi[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
     persisted_filters?: DashboardFilter | null
@@ -2709,6 +2712,7 @@ export type DashboardTemplateStoredInsightTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     filters?: Record<string, unknown>
+    group_key?: string
 }
 
 export type DashboardTemplateStoredTextTile = {
@@ -2716,6 +2720,7 @@ export type DashboardTemplateStoredTextTile = {
     body: string
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    group_key?: string
 }
 
 export type DashboardTemplateStoredButtonTile = {
@@ -2728,6 +2733,7 @@ export type DashboardTemplateStoredButtonTile = {
     }
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    group_key?: string
 }
 
 export type DashboardTemplateStoredWidgetTile = {
@@ -2736,6 +2742,14 @@ export type DashboardTemplateStoredWidgetTile = {
     config?: Record<string, unknown>
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    group_key?: string
+}
+
+export type DashboardTemplateStoredGroupTile = {
+    type: 'GROUP'
+    group_key: string
+    name: string
+    layouts?: Partial<Record<DashboardLayoutSize, TileLayout>>
 }
 
 export type DashboardTemplateStoredTile =
@@ -2743,6 +2757,7 @@ export type DashboardTemplateStoredTile =
     | DashboardTemplateStoredTextTile
     | DashboardTemplateStoredButtonTile
     | DashboardTemplateStoredWidgetTile
+    | DashboardTemplateStoredGroupTile
 
 /** Project-specific references embedded in a template's tiles that may not resolve in another project. */
 export interface NonPortableReferences {

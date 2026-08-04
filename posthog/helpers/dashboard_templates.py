@@ -12,6 +12,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_group import DashboardGroup
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -512,8 +513,34 @@ def create_from_template(
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save()
 
+    groups_by_key: dict[str, DashboardGroup] = {}
+    for template_tile in template.tiles or []:
+        if template_tile.get("type") != "GROUP":
+            continue
+        group_key = template_tile.get("group_key")
+        if not group_key:
+            logger.error("dashboard_templates.creation.group_missing_key", template=template)
+            continue
+        group = DashboardGroup.all_teams.create(
+            dashboard=dashboard,
+            team=dashboard.team,
+            name=template_tile.get("name", "Group"),
+            created_by=user,
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            team=dashboard.team,
+            dashboard_group=group,
+            layouts=template_tile.get("layouts") or {},
+        )
+        groups_by_key[group_key] = group
+
     for template_tile in template.tiles or []:
         tile_type = template_tile.get("type")
+        if tile_type == "GROUP":
+            continue
+        parent_group = groups_by_key.get(template_tile.get("group_key"))
         if tile_type == "INSIGHT":
             query = template_tile.get("query", None)
             _create_tile_for_insight(
@@ -524,6 +551,7 @@ def create_from_template(
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
                 user=user,
+                parent_group=parent_group,
             )
         elif tile_type == "TEXT":
             _create_tile_for_text(
@@ -532,6 +560,7 @@ def create_from_template(
                 layouts=template_tile.get("layouts"),
                 body=template_tile.get("body"),
                 transparent_background=template_tile.get("transparent_background"),
+                parent_group=parent_group,
             )
         elif tile_type == "BUTTON":
             button = {**template_tile, **(template_tile.get("button_tile") or {})}
@@ -544,6 +573,7 @@ def create_from_template(
                 placement=button.get("placement", "left"),
                 style=button.get("style", "primary"),
                 transparent_background=template_tile.get("transparent_background"),
+                parent_group=parent_group,
             )
         elif tile_type == "WIDGET":
             _create_tile_for_widget(
@@ -555,6 +585,7 @@ def create_from_template(
                 transparent_background=template_tile.get("transparent_background"),
                 user=user,
                 user_access_control=user_access_control,
+                parent_group=parent_group,
             )
         else:
             logger.error("dashboard_templates.creation.unknown_type", template=template)
@@ -566,6 +597,7 @@ def _create_tile_for_text(
     layouts: dict,
     color: Optional[str],
     transparent_background: Optional[bool] = None,
+    parent_group: DashboardGroup | None = None,
 ) -> None:
     text = Text.objects.create(
         team=dashboard.team,
@@ -578,6 +610,7 @@ def _create_tile_for_text(
         layouts=layouts,
         color=color,
         transparent_background=transparent_background,
+        parent_group=parent_group,
     )
 
 
@@ -590,6 +623,7 @@ def _create_tile_for_button(
     placement: str = "left",
     style: str = "primary",
     transparent_background: Optional[bool] = None,
+    parent_group: DashboardGroup | None = None,
 ) -> None:
     button_tile = ButtonTile.objects.create(
         team=dashboard.team,
@@ -605,6 +639,7 @@ def _create_tile_for_button(
         layouts=layouts,
         color=color,
         transparent_background=transparent_background,
+        parent_group=parent_group,
     )
 
 
@@ -618,6 +653,7 @@ def _create_tile_for_widget(
     user=None,
     *,
     user_access_control: UserAccessControl | None = None,
+    parent_group: DashboardGroup | None = None,
 ) -> None:
     from products.dashboards.backend.widget_create import (
         prepare_widget_tile_create,  # noqa: PLC0415 — breaks posthog.models import cycle
@@ -645,6 +681,7 @@ def _create_tile_for_widget(
         layouts=layouts or {},
         color=color,
         transparent_background=transparent_background,
+        parent_group=parent_group,
     )
 
 
@@ -656,6 +693,7 @@ def _create_tile_for_insight(
     color: Optional[str],
     query: Optional[dict] = None,
     user=None,
+    parent_group: DashboardGroup | None = None,
 ) -> None:
     insight = Insight.objects.create(
         team=dashboard.team,
@@ -672,6 +710,7 @@ def _create_tile_for_insight(
         team_id=dashboard.team_id,
         layouts=layouts,
         color=color,
+        parent_group=parent_group,
     )
 
 
