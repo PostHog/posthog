@@ -154,7 +154,8 @@ test.describe('SQL editor insight builder', () => {
         await test.step('flag off: updating keeps the builder config, in lockstep with the SQL', async () => {
             await dismissQuickStart(page)
             await page.getByRole('button', { name: 'Update insight', exact: true }).click()
-            await expect(page.getByText('Insight updated')).toBeVisible({ timeout: 60000 })
+            // Updating hands the user their insight, like the classic editor
+            await expect(page).toHaveURL(/\/insights\/[A-Za-z0-9]+$/, { timeout: 60000 })
 
             // The persisted config must describe the new SQL exactly — a drifted compiledQuery
             // snapshot would demote the insight to the classic editor on its next open
