@@ -28,6 +28,7 @@ const githubSource: ExternalDataSource = {
     id: 'src-1',
     source_id: 'source-1',
     connection_id: 'connection-1',
+    created_at: '2024-01-01T00:00:00Z',
     status: ExternalDataJobStatus.Completed,
     source_type: 'Github',
     prefix: null,
