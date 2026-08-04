@@ -26,6 +26,7 @@ import {
     TasksRunsRetrieveParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
+    TasksSpawnCreateBody,
 } from '@/generated/tasks/api'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
@@ -639,6 +640,61 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
     },
 })
 
+const TasksSpawnSchema = TasksSpawnCreateBody.extend({
+    parent_run_id: TasksSpawnCreateBody.shape['parent_run_id'].describe('Your current orchestrator run ID.'),
+    description: TasksSpawnCreateBody.shape['description']
+        .unwrap()
+        .describe(
+            "The child's verbatim prompt. Make it specific, self-contained, and complete because the child works independently."
+        ),
+})
+
+const tasksSpawn = (): ToolBase<typeof TasksSpawnSchema, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
+    name: 'tasks-spawn',
+    schema: TasksSpawnSchema,
+    handler: async (context: Context, params: z.infer<typeof TasksSpawnSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.parent_run_id !== undefined) {
+            body['parent_run_id'] = params.parent_run_id
+        }
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.runtime_adapter !== undefined) {
+            body['runtime_adapter'] = params.runtime_adapter
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        if (params.wake_on !== undefined) {
+            body['wake_on'] = params.wake_on
+        }
+        const result = await context.api.request<Schemas.TaskDetailDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/spawn/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'task_number',
+            'title',
+            'latest_run.id',
+            'latest_run.status',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'channel-create': channelCreate,
     'channel-instructions-retrieve': channelInstructionsRetrieve,
@@ -659,4 +715,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'tasks-runs-list': tasksRunsList,
     'tasks-runs-retrieve': tasksRunsRetrieve,
     'tasks-runs-session-logs-retrieve': tasksRunsSessionLogsRetrieve,
+    'tasks-spawn': tasksSpawn,
 }
