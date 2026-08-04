@@ -132,6 +132,6 @@ Run this over the body you just wrote, before `gh pr create` or `gh pr edit`. Fi
 
 `references/examples.md` runs two merged PRs through all four passes, with a table of what each cut removed and why. Read it when you want the rule applied end to end rather than to one sentence.
 
-[docs/internal/pr-description-voice-ste.md](../../../docs/internal/pr-description-voice-ste.md) is the decision record: where the shape comes from, how much of our existing prose it touches, and what other teams standardized on instead. Read it before changing these rules, not while writing a PR.
+The shape rule adapts the writing rules of ASD-STE100 Simplified Technical English. Its other half, a closed dictionary of approved words, is licensed and deliberately not part of this: vocabulary stays a judgment call.
 
 Nothing here is enforced by a check. Pass 4 is the enforcement.
