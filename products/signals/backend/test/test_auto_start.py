@@ -40,6 +40,7 @@ from products.signals.backend.report_generation.research import (
     Priority,
     PriorityAssessment,
 )
+from products.signals.backend.signal_metadata import SignalSourceReference
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.tasks.backend.facade import api as tasks_facade
@@ -556,6 +557,46 @@ async def test_already_addressed_report_does_not_autostart(already_addressed):
         )
 
     assert mock_create.call_count == (0 if already_addressed else 1)
+
+
+@pytest.mark.parametrize(
+    ("source_references", "expect_references"),
+    [
+        (
+            [
+                SignalSourceReference(
+                    source_product="linear", label="ENG-123", url="https://linear.app/acme/issue/ENG-123"
+                ),
+                SignalSourceReference(
+                    source_product="github", label="#42", url="https://github.com/acme/repo/issues/42"
+                ),
+            ],
+            True,
+        ),
+        ([], False),
+        (None, False),
+    ],
+)
+def test_autostart_description_lists_source_issues_only_when_references_exist(source_references, expect_references):
+    description = _build_autostart_task_description(
+        report_id="0198c0de-0000-7000-8000-000000000001",
+        team_id=1,
+        summary="Fix the auth panel.",
+        repository="acme/repo",
+        priority=None,
+        source_references=source_references,
+    )
+
+    links = "[ENG-123](https://linear.app/acme/issue/ENG-123), [#42](https://github.com/acme/repo/issues/42)"
+    assert (f"Source issues: {links}" in description) is expect_references
+    # The refs ride the established PR footer convention with their concrete links: an agent told
+    # merely to "reference the source issue" has nothing to link, which is the gap this feature closes.
+    assert (f", addressing {links}.' -" in description) is expect_references
+    # No references must mean the plain footer and no dangling block, not an empty label.
+    if not expect_references:
+        assert "Source issues" not in description
+        assert "addressing" not in description
+        assert "inbox/reports/0198c0de-0000-7000-8000-000000000001).' -" in description
 
 
 @pytest.mark.parametrize(
