@@ -219,8 +219,16 @@ describe('insightSceneLogic', () => {
 
     it("applies a shared link's #q= query to a saved insight on in-app navigation", async () => {
         // Opening a shared link inside the app is a router PUSH, not a cold load, so it misses the
-        // upgradeQuery path. Without applying the query here the recipient gets the saved insight's
-        // date range and interval instead of the ones the link carries.
+        // upgradeQuery path.
+        const savedQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                dateRange: { date_from: '-7d' },
+                interval: 'day',
+            },
+        }) as InsightVizNode
         const sharedQuery = setLatestVersionsOnQuery({
             kind: NodeKind.InsightVizNode,
             source: {
@@ -231,6 +239,14 @@ describe('insightSceneLogic', () => {
             },
         }) as InsightVizNode
 
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': {
+                    results: [{ id: 42, short_id: Insight42, result: ['result from api'], query: savedQuery }],
+                },
+            },
+        })
+
         router.actions.push(urls.insightView(Insight42))
         logic = insightSceneLogic()
         logic.mount()
@@ -239,7 +255,9 @@ describe('insightSceneLogic', () => {
         router.actions.push(combineUrl(urls.insightView(Insight42), {}, { q: JSON.stringify(sharedQuery) }).url)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.insightDataLogicRef?.logic.values.query).toEqual(sharedQuery)
+        const dataLogic = logic.values.insightDataLogicRef
+        expect(dataLogic).not.toBeNull()
+        expect(dataLogic!.logic.values.query).toEqual(sharedQuery)
     })
 
     it('does not overwrite an existing productKey on a DataTableNode drill-down query', async () => {

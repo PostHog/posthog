@@ -294,9 +294,6 @@ describe('insightDataLogic', () => {
     })
 
     describe('a query carried in the URL', () => {
-        // Opening a shared insight link applies its `#q=` query before the saved insight arrives.
-        // Re-syncing to the saved query on load would drop the date range and interval the sender
-        // picked, so the recipient would silently see the saved settings instead.
         it('is not overwritten when the saved insight loads', async () => {
             const savedQuery = setLatestVersionsOnQuery({
                 kind: NodeKind.InsightVizNode,
@@ -331,8 +328,36 @@ describe('insightDataLogic', () => {
                 theInsightLogic.actions.loadInsight(Insight123)
             })
                 .toDispatchActions(theInsightLogic, ['loadInsightSuccess'])
+                .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['syncQueryFromProps'])
                 .toMatchValues({ query: sharedQuery })
+        })
+
+        it('re-syncs to the saved query on load when there is no URL query', async () => {
+            const savedQuery = setLatestVersionsOnQuery({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    dateRange: { date_from: '-7d' },
+                    interval: 'day',
+                },
+            }) as InsightVizNode
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': {
+                        results: [{ id: 1, short_id: Insight123, query: savedQuery }],
+                    },
+                },
+            })
+
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightLogic.actions.loadInsight(Insight123)
+            })
+                .toDispatchActions(theInsightLogic, ['loadInsightSuccess'])
+                .toDispatchActions(['syncQueryFromProps'])
+                .toMatchValues({ query: savedQuery })
         })
     })
 

@@ -373,7 +373,11 @@ export interface insightVizDataLogicActions {
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
         | TraceSpansTreeQueryResponse // insightDataLogic
-    setQuery: (query: Node<Record<string, any>> | null) => {
+    setQuery: (
+        query: Node<Record<string, any>> | null,
+        fromUrl?: boolean
+    ) => {
+        fromUrl: boolean
         query: Node<Record<string, any>> | null
     } // insightDataLogic
     removeFormulaNode: (formulas: TrendsFormulaNode[]) => {
