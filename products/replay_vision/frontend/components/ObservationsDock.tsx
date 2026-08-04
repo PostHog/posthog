@@ -33,7 +33,8 @@ export function ObservationsDock(): JSX.Element | null {
 /** Searchable scanner picker for "Observe this recording"; a flat menu doesn't scale to teams with many scanners. */
 function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { scanners, filteredScanners, scannerSearch, scannerPickerOpen, observing } = useValues(logic)
+    const { scanners, scannersLoading, filteredScanners, scannerSearch, scannerPickerOpen, observing } =
+        useValues(logic)
     const { observe, setScannerSearch, setScannerPickerOpen } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
@@ -57,8 +58,14 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                         />
                     </div>
                     <div className="max-h-80 overflow-y-auto p-1">
-                        {scanners.length === 0 ? (
-                            <Link to={urls.replayVision()} className="block px-2 py-3 text-sm">
+                        {scanners.length === 0 && scannersLoading ? (
+                            <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted">
+                                <Spinner /> Loading scanners…
+                            </div>
+                        ) : scanners.length === 0 ? (
+                            // Opens in a new tab so the recording stays put behind it — this dropdown is
+                            // reached mid-recording and a same-tab navigation would abandon that context.
+                            <Link to={urls.replayVision()} target="_blank" className="block px-2 py-3 text-sm">
                                 No scanners yet — create one
                             </Link>
                         ) : filteredScanners.length === 0 ? (
