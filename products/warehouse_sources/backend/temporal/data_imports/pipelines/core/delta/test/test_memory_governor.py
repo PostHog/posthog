@@ -7,14 +7,25 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import memory_governor as _mg
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
     MB,
     GovernorConfig,
     MemoryGovernor,
     PodMemory,
     _predict_marginal_mb,
+    configure_process_concurrency,
     size_upsert,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_process_concurrency():
+    # configure_process_concurrency sets a module global; isolate it so tests don't leak into each other.
+    saved = _mg._PROCESS_MAX_CONCURRENT
+    _mg._PROCESS_MAX_CONCURRENT = None
+    yield
+    _mg._PROCESS_MAX_CONCURRENT = saved
 
 
 class _FakePod(PodMemory):
@@ -108,12 +119,23 @@ class TestGovernorModes:
             assert gov._inflight == 0  # off never reserves
 
     async def test_advisory_computes_but_uses_defaults(self):
-        gov = _governor("advisory")
+        gov = _governor("advisory")  # 30000 / 15 = 2000 slice -> would pick mpp4
         async with gov.admit(source_bytes=50 * MB) as adm:
-            # Advisory plans (predicted peak + budget set) but must not change the write or reserve.
+            # Advisory plans (predicted peak + budget + the planned mpp) but must not change the
+            # write or reserve — planned_mpp is recorded even though upsert_kwargs stays empty.
             assert adm.upsert_kwargs == {}
             assert adm.predicted_peak_mb is not None and adm.budget_mb is not None
+            assert adm.planned_mpp == 4
             assert gov._inflight == 0 and gov._reserved_mb == 0.0
+
+    async def test_advisory_records_observed_delta_without_reserving(self):
+        # The calibration signal must be captured in advisory too (its whole purpose), even though
+        # advisory never reserves.
+        reads = iter([1_000.0, 1_250.0])
+        gov = _governor("advisory", limit_mb=30_000.0, current_mb=lambda: next(reads))
+        async with gov.admit(source_bytes=50 * MB) as adm:
+            assert gov._inflight == 0  # advisory never reserves
+        assert adm.observed_delta_mb == 250.0
 
     async def test_enforce_applies_sized_knobs_and_reserves(self):
         # limit 30000 / 15 = 2000 slice -> mpp4 (1464) fits.
@@ -226,6 +248,26 @@ class TestConfigFromEnv:
     def test_defaults_to_conservative_100_when_unset(self):
         with patch.dict("os.environ", {}, clear=True), override_settings(MAX_CONCURRENT_ACTIVITIES=None):
             assert GovernorConfig.from_env().max_concurrent == 100
+
+
+class TestProcessConcurrency:
+    """configure_process_concurrency lets a non-Temporal worker (the v3 loader) declare its own
+    concurrency, instead of relying on MAX_CONCURRENT_ACTIVITIES or an env var."""
+
+    def test_declared_concurrency_used_when_setting_unset(self):
+        configure_process_concurrency(16)
+        with patch.dict("os.environ", {}, clear=True), override_settings(MAX_CONCURRENT_ACTIVITIES=None):
+            assert GovernorConfig.from_env().max_concurrent == 16
+
+    def test_declared_concurrency_beats_setting(self):
+        configure_process_concurrency(16)
+        with patch.dict("os.environ", {}, clear=True), override_settings(MAX_CONCURRENT_ACTIVITIES=50):
+            assert GovernorConfig.from_env().max_concurrent == 16
+
+    def test_env_override_beats_declared_concurrency(self):
+        configure_process_concurrency(16)
+        with patch.dict("os.environ", {"DELTALITE_GOVERNOR_MAX_CONCURRENT": "8"}, clear=True):
+            assert GovernorConfig.from_env().max_concurrent == 8
 
     def test_reads_numeric_overrides(self):
         env = {
