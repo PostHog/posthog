@@ -1706,6 +1706,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "credential_refresh_stopped_credentials_unavailable",
                 extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
             )
+        elif exit_reason == CredentialRefreshExitReason.TASK_GONE:
+            workflow.logger.warning(
+                "task_rows_gone_detected",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+            )
+            # Ends the main loop through the sandbox-gone event; the status update on that
+            # path then fails non-retryably (the rows are gone), failing the workflow instead
+            # of leaving it waiting on signals that can never arrive.
+            self._sandbox_gone = True
 
     def _mark_sandbox_gone(self) -> None:
         self._completion_status = "completed"

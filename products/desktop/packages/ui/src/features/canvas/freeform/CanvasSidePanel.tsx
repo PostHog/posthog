@@ -5,6 +5,7 @@ import {
   SpinnerGapIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
+import { CanvasContextEditor } from "@posthog/ui/features/canvas/freeform/ContextEditor";
 import { FreeformGenerateBar } from "@posthog/ui/features/canvas/freeform/FreeformGenerateBar";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
@@ -25,7 +26,7 @@ export function CanvasSidePanel({
   channelName,
   name,
   templateId,
-  currentCode,
+  isEdit,
   editorRef,
   onStarted,
 }: {
@@ -36,7 +37,9 @@ export function CanvasSidePanel({
   channelName: string;
   name: string;
   templateId?: string;
-  currentCode?: string;
+  /** Whether the canvas already has published source (a follow-up edit rather
+   * than a first build) — the agent re-reads the live source itself. */
+  isEdit?: boolean;
   // Exposes the edit composer's editor so self-repair can prefill it.
   editorRef?: Ref<EditorHandle>;
   onStarted?: (taskId: string) => void;
@@ -76,7 +79,7 @@ export function CanvasSidePanel({
         {effectiveTaskId ? (
           <CanvasChatLoader taskId={effectiveTaskId} />
         ) : (
-          <Flex direction="column" className="h-full p-3">
+          <Flex direction="column" gap="3" className="h-full min-h-0 p-3">
             <FreeformGenerateBar
               ref={editorRef}
               sessionId={`canvas:${dashboardId}`}
@@ -85,9 +88,20 @@ export function CanvasSidePanel({
               channelName={channelName}
               name={name}
               templateId={templateId}
-              currentCode={currentCode}
+              isEdit={isEdit}
               onStarted={onStarted}
             />
+            {/* The author context (markdown): background the agent reads on
+                every generation. Edits against the saved record, autosaving
+                on blur. */}
+            <Flex direction="column" gap="1" className="min-h-0 flex-1">
+              <Text size="1" className="shrink-0 text-gray-10">
+                Context — notes the agent reads on every generation
+              </Text>
+              <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
+                <CanvasContextEditor dashboardId={dashboardId} />
+              </div>
+            </Flex>
           </Flex>
         )}
       </div>

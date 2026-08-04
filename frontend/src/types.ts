@@ -573,6 +573,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
+    enforce_verified_domains: boolean | null
     is_ai_data_processing_approved?: boolean
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
@@ -4929,6 +4930,8 @@ export interface Experiment {
     status?: ExperimentStatus | null
     /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
     is_legacy?: boolean
+    /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
+    resolved_exposure_event?: string
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -5181,14 +5184,6 @@ export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
     onRename?: never
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
-
-export enum GraphType {
-    Bar = 'bar',
-    HorizontalBar = 'horizontalBar',
-    Line = 'line',
-    Histogram = 'histogram',
-    Pie = 'doughnut',
-}
 
 export type GraphDataset = ChartDataset<ChartType> &
     Partial<
@@ -5735,6 +5730,7 @@ export const API_SCOPE_OBJECTS = [
     'batch_import',
     'batch_import_support',
     'business_knowledge',
+    'canvas',
     'clickhouse_test_cluster_perf',
     'cohort',
     'comment',
