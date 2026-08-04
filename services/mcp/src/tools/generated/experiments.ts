@@ -23,6 +23,7 @@ import {
     ExperimentsCopyToProjectCreateBody,
     ExperimentsCopyToProjectCreateParams,
     ExperimentsCreateBody,
+    ExperimentsCreateFromPromptCreateBody,
     ExperimentsDestroyParams,
     ExperimentsDuplicateCreateBody,
     ExperimentsDuplicateCreateParams,
@@ -254,6 +255,62 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
+                body,
+            })
+            const filtered = pickResponseFields(result, [
+                'id',
+                'name',
+                'description',
+                'type',
+                'feature_flag_key',
+                'status',
+                'archived',
+                'start_date',
+                'end_date',
+                'created_at',
+                'parameters',
+                'metrics',
+                'metrics_secondary',
+                'conclusion',
+                'conclusion_comment',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
+        },
+    })
+
+const ExperimentCreateFromPromptSchema = ExperimentsCreateFromPromptCreateBody
+
+const experimentCreateFromPrompt = (): ToolBase<
+    typeof ExperimentCreateFromPromptSchema,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
+    withUiApp('experiment', {
+        name: 'experiment-create-from-prompt',
+        schema: ExperimentCreateFromPromptSchema,
+        handler: async (context: Context, params: z.infer<typeof ExperimentCreateFromPromptSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.prompt_name !== undefined) {
+                body['prompt_name'] = params.prompt_name
+            }
+            if (params.versions !== undefined) {
+                body['versions'] = params.versions
+            }
+            if (params.templates !== undefined) {
+                body['templates'] = params.templates
+            }
+            if (params.name !== undefined) {
+                body['name'] = params.name
+            }
+            if (params.feature_flag_key !== undefined) {
+                body['feature_flag_key'] = params.feature_flag_key
+            }
+            if (params.description !== undefined) {
+                body['description'] = params.description
+            }
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/create_from_prompt/`,
                 body,
             })
             const filtered = pickResponseFields(result, [
@@ -736,6 +793,22 @@ const experimentPause = (): ToolBase<typeof ExperimentPauseSchema, WithPostHogUr
         },
     })
 
+const ExperimentPromptTemplatesSchema = z.object({})
+
+const experimentPromptTemplates = (): ToolBase<typeof ExperimentPromptTemplatesSchema, unknown> => ({
+    name: 'experiment-prompt-templates',
+    schema: ExperimentPromptTemplatesSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof ExperimentPromptTemplatesSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/prompt_templates/`,
+        })
+        return result
+    },
+})
+
 const ExperimentResetSchema = ExperimentsResetCreateParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, ExperimentsResetCreateParams.shape['id']),
 })
@@ -1149,6 +1222,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-calculate-running-time': experimentCalculateRunningTime,
     'experiment-copy-to-project': experimentCopyToProject,
     'experiment-create': experimentCreate,
+    'experiment-create-from-prompt': experimentCreateFromPrompt,
     'experiment-delete': experimentDelete,
     'experiment-duplicate': experimentDuplicate,
     'experiment-end': experimentEnd,
@@ -1165,6 +1239,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-metrics-recalculation-latest-retrieve': experimentMetricsRecalculationLatestRetrieve,
     'experiment-metrics-recalculation-retrieve': experimentMetricsRecalculationRetrieve,
     'experiment-pause': experimentPause,
+    'experiment-prompt-templates': experimentPromptTemplates,
     'experiment-reset': experimentReset,
     'experiment-resume': experimentResume,
     'experiment-saved-metrics-create': experimentSavedMetricsCreate,

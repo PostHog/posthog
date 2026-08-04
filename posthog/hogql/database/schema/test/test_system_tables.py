@@ -108,6 +108,8 @@ TEAM_ID_FILTER_PATTERNS = {
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
     "_ticket_assignments": "system__support_tickets.team_id",
+    # Roles scope one level deeper, through the assignments that reference them
+    "_ticket_assignee_roles": "system__support_tickets.team_id",
 }
 
 
@@ -146,6 +148,8 @@ class TestSystemTablesTeamScoping(BaseTest):
             "_ticket_tagged_items",
             # Hidden table backing system.support_tickets.assignee; covered by TestSystemTicketAssignmentLazyJoin.
             "_ticket_assignments",
+            # Hidden table backing the assignee role_name resolution; covered by TestSystemTicketAssignmentLazyJoin.
+            "_ticket_assignee_roles",
             # information_schema is a namespace of virtual catalog tables (tables/columns/
             # relationships/data_types) computed per-query from the caller's own Database object,
             # so it has no team_id column to isolate; behaviour is covered by TestInformationSchema.
@@ -381,6 +385,20 @@ def _create_error_tracking_symbol_set(team: Team, label: str) -> ErrorTrackingSy
 
 def _create_hog_flow(team: Team, label: str) -> HogFlow:
     return HogFlow.objects.create(team=team, name=f"flow_{label}")
+
+
+def _create_message_category(team: Team, label: str):
+    from products.messaging.backend.models.message_category import MessageCategory
+
+    return MessageCategory.objects.create(team=team, key=f"category_{label}", name=f"Category {label}")
+
+
+def _create_message_recipient_preference(team: Team, label: str):
+    from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+
+    return MessageRecipientPreference.objects.create(
+        team=team, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
+    )
 
 
 def _create_hog_function(team: Team, label: str) -> HogFunction:
@@ -716,6 +734,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
     ("logs_views", _create_logs_view),
+    ("message_categories", _create_message_category),
+    ("message_recipient_preferences", _create_message_recipient_preference),
     ("notebooks", _create_notebook),
     ("review_queue_items", _create_review_queue_item),
     ("review_queues", _create_review_queue),
@@ -1001,6 +1021,31 @@ class TestSystemTicketAssignmentLazyJoin(NonAtomicBaseTest):
         )
 
         assert response.results == [(None, None)]
+
+    def test_assignee_role_name_resolves_for_role_assignee(self):
+        self.role = Role.objects.create(name="Team Support", organization=self.organization)
+        ticket = _create_support_ticket(self.team, "role")
+        TicketAssignment.objects.create(ticket=ticket, role=self.role)
+
+        response = execute_hogql_query(
+            f"SELECT assignee.role_name FROM system.support_tickets WHERE id = '{ticket.id}'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results[0][0] == "Team Support"
+
+    def test_assignee_role_name_null_for_user_assignee(self):
+        ticket = _create_support_ticket(self.team, "user")
+        TicketAssignment.objects.create(ticket=ticket, user=self.user)
+
+        response = execute_hogql_query(
+            f"SELECT assignee.role_name FROM system.support_tickets WHERE id = '{ticket.id}'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results[0][0] is None
 
     def test_assignee_lazy_join_isolated_per_team(self):
         other_ticket = _create_support_ticket(self.other_team, "theirs")
