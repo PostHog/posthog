@@ -124,8 +124,8 @@ const FIELD_TO_STEP: Partial<Record<string, ScannerEditorStep>> = {
     emits_signals: 'self_driving',
 }
 
-// DRF flattens nested field errors with `__` (e.g. `scanner_config__prompt`) — rebuild the nested
-// shape kea-forms' `setXManualErrors` expects so the message lands on the actual sub-field.
+// drf-exceptions-hog flattens nested field errors with `__` (e.g. `scanner_config__prompt`) — rebuild
+// the nested shape kea-forms' `setXManualErrors` expects so the message lands on the actual sub-field.
 function manualErrorsFromAttr(attr: string, message: string): Record<string, any> {
     const path = attr.split('__')
     return path.reduceRight<any>((value, key) => ({ [key]: value }), message)
