@@ -322,6 +322,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
     ),
+    "web_analytics": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        credit_bucket=None,
+    ),
     # changelog-bot. Exact-pinned to these two ids (the agent sends "openai/"-prefixed).
     "changelog_bot": ProductConfig(
         allowed_application_ids=None,
