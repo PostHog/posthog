@@ -28,6 +28,7 @@ pub fn prepared<E: SinkEvent + ?Sized>(events: &[&E], ctx: &RequestContext) -> V
             payload: e.serialize(ctx).expect("test payload must serialize"),
             headers: e.headers(ctx),
             partition_key: e.partition_key(ctx),
+            ordering: e.ordering(),
         })
         .collect()
 }
@@ -104,6 +105,7 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::default(),
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -128,6 +130,7 @@ pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
         details: None,
         destination: Destination::default(),
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -152,6 +155,7 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
         details: Some("missing_event_name"),
         destination: Destination::default(),
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -226,6 +230,7 @@ pub fn realistic_pageview(distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -264,6 +269,7 @@ pub fn realistic_identify(distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -302,6 +308,7 @@ pub fn realistic_custom(distinct_id: &str, event_name: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }

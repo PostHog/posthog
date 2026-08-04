@@ -23,6 +23,7 @@ impl io::Write for StringWriter<'_> {
     }
 }
 
+use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::Destination;
@@ -217,6 +218,13 @@ pub struct WrappedEvent {
     pub details: Option<&'static str>,
     pub destination: Destination,
     pub force_disable_person_processing: bool,
+    /// Set when the overflow limiter decided this key is bursting and must be
+    /// spread across the overflow topic's partitions. Deliberately separate
+    /// from `force_disable_person_processing`: spreading a hot key is a
+    /// partitioning decision, while disabling person processing is a
+    /// customer-visible instruction to skip identity resolution, and the
+    /// overflow limiter only means the former. Consumed by `ordering()`.
+    pub spread_partitions: bool,
     /// Set by the gateway-provenance step when a valid signature was verified;
     /// read by the quota shim to exempt the event from the llm_events limiter.
     pub is_gateway_verified: bool,
@@ -248,10 +256,10 @@ impl SinkEvent for WrappedEvent {
     // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
     // in common_types — same conversion legacy capture uses.
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
-        // v0 compat: downstream consumers key on "force_disable_person_processing".
-        // v1 decouples overflow routing from person-processing (unlike v0 where
-        // overflow ForceLimited unconditionally sets this); operators configure
-        // this flag alongside ForceOverflow when needed.
+        // Downstream treats this header as absolute: `decideProcessPerson` in
+        // nodejs/src/common/persons/person-utils.ts skips person processing
+        // outright when it is set. So it carries only the person-processing
+        // decision, never the partitioning one, which travels as `ordering()`.
         let force_disable_person_processing = if self.force_disable_person_processing {
             Some(true)
         } else {
@@ -317,6 +325,28 @@ impl SinkEvent for WrappedEvent {
             }
         }
         buf
+    }
+
+    /// Computed here rather than stamped during processing because it depends
+    /// on the final destination: `apply_restrictions` can disable person
+    /// processing while an event is still `AnalyticsMain`, and
+    /// `apply_historical_rerouting` may afterwards move it to
+    /// `AnalyticsHistorical`, whose consumers need the key. Deciding late
+    /// keeps the rule correct no matter how the stages are ordered.
+    fn ordering(&self) -> OrderingGuarantee {
+        match self.destination {
+            // Only the lanes that exist to absorb hot keys give up ordering.
+            Destination::AnalyticsMain | Destination::Overflow | Destination::AiEventsOverflow => {
+                if self.spread_partitions {
+                    OrderingGuarantee::None
+                } else {
+                    person_ordering(self.force_disable_person_processing)
+                }
+            }
+            // Historical, dlq, custom redirects and the AI main topic keep the
+            // key even with person processing off, matching v0's route().
+            _ => OrderingGuarantee::PerDistinctId,
+        }
     }
 
     fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
@@ -1024,6 +1054,82 @@ mod tests {
         test_utils::wrapped_event(event_name, distinct_id)
     }
 
+    /// The ordering rule, per lane and per reason for giving ordering up. The
+    /// `spread`-without-`force_disable` rows are the ones that matter most:
+    /// a bursting key must lose its partition key without also losing person
+    /// processing, which is a customer-visible instruction.
+    #[rstest::rstest]
+    #[case::main_untouched(
+        Destination::AnalyticsMain,
+        false,
+        false,
+        OrderingGuarantee::PerDistinctId
+    )]
+    #[case::main_person_off(Destination::AnalyticsMain, true, false, OrderingGuarantee::None)]
+    #[case::main_spread(Destination::AnalyticsMain, false, true, OrderingGuarantee::None)]
+    #[case::overflow_untouched(
+        Destination::Overflow,
+        false,
+        false,
+        OrderingGuarantee::PerDistinctId
+    )]
+    #[case::overflow_person_off(Destination::Overflow, true, false, OrderingGuarantee::None)]
+    #[case::overflow_spread(Destination::Overflow, false, true, OrderingGuarantee::None)]
+    #[case::ai_overflow_spread(Destination::AiEventsOverflow, false, true, OrderingGuarantee::None)]
+    #[case::ai_overflow_person_off(
+        Destination::AiEventsOverflow,
+        true,
+        false,
+        OrderingGuarantee::None
+    )]
+    // Lanes whose consumers need the key regardless: person processing being
+    // off must not spread them, matching v0's route().
+    #[case::ai_main_person_off(
+        Destination::AiEvents,
+        true,
+        false,
+        OrderingGuarantee::PerDistinctId
+    )]
+    #[case::historical_person_off(
+        Destination::AnalyticsHistorical,
+        true,
+        false,
+        OrderingGuarantee::PerDistinctId
+    )]
+    #[case::dlq_person_off(Destination::Dlq, true, false, OrderingGuarantee::PerDistinctId)]
+    #[case::custom_person_off(
+        Destination::Custom("t".into()),
+        true,
+        false,
+        OrderingGuarantee::PerDistinctId
+    )]
+    fn ordering_per_lane(
+        #[case] destination: Destination,
+        #[case] force_disable_person_processing: bool,
+        #[case] spread_partitions: bool,
+        #[case] expected: OrderingGuarantee,
+    ) {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.destination = destination;
+        ev.force_disable_person_processing = force_disable_person_processing;
+        ev.spread_partitions = spread_partitions;
+        assert_eq!(ev.ordering(), expected);
+    }
+
+    #[test]
+    fn spreading_does_not_disable_person_processing() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.destination = Destination::Overflow;
+        ev.spread_partitions = true;
+
+        assert_eq!(ev.ordering(), OrderingGuarantee::None);
+        assert!(
+            ev.headers(&ctx).force_disable_person_processing.is_none(),
+            "spreading a hot key must not tell downstream to skip person processing"
+        );
+    }
+
     #[rstest::rstest]
     #[case::ok_main(EventResult::Ok, Destination::AnalyticsMain)]
     #[case::ok_historical(EventResult::Ok, Destination::AnalyticsHistorical)]
@@ -1329,6 +1435,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         }
     }
@@ -1511,6 +1618,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1553,6 +1661,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1594,6 +1703,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1632,6 +1742,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1673,6 +1784,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1792,6 +1904,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: true,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1835,6 +1948,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1876,6 +1990,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1913,6 +2028,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 

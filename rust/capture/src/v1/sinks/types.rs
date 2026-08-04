@@ -6,6 +6,7 @@ use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
 use crate::event_restrictions::Pipeline;
+use crate::ordering::OrderingGuarantee;
 
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
@@ -205,8 +206,11 @@ pub struct PreparedEvent {
     pub destination: Destination,
     pub payload: bytes::Bytes,
     pub headers: CapturedEventHeaders,
-    /// Raw key; the Sink decides whether to use or null it per routing policy.
+    /// Raw key; whether the Sink uses it is decided by `ordering`.
     pub partition_key: String,
+    /// The guarantee `partition_key` exists to preserve.
+    /// [`OrderingGuarantee::None`] means publish without a key.
+    pub ordering: OrderingGuarantee,
 }
 
 // ---------------------------------------------------------------------------
