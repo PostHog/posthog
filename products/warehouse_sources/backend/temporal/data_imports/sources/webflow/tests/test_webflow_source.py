@@ -59,6 +59,7 @@ class TestWebflowSource:
         assert "401 Client Error" in errors
         assert "403 Client Error" in errors
         assert "409 Client Error: Conflict" in errors
+        assert "Webflow collection for schema" in errors
 
     def test_409_conflict_message_is_recognised_as_non_retryable(self) -> None:
         # Webflow returns 409 on /products when the site has no ecommerce; the raised
@@ -71,6 +72,15 @@ class TestWebflowSource:
         )
         matches = [pattern for pattern in errors if pattern in raised_message]
         assert matches == ["409 Client Error: Conflict"]
+
+    def test_deleted_collection_message_is_recognised_as_non_retryable(self) -> None:
+        # _resolve_collection_id raises this when a collection's slug no longer resolves at sync
+        # time; the message embeds a volatile schema name and site id, so we must match on a stable
+        # substring that excludes them.
+        errors = WebflowSource().get_non_retryable_errors()
+        raised_message = "Webflow collection for schema 'collection_blog' was not found on site 'abc123'"
+        matches = [pattern for pattern in errors if pattern in raised_message]
+        assert matches == ["Webflow collection for schema"]
 
     def test_get_schemas_includes_static_and_dynamic_collections(self) -> None:
         with patch(

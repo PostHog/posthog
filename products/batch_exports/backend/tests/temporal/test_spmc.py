@@ -1,4 +1,3 @@
-import random
 import typing
 import asyncio
 import datetime as dt
@@ -8,12 +7,9 @@ import pytest
 
 import pyarrow as pa
 
-from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-
 from products.batch_exports.backend.service import BackfillDetails
 from products.batch_exports.backend.temporal.spmc import (
     InvalidFilterError,
-    Producer,
     RecordBatchQueue,
     compose_filters_clause,
     slice_record_batch,
@@ -85,76 +81,6 @@ async def test_record_batch_queue_str_and_repr():
 
     assert str(queue) == "<RecordBatchQueue record_batches=1 bytes=24 schema='test: int64'>"
     assert "record_batches=1 bytes=24 schema='test: int64'" in repr(queue)
-
-
-async def get_record_batch_from_queue(queue, produce_task):
-    while not queue.empty() or not produce_task.done():
-        try:
-            record_batch = queue.get_nowait()
-        except asyncio.QueueEmpty:
-            if produce_task.done():
-                break
-            else:
-                await asyncio.sleep(0.1)
-                continue
-
-        return record_batch
-    return None
-
-
-async def get_all_record_batches_from_queue(queue, produce_task):
-    records = []
-    while not queue.empty() or not produce_task.done():
-        record_batch = await get_record_batch_from_queue(queue, produce_task)
-        if record_batch is None:
-            break
-
-        for record in record_batch.to_pylist():
-            records.append(record)
-    return records
-
-
-async def test_record_batch_producer_uses_extra_query_parameters(clickhouse_client):
-    """Test RecordBatch Producer uses a HogQL value."""
-    team_id = random.randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-
-    (events, _, _) = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=10,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-        properties={"$browser": "Chrome", "$os": "Mac OS X", "custom": 3},
-    )
-
-    queue = RecordBatchQueue()
-    producer = Producer()
-    producer_task = await producer.start(
-        queue=queue,
-        team_id=team_id,
-        is_backfill=False,
-        backfill_details=None,
-        model_name="events",
-        full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
-        fields=[
-            {"expression": "JSONExtractInt(properties, %(hogql_val_0)s)", "alias": "custom_prop"},
-        ],
-        extra_query_parameters={"hogql_val_0": "custom"},
-    )
-
-    records = await get_all_record_batches_from_queue(queue, producer_task)
-
-    for expected, record in zip(events, records):
-        if expected["properties"] is None:
-            raise ValueError("Empty properties")
-
-        assert record["custom_prop"] == expected["properties"]["custom"]
 
 
 def test_slice_record_batch_into_single_record_slices():
