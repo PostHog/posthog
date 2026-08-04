@@ -92,6 +92,16 @@ Additional properties:
 | `error_message`    | `str`   | Error message (truncated to the **last** 500 chars — the root cause sits at the tail)                                                                                                                          |
 | `duration_seconds` | `float` | Time from creation to failure                                                                                                                                                                                  |
 
+### `parent_woken`
+
+Tracked when a cold orchestrator parent is resumed and its queued child wakes are delivered.
+
+| Property       | Type   | Description                                      |
+| -------------- | ------ | ------------------------------------------------ |
+| `source`       | `str`  | `terminal`, `pr_merged`, or `multiple`            |
+| `cold`         | `bool` | Whether delivery required an automatic resume     |
+| `queued_count` | `int`  | Number of queued wake messages delivered together |
+
 ## Loop Fire Metrics
 
 Source: `products/tasks/backend/metrics.py`, emitted from `products/tasks/backend/logic/services/loop_runs.py::fire_loop`.
