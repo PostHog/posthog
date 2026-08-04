@@ -57,7 +57,7 @@ class GumroadSource(ResumableSource[GumroadSourceConfig, GumroadResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "Gumroad rejected the access token. Generate a new one under Settings > Advanced > Applications and reconnect.",
-            "403 Client Error: Forbidden for url": "The Gumroad access token is missing a required scope. Reconnect with a token that has view_sales, view_payouts, and view_public access.",
+            "403 Client Error: Forbidden for url": "The Gumroad access token is missing a scope required for this table. Reconnect with a token that has access to the tables you're syncing.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

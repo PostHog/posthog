@@ -2,6 +2,8 @@ import dataclasses
 from collections.abc import Callable, Iterable
 from typing import Any, Optional, cast
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
@@ -80,6 +82,11 @@ def _rest_api_client_config(access_token: str) -> ClientConfig:
         "base_url": GUMROAD_BASE_URL,
         "auth": {"type": "bearer", "token": access_token},
         "headers": {"Accept": "application/json"},
+        # `capture=False`: sales and subscriber rows carry redeemable `license_key` values, and
+        # reviews and custom fields carry arbitrary customer text the name-based sample scrubbers
+        # can't redact, so keep every response body out of HTTP sample storage. Requests stay
+        # metered and logged.
+        "session": make_tracked_session(redact_values=(access_token,), capture=False, allow_redirects=False),
         # Pin every request (and the bearer header) to the Gumroad host and refuse to follow a
         # 3xx, so a server-side redirect can never replay the credential off-host.
         "allowed_hosts": [],
@@ -223,13 +230,23 @@ def gumroad_source(
     return _make_source_response(endpoint_config, lambda: resource)
 
 
-def _get(access_token: str, path: str, params: dict[str, str] | None = None) -> int:
-    response = make_tracked_session(redact_values=(access_token,), allow_redirects=False).get(
-        f"{GUMROAD_BASE_URL}{path}",
-        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
-        params=params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+def _get(access_token: str, path: str, params: dict[str, str] | None = None) -> int | None:
+    """Probe `path` and return the HTTP status code, or None if the request never completed.
+
+    Transport failures (DNS error, connection reset, timeout before any response) are not
+    permission problems, so they surface as None and let each caller decide how to treat an
+    unreachable host. `capture=False` keeps the real `/v2/user` and `/v2/sales` probe responses
+    out of HTTP sample storage.
+    """
+    try:
+        response = make_tracked_session(redact_values=(access_token,), capture=False, allow_redirects=False).get(
+            f"{GUMROAD_BASE_URL}{path}",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            params=params,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        return None
     return response.status_code
 
 
@@ -237,6 +254,8 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     # `/v2/user` is readable by every scope Gumroad can issue, so a non-200 here means the token
     # itself is bad rather than under-scoped.
     status_code = _get(access_token, "/v2/user")
+    if status_code is None:
+        return False, "Couldn't reach Gumroad to validate the access token. Check your connection and try again."
     if status_code == 200:
         return True, None
     if status_code in (401, 403):
@@ -249,5 +268,6 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
 
 
 def check_endpoint_permission(access_token: str, path: str) -> bool:
-    """Whether the token can read `path`. Only a 403 counts as a missing scope."""
+    """Whether the token can read `path`. Only a 403 counts as a missing scope; a transport failure
+    leaves the probe unable to tell, so we treat the endpoint as reachable rather than denied."""
     return _get(access_token, path) != 403

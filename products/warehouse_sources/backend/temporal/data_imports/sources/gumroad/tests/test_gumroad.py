@@ -4,6 +4,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
@@ -263,6 +264,19 @@ class TestGumroadTransport:
     def test_check_endpoint_permission_only_treats_403_as_denial(self, status, expected, mock_session) -> None:
         mock_session.return_value.get.return_value = Mock(status_code=status)
         assert check_endpoint_permission("gumroad-token", "/v2/sales") is expected
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad.make_tracked_session")
+    def test_probe_transport_error_does_not_leak_out(self, mock_session) -> None:
+        # A DNS/connection failure isn't a permission problem, so it must not raise out of the
+        # schema picker / source creation path: the endpoint stays "reachable" and validation
+        # reports a connectivity problem rather than blaming the token.
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+
+        assert check_endpoint_permission("gumroad-token", "/v2/sales") is True
+
+        is_valid, message = validate_credentials("gumroad-token")
+        assert is_valid is False
+        assert message is not None and "reach Gumroad" in message
 
     def test_rest_client_config_pins_host_and_blocks_redirects(self) -> None:
         # A redirect off the Gumroad host would otherwise replay the bearer token.
