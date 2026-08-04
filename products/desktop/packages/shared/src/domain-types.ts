@@ -102,6 +102,8 @@ export interface TaskChannel {
   name: string;
   channel_type: "public" | "personal";
   starred: boolean;
+  github_integration?: number | null;
+  repositories?: string[];
   created_at: string;
   created_by?: UserBasic | null;
 }
