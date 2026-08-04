@@ -1,30 +1,32 @@
 import clsx from 'clsx'
 
-import { LemonTagType } from '@posthog/lemon-ui'
+import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
-import { SignalScoutRunStatus } from '../../types'
+import { SignalReportStatus, SignalScoutRunStatus } from '../../types'
 
-/** The four-bucket lifecycle every run-shaped card collapses its status into. */
 export type RunVariant = 'queued' | 'live' | 'completed' | 'failed'
 
-/** Single source of truth mapping a run status to its lifecycle variant. Shared by the card (badge +
- * orb) and the Runs tab (Live vs Past split), so the two can't drift on which statuses are terminal. */
-export function resolveRunVariant(status: SignalScoutRunStatus | null): RunVariant {
+export function resolveRunVariant(
+    status: SignalScoutRunStatus | SignalReportStatus | TaskRunStatus | null | undefined
+): RunVariant {
     switch (status) {
         case 'in_progress':
+        case 'pending_input':
             return 'live'
         case 'completed':
+        case 'ready':
+        case 'resolved':
+        case 'deleted':
+        case 'suppressed':
             return 'completed'
         case 'failed':
         case 'cancelled':
             return 'failed'
         default:
-            // queued / not_started / null
             return 'queued'
     }
 }
 
-/** Whether a run is still live (running or pending) rather than in a terminal state. */
 export function isRunLive(status: SignalScoutRunStatus | null): boolean {
     const variant = resolveRunVariant(status)
     return variant === 'live' || variant === 'queued'
@@ -32,8 +34,6 @@ export function isRunLive(status: SignalScoutRunStatus | null): boolean {
 
 export interface VariantMeta {
     label: string
-    badgeType: LemonTagType
-    orbClass: string
     dotClass: string
     ariaLabel: string
 }
@@ -41,47 +41,48 @@ export interface VariantMeta {
 export const VARIANT_META: Record<RunVariant, VariantMeta> = {
     queued: {
         label: 'Queued',
-        badgeType: 'default',
-        orbClass: 'bg-fill-primary ring-primary',
         dotClass: 'bg-muted',
         ariaLabel: 'Queued',
     },
     live: {
         label: 'Running',
-        badgeType: 'highlight',
-        orbClass: 'bg-primary-highlight ring-primary',
         dotClass: 'bg-accent animate-pulse',
         ariaLabel: 'In progress',
     },
     completed: {
         label: 'Completed',
-        badgeType: 'success',
-        orbClass: 'bg-success-highlight ring-success',
         dotClass: 'bg-success',
         ariaLabel: 'Completed',
     },
     failed: {
         label: 'Failed',
-        badgeType: 'danger',
-        orbClass: 'bg-danger-highlight ring-danger',
         dotClass: 'bg-danger',
         ariaLabel: 'Failed',
     },
 }
 
-export function RunStatusOrb({ meta }: { meta: VariantMeta }): JSX.Element {
+export function RunStatusIndicator({
+    variant,
+    showLabel = true,
+    className,
+}: {
+    variant: RunVariant
+    showLabel?: boolean
+    className?: string
+}): JSX.Element {
+    const meta = VARIANT_META[variant]
+
     return (
-        <div
-            className={clsx(
-                'flex items-center justify-center h-7 w-7 shrink-0 rounded-full ring-1 ring-inset',
-                meta.orbClass
-            )}
+        <span
+            className={clsx('inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-secondary', className)}
         >
             <span
-                className={clsx('block h-1.5 w-1.5 rounded-full', meta.dotClass)}
-                role="img"
-                aria-label={meta.ariaLabel}
+                className={clsx('block size-2 shrink-0 rounded-full', meta.dotClass)}
+                role={showLabel ? undefined : 'img'}
+                aria-label={showLabel ? undefined : meta.ariaLabel}
+                aria-hidden={showLabel || undefined}
             />
-        </div>
+            {showLabel ? meta.label : null}
+        </span>
     )
 }

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 4 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -653,145 +653,6 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const DesktopFileSystemListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const DesktopFileSystemListQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('A search term.'),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const DesktopFileSystemCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const desktopFileSystemCreateBodyTypeMax = 100
-
-export const desktopFileSystemCreateBodyRefMax = 100
-
-export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const DesktopFileSystemRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this file system.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Publish a new version of a freeform canvas's React source.
- *
- * Merges into the dashboard row's `meta` (never replaces it), so existing
- * keys like `channelId`/`templateId` survive. Appends a full-file version
- * snapshot and points `currentVersionId` at it — the server-side mirror of
- * the app's dashboardsService.saveFreeform, including the linear-discard of
- * any redo tail left behind by an undo. When the publisher passes
- * `expected_current_version_id`, a publish based on a stale version is
- * rejected with 409 `version_conflict` instead of overwriting the newer head.
- */
-export const DesktopFileSystemCanvasPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this file system.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        code: zod.string().optional().describe('The complete single-file React source for the canvas.'),
-        prompt: zod
-            .string()
-            .optional()
-            .describe('Short description of the change, stored on the appended version history entry.'),
-        name: zod
-            .string()
-            .optional()
-            .describe('Optional new display name for the canvas (rewrites the leaf segment of its path).'),
-        expected_current_version_id: zod
-            .string()
-            .nullish()
-            .describe(
-                "Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded."
-            ),
-    })
-    .describe("Payload for publishing a freeform canvas's React source via the agent.")
-
-/**
- * Return the latest non-deleted instructions for this folder.
- */
-export const DesktopFileSystemInstructionsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this file system.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Publish a new version of the folder's instructions.
- */
-export const DesktopFileSystemInstructionsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this file system.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin = 0
-
-export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    content: zod.string().optional().describe('Full markdown instructions to publish as a new version for the folder.'),
-    base_version: zod
-        .number()
-        .min(desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin)
-        .optional()
-        .describe(
-            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
-        ),
-})
-
-/**
  * Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account.
  */
 export const UsersRetrieveParams = /* @__PURE__ */ zod.object({
@@ -867,10 +728,10 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()

@@ -64,6 +64,7 @@ import {
 } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
+import { mirrorCall, mirrorCompare } from './utils/mirror-call'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -121,6 +122,7 @@ export class CdpApi {
 
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
+    private hogWatcherMirror: HogWatcherService | null
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
     private rerunJobManager: RerunJobManager | null = null
@@ -153,6 +155,7 @@ export class CdpApi {
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
         this.hogWatcher = services.hogWatcher
+        this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
 
         // API-only services. The hog-transformer's monitoring service reuses the same
@@ -181,7 +184,8 @@ export class CdpApi {
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
-            this.invocationResultsService
+            this.invocationResultsService,
+            this.hogWatcherMirror
         )
         this.batchResolverProducer = batchResolverProducer
         this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
@@ -300,7 +304,11 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await this.hogWatcher.getPersistedState(id)
+            const summary = await mirrorCompare(
+                'hog-watcher.getPersistedState',
+                () => this.hogWatcher.getPersistedState(id),
+                () => this.hogWatcherMirror?.getPersistedState(id)
+            )
 
             res.json(summary)
         }
@@ -317,7 +325,11 @@ export class CdpApi {
                 return
             }
 
-            const summary = await this.hogWatcher.getPersistedState(id)
+            const summary = await mirrorCompare(
+                'hog-watcher.getPersistedState',
+                () => this.hogWatcher.getPersistedState(id),
+                () => this.hogWatcherMirror?.getPersistedState(id)
+            )
             const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
 
             if (!hogFunction) {
@@ -328,20 +340,35 @@ export class CdpApi {
             // Only allow patching the status if it is different from the current status
 
             if (summary.state !== state) {
-                await this.hogWatcher.forceStateChange(hogFunction, state)
+                await Promise.all([
+                    this.hogWatcher.forceStateChange(hogFunction, state),
+                    mirrorCall('hog-watcher.forceStateChange', () =>
+                        this.hogWatcherMirror?.forceStateChange(hogFunction, state)
+                    ),
+                ])
             }
 
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
-            res.json(await this.hogWatcher.getPersistedState(id))
+            res.json(
+                await mirrorCompare(
+                    'hog-watcher.getPersistedState',
+                    () => this.hogWatcher.getPersistedState(id),
+                    () => this.hogWatcherMirror?.getPersistedState(id)
+                )
+            )
         }
 
     private getFunctionStates =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             try {
-                const allStates = await this.hogWatcher.getAllFunctionStates()
+                const allStates = await mirrorCompare(
+                    'hog-watcher.getAllFunctionStates',
+                    () => this.hogWatcher.getAllFunctionStates(),
+                    () => this.hogWatcherMirror?.getAllFunctionStates()
+                )
 
                 // Transform the data for better consumption by Grafana and sort by tokens ascending
                 const statesArray = Object.entries(allStates)
@@ -485,7 +512,7 @@ export class CdpApi {
                         logs,
                         sensitiveValues
                     )
-                    options.sendEmailsInline = true
+                    options.isTest = true
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -779,7 +806,7 @@ export class CdpApi {
                 logs,
                 sensitiveValues
             )
-            options.sendEmailsInline = true
+            options.isTest = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
@@ -1095,6 +1122,7 @@ export class CdpApi {
                 throw new Error('Batch resolver producer is not configured (missing CYCLOTRON_NODE_DATABASE_URL)')
             }
 
+            const audienceType = req.body.filters?.audience_type ?? hogFlow.trigger.filters.audience_type
             const initialState: BatchResolverState = {
                 batchJobId: parent_run_id,
                 teamId: team.id,
@@ -1103,10 +1131,16 @@ export class CdpApi {
                     // Prefer the audience snapshot validated at dispatch time - re-reading the live
                     // trigger here would let an edit landing after the confirm check widen the send.
                     // Fallback covers callers that predate the snapshot.
+                    audience_type: audienceType,
                     properties: req.body.filters?.properties ?? (hogFlow.trigger.filters.properties || []),
                     filter_test_accounts:
                         req.body.filters?.filter_test_accounts ??
                         (hogFlow.trigger.filters.filter_test_accounts || false),
+                    tag_names: req.body.filters?.tag_names ?? hogFlow.trigger.filters.tag_names,
+                    assigned_to_user_ids:
+                        req.body.filters?.assigned_to_user_ids ?? hogFlow.trigger.filters.assigned_to_user_ids,
+                    all_roles_unassigned:
+                        req.body.filters?.all_roles_unassigned ?? hogFlow.trigger.filters.all_roles_unassigned,
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,
@@ -1114,7 +1148,8 @@ export class CdpApi {
                 // `{{ person.properties.email }}`. Custom recipients (work_email, computed Liquid, static
                 // strings) would make the dedupe key diverge from the actual send target — better to skip
                 // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
-                dedupeKey: canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
+                // Account audiences carry no person (and external ids are already unique), so never dedupe.
+                dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

@@ -194,6 +194,18 @@ describe('onboardingLogic — flow composition', () => {
                 INSTALL_DEDUP_KEYS.OPENTELEMETRY,
             ])
         })
+
+        // Metrics and Logs both send over OTel, but their install steps are NOT
+        // functionally identical (Metrics is OTLP/scrape-agent only; Logs offers 10
+        // SDK-specific flows). Collapsing them would drop the loser's instruction map,
+        // so picking both must keep both install steps regardless of which is primary.
+        it('Metrics primary + Logs secondary keeps both install steps (no dedup)', () => {
+            logic.actions.setProductKey(ProductKey.METRICS)
+            logic.actions.setSecondaryProductKeys([ProductKey.LOGS])
+
+            const installs = logic.values.flow.filter((s) => s.stepKey === OnboardingStepKey.INSTALL)
+            expect(installs.map((s) => s.id)).toEqual(['install:metrics', 'install:logs'])
+        })
     })
 
     describe('install-step — no dedup', () => {
@@ -487,10 +499,10 @@ describe('onboardingLogic — flow composition', () => {
         })
     })
 
-    describe('completeContextOnboarding', () => {
+    describe('completeSelfDrivingOnboarding', () => {
         it('persists both onboarding completion signals', async () => {
             await expectLogic(logic, () => {
-                logic.actions.completeContextOnboarding()
+                logic.actions.completeSelfDrivingOnboarding()
             }).toDispatchActions([
                 (action) => {
                     if (action.type !== logic.actionTypes.updateCurrentTeam) {

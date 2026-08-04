@@ -226,6 +226,19 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path("admin/login/user/<str:user_id>/", loginas_user, name="loginas-user-login"),
         path("admin/impersonation/upgrade/", upgrade_impersonation, name="impersonation-upgrade"),
+        # Temporary compatibility aliases for stable DuckgresServer admin URLs.
+        path(
+            "admin/posthog/duckgresserver/",
+            RedirectView.as_view(url="/admin/managed_warehouse/duckgresserver/", permanent=False, query_string=True),
+        ),
+        path(
+            "admin/posthog/duckgresserver/<path:url_suffix>",
+            RedirectView.as_view(
+                url="/admin/managed_warehouse/duckgresserver/%(url_suffix)s",
+                permanent=False,
+                query_string=True,
+            ),
+        ),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]

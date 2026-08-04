@@ -1,13 +1,17 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
 
 import { ExportType } from '~/exporter/types'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import {
     buildTrendsQuery,
     chart,
@@ -20,7 +24,7 @@ import {
     trendsSeries,
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
-import { AnnotationScope, ChartDisplayType } from '~/types'
+import { AnnotationScope, ChartDisplayType, InsightShortId } from '~/types'
 
 // The full InsightViz tree is heavy to mount under jsdom; on contended CI shards
 // the default 1s waitFor / findBy timeout is too tight and flakes randomly.
@@ -629,6 +633,77 @@ describe('TrendsLineChart', () => {
                 // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
                 expect(personsModal.get()).not.toBeInTheDocument()
             })
+        })
+    })
+
+    describe('formula insights with drill-down disabled', () => {
+        const multiSeriesFormulaQuery = buildTrendsQuery({
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+            ],
+            trendsFilter: { formula: 'A/B' },
+        })
+
+        /** Mirrors how InsightCard hands a dashboard tile's real short_id and query down through
+         *  `context.insightProps.cachedInsight` (see InsightCard.tsx / InsightMeta.tsx). */
+        const dashboardTileContext = (shortId: InsightShortId): QueryContext<InsightVizNode> => ({
+            insightProps: {
+                dashboardItemId: shortId,
+                dashboardId: 42,
+                cachedInsight: {
+                    short_id: shortId,
+                    query: { kind: NodeKind.InsightVizNode, source: multiSeriesFormulaQuery } as InsightVizNode,
+                },
+            },
+        })
+
+        it('explains why drill-down is unavailable instead of opening the persons modal', async () => {
+            renderInsight({ query: multiSeriesFormulaQuery })
+
+            await chart.hoverTooltip(2)
+
+            expect(chart.getTooltip()?.textContent).toContain("Drill-down isn't available for formula insights")
+            await chart.clickTooltipRow('Pageview')
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it('navigates to the insight on click when rendered as a dashboard/card tile', async () => {
+            const shortId = 'formula-insight-1' as InsightShortId
+            renderInsight({
+                query: multiSeriesFormulaQuery,
+                embedded: true,
+                context: dashboardTileContext(shortId),
+            })
+
+            await chart.hoverTooltip(2)
+            expect(chart.getTooltip()?.textContent).toContain(
+                "Drill-down isn't available for formula insights. Click to view the insight."
+            )
+
+            await chart.clickTooltipRow('Pageview')
+
+            await waitFor(() => {
+                const path = removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search
+                expect(path).toEqual(urls.insightView(shortId, 42))
+            })
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it('does not navigate on click when rendered in shared mode', async () => {
+            const shortId = 'formula-insight-2' as InsightShortId
+            renderInsight({
+                query: multiSeriesFormulaQuery,
+                embedded: true,
+                inSharedMode: true,
+                context: dashboardTileContext(shortId),
+            })
+            const pathnameBeforeClick = router.values.location.pathname
+
+            await chart.hoverTooltip(2)
+            await chart.clickTooltipRow('Pageview')
+
+            expect(router.values.location.pathname).toEqual(pathnameBeforeClick)
         })
     })
 

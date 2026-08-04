@@ -506,6 +506,7 @@ name = "assignment-coordination"
 version = "0.1.0"
 dependencies = [
  "etcd-client",
+ "metrics",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -4127,7 +4128,10 @@ name = "embedding-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aws-config",
+ "aws-sdk-dynamodb",
  "axum 0.7.9",
+ "chrono",
  "common-alloc",
  "common-continuous-profiling",
  "common-kafka",
