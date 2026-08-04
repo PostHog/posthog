@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from importlib import util as importlib_util
 from pathlib import Path
@@ -16,6 +17,10 @@ MAX_RETRIES = 30
 
 def _load_ducklake_common() -> ModuleType:
     """Load managed warehouse helpers directly from the repo without relying on editable installs."""
+    # The helpers use absolute `products.*` imports, which only resolve when the
+    # repo root is importable — not a given when this runs as a bin/ script.
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
     module_path = REPO_ROOT / "products" / "managed_warehouse" / "backend" / "common.py"
     spec = importlib_util.spec_from_file_location("managed_warehouse_common", module_path)
     if not spec or not spec.loader:
