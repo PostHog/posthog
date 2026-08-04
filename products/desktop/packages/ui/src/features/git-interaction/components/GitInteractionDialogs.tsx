@@ -46,16 +46,10 @@ export function ErrorContainer({
   };
 
   return (
-    <Box className="max-h-[200px] overflow-auto rounded-(--radius-2) border border-(--red-6) bg-(--red-2)">
-      <Flex direction="column" gap="2" p="2">
-        <Flex justify="between" align="start" gap="2">
-          <Text
-            color="red"
-            className="flex-1 whitespace-pre-wrap break-words font-[var(--code-font-family)] text-[13px]"
-          >
-            {error}
-          </Text>
-          <Flex gap="1" className="shrink-0">
+    <Box className="rounded-(--radius-2) border border-(--red-6) bg-(--red-2)">
+      <Flex direction="column">
+        <Flex justify="end" px="2" pt="2">
+          <Flex gap="1">
             {onFixWithAgent && (
               <Tooltip content="Fix with Agent">
                 <IconButton
@@ -80,6 +74,14 @@ export function ErrorContainer({
             </Tooltip>
           </Flex>
         </Flex>
+        <Box className="max-h-[200px] overflow-auto px-2 pb-2">
+          <Text
+            color="red"
+            className="whitespace-pre-wrap break-words font-[var(--code-font-family)] text-[13px]"
+          >
+            {error}
+          </Text>
+        </Box>
       </Flex>
     </Box>
   );
