@@ -43,34 +43,22 @@ BEHAVIORAL_BACKFILL_FINALIZER_ENABLED: bool = get_from_env(
     "BEHAVIORAL_BACKFILL_FINALIZER_ENABLED", False, type_cast=str_to_bool
 )
 # Whether the finalizer may terminalize person-property runs and stamp
-# `last_backfill_person_properties_at`. Separate from the finalizer gate above, which is already on
-# for behavioral runs, so this is the only thing standing between an enabled person seed path and a
-# live person stamp.
+# `last_backfill_person_properties_at`.
 #
 # Keep it off until every region's flags service runs
-# `REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY=events_or_calculation_stamp` (after that flip's delta
-# queries and hypercache refresh). Under the service's default policy the routing predicate takes
-# *either* backfill timestamp as proof the membership table is populated, because many cohorts
-# still carry a person stamp written by the legacy realtime workflow before #57545 removed that
-# write, and for those it correctly means "the legacy pipeline computed this cohort into
-# cohort_membership". A stamp written here means something different: only the person half is
-# backfilled. Until the policy flips, a person stamp landing on a cohort whose behavioral half is
-# unseeded routes flag evaluation through `cohort_membership` anyway, which under-matches
-# "in cohort" targeting and over-matches negated targeting. `Cohort.is_flag_compatible` fail-closes
-# on this; the flags service under its default policy does not.
+# `REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY=events_or_calculation_stamp`. Under the service's
+# default policy either backfill stamp proves the `cohort_membership` table is populated, but a
+# stamp written here means only the person half is backfilled, so it routes flag evaluation for a
+# cohort whose behavioral half is unseeded through an empty table: "in cohort" targeting matches
+# nobody and negated targeting matches everybody.
 #
-# Coupling: when later lighting a team in the service's `REALTIME_COHORT_EVALUATION_TEAM_IDS`, add
-# it to `REALTIME_COHORT_TEAM_ALLOWLIST` too. Edit-time invalidation of
-# `last_realtime_cohort_calculation_at` (which the flipped policy trusts) only runs inside the
-# allowlist guard, so for a non-allowlisted team an edited cohort would keep routing to a
-# membership table computed for its old definition.
+# A team in the service's `REALTIME_COHORT_EVALUATION_TEAM_IDS` must also be in
+# `REALTIME_COHORT_TEAM_ALLOWLIST`, because the stamps that service trusts are only invalidated on
+# edit inside the allowlist guard.
 #
-# The stamp's other precondition is already met: `cohort_person_shape_changed_supersede` supersedes
-# a cohort's active person-property runs when its person leaves change, so an A->B->A revert can no
-# longer stamp readiness over a backfill whose Stage 2 state went stale in the B window. That fence
-# arms only on saves that maintain the shape hashes: an edit that drops the cohort out of realtime
-# support (`cohort_type` cleared) or a delete/undelete round-trip skips maintenance and supersedes
-# nothing, the same exposure the behavioral fence has.
+# `cohort_person_shape_changed_supersede` covers the A->B->A revert that would otherwise stamp
+# readiness over a backfill whose Stage 2 state went stale, but only on saves that maintain the
+# shape hashes: an edit clearing `cohort_type` or a delete/undelete round-trip supersedes nothing.
 BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED: bool = get_from_env(
     "BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED", False, type_cast=str_to_bool
 )

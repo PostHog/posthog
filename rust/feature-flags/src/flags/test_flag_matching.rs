@@ -3784,10 +3784,8 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        // Person stamp only: the compat policy would route this cohort to the provider,
-        // the disambiguated policy must not. The person satisfies the filters, so a match
-        // can only come from dynamic evaluation; the provider reports non-membership, so
-        // wrongly consulting it would flip the flag off.
+        // The person satisfies the filters and the provider reports non-membership, so a
+        // match can only have come from dynamic evaluation.
         let cohort = context
             .insert_cohort_with_type_and_condition_type(
                 team.id,
@@ -3859,9 +3857,8 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        // Calculation stamp only: dynamic evaluation would not match (the person's plan
-        // is free), so a match proves the provider was the source and that the stamp
-        // round-tripped through the PG column list.
+        // The person's plan is free, so dynamic evaluation cannot match and a match proves
+        // both the provider was consulted and the stamp round-tripped through PG.
         let cohort = context
             .insert_cohort_with_type_and_condition_type(
                 team.id,

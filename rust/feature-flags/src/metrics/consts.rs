@@ -29,13 +29,10 @@ pub const COHORT_UNSUPPORTED_FILTER_COUNTER: &str = "flags_cohort_unsupported_fi
 // structural errors. Cohort and team ids are in the companion debug log, not metric
 // labels (cardinality).
 pub const COHORT_MALFORMED_FILTER_COUNTER: &str = "flags_cohort_malformed_filter_total";
-// Counts evaluated cohorts on which the compat (any_backfill_stamp) and disambiguated
-// (events_or_calculation_stamp) membership stamp policies disagree about realtime
-// routing. Labels: direction="would_lose" | "would_gain", active_policy = the policy the
-// region is running. Must stay flat on active_policy="any_backfill_stamp" before flipping
-// REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY in any region where realtime cohort evaluation
-// is enabled; on the flipped policy the same series describes routing that has already
-// changed. Cohort and team ids are in the companion deduped warn log (cardinality).
+// Counts evaluated cohorts the two MembershipStampPolicy variants route differently.
+// Labels: direction="would_lose" | "would_gain", active_policy = the policy this process
+// runs, which says whether the reroute is still pending or already applied. Cohort and
+// team ids are in the companion deduped warn log (cardinality).
 pub const FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER: &str =
     "flags_cohort_stamp_policy_divergence_total";
 // Realtime cohort membership cache (CachedCohortMembershipProvider, keyed on

@@ -147,8 +147,7 @@ def classify_cohort(
         if last_realtime_calculation_at is None:
             fresh = len(only_new)
             # stale stays 0: without a recompute clock nothing bounds which entered rows
-            # could be stale. The clock reads None both when the old side never recomputed
-            # the cohort and when an edit cleared its stamp.
+            # could be stale.
             if fresh:
                 comparison_notes.append("no recompute clock for the old side; all only_new counted fresh")
         else:

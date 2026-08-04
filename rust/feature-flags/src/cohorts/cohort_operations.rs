@@ -55,18 +55,15 @@ fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &
     }
 }
 
-/// Cohorts already warned about by `record_stamp_policy_divergence`, deduped for the same
-/// reason as `WARNED_MALFORMED_COHORTS` above. An `RwLock` rather than a `Mutex` because
-/// divergence is the expected steady state for grandfathered cohorts, not an exception:
-/// once a cohort has been warned about, every later request only takes the read side.
+/// Cohorts already warned about by `record_stamp_policy_divergence`, deduped as
+/// `WARNED_MALFORMED_COHORTS` above is. An `RwLock` because divergence is common rather
+/// than exceptional, so past the first warn every request takes only the read side.
 static WARNED_DIVERGENT_COHORTS: Lazy<RwLock<HashSet<(TeamId, CohortId)>>> =
     Lazy::new(|| RwLock::new(HashSet::new()));
 
-/// Counts and logs a cohort on which the compat and disambiguated membership stamp
-/// policies disagree about realtime routing. The counter is traffic-weighted and can't
-/// identify *which* cohort diverges, so the deduped log carries the ids. `active_policy`
-/// labels which side of the flip the region is on, so a post-flip series (where a
-/// `would_lose` cohort has already been rerouted) can't be mistaken for a pre-flip one.
+/// Counts and logs a cohort the two membership stamp policies route differently. The
+/// counter carries no ids (cardinality), so the deduped log is the only place to learn
+/// which cohort diverged.
 pub(crate) fn record_stamp_policy_divergence(
     cohort: &Cohort,
     active_policy: MembershipStampPolicy,
@@ -1192,14 +1189,11 @@ mod tests {
             cohort
         };
 
-        // Person stamp only: the flip would deroute it, so it must reach the warn set.
         let mut divergent = routed(987_654);
         divergent.last_backfill_person_properties_at = Some(chrono::Utc::now());
         record_stamp_policy_divergence(&divergent, MembershipStampPolicy::AnyBackfillStamp);
         record_stamp_policy_divergence(&divergent, MembershipStampPolicy::AnyBackfillStamp);
 
-        // Events stamp: both policies route it, so nothing is recorded — a recorder that
-        // fired unconditionally would make the rollout gate unreadable.
         let mut agreed = routed(987_655);
         agreed.last_backfill_events_at = Some(chrono::Utc::now());
         record_stamp_policy_divergence(&agreed, MembershipStampPolicy::AnyBackfillStamp);

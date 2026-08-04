@@ -394,28 +394,21 @@ pub struct Config {
     // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
     // membership lookups on the hot path for those teams.
     //
-    // `MembershipStampPolicy::uses_realtime_membership()` also requires `condition_type` to flag a
-    // behavioral/lifecycle condition. `condition_type` wasn't backfilled when it was added, so
-    // any cohort that hasn't been saved since must be resaved (`python manage.py resave_cohorts
-    // --team-id <id>`) for every team in REALTIME_COHORT_EVALUATION_TEAM_IDS, including any
-    // already allowlisted at deploy time — otherwise its behavioral cohorts read as
-    // condition_type = NULL and fall back to legacy dynamic evaluation, which resolves every
-    // person as a non-member rather than just evaluating slower.
+    // Routing also requires `condition_type`, which was never backfilled, so every team listed
+    // here needs `python manage.py resave_cohorts --team-id <id>` first. Without it behavioral
+    // cohorts read as condition_type = NULL and fall back to dynamic evaluation, which resolves
+    // every person as a non-member rather than just evaluating slower.
     //
-    // Lighting a team here also requires adding it to Django's REALTIME_COHORT_TEAM_ALLOWLIST:
-    // edit-time invalidation of the stamps the routing predicate trusts only runs for
-    // allowlisted teams, so without it an edited cohort keeps routing to a membership table
-    // computed for its old definition.
+    // A team listed here must also be in Django's REALTIME_COHORT_TEAM_ALLOWLIST: the stamps
+    // this predicate trusts are only invalidated on edit for allowlisted teams, so without it
+    // an edited cohort keeps routing to a membership table computed for its old definition.
     #[envconfig(from = "REALTIME_COHORT_EVALUATION_TEAM_IDS", default = "none")]
     pub realtime_cohort_evaluation_team_ids: TeamIdCollection,
 
     // Which cohort stamps the routing predicate accepts as proof the PG `cohort_membership`
-    // table is populated for a cohort (see `MembershipStampPolicy`). The default reproduces
-    // the historical disjunction over the two backfill stamps. Flip to
-    // "events_or_calculation_stamp" per region, after the delta queries and hypercache
-    // refresh in the rollout runbook, to stop trusting the overloaded person stamp; that
-    // flip is the last precondition for opening Django's
-    // BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED gate.
+    // table is populated (see `MembershipStampPolicy`). "any_backfill_stamp" also accepts the
+    // overloaded `last_backfill_person_properties_at`; "events_or_calculation_stamp" does not,
+    // and is what Django's BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED gate waits on.
     #[envconfig(
         from = "REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY",
         default = "any_backfill_stamp"

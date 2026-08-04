@@ -53,55 +53,41 @@ pub struct Cohort {
     pub last_backfill_person_properties_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub last_backfill_events_at: Option<DateTime<Utc>>,
-    /// Flags describing which kinds of conditions the cohort's filters contain — see
-    /// `CohortConditionFlags` in products/cohorts/backend/models/cohort.py. Used to gate
-    /// `MembershipStampPolicy::uses_realtime_membership()` on cohorts with a `behavioral`/`lifecycle` condition,
-    /// not just any Realtime/Behavioral `cohort_type`. `#[serde(default)]` so hypercache
-    /// entries written before this field existed deserialize as `None` (safe default).
+    /// Which kinds of conditions the cohort's filters contain, written by
+    /// `CohortConditionFlags` in products/cohorts/backend/models/cohort.py.
+    /// `#[serde(default)]` so hypercache entries written before this field existed
+    /// deserialize as `None`, which routes the cohort to dynamic evaluation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition_type: Option<Value>,
-    /// When the legacy realtime workflow last computed this cohort's membership into the
-    /// PG `cohort_membership` table. Nothing schedules that workflow any more, so this is a
-    /// grandfathering marker rather than a liveness signal. Django nulls it on a leaf-shape
-    /// change, but only for cohorts it maintains shape hashes for — an allowlisted team's
-    /// undeleted, non-static, `realtime`-typed cohort (`_maintain_filter_shape_hashes` in
-    /// products/cohorts/backend/models/cohort.py) — which is why
-    /// `MembershipStampPolicy::EventsOrCalculationStamp` only trusts the stamp on a
-    /// `realtime` cohort. `#[serde(default)]` so hypercache entries written before this
-    /// field existed deserialize as `None`.
+    /// When the legacy realtime workflow last computed this cohort's membership into the PG
+    /// `cohort_membership` table. Nothing schedules that workflow, so this only stays true of
+    /// the cohort's current definition while Django nulls it on edit, which it does for
+    /// allowlisted teams' undeleted, non-static, `realtime`-typed cohorts and nothing else.
+    /// `#[serde(default)]` so hypercache entries written before this field existed
+    /// deserialize as `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_realtime_cohort_calculation_at: Option<DateTime<Utc>>,
 }
 
 /// Which cohort stamps count as proof that the PG `cohort_membership` table has been
-/// populated for a cohort, one of the three preconditions for routing the cohort to the
-/// realtime membership read path instead of dynamic filter evaluation. Selected via the
-/// `REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY` env var.
+/// populated for a cohort. Selected by `REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MembershipStampPolicy {
-    /// Accept either backfill stamp. `last_backfill_person_properties_at` is overloaded:
-    /// many cohorts carry a pre-#57545 stamp from the legacy realtime workflow, for which
-    /// it genuinely means "computed into cohort_membership". The new person-backfill writer
-    /// (gated Django-side behind `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`) means
-    /// only "person seed state exists", which says nothing about table population.
+    /// Accept either backfill stamp. `last_backfill_person_properties_at` is overloaded: on
+    /// cohorts the legacy realtime workflow stamped it means "computed into
+    /// cohort_membership", but the current writer means only "person seed state exists".
     #[default]
     AnyBackfillStamp,
-    /// Accept only stamps that prove table population: `last_backfill_events_at`
-    /// (new-pipeline behavioral backfill completed and reconciled) or
-    /// `last_realtime_cohort_calculation_at` (legacy workflow computed this cohort).
+    /// Accept only stamps that prove table population: `last_backfill_events_at` (behavioral
+    /// backfill completed and reconciled) or `last_realtime_cohort_calculation_at` (legacy
+    /// workflow computed this cohort).
     EventsOrCalculationStamp,
 }
 
 impl MembershipStampPolicy {
-    /// The full routing predicate: should this cohort's membership be resolved via the
-    /// realtime `cohort_membership` table rather than dynamic filter evaluation? The
-    /// policy owns every conjunct so a call site cannot consult it for one and bypass it
-    /// for another. Requires a realtime/behavioral cohort type, a stamp this policy
-    /// accepts as proof the membership table is populated, AND at least one
-    /// behavioral/lifecycle leaf condition. Cohorts made up only of person properties
-    /// never use the membership table, even when otherwise eligible: there's no realtime
-    /// signal to gain from it, so they fall through to dynamic filter evaluation like any
-    /// other property-only cohort.
+    /// Whether to resolve this cohort's membership through the realtime `cohort_membership`
+    /// table rather than dynamic filter evaluation. A person-property-only cohort never
+    /// qualifies: there is no realtime signal to gain from the table.
     pub fn uses_realtime_membership(self, cohort: &Cohort) -> bool {
         matches!(
             cohort.cohort_type,
@@ -118,17 +104,16 @@ impl MembershipStampPolicy {
             }
             Self::EventsOrCalculationStamp => {
                 cohort.last_backfill_events_at.is_some()
-                    // The legacy workflow only ever computed `realtime` cohorts, and Django
-                    // only invalidates the stamp on that type, so on any other type the
-                    // stamp vouches for a definition the cohort has since left.
+                    // The legacy workflow only computed `realtime` cohorts and Django only
+                    // invalidates the stamp on that type, so on any other type the stamp
+                    // vouches for a definition the cohort has since left.
                     || (cohort.last_realtime_cohort_calculation_at.is_some()
                         && cohort.cohort_type == Some(CohortType::Realtime))
             }
         }
     }
 
-    /// Label value for the divergence counter, so a post-flip region's series is
-    /// distinguishable from a pre-flip one's.
+    /// `active_policy` label value on `flags_cohort_stamp_policy_divergence_total`.
     pub fn as_label(self) -> &'static str {
         match self {
             Self::AnyBackfillStamp => "any_backfill_stamp",
@@ -136,9 +121,6 @@ impl MembershipStampPolicy {
         }
     }
 
-    /// How the two policies disagree on this cohort's routing, if they do. Feeds the
-    /// divergence counter that must stay flat before the policy flip in any region where
-    /// realtime evaluation is enabled.
     pub fn divergence(cohort: &Cohort) -> Option<StampPolicyDivergence> {
         match (
             Self::AnyBackfillStamp.uses_realtime_membership(cohort),
@@ -167,18 +149,17 @@ impl FromStr for MembershipStampPolicy {
     }
 }
 
-/// Direction a cohort's routing would move if the policy flipped from
-/// `AnyBackfillStamp` to `EventsOrCalculationStamp`.
+/// Which way a cohort's routing moves when `AnyBackfillStamp` gives way to
+/// `EventsOrCalculationStamp`: `WouldLose` drops to dynamic evaluation, `WouldGain` picks
+/// up the realtime membership table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StampPolicyDivergence {
-    /// Routes realtime today, would fall back to dynamic evaluation (person stamp only).
     WouldLose,
-    /// Evaluates dynamically today, would route realtime (a `realtime` cohort whose only
-    /// stamp is the legacy calculation one).
     WouldGain,
 }
 
 impl StampPolicyDivergence {
+    /// `direction` label value on `flags_cohort_stamp_policy_divergence_total`.
     pub fn as_label(self) -> &'static str {
         match self {
             Self::WouldLose => "would_lose",
@@ -512,7 +493,6 @@ mod tests {
             bool,
             bool,
         )> = vec![
-            // Type gate: only Realtime/Behavioral qualify, under either policy.
             (None, ts, ts, ts, behavioral.clone(), false, false),
             (
                 Some(CohortType::Static),
@@ -541,7 +521,6 @@ mod tests {
                 false,
                 false,
             ),
-            // No stamp at all: never routes.
             (
                 Some(CohortType::Realtime),
                 None,
@@ -551,7 +530,6 @@ mod tests {
                 false,
                 false,
             ),
-            // Person stamp only: overloaded, trusted only by the compat policy.
             (
                 Some(CohortType::Realtime),
                 ts,
@@ -570,7 +548,6 @@ mod tests {
                 true,
                 false,
             ),
-            // Events stamp only: proves table population under both policies.
             (
                 Some(CohortType::Realtime),
                 None,
@@ -580,9 +557,6 @@ mod tests {
                 true,
                 true,
             ),
-            // Calculation stamp only: legacy-computed, trusted only by the disambiguated
-            // policy, and only on the `realtime` type the legacy workflow computed and
-            // Django still invalidates.
             (
                 Some(CohortType::Realtime),
                 None,
@@ -601,8 +575,8 @@ mod tests {
                 false,
                 false,
             ),
-            // A `behavioral`-typed cohort still routes on the events stamp, which the new
-            // pipeline maintains regardless of type.
+            // The events stamp carries a `behavioral`-typed cohort that the calculation
+            // stamp above cannot.
             (
                 Some(CohortType::Behavioral),
                 None,
@@ -612,7 +586,6 @@ mod tests {
                 true,
                 true,
             ),
-            // Every stamp set: routes under both.
             (
                 Some(CohortType::Realtime),
                 ts,
@@ -622,9 +595,6 @@ mod tests {
                 true,
                 true,
             ),
-            // Person-properties-only cohorts never use realtime membership, regardless of
-            // stamps: there's no behavioral/lifecycle condition to gain a realtime signal
-            // from.
             (
                 Some(CohortType::Realtime),
                 ts,
@@ -634,8 +604,6 @@ mod tests {
                 false,
                 false,
             ),
-            // Missing condition_type (e.g. a hypercache entry written before this field
-            // existed) defaults to false under both policies, the safe choice.
             (Some(CohortType::Realtime), ts, ts, ts, None, false, false),
         ];
 
@@ -695,9 +663,8 @@ mod tests {
         let cases = [
             (ts, None, None, Some(StampPolicyDivergence::WouldLose)),
             (None, None, ts, Some(StampPolicyDivergence::WouldGain)),
-            // The events stamp routes under both policies, so it masks the person stamp.
+            // A stamp both policies accept masks the person stamp.
             (ts, ts, None, None),
-            // The calculation stamp keeps a person-stamped cohort routing after the flip.
             (ts, None, ts, None),
             (None, None, None, None),
         ];
@@ -713,13 +680,10 @@ mod tests {
             );
         }
 
-        // A cohort that routes under neither policy (condition_type never resaved) cannot
-        // diverge, whatever its stamps say.
+        // A cohort neither policy routes cannot diverge, whatever its stamps say.
         let unrouted = make_cohort(ts, None, None, &None);
         assert_eq!(MembershipStampPolicy::divergence(&unrouted), None);
 
-        // The counter's `direction` label is read straight off these strings; an inverted
-        // mapping would silently point the rollout gate at the wrong set of cohorts.
         assert_eq!(StampPolicyDivergence::WouldLose.as_label(), "would_lose");
         assert_eq!(StampPolicyDivergence::WouldGain.as_label(), "would_gain");
     }
@@ -762,8 +726,8 @@ mod tests {
             "error must name the valid values: {err}"
         );
 
-        // The divergence counter's `active_policy` label reuses the env spellings, so a
-        // dashboard query written against one reads the other.
+        // The metric label reuses the env spellings, so a dashboard query written against
+        // one reads the other.
         for policy in [
             MembershipStampPolicy::AnyBackfillStamp,
             MembershipStampPolicy::EventsOrCalculationStamp,
@@ -777,10 +741,7 @@ mod tests {
 
     #[test]
     fn test_realtime_cohort_filtering_mirrors_flag_matching() {
-        // Verifies that filtering cohorts by the default policy's
-        // `uses_realtime_membership()` correctly selects only Realtime/Behavioral cohorts
-        // with a backfill timestamp AND a behavioral/lifecycle condition, which is the
-        // same filter applied in flag_matching::prepare_flag_evaluation_state.
+        // Mirrors the filter flag_matching::prepare_flag_evaluation_state applies.
         let backfill_ts = Some(Utc::now());
         let behavioral = Some(serde_json::json!({
             "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false

@@ -177,8 +177,8 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertNotEqual(cohort.person_filters_shape_hash, old_person_hash)
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
         self.assertIsNone(cohort.last_backfill_person_properties_at)
-        # The legacy calculation stamp covers the whole cohort, so a person-only edit
-        # stales it even though events readiness survives.
+        # Covers the whole cohort, so a person-only edit stales it even though events
+        # readiness survives.
         self.assertIsNone(cohort.last_realtime_cohort_calculation_at)
         self.assertEqual(self._orphan_count(), before)
 
@@ -239,8 +239,6 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertIsNone(cohort.behavioral_filters_shape_hash)
         self.assertIsNone(cohort.person_filters_shape_hash)
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
-        # The allowlist bounds the calculation stamp's only invalidation path too, which is
-        # why lighting a team for realtime flag evaluation requires allowlisting it here.
         self.assertEqual(cohort.last_realtime_cohort_calculation_at, ready_at)
         self.assertEqual(self._orphan_count(), before)
 

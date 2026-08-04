@@ -336,8 +336,6 @@ pub struct FeatureFlagMatcher {
     /// Whether to enable realtime cohort evaluation.
     /// When false, realtime cohorts are treated as non-members.
     enable_realtime_cohort_evaluation: bool,
-    /// Which cohort stamps count as proof the realtime membership table is populated;
-    /// owns the routing predicate between realtime membership and dynamic evaluation.
     membership_stamp_policy: MembershipStampPolicy,
     /// Cohort definitions preloaded from the flags hypercache.
     /// When present, scoped to only the cohorts referenced by flags (including transitive deps),

@@ -1323,10 +1323,7 @@ impl TestContext {
     }
 
     /// Like `insert_cohort_with_type`, but also sets `condition_type` and the legacy
-    /// calculation stamp — needed by tests that exercise the realtime `cohort_membership`
-    /// provider path, since `MembershipStampPolicy::uses_realtime_membership()` requires a
-    /// behavioral/lifecycle condition in addition to `cohort_type` and a stamp the policy
-    /// accepts.
+    /// calculation stamp, both of which the realtime membership routing predicate reads.
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_cohort_with_type_and_condition_type(
         &self,
