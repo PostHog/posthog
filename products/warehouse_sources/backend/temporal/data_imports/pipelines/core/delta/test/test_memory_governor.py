@@ -3,6 +3,8 @@ import asyncio
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
@@ -209,14 +211,21 @@ class TestConfigFromEnv:
         with patch.dict("os.environ", {"DELTALITE_GOVERNOR_MODE": value}, clear=True):
             assert GovernorConfig.from_env().mode == expected
 
-    def test_max_concurrent_defaults_to_activity_limit(self):
-        with patch.dict("os.environ", {"MAX_CONCURRENT_ACTIVITIES": "20"}, clear=True):
+    def test_max_concurrent_defaults_to_activity_setting(self):
+        # from_env reads the same source of truth the worker does: settings.MAX_CONCURRENT_ACTIVITIES.
+        with patch.dict("os.environ", {}, clear=True), override_settings(MAX_CONCURRENT_ACTIVITIES=20):
             assert GovernorConfig.from_env().max_concurrent == 20
 
-    def test_explicit_max_concurrent_overrides_activity_limit(self):
-        env = {"MAX_CONCURRENT_ACTIVITIES": "20", "DELTALITE_GOVERNOR_MAX_CONCURRENT": "8"}
-        with patch.dict("os.environ", env, clear=True):
+    def test_explicit_env_override_wins_over_setting(self):
+        with (
+            patch.dict("os.environ", {"DELTALITE_GOVERNOR_MAX_CONCURRENT": "8"}, clear=True),
+            override_settings(MAX_CONCURRENT_ACTIVITIES=20),
+        ):
             assert GovernorConfig.from_env().max_concurrent == 8
+
+    def test_defaults_to_conservative_100_when_unset(self):
+        with patch.dict("os.environ", {}, clear=True), override_settings(MAX_CONCURRENT_ACTIVITIES=None):
+            assert GovernorConfig.from_env().max_concurrent == 100
 
     def test_reads_numeric_overrides(self):
         env = {

@@ -44,11 +44,18 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Literal
 
+from django.conf import settings
+
 logger = logging.getLogger(__name__)
 
 MB = 1024 * 1024
 
 Mode = Literal["off", "advisory", "enforce"]
+
+#: Fallback concurrency when neither the env override nor settings.MAX_CONCURRENT_ACTIVITIES is set.
+#: The Temporal SDK's own default is 100 (posthog's worker wrapper uses 50); we pick the higher
+#: value so an unknown concurrency yields a smaller, safer per-upsert slice rather than over-commit.
+_DEFAULT_MAX_CONCURRENT = 100
 
 # --- Memory model coefficients (mirror deltalite_planner.py; see REPORT.md §5.5-5.7) --------
 
@@ -222,11 +229,11 @@ class GovernorConfig:
     #: Fraction of the pod limit deltalite planning may target; the rest is slack for allocator
     #: retention, pyarrow buffers and anything unmodelled.
     safety: float = 0.8
-    #: Max upserts that can run concurrently in this process (the worker's Temporal
-    #: ``MAX_CONCURRENT_ACTIVITIES``). The usable pod budget is divided by this so all
-    #: ``max_concurrent`` upserts are guaranteed to fit at once — the guarantee that lets deltalite
-    #: always write instead of falling back to the memory-hungry MERGE.
-    max_concurrent: int = 15
+    #: Max upserts that can run concurrently in this process. The usable pod budget is divided by
+    #: this so all ``max_concurrent`` upserts are guaranteed to fit at once — the guarantee that lets
+    #: deltalite always write instead of falling back to the memory-hungry MERGE. Resolved by
+    #: ``_resolve_max_concurrent`` (env override → settings.MAX_CONCURRENT_ACTIVITIES → default).
+    max_concurrent: int = _DEFAULT_MAX_CONCURRENT
     #: Headroom held back from deltalite for everything else on the pod: full-refresh writes, the
     #: rare genuine-error MERGE fallback (its RSS tracks table size), interpreter and allocator slack.
     reserve_mb: float = 2048.0
@@ -242,15 +249,38 @@ class GovernorConfig:
             logger.warning("invalid DELTALITE_GOVERNOR_MODE=%r; defaulting to advisory", mode)
             mode = "advisory"
         override = os.environ.get("DELTALITE_GOVERNOR_LIMIT_MB")
-        # Default the concurrency to the Temporal activity limit the worker already declares.
-        default_concurrent = _env_int("MAX_CONCURRENT_ACTIVITIES", 15)
         return GovernorConfig(
             mode=mode,  # type: ignore[arg-type]
             safety=_env_float("DELTALITE_GOVERNOR_SAFETY", 0.8),
-            max_concurrent=max(1, _env_int("DELTALITE_GOVERNOR_MAX_CONCURRENT", default_concurrent)),
+            max_concurrent=GovernorConfig._resolve_max_concurrent(),
             reserve_mb=_env_float("DELTALITE_GOVERNOR_RESERVE_MB", 2048.0),
             limit_override_mb=float(override) if override else None,
         )
+
+    @staticmethod
+    def _resolve_max_concurrent() -> int:
+        """Max concurrent upserts on this process, from the same source of truth as the worker.
+
+        Prefers an explicit ``DELTALITE_GOVERNOR_MAX_CONCURRENT``, then
+        ``settings.MAX_CONCURRENT_ACTIVITIES`` (what the Temporal worker is configured with). Falls
+        back to ``_DEFAULT_MAX_CONCURRENT`` with a warning, so it is visible when the slice is sized
+        against a guess rather than the real concurrency. The v3 loader is a Kafka consumer, not a
+        Temporal worker, so ``MAX_CONCURRENT_ACTIVITIES`` does not describe it — set the explicit
+        override there to its consumer-thread count.
+        """
+        explicit = os.environ.get("DELTALITE_GOVERNOR_MAX_CONCURRENT")
+        if explicit:
+            return max(1, _env_int("DELTALITE_GOVERNOR_MAX_CONCURRENT", _DEFAULT_MAX_CONCURRENT))
+        configured = getattr(settings, "MAX_CONCURRENT_ACTIVITIES", None)
+        if configured:
+            return max(1, int(configured))
+        logger.warning(
+            "deltalite governor: neither DELTALITE_GOVERNOR_MAX_CONCURRENT nor "
+            "settings.MAX_CONCURRENT_ACTIVITIES is set; sizing the per-upsert memory slice against a "
+            "default of %d concurrent upserts. Set one to this worker's real concurrency.",
+            _DEFAULT_MAX_CONCURRENT,
+        )
+        return _DEFAULT_MAX_CONCURRENT
 
 
 @dataclass
