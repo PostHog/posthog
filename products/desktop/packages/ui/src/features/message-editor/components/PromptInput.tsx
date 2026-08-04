@@ -411,6 +411,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
           onClick={handleSubmitClick}
           disabled={submitBlocked}
           aria-label="Send message"
+          className="rounded-xs"
           {...(tourTarget && { "data-tour": `${tourTarget}-submit` })}
         >
           <ArrowUp size={14} weight="bold" />
@@ -513,7 +514,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               <EditorContent editor={editor} />
             </div>
             {submitButton && (
-              <span className="absolute right-2 bottom-1">{submitButton}</span>
+              <span className="absolute right-1 bottom-1">{submitButton}</span>
             )}
           </div>
         </InputGroup>
