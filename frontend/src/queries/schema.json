@@ -24563,7 +24563,10 @@
                 "Hyros",
                 "Odoo",
                 "Airbridge",
-                "Snovio"
+                "Snovio",
+                "Raisely",
+                "WindsorAi",
+                "Wix"
             ],
             "type": "string"
         },
@@ -46785,9 +46788,13 @@
             "type": "object"
         },
         "SidebarConfiguration": {
-            "additionalProperties": false,
-            "description": "Customization of the main navigation sidebar.",
+            "additionalProperties": {},
+            "description": "Customization of the main navigation sidebar. Extra keys are tolerated so older servers accept configs written by newer clients.",
             "properties": {
+                "density": {
+                    "$ref": "#/definitions/SidebarDensity",
+                    "description": "Row density of the sidebar."
+                },
                 "items": {
                     "$ref": "#/definitions/SidebarItemsConfiguration"
                 },
@@ -46796,6 +46803,11 @@
                 }
             },
             "type": "object"
+        },
+        "SidebarDensity": {
+            "description": "How densely the sidebar renders its rows. An absent value means \"comfortable\".",
+            "enum": ["comfortable", "compact"],
+            "type": "string"
         },
         "SidebarItemsConfiguration": {
             "additionalProperties": false,
@@ -50818,7 +50830,7 @@
             "type": "string"
         },
         "UserUIConfiguration": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "description": "Per-user UI customization, persisted on the User model as a single JSONB blob. A null configuration and any absent key mean \"default\", which for visibility is \"shown\", so newly added UI surfaces appear for everyone until explicitly hidden. Writers must send the complete object; the server validates and replaces it wholesale.",
             "properties": {
                 "sidebar": {

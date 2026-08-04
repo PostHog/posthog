@@ -5,6 +5,18 @@ from posthog.settings.utils import get_from_env, str_to_bool
 # Off by default ("none"); enable per environment via the env override
 # A set-but-empty value survives as "", which the parser reads as "all teams".
 REALTIME_COHORT_TEAM_ALLOWLIST: str = os.getenv("REALTIME_COHORT_TEAM_ALLOWLIST", "none")
+# Teams whose cohort saves enqueue a backfill run for rust/cohort-seeder to claim. Same grammar as
+# the allowlist above, except that a set-but-empty value means no teams: nothing outside Python
+# parses this setting, so it can fail closed on empty where the realtime allowlist cannot. It is
+# deliberately a separate setting, an opt-in on top of realtime membership rather than something a
+# team inherits by it: replaying a team's history costs ClickHouse scans and seed-topic bytes, so it
+# stays an explicit operator decision. A team listed here but not above enqueues nothing.
+#
+# Order this against the seeder's own arming: Django cannot see `SEEDER_PERSON_SEEDS_ENABLED`, so a
+# team with person-leaf cohorts opted in before that switch files person runs that park in
+# `awaiting_boundary`, each holding its cohort's uniqueness slot and blocking the operator's team
+# command until the seeder starts discovering them.
+COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST: str = os.getenv("COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST", "none")
 BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED: bool = get_from_env(
     "BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED", False, type_cast=str_to_bool
 )
@@ -45,12 +57,12 @@ BEHAVIORAL_BACKFILL_FINALIZER_ENABLED: bool = get_from_env(
 # "in cohort" targeting and over-matches negated targeting. `Cohort.is_flag_compatible` fail-closes
 # on this; the flags service does not.
 #
-# Also keep it off until a person-leaf edit supersedes the cohort's active person-property runs,
-# the way `_supersede_cohort_events_backfills` does for behavioral ones (the B7.3b receiver).
-# Without that, the person stamp's only edit-time fence is the hash CAS in `_stamp_readiness`,
-# which passes again after an A->B->A revert and stamps readiness over a backfill whose Stage 2
-# state went stale in the B window — the `superseded_at` refusal that closes this for behavioral
-# runs never fires because nothing sets it on the person path.
+# The stamp's other precondition is already met: `cohort_person_shape_changed_supersede` supersedes
+# a cohort's active person-property runs when its person leaves change, so an A->B->A revert can no
+# longer stamp readiness over a backfill whose Stage 2 state went stale in the B window. That fence
+# arms only on saves that maintain the shape hashes: an edit that drops the cohort out of realtime
+# support (`cohort_type` cleared) or a delete/undelete round-trip skips maintenance and supersedes
+# nothing, the same exposure the behavioral fence has.
 BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED: bool = get_from_env(
     "BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED", False, type_cast=str_to_bool
 )

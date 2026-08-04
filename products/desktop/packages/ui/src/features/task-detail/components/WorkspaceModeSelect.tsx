@@ -1,11 +1,4 @@
-import {
-  ArrowsSplit,
-  CaretDown,
-  Cloud,
-  Cube,
-  Laptop,
-  Plus,
-} from "@phosphor-icons/react";
+import { ArrowsSplit, Cloud, Cube, Laptop, Plus } from "@phosphor-icons/react";
 import {
   Button,
   DropdownMenu,
@@ -139,18 +132,13 @@ export function WorkspaceModeSelect({
         render={
           <Button
             type="button"
-            variant="outline"
+            variant="default"
             size="sm"
             disabled={disabled}
             aria-label="Workspace mode"
           >
             <span className="text-muted-foreground">{triggerIcon}</span>
             {triggerLabel}
-            <CaretDown
-              size={10}
-              weight="bold"
-              className="text-muted-foreground"
-            />
           </Button>
         }
       />

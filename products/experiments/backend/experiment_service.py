@@ -60,6 +60,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_fingerprint im
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     build_exposure_event_conditions,
     get_exposure_event_and_property,
+    resolve_default_exposure_event,
 )
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
@@ -2226,9 +2227,10 @@ class ExperimentService:
         """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.
 
         Runs a synchronous scan of the experiment's exposure events, honoring
-        ``exposure_criteria`` (custom exposure event or action plus its property filters) via the
-        same helpers the metrics pipeline uses, and requiring the exposure to have landed a
-        variant — so the snapshot is the analyzed population, not everyone who fired the event.
+        ``exposure_criteria`` (custom exposure event or action plus its property filters) and the
+        $experiment_exposure rollout resolution via the same helpers the metrics pipeline uses,
+        and requiring the exposure to have landed a variant — so the snapshot is the analyzed
+        population, not everyone who fired the event.
         Capped at FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS and returning at most
         FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1 rows so an over-cap set can be detected and rejected.
 
@@ -2242,7 +2244,13 @@ class ExperimentService:
         assert start_date is not None
         flag_key = experiment.get_feature_flag_key()
 
-        _, variant_property = get_exposure_event_and_property(flag_key, experiment.exposure_criteria)
+        # The same rollout resolution the analysis queries apply: a post-cutoff experiment frozen
+        # off $feature_flag_called would snapshot nobody once the two events stop being emitted
+        # together, and an empty snapshot un-enrolls everyone.
+        default_exposure_event = resolve_default_exposure_event(self.team, start_date)
+        _, variant_property = get_exposure_event_and_property(
+            flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
+        )
         variant_keys = [variant["key"] for variant in experiment.feature_flag.variants]
 
         conditions: list[ast.Expr] = [
@@ -2251,7 +2259,9 @@ class ExperimentService:
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=start_date),
             ),
-            *build_exposure_event_conditions(experiment.exposure_criteria, self.team, flag_key),
+            *build_exposure_event_conditions(
+                experiment.exposure_criteria, self.team, flag_key, default_exposure_event=default_exposure_event
+            ),
         ]
         if variant_keys:
             conditions.append(

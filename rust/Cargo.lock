@@ -4128,7 +4128,10 @@ name = "embedding-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aws-config",
+ "aws-sdk-dynamodb",
  "axum 0.7.9",
+ "chrono",
  "common-alloc",
  "common-continuous-profiling",
  "common-kafka",
@@ -5414,6 +5417,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "thiserror 2.0.18",
 ]
