@@ -1,22 +1,17 @@
-import { BreakPointFunction } from 'kea'
-
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { UnexpectedNeverError } from 'lib/utils/guards'
 
-import { hogqlQuery } from '~/queries/query'
 import {
     BreakdownFilter,
     ProductKey,
     QueryLogTags,
     QuerySchema,
-    WebAnalyticsConversionGoal,
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types'
 
 /** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
@@ -378,6 +373,14 @@ export enum ConversionGoalWarning {
     CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
 }
 
+export interface ConversionGoalWarningState {
+    warning: ConversionGoalWarning
+    /** Name of the custom event the conversion goal is tracking. */
+    eventName: string
+    /** Share (0-100, rounded) of that event's occurrences in the current date range missing a `$session_id`. */
+    sessionlessPercentage: number
+}
+
 export const SOURCE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, SourceTab>> = {
     [WebStatsBreakdown.InitialChannelType]: SourceTab.REFERRING_DOMAIN,
     [WebStatsBreakdown.InitialReferringDomain]: SourceTab.REFERRING_URL,
@@ -504,31 +507,6 @@ export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
 
 export const MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
     productKey: ProductKey.MARKETING_ANALYTICS,
-}
-
-export const checkCustomEventConversionGoalHasSessionIdsHelper = async (
-    conversionGoal: WebAnalyticsConversionGoal | null,
-    breakpoint: BreakPointFunction | undefined,
-    setConversionGoalWarning: (warning: ConversionGoalWarning | null) => void
-): Promise<void> => {
-    if (!conversionGoal || !('customEventName' in conversionGoal) || !conversionGoal.customEventName) {
-        setConversionGoalWarning(null)
-        return
-    }
-    const { customEventName } = conversionGoal
-    // check if we have any conversion events from the last week without sessions ids
-
-    const response = await hogqlQuery(
-        hogql`select count() from events where timestamp >= (now() - toIntervalHour(24)) AND ($session_id IS NULL OR $session_id = '') AND event = {event}`,
-        { event: customEventName }
-    )
-    breakpoint?.()
-    const row = response.results[0]
-    if (row[0]) {
-        setConversionGoalWarning(ConversionGoalWarning.CustomEventWithNoSessionId)
-    } else {
-        setConversionGoalWarning(null)
-    }
 }
 
 export const eventPropertiesToPathClean = new Set(['$pathname', '$current_url', '$prev_pageview_pathname'])

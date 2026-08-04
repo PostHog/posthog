@@ -14,14 +14,15 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
     }
 
     if (conversionGoalWarning) {
-        switch (conversionGoalWarning) {
+        switch (conversionGoalWarning.warning) {
             case ConversionGoalWarning.CustomEventWithNoSessionId:
                 return (
                     <LemonBanner type="warning" className="mt-2">
                         <p>
-                            A custom event has been set as a conversion goal, but it has been seen with no{' '}
-                            <code>$session_id</code>. This means that some queries will not be able to include these
-                            events.
+                            {conversionGoalWarning.sessionlessPercentage}% of{' '}
+                            <code>{conversionGoalWarning.eventName}</code> events in this date range have no{' '}
+                            <code>$session_id</code>, so they'll be missing from session-based queries for this
+                            conversion goal.
                         </p>
                         <p>
                             To fix this, please see{' '}

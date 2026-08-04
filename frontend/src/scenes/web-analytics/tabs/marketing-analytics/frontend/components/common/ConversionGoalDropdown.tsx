@@ -28,6 +28,8 @@ interface ConversionGoalDropdownProps {
     onChange: (filter: ConversionGoalFilter) => void
     typeKey: string
     disabledReason?: string | null
+    /** Called whenever the dropdown's own validation error changes, so a parent can e.g. disable an Apply/Save button. */
+    onError?: (error: string | null) => void
 }
 
 export function ConversionGoalDropdown({
@@ -35,8 +37,14 @@ export function ConversionGoalDropdown({
     onChange,
     typeKey,
     disabledReason,
+    onError,
 }: ConversionGoalDropdownProps): JSX.Element {
     const [error, setError] = useState<string | null>(null)
+
+    const updateError = (newError: string | null): void => {
+        setError(newError)
+        onError?.(newError)
+    }
 
     // Create a proper ActionFilter-compatible filter object
     const currentFilter = {
@@ -83,14 +91,22 @@ export function ConversionGoalDropdown({
                 filters={currentFilter}
                 mathAvailability={MathAvailability.All}
                 setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                    // Check if user is trying to select "All Events"
-                    if (events?.[0]?.id === null || events?.[0]?.id === '') {
-                        setError('`All events` cannot be used as a conversion goal. Please select a specific event.')
+                    // Explicitly picking "All events" from the taxonomic filter sets id to null.
+                    if (events?.[0]?.id === null) {
+                        updateError('`All events` cannot be used as a conversion goal. Please select a specific event.')
+                        return
+                    }
+
+                    // Clearing the row's selection (without picking "All events") leaves an empty
+                    // id rather than removing the entry — that's not an invalid choice, just an
+                    // incomplete one, so don't accuse the user of picking "All events".
+                    if (events?.[0]?.id === '') {
+                        updateError('Select an event, action, or table to use as a conversion goal.')
                         return
                     }
 
                     // Clear any previous errors
-                    setError(null)
+                    updateError(null)
 
                     const series = actionsAndEventsToSeries(
                         {

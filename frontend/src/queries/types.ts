@@ -77,6 +77,12 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Wired by the web analytics scene so a pre-computed tile's badge can offer "always query live data". */
     onDisableWebAnalyticsPrecompute?: () => void
     /**
+     * Wired by the web analytics scene so a zero-valued conversion tile can explain that some of the
+     * goal event's occurrences may have been excluded (e.g. missing a `$session_id`) instead of just
+     * rendering a bare zero.
+     */
+    getConversionGoalWarning?: () => { eventName: string; sessionlessPercentage: number } | null
+    /**
      * Suppress the generic "Need to speed things up?" optimization tips while a query is loading.
      * Use this when the embedded chart is built from a fixed query that the viewer cannot edit
      * (e.g. the Error tracking insights tab) and the suggestions would not be actionable.

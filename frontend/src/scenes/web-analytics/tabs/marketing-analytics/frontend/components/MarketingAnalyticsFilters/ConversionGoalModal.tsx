@@ -32,6 +32,7 @@ export function ConversionGoalModal(): JSX.Element {
     } = useActions(marketingAnalyticsLogic)
 
     const [configuredGoalsExpanded, setConfiguredGoalsExpanded] = useState(false)
+    const [dropdownError, setDropdownError] = useState<string | null>(null)
 
     const handleConversionGoalChange = (filter: ConversionGoalFilter): void => {
         setConversionGoalInput({
@@ -75,7 +76,7 @@ export function ConversionGoalModal(): JSX.Element {
                         <LemonButton
                             type="primary"
                             onClick={applyConversionGoal}
-                            disabledReason={!hasChanges ? 'No changes to apply' : undefined}
+                            disabledReason={dropdownError || (!hasChanges ? 'No changes to apply' : undefined)}
                         >
                             Apply
                         </LemonButton>
@@ -113,6 +114,7 @@ export function ConversionGoalModal(): JSX.Element {
                         value={conversionGoalInput || defaultConversionGoalFilter}
                         onChange={handleConversionGoalChange}
                         typeKey="conversion-goal-modal"
+                        onError={setDropdownError}
                     />
                 </div>
 

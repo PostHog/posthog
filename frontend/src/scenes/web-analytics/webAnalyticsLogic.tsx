@@ -24,12 +24,13 @@ import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { getDefaultInterval, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
+import { dateStringToDayJs, getDefaultInterval, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -96,6 +97,7 @@ import { botAnalyticsLogic } from './botAnalyticsLogic'
 import {
     ActiveHoursTab,
     ConversionGoalWarning,
+    ConversionGoalWarningState,
     DeviceTab,
     DeviceType,
     GEOIP_TEMPLATE_IDS,
@@ -181,7 +183,7 @@ export interface webAnalyticsLogicValues {
         useWebAnalyticsPrecompute: boolean | undefined
     }
     conversionGoal: WebAnalyticsConversionGoal | null
-    conversionGoalWarning: ConversionGoalWarning | null
+    conversionGoalWarning: ConversionGoalWarningState | null
     currentFiltersConfig: WebAnalyticsFiltersConfig
     dateFilter: DateFilterState
     deviceTab: string
@@ -395,8 +397,8 @@ export interface webAnalyticsLogicActions {
     setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => {
         conversionGoal: WebAnalyticsConversionGoal | null
     }
-    setConversionGoalWarning: (warning: ConversionGoalWarning | null) => {
-        warning: ConversionGoalWarning | null
+    setConversionGoalWarning: (warning: ConversionGoalWarningState | null) => {
+        warning: ConversionGoalWarningState | null
     }
     setDateInterval: (interval: IntervalType) => {
         interval: IntervalType
@@ -778,7 +780,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
         openAsNewInsight: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
-        setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
+        setConversionGoalWarning: (warning: ConversionGoalWarningState | null) => ({ warning }),
         setProductTab: (tab: ProductTab) => ({ tab }),
         setWebVitalsPercentile: (percentile: WebVitalsPercentile) => ({ percentile }),
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
@@ -1041,7 +1043,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
             ],
             conversionGoalWarning: [
-                null as ConversionGoalWarning | null,
+                null as ConversionGoalWarningState | null,
                 {
                     setConversionGoalWarning: (_, { warning }) => warning,
                 },
@@ -3450,6 +3452,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     interval: values.dateFilter.interval,
                 })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+                checkCustomEventConversionGoalHasSessionIdsHelper(
+                    values.conversionGoal,
+                    { dateFrom, dateTo },
+                    values.currentTeam?.timezone,
+                    undefined,
+                    actions.setConversionGoalWarning
+                ).catch(() => {
+                    // ignore, this warning is just a nice-to-have, no point showing an error to the user
+                })
             },
             setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
                 eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
@@ -3458,6 +3469,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     interval,
                 })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+                checkCustomEventConversionGoalHasSessionIdsHelper(
+                    values.conversionGoal,
+                    { dateFrom, dateTo },
+                    values.currentTeam?.timezone,
+                    undefined,
+                    actions.setConversionGoalWarning
+                ).catch(() => {
+                    // ignore, this warning is just a nice-to-have, no point showing an error to the user
+                })
             },
             zoomIntoPeriod: ({ dateFrom, dateTo }) => {
                 if (values.preZoomDateFilter === null) {
@@ -3592,6 +3612,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 ({ conversionGoal }, breakpoint) =>
                     checkCustomEventConversionGoalHasSessionIdsHelper(
                         conversionGoal,
+                        values.dateFilter,
+                        values.currentTeam?.timezone,
                         breakpoint,
                         actions.setConversionGoalWarning
                     ),
@@ -3648,6 +3670,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     afterMount(({ actions, values }) => {
         checkCustomEventConversionGoalHasSessionIdsHelper(
             values.conversionGoal,
+            values.dateFilter,
+            values.currentTeam?.timezone,
             undefined,
             actions.setConversionGoalWarning
         ).catch(() => {
@@ -3656,31 +3680,42 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     }),
 ])
 
+// Only warn when a material share of the goal event's occurrences are missing a $session_id —
+// a handful of session-less rows out of thousands isn't worth alarming the user over.
+const SESSIONLESS_EVENT_WARNING_THRESHOLD = 0.05
+
 const checkCustomEventConversionGoalHasSessionIdsHelper = async (
     conversionGoal: WebAnalyticsConversionGoal | null,
+    dateRange: Pick<DateFilterState, 'dateFrom' | 'dateTo'>,
+    timezone: string | undefined,
     breakpoint: BreakPointFunction | undefined,
-    setConversionGoalWarning: (warning: ConversionGoalWarning | null) => void
+    setConversionGoalWarning: (warning: ConversionGoalWarningState | null) => void
 ): Promise<void> => {
     if (!conversionGoal || !('customEventName' in conversionGoal) || !conversionGoal.customEventName) {
         setConversionGoalWarning(null)
         return
     }
     const { customEventName } = conversionGoal
-    // check if we have any conversion events from the last week without sessions ids
 
+    const dateFrom = dateStringToDayJs(dateRange.dateFrom, timezone) ?? dayjs().subtract(7, 'day')
+    const dateTo = (dateRange.dateTo ? dateStringToDayJs(dateRange.dateTo, timezone) : null) ?? dayjs()
+
+    // Compare session-less occurrences of the goal event against its total count over the same
+    // range as the rest of the dashboard, so the warning reflects what the user is looking at.
     const response = await hogqlQuery(
-        hogql`select count()
+        hogql`select countIf($session_id IS NULL OR $session_id = ''), count()
               from events
-              where timestamp >= (now() - toIntervalHour(24))
-                AND ($session_id IS NULL
-                 OR $session_id = '')
-                AND event = {event}`,
+              where timestamp >= ${dateFrom} AND timestamp <= ${dateTo} AND event = {event}`,
         { event: customEventName }
     )
     breakpoint?.()
-    const row = response.results[0]
-    if (row[0]) {
-        setConversionGoalWarning(ConversionGoalWarning.CustomEventWithNoSessionId)
+    const [withoutSessionId, total] = response.results[0] as [number, number]
+    if (total > 0 && withoutSessionId / total >= SESSIONLESS_EVENT_WARNING_THRESHOLD) {
+        setConversionGoalWarning({
+            warning: ConversionGoalWarning.CustomEventWithNoSessionId,
+            eventName: customEventName,
+            sessionlessPercentage: Math.round((withoutSessionId / total) * 100),
+        })
     } else {
         setConversionGoalWarning(null)
     }

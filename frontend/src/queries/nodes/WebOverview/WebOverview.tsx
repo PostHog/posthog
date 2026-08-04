@@ -50,22 +50,36 @@ export function WebOverview(props: {
 
     const showWarning = hasReverseProxy === false && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]
 
+    const conversionGoalWarning = props.context.getConversionGoalWarning?.()
+
     // Convert WebOverviewItem to OverviewItem
     // Handle both `results` (from direct query response) and `result` (from cached insight)
     const resultsArray = webOverviewQueryResponse?.results ?? (response as any)?.result
     const overviewItems: OverviewMetricCardItem[] =
-        resultsArray?.map((item: any) => ({
-            key: item.key,
-            value: item.value,
-            previous: item.previous,
-            changeFromPreviousPct: item.changeFromPreviousPct,
-            kind: item.kind,
-            isIncreaseBad: item.isIncreaseBad,
-            warning: showWarning
-                ? `${capitalizeFirstLetter(item.key)} counts may be underreported. Set up a reverse proxy so that events are less likely to be intercepted by tracking blockers.`
-                : undefined,
-            warningLink: showWarning ? 'https://posthog.com/docs/advanced/proxy' : undefined,
-        })) || []
+        resultsArray?.map((item: any) => {
+            // A zero here can mean "no conversions" or "some conversions exist but couldn't be
+            // counted" (e.g. events missing a $session_id are dropped from the session-based scan
+            // this tile is built from) — don't render a bare zero without surfacing that ambiguity.
+            const isUncountedConversions =
+                !item.value &&
+                !!conversionGoalWarning &&
+                (item.key === 'total conversions' || item.key === 'unique conversions')
+
+            return {
+                key: item.key,
+                value: item.value,
+                previous: item.previous,
+                changeFromPreviousPct: item.changeFromPreviousPct,
+                kind: item.kind,
+                isIncreaseBad: item.isIncreaseBad,
+                warning: showWarning
+                    ? `${capitalizeFirstLetter(item.key)} counts may be underreported. Set up a reverse proxy so that events are less likely to be intercepted by tracking blockers.`
+                    : isUncountedConversions
+                      ? `This may not be a true zero: ${conversionGoalWarning.sessionlessPercentage}% of "${conversionGoalWarning.eventName}" events in this range have no $session_id and were excluded from this count.`
+                      : undefined,
+                warningLink: showWarning ? 'https://posthog.com/docs/advanced/proxy' : undefined,
+            }
+        }) || []
 
     if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS]) {
         return (
