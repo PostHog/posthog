@@ -20,6 +20,8 @@ use tracing_subscriber::EnvFilter;
 
 use personhog_common::client::RouterClient;
 use personhog_identity::config::Config;
+use personhog_identity::lifecycle::delete::DeleteDriver;
+use personhog_identity::lifecycle::engine::Engine;
 use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
@@ -169,10 +171,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         RouterClient::new(&config.router_url, config.leader_request_timeout())
             .expect("Invalid router URL"),
     );
+    let engine = Arc::new(Engine::new(
+        storage.primary_pool.clone(),
+        config.lifecycle_engine_config(),
+    ));
+    if config.lifecycle_sweeper_enabled {
+        let sweeper_engine = engine.clone();
+        let sweep_interval = config.lifecycle_sweep_interval();
+        let retention = config.lifecycle_op_retention();
+        tracing::info!(
+            interval_secs = sweep_interval.as_secs(),
+            retention_hours = retention.as_secs() / 3600,
+            "Lifecycle sweeper enabled"
+        );
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(sweep_interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                ticker.tick().await;
+                match sweeper_engine.sweep(&[&DeleteDriver]).await {
+                    Ok(resumed) if resumed > 0 => {
+                        tracing::info!(resumed, "Lifecycle sweeper resumed abandoned ops")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "Lifecycle sweep pass failed"),
+                }
+                if let Err(e) = sweeper_engine.gc(retention).await {
+                    tracing::warn!(error = %e, "Lifecycle GC pass failed");
+                }
+            }
+        });
+    }
+
     let service = PersonHogIdentityService::new(storage, property_writer, config.request_limits());
     // Separate proto service co-served on the same server so lifecycle
     // callers are insulated from any future split.
-    let lifecycle_service = PersonHogLifecycleService::new();
+    let lifecycle_service = PersonHogLifecycleService::new(engine);
 
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
