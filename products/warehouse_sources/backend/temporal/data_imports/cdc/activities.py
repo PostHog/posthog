@@ -561,8 +561,7 @@ class CDCExtractActivity:
         land in a parallel Delta table no query reads. `name` and folder diverge
         for rows renamed bare→qualified (`name="public.users"`, folder `users`).
         """
-        _table_storage_name, folder_name = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
-        return folder_name
+        return resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).folder_name
 
     def _partition_kwargs(self, schema: ExternalDataSchema) -> dict[str, typing.Any]:
         """Replay snapshot partitioning so CDC rows match the target Delta.

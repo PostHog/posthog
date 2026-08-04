@@ -83,7 +83,7 @@ function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX
                     description={
                         <>
                             Post every report to one channel, whether or not a reviewer is suggested. PostHog must be in
-                            the channel – invite it with <code>/invite @PostHog</code>.
+                            the channel. Invite it with <code>/invite @PostHog</code>.
                         </>
                     }
                 />
@@ -179,7 +179,7 @@ function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] 
                     description={
                         <>
                             When you're a suggested reviewer, get pinged in your own channel. PostHog must be in the
-                            channel – invite it with <code>/invite @PostHog</code>.
+                            channel. Invite it with <code>/invite @PostHog</code>.
                         </>
                     }
                 />
