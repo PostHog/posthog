@@ -31,8 +31,13 @@ export const DatabaseTree = memo(function DatabaseTree({
     embedded?: boolean
 }): JSX.Element | null {
     const scrollContainerRef = useRef<HTMLDivElement | null>(null)
-    const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
-        useValues(editorSizingLogic)
+    const {
+        databaseTreeWidth,
+        databaseTreeResizerProps,
+        isDatabaseTreeCollapsed,
+        databaseTreeWillCollapse,
+        queryPaneDesiredSize,
+    } = useValues(editorSizingLogic)
     const { selectedConnectionId, selectedDirectSource } = useValues(sqlEditorLogic({ tabId }))
     const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
 
@@ -79,11 +84,14 @@ export const DatabaseTree = memo(function DatabaseTree({
                     'flex flex-col gap-2 z-20 group/colorful-product-icons colorful-product-icons-true overflow-auto',
                     // A notebook cell sizes to its content and has no viewport-tall box to fill, so a
                     // viewport-height panel drags the whole cell open. `h-0` keeps the schema list out of
-                    // that height entirely, so the cell is sized by the editor's own resizer and the panel
-                    // follows it in both directions — `flex-auto` takes whatever height the row lands on,
-                    // and the list scrolls. Opening the browser gives the pane a one-off floor
-                    // (EMBEDDED_QUERY_PANE_HEIGHT_WITH_TREE) so it starts out usable.
-                    embedded ? 'h-0 min-h-0 flex-auto' : 'h-[calc(100vh-var(--scene-layout-header-height))]'
+                    // that height, leaving the editor pane to size the cell, and `flex-auto` takes whatever
+                    // height the row lands on, with the list scrolling inside it.
+                    embedded && 'h-0 flex-auto',
+                    // Until the pane has been resized the cell would open at editor height, leaving the
+                    // browser a sliver — so hold a floor. Once the user drags, drop it: their size wins,
+                    // in both directions, and closing the browser returns the cell to where it was.
+                    embedded && (queryPaneDesiredSize === null ? 'min-h-[200px]' : 'min-h-0'),
+                    !embedded && 'h-[calc(100vh-var(--scene-layout-header-height))]'
                 )}
                 innerClassName="flex flex-col gap-2"
                 styledScrollbars

@@ -25,12 +25,6 @@ export const SIDEBAR_DEFAULT_WIDTH = 300
 const MAXIMUM_SIDEBAR_WIDTH = 550
 const MINIMUM_DATABASE_TREE_WIDTH = 200
 export const DATABASE_TREE_COLLAPSE_THRESHOLD = 60
-/**
- * How tall an embedded editor grows the first time its schema browser opens. The default query pane
- * leaves the browser a sliver; this gives it a usable window without taking over the notebook. Only
- * a floor on open — the pane's resizer still drives the height after that, in both directions.
- */
-export const EMBEDDED_QUERY_PANE_HEIGHT_WITH_TREE = 280
 const DATABASE_TREE_DEFAULT_WIDTH = 300
 const MAXIMUM_DATABASE_TREE_WIDTH = 600
 const DATABASE_TREE_COLLAPSED_WIDTH = 48
@@ -62,9 +56,6 @@ export interface editorSizingLogicActions {
         value: true
     } // resizerLogic
     databaseTreeSetDesiredSize: (size: number | null) => {
-        size: number | null
-    } // resizerLogic
-    queryPaneSetDesiredSize: (size: number | null) => {
         size: number | null
     } // resizerLogic
     sidebarSetDesiredSize: (size: number | null) => {
@@ -128,8 +119,6 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
             ['setDesiredSize as sidebarSetDesiredSize'],
             resizerLogic(props.databaseTreeResizerProps),
             ['setDesiredSize as databaseTreeSetDesiredSize', 'endResize as databaseTreeEndResize'],
-            resizerLogic(props.queryPaneResizerProps),
-            ['setDesiredSize as queryPaneSetDesiredSize'],
         ],
     })),
     actions({
