@@ -29,6 +29,7 @@ from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
@@ -1116,6 +1117,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 response=TicketMessageSerializer,
                 description="A reply already exists for this idempotency key; the original is returned unchanged.",
             ),
+            409: OpenApiResponse(
+                description="This idempotency key already belongs to a message on a different ticket."
+            ),
         },
     )
     @action(
@@ -1150,7 +1154,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         is_private = data["is_private"]
         idempotency_key = data.get("idempotency_key")
 
-        replayed = self._reply_for_idempotency_key(idempotency_key) if idempotency_key else None
+        replayed = self._reply_for_idempotency_key(idempotency_key, ticket) if idempotency_key else None
         if replayed is not None:
             return Response(TicketMessageSerializer(self._serialize_message(replayed, ticket)).data)
 
@@ -1174,7 +1178,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 with transaction.atomic():
                     comment = Comment.objects.create(**create_kwargs)
             except IntegrityError:
-                replayed = self._reply_for_idempotency_key(idempotency_key)
+                replayed = self._reply_for_idempotency_key(idempotency_key, ticket)
                 if replayed is None:
                     raise
                 return Response(TicketMessageSerializer(self._serialize_message(replayed, ticket)).data)
@@ -1184,8 +1188,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             status=drf_status.HTTP_201_CREATED,
         )
 
-    def _reply_for_idempotency_key(self, idempotency_key: uuid.UUID) -> Comment | None:
-        return Comment.objects.filter(team_id=self.team_id, idempotency_key=idempotency_key).first()
+    def _reply_for_idempotency_key(self, idempotency_key: uuid.UUID, ticket: Ticket) -> Comment | None:
+        """The reply this key already posted, but only if it belongs to this ticket.
+
+        Access to `ticket` is already checked, so scoping the replay to it keeps the response behind
+        the same authorization as a fresh reply. A key bound elsewhere is a client-side collision,
+        and answering it with another ticket's message would be worse than refusing.
+        """
+        existing = Comment.objects.filter(team_id=self.team_id, idempotency_key=idempotency_key).first()
+        if existing is None:
+            return None
+        if existing.scope != "conversations_ticket" or existing.item_id != str(ticket.id):
+            raise Conflict("This idempotency key was already used for a different message")
+        return existing
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],

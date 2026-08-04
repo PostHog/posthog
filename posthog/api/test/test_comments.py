@@ -1219,3 +1219,38 @@ class TestCommentIdempotency(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "idempotency_key"
         assert not Comment.objects.filter(team=self.team).exists()
+
+    def test_a_key_bound_to_another_target_is_refused_rather_than_replayed(self) -> None:
+        # A leaked key must not read back a comment the caller didn't ask for — and could not
+        # reach directly. The scope submitted here needs no ticket access at all.
+        key = str(uuid4())
+        ticket = Ticket.objects.create_with_number(
+            team=self.team, channel_source=Channel.WIDGET, distinct_id="user-1", status=Status.OPEN
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="restricted ticket message",
+            created_by=self.user,
+            idempotency_key=key,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "A reply", "scope": "Notebook", "idempotency_key": key},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "restricted ticket message" not in response.content.decode()
+
+    def test_the_key_cannot_be_changed_after_creation(self) -> None:
+        created = self._post(str(uuid4())).json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{created['id']}",
+            {"idempotency_key": str(uuid4())},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "idempotency_key"

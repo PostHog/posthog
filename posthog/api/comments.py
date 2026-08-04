@@ -15,6 +15,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.exceptions import Conflict
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
@@ -140,6 +141,12 @@ class CommentSerializer(serializers.ModelSerializer):
                 raise exceptions.PermissionDenied("You can only modify your own comments")
             if "is_task" in data and bool(data["is_task"]) != bool(instance.is_task):
                 raise exceptions.ValidationError({"is_task": "Cannot change task state after creation."})
+            # Reassigning a key would let a retry of one create resolve to an unrelated comment,
+            # and clearing it would let that retry insert a duplicate.
+            if "idempotency_key" in data:
+                raise exceptions.ValidationError(
+                    {"idempotency_key": "Cannot change the idempotency key after creation."}
+                )
 
         # Check both the comment's persisted (scope, item_id) and the submitted target — so losing
         # ticket editor access after creation, and re-scoping a comment into or out of a ticket,
@@ -297,6 +304,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 response=CommentSerializer,
                 description="A comment already exists for this idempotency key; the original is returned unchanged.",
             ),
+            409: OpenApiResponse(
+                description="This idempotency key already belongs to a comment on a different scope or item."
+            ),
         },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -312,7 +322,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 headers=self.get_success_headers(serializer.data),
             )
 
-        replayed = self._comment_for_idempotency_key(idempotency_key)
+        target = (serializer.validated_data.get("scope"), serializer.validated_data.get("item_id"))
+        replayed = self._comment_for_idempotency_key(idempotency_key, target=target)
         if replayed is None:
             try:
                 # Atomic so a losing race savepoints its failed INSERT instead of breaking the
@@ -320,7 +331,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 with transaction.atomic():
                     self.perform_create(serializer)
             except IntegrityError:
-                replayed = self._comment_for_idempotency_key(idempotency_key)
+                replayed = self._comment_for_idempotency_key(idempotency_key, target=target)
                 if replayed is None:
                     raise
 
@@ -333,8 +344,23 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             headers=self.get_success_headers(serializer.data),
         )
 
-    def _comment_for_idempotency_key(self, idempotency_key: UUID) -> Comment | None:
-        return Comment.objects.filter(team_id=self.team_id, idempotency_key=idempotency_key).first()
+    def _comment_for_idempotency_key(
+        self, idempotency_key: UUID, *, target: tuple[str | None, str | None]
+    ) -> Comment | None:
+        """The comment this key already created, but only if it targets what the caller asked for.
+
+        The request's own (scope, item_id) is what validation authorized, so restricting the replay
+        to that target keeps it behind the same access checks as a fresh create — otherwise a key
+        that leaked from a restricted ticket would read that ticket's message back out. A key bound
+        to a different target is a client-side collision, and answering it with someone else's
+        comment would be worse than refusing.
+        """
+        existing = Comment.objects.filter(team_id=self.team_id, idempotency_key=idempotency_key).first()
+        if existing is None:
+            return None
+        if (existing.scope, existing.item_id) != target:
+            raise Conflict("This idempotency key was already used for a different comment")
+        return existing
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()

@@ -2429,6 +2429,31 @@ class TestTicketReplyAPI(APIBaseTest):
 
         assert Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).count() == 2
 
+    def test_reply_key_bound_to_another_ticket_is_refused_rather_than_replayed(self, mock_on_commit):
+        key = str(uuid.uuid4())
+        other_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="user-2",
+            status=Status.OPEN,
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(other_ticket.id),
+            content="another ticket's message",
+            item_context={"author_type": "support", "is_private": False},
+            idempotency_key=key,
+        )
+
+        response = self.client.post(self.url, {"message": "A reply", "idempotency_key": key}, format="json")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "another ticket's message" not in response.content.decode()
+        assert not Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).exists()
+
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestAiFeedbackAPI(APIBaseTest):
