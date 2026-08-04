@@ -1758,3 +1758,12 @@ class TestSingleObjectEndpoint:
 
         with pytest.raises(Exception, match=META_AUTH_ERROR_MESSAGE):
             self._rows(monkeypatch, response)
+
+    def test_field_list_omits_business_field_requiring_ungranted_scope(self) -> None:
+        # `business` needs the `business_management` scope, which the Meta OAuth consent never
+        # requests (`ads_read` only), so Meta 400s the whole request whenever it's asked for —
+        # failing every sync of this table. `business_name` and `business_country_code` are plain
+        # fields with no such requirement and must stay.
+        field_names = get_meta_ads_schemas()[MetaAdsResource.AdAccount].field_names
+        assert "business" not in field_names
+        assert {"business_name", "business_country_code"} <= set(field_names)
