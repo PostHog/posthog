@@ -323,6 +323,7 @@ rules:
                               |SigningSecret
                               |Ticket
                               |TicketView
+                              |TicketViewDefault
                               |TicketViewFavorite
                               |ZendeskImportJob
                               |ReviewQueue
@@ -661,6 +662,7 @@ rules:
                         |SigningSecret
                         |Ticket
                         |TicketView
+                        |TicketViewDefault
                         |TicketViewFavorite
                         |ZendeskImportJob
                         |ReviewQueue

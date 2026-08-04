@@ -278,6 +278,9 @@ export interface supportTicketsSceneLogicActions {
     resetFilters: () => {
         value: true
     }
+    resolveDefaultView: () => {
+        value: true
+    }
     setActiveView: (view: SavedTicketView | null) => {
         view: SavedTicketView | null
     }
@@ -312,9 +315,6 @@ export interface supportTicketsSceneLogicActions {
     }
     setDefaultView: (view: SavedTicketView | null) => {
         view: SavedTicketView | null
-    }
-    resolveDefaultView: () => {
-        value: true
     }
     setPriorityFilter: (priorities: TicketPriority[]) => {
         priorities: TicketPriority[]

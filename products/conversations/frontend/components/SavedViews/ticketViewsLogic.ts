@@ -33,8 +33,8 @@ const searchViews = createFuseSearch<SavedTicketView>(['name'])
 export interface ticketViewsLogicValues {
     activeView: SavedTicketView | null // supportTicketsSceneLogic
     currentFilters: TicketViewFilters // supportTicketsSceneLogic
-    currentTeamId: number | null // teamLogic
     defaultView: SavedTicketView | null // supportTicketsSceneLogic
+    currentTeamId: number | null // teamLogic
     defaultingShortIds: string[]
     dropdownViews: SavedTicketView[]
     favoriteViews: SavedTicketView[]
@@ -61,9 +61,6 @@ export interface ticketViewsLogicActions {
         view: SavedTicketView | null
     } // supportTicketsSceneLogic
     clearDefaultView: (view: SavedTicketView) => {
-        view: SavedTicketView
-    }
-    setViewAsDefault: (view: SavedTicketView) => {
         view: SavedTicketView
     }
     closeModal: () => {
@@ -129,6 +126,9 @@ export interface ticketViewsLogicActions {
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
+    setViewAsDefault: (view: SavedTicketView) => {
+        view: SavedTicketView
+    }
     setViewName: (viewName: string) => {
         viewName: string
     }
@@ -153,12 +153,12 @@ export interface ticketViewsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sortedViews: (views: SavedTicketView[]) => SavedTicketView[]
         favoriteViews: (sortedViews: SavedTicketView[]) => SavedTicketView[]
-        filteredViews: (sortedViews: SavedTicketView[], searchTerm: string) => SavedTicketView[]
         dropdownViews: (
             favoriteViews: SavedTicketView[],
             views: SavedTicketView[],
             defaultView: SavedTicketView | null
         ) => SavedTicketView[]
+        filteredViews: (sortedViews: SavedTicketView[], searchTerm: string) => SavedTicketView[]
     }
 }
 
