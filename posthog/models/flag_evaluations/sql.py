@@ -53,24 +53,27 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(d
 # table fills omitted columns from the Distributed table's own schema before
 # forwarding to the shard, so without them a direct insert via
 # writable_flag_evaluations would store epoch instead of the sharded table's
-# fallback. That makes the Distributed and sharded column lists identical, which
-# is also how the events family declares its CODECs.
+# fallback. That makes the Distributed and sharded column lists identical.
+#
+# No per-column CODECs anywhere in the family: compression is tuned at the
+# ClickHouse server level, and an explicit codec would pin a column out of that
+# cluster-wide tuning.
 _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     team_id Int64,
     uuid UUID,
-    timestamp DateTime64(6, 'UTC'){dt_codec},
-    inserted_at DateTime64(6, 'UTC'){ts_default}{dt_codec},
-    distinct_id String{codec},
-    session_id String{codec},
-    device_id String{codec},
-    flag_key String{codec},
+    timestamp DateTime64(6, 'UTC'),
+    inserted_at DateTime64(6, 'UTC'){ts_default},
+    distinct_id String,
+    session_id String,
+    device_id String,
+    flag_key String,
     response LowCardinality(String),
     flag_id UInt64,
     flag_version UInt32,
     reason LowCardinality(String),
-    request_id String{codec},
-    evaluated_at DateTime64(6, 'UTC'){ts_default}{dt_codec},
-    error String{codec},
+    request_id String,
+    evaluated_at DateTime64(6, 'UTC'){ts_default},
+    error String,
     locally_evaluated Bool,
     lib LowCardinality(String),
     lib_version LowCardinality(String),
@@ -78,26 +81,20 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     os LowCardinality(String),
     os_version LowCardinality(String),
     app_version LowCardinality(String),
-    current_url String{codec},
-    pathname String{codec},
+    current_url String,
+    pathname String,
     country_code LowCardinality(String),
     subdivision_1_code LowCardinality(String),
-    group_0 String{codec},
-    group_1 String{codec},
-    group_2 String{codec},
-    group_3 String{codec},
-    group_4 String{codec}
+    group_0 String,
+    group_1 String,
+    group_2 String,
+    group_3 String,
+    group_4 String
 """.strip()
 
-FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="", codec="", dt_codec="")
+FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="")
 
-# ZSTD on the plain String columns and DoubleDelta on the timestamps;
-# LowCardinality columns compress well on their own.
-_FLAG_EVALUATIONS_STORAGE_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(
-    ts_default=" DEFAULT timestamp",
-    codec=" CODEC(ZSTD(1))",
-    dt_codec=" CODEC(DoubleDelta, ZSTD(1))",
-)
+_FLAG_EVALUATIONS_STORAGE_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default=" DEFAULT timestamp")
 
 
 def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
