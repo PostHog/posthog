@@ -180,6 +180,26 @@ export const YAxisFormats: Story = {
     ),
 }
 
+/** `minBarSize` floors each non-zero bar at a pixel height, so single-occurrence buckets stay
+ *  visible next to a spike three orders of magnitude taller. Empty buckets stay empty. */
+export const MinBarSize: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [{ key: 'errors', label: 'Errors', data: [1, 0, 2, 1400, 3, 0, 1] }]
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
+                <Stage>
+                    <TimeSeriesBarChart series={series} labels={DAYS} theme={theme} />
+                </Stage>
+                <Stage>
+                    <TimeSeriesBarChart series={series} labels={DAYS} theme={theme} config={{ minBarSize: 6 }} />
+                </Stage>
+            </div>
+        )
+    },
+}
+
 export const DateAxis: Story = {
     render: () => {
         const cells: { interval: TimeInterval; labels: string[]; series: Series[]; title: string }[] = [

@@ -296,6 +296,35 @@ describe('hog-charts bar-layout', () => {
         expect(bars[2]?.dataIndex).toBe(2)
     })
 
+    describe('computeSeriesBars — minBarSize', () => {
+        // Volume sparklines floor tiny buckets so "one error happened here" stays visible next to a
+        // spike. Guards the two ways that goes wrong: flooring empty buckets into phantom bars, and
+        // flooring a bar that is already tall enough.
+        it.each([
+            { name: 'tiny non-zero value is floored', value: 1, expectedHeight: 6 },
+            { name: 'zero value stays empty', value: 0, expectedHeight: 0 },
+            { name: 'value above the floor is left exact', value: 1000, expectedHeight: 100 },
+        ])('$name', ({ value, expectedHeight }) => {
+            const labels = ['a']
+            const s = makeSeries({ key: 's', data: [value] })
+            const scales = createBarScales([s], labels, PIXEL_TEST_DIMENSIONS, {
+                barLayout: 'stacked',
+                minBarSize: 6,
+                // Pin the domain so the floor, not the auto-scaled axis, is what the assertion reads.
+                valueDomain: [0, 1000],
+            })
+            const bars = layoutOf({
+                series: s,
+                labels,
+                scales,
+                layout: 'stacked',
+                stackedBand: computeStackData([s], labels).get('s'),
+                isTopOfStack: true,
+            })
+            expect(bars[0]?.height).toBeCloseTo(expectedHeight, 5)
+        })
+    })
+
     describe('computeSeriesBars — exact pixel positions', () => {
         interface PixelCase {
             name: string

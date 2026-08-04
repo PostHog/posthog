@@ -278,6 +278,26 @@ export function buildBarLayers({
     return layers
 }
 
+/** Push a bar's value-axis edge out to `minBarSize` px from its baseline-side edge when the bar
+ *  would otherwise be thinner, so a tiny non-zero value still reads as a bar. Zero-valued bars keep
+ *  their exact (empty) extent. `raw`'s sign picks the direction the bar grows: positives grow up on
+ *  a vertical chart and right on a horizontal one. */
+function floorValuePixel(
+    valuePixel: number,
+    basePixel: number,
+    raw: number,
+    isHorizontal: boolean,
+    minBarSize: number | undefined
+): number {
+    if (!minBarSize || minBarSize <= 0 || raw === 0) {
+        return valuePixel
+    }
+    if (Math.abs(valuePixel - basePixel) >= minBarSize) {
+        return valuePixel
+    }
+    return basePixel + (raw > 0 === isHorizontal ? minBarSize : -minBarSize)
+}
+
 export interface ComputeBarAtIndexOptions {
     series: Series
     label: string
@@ -341,17 +361,21 @@ export function computeBarAtIndex({
         // plot, so the bar would bleed through the axis. Clamp the baseline to the scale's range.
         const [r0, r1] = valueScale.range()
         const baseline = Math.min(Math.max(valueScale(0), Math.min(r0, r1)), Math.max(r0, r1))
-        return makeBarRect(isHorizontal, slot.x, slot.width, baseline, valuePixel, corners, dataIndex)
+        const cap = floorValuePixel(valuePixel, baseline, raw, isHorizontal, scales.minBarSize)
+        return makeBarRect(isHorizontal, slot.x, slot.width, baseline, cap, corners, dataIndex)
     }
 
     // Resolve against the series' own axis (mirrors the grouped branch above), so a stacked bar on
     // a non-default `yAxisId` — only ComboChart combines stacking with per-series axes — is hit-tested
     // and drawn against the same scale. For single-axis charts `valueScale` is `scales.value`.
-    const topPixel = valueScale(stackedBand!.top[dataIndex])
+    const rawTopPixel = valueScale(stackedBand!.top[dataIndex])
     const bottomPixel = valueScale(stackedBand!.bottom[dataIndex])
-    if (!isFinite(topPixel) || !isFinite(bottomPixel)) {
+    if (!isFinite(rawTopPixel) || !isFinite(bottomPixel)) {
         return null
     }
+    // Floored against this segment's own bottom, not the axis baseline, so a floored segment grows
+    // out of where it actually starts in the stack.
+    const topPixel = floorValuePixel(rawTopPixel, bottomPixel, raw, isHorizontal, scales.minBarSize)
     // For stacked/percent the bar's "positive direction" depends on which pixel is further from baseline,
     // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).
     const isPositive = isHorizontal ? topPixel >= bottomPixel : topPixel <= bottomPixel
