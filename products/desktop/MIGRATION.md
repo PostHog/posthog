@@ -118,7 +118,7 @@ separate project.
 
 | Source (.github/workflows/) | Port | Notes beyond the standard transforms |
 | --- | --- | --- |
-| _(none — monorepo-native)_ | desktop-ci.yml | single `pull_request:`/`merge_group:` dispatch that calls the four gating workflows; see transform rule 7 |
+| _(none — monorepo-native)_ | desktop-ci.yml | single `pull_request:`/`merge_group:` dispatch that calls the four gating workflows plus the `backend-coupling` separation check (`.github/scripts/desktop/check-pr-backend-coupling.sh`); see transform rule 7 |
 | build.yml | desktop-build.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Build Pass` |
 | warm-caches.yml | desktop-warm-caches.yml | seeds every cache the restore-only desktop PR workflows use; pnpm-store caching is explicit (`desktop-pnpm-*` keys) instead of setup-node auto-cache so PR restores share the namespace |
 | agent-release-verify.yml | desktop-agent-release-verify.yml | restore-only pnpm store |
