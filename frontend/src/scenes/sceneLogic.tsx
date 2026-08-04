@@ -477,6 +477,10 @@ export const sceneLogic = kea<sceneLogicType>([
             { persist: true },
             {
                 reloadBrowserDueToImportError: () => new Date().valueOf(),
+                // A scene other than the network-error page loaded, so the reload actually
+                // worked - clear the guard instead of leaving the next genuine retry stuck
+                // waiting out the 20s window.
+                setScene: (state, { sceneId }) => (sceneId === Scene.ErrorNetwork ? state : null),
             },
         ],
         lastSetScenePayload: [

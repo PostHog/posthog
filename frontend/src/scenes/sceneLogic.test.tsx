@@ -139,6 +139,25 @@ describe('sceneLogic', () => {
         }
     })
 
+    // Regression guard: lastReloadAt is a persisted reducer that used to only clear after a 20s
+    // wall-clock wait. A user who reloaded and landed on a real scene was still stuck behind that
+    // wait on their next chunk-load hiccup, because nothing marked the reload as having worked.
+    it('clears lastReloadAt once a real scene loads, but keeps it while stuck on the network-error scene', async () => {
+        logic.actions.reloadBrowserDueToImportError()
+        expect(logic.values.lastReloadAt).not.toBeNull()
+
+        logic.actions.setScene(Scene.ErrorNetwork, undefined, { params: {}, searchParams: {}, hashParams: {} }, true)
+        expect(logic.values.lastReloadAt).not.toBeNull()
+
+        logic.actions.setScene(
+            Scene.DataManagement,
+            'data-management',
+            { params: {}, searchParams: {}, hashParams: {} },
+            true
+        )
+        expect(logic.values.lastReloadAt).toBeNull()
+    })
+
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {
             id: 'homepage-dashboard-42',
