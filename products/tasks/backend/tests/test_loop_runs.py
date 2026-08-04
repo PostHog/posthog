@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from unittest.mock import patch
 
@@ -13,13 +13,18 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.facade.loops import LoopPermissionError, LoopValidationError, create_slack_followup_loop
 from products.tasks.backend.logic.services.loop_runs import (
     DISABLED_REASON_REPEATED_FAILURES,
     DISABLED_REASON_USAGE_LIMITED,
     LOOP_AUTO_PAUSE_THRESHOLD,
     LOOP_RATE_CAP_PER_DAY,
     LOOP_TEAM_RATE_CAP_PER_DAY,
+    SLACK_FOLLOWUP_BLOCK,
+    SLACK_FOLLOWUP_MAX_DEFERS_DEFAULT,
     TRIGGER_CONTEXT_MAX_BYTES,
+    dispatch_loop_run_terminal_notification,
     fire_loop,
     handle_loop_run_terminal,
     render_trigger_context,
@@ -1075,4 +1080,205 @@ class TestTerminalizeUnstartedTaskRun(LoopRunsTestCase):
             loop,
             "run_failed",
             {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.FAILED},
+        )
+
+
+class SlackFollowupTestCase(LoopRunsTestCase):
+    THREAD_TS = "1722400000.000100"
+
+    def setUp(self):
+        super().setUp()
+        self.slack_integration = Integration.objects.create(team=self.team, kind="slack", config={})
+
+    def slack_target(self, **overrides) -> dict:
+        target = {
+            "integration_id": self.slack_integration.id,
+            "slack_workspace_id": "T0123",
+            "channel": "C0456",
+            "thread_ts": self.THREAD_TS,
+            "requested_by_slack_user_id": "U0789",
+        }
+        target.update(overrides)
+        return target
+
+    def fire_bound_loop(self, loop: Loop, fire_key: str = "fire-1"):
+        with patch(f"{LOOP_RUNS_MODULE}._execute_task_processing_workflow_for_loop"):
+            with self.captureOnCommitCallbacks(execute=True):
+                return fire_loop(loop=loop, trigger=None, fire_key=fire_key, trigger_context="")
+
+
+class TestFireLoopSlackThread(SlackFollowupTestCase):
+    def test_thread_bound_fire_wires_slack_context_into_run_state_and_prompt(self):
+        loop = self.create_loop(slack_thread_target=self.slack_target())
+
+        result = self.fire_bound_loop(loop)
+
+        run = TaskRun.objects.get(id=result.task_run_id)
+        self.assertEqual(run.state["interaction_origin"], "slack")
+        self.assertEqual(run.state["slack_actor_user_id"], self.user.id)
+        self.assertEqual(run.state["slack_actor_slack_user_id"], "U0789")
+        self.assertEqual(
+            run.state["pending_dispatch"]["slack_thread_context"],
+            {
+                "integration_id": self.slack_integration.id,
+                "channel": "C0456",
+                "thread_ts": self.THREAD_TS,
+                "mentioning_slack_user_id": "U0789",
+            },
+        )
+        self.assertIn(SLACK_FOLLOWUP_BLOCK, run.state["pending_user_message"])
+
+    def test_fire_creates_the_thread_mapping_and_dispatches_with_thread_context(self):
+        loop = self.create_loop(slack_thread_target=self.slack_target())
+
+        with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as mock_execute:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = fire_loop(loop=loop, trigger=None, fire_key="fire-1", trigger_context="")
+
+        mapping = SlackThreadTaskMapping.objects.get(
+            integration=self.slack_integration, channel="C0456", thread_ts=self.THREAD_TS
+        )
+        self.assertEqual(mapping.task_run_id, result.task_run_id)
+        self.assertEqual(mapping.task_id, result.task_id)
+        self.assertEqual(mapping.slack_workspace_id, "T0123")
+        self.assertEqual(mapping.mentioning_slack_user_id, "U0789")
+
+        context = mock_execute.call_args.kwargs["slack_thread_context"]
+        self.assertEqual(
+            (context.integration_id, context.channel, context.thread_ts, context.mentioning_slack_user_id),
+            (self.slack_integration.id, "C0456", self.THREAD_TS, "U0789"),
+        )
+
+    @parameterized.expand(
+        [
+            ("terminal_run_repoints", TaskRun.Status.COMPLETED, True),
+            ("active_run_left_alone", TaskRun.Status.IN_PROGRESS, False),
+        ]
+    )
+    def test_fire_repoints_the_thread_mapping_only_when_its_run_is_terminal(
+        self, _name, existing_status, expect_repoint
+    ):
+        other_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Mention conversation",
+            description="d",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        other_run = other_task.create_run(mode="background")
+        TaskRun.objects.filter(id=other_run.id).update(status=existing_status)
+        mapping = SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=self.slack_integration,
+            slack_workspace_id="T0123",
+            channel="C0456",
+            thread_ts=self.THREAD_TS,
+            task=other_task,
+            task_run=other_run,
+            mentioning_slack_user_id="U0789",
+        )
+        loop = self.create_loop(slack_thread_target=self.slack_target())
+
+        result = self.fire_bound_loop(loop)
+
+        mapping.refresh_from_db()
+        expected_run_id = result.task_run_id if expect_repoint else other_run.id
+        self.assertEqual(mapping.task_run_id, expected_run_id)
+
+
+class TestFollowupReportFallback(SlackFollowupTestCase):
+    REPORT = "The first cohort's activation is at 40%, up from 31%."
+
+    def completed_bound_run(self) -> TaskRun:
+        self.loop = self.create_loop(slack_thread_target=self.slack_target())
+        result = self.fire_bound_loop(self.loop)
+        run = TaskRun.objects.get(id=result.task_run_id)
+        run.status = TaskRun.Status.COMPLETED
+        run.output = {"final_message": self.REPORT}
+        run.save(update_fields=["status", "output"])
+        return run
+
+    def test_report_is_posted_directly_when_the_mapping_points_elsewhere(self):
+        run = self.completed_bound_run()
+        SlackThreadTaskMapping.objects.filter(task_run=run).delete()
+
+        with patch("products.slack_app.backend.slack_thread.SlackThreadHandler") as mock_handler:
+            dispatch_loop_run_terminal_notification(
+                str(self.loop.id), self.team.id, "run_completed", {"task_run_id": str(run.id)}
+            )
+
+        mock_handler.return_value.post_thread_message.assert_called_once_with(self.REPORT)
+
+    def test_report_is_not_double_posted_when_the_relay_owns_the_mapping(self):
+        run = self.completed_bound_run()
+
+        with patch("products.slack_app.backend.slack_thread.SlackThreadHandler") as mock_handler:
+            dispatch_loop_run_terminal_notification(
+                str(self.loop.id), self.team.id, "run_completed", {"task_run_id": str(run.id)}
+            )
+
+        mock_handler.return_value.post_thread_message.assert_not_called()
+
+
+class TestCreateSlackFollowupLoop(SlackFollowupTestCase):
+    def setUp(self):
+        super().setUp()
+        access = patch("products.tasks.backend.facade.loops.has_loops_access", return_value=True)
+        self.mock_access = access.start()
+        self.addCleanup(access.stop)
+        sync = patch("products.tasks.backend.facade.loops.loop_service.sync_loop_trigger_schedule")
+        self.mock_sync = sync.start()
+        self.addCleanup(sync.stop)
+
+    def create_followup(self, run_at_delta: timedelta = timedelta(days=14), target: dict | None = None):
+        return create_slack_followup_loop(
+            self.team.id,
+            self.user,
+            name="Check activation for the July cohort",
+            instructions="Look at the first cohort's activation and report back.",
+            run_at=django_timezone.now() + run_at_delta,
+            slack_thread_target=target if target is not None else self.slack_target(),
+        )
+
+    def test_creates_a_personal_one_time_loop_bound_to_the_thread(self):
+        dto = self.create_followup(run_at_delta=timedelta(days=14))
+
+        loop = Loop.objects.for_team(self.team.id, canonical=True).get(id=dto.id)
+        self.assertEqual(loop.visibility, Loop.Visibility.PERSONAL)
+        self.assertEqual(loop.origin_product, Task.OriginProduct.SLACK)
+        self.assertEqual(loop.created_by_id, self.user.id)
+        self.assertEqual(loop.slack_thread_target["thread_ts"], self.THREAD_TS)
+        self.assertEqual(loop.slack_thread_target["max_defers"], SLACK_FOLLOWUP_MAX_DEFERS_DEFAULT)
+        triggers = list(LoopTrigger.objects.for_team(self.team.id, canonical=True).filter(loop=loop))
+        self.assertEqual(len(triggers), 1)
+        self.assertEqual(triggers[0].type, LoopTrigger.TriggerType.SCHEDULE)
+        run_at_config = datetime.fromisoformat(triggers[0].config["run_at"])
+        expected_run_at = django_timezone.now() + timedelta(days=14)
+        self.assertAlmostEqual(run_at_config.timestamp(), expected_run_at.timestamp(), delta=30)
+        self.mock_sync.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("past_run_at", timedelta(hours=-1), None, LoopValidationError),
+            ("missing_thread_ts", timedelta(days=14), {"thread_ts": ""}, LoopValidationError),
+            ("cross_team_integration", timedelta(days=14), "OTHER_TEAM", LoopValidationError),
+            ("no_loops_access", timedelta(days=14), "NO_ACCESS", LoopPermissionError),
+        ]
+    )
+    def test_rejects_invalid_followups(self, _name, run_at_delta, target_variant, expected_error):
+        target = self.slack_target()
+        if target_variant == "OTHER_TEAM":
+            other_team = Team.objects.create(organization=self.organization, name="Other Team")
+            target["integration_id"] = Integration.objects.create(team=other_team, kind="slack", config={}).id
+        elif target_variant == "NO_ACCESS":
+            self.mock_access.return_value = False
+        elif isinstance(target_variant, dict):
+            target.update(target_variant)
+
+        with self.assertRaises(expected_error):
+            self.create_followup(run_at_delta=run_at_delta, target=target)
+
+        self.assertEqual(
+            Loop.objects.for_team(self.team.id, canonical=True).filter(origin_product=Task.OriginProduct.SLACK).count(),
+            0,
         )

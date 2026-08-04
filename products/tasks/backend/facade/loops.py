@@ -23,7 +23,7 @@ import json
 import base64
 import logging
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -42,6 +42,8 @@ from posthog.rbac.user_access_control import AccessControlLevel, UserAccessContr
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
+from products.tasks.backend.access import has_loops_access
+from products.tasks.backend.facade.run_config import RuntimeAdapter
 from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
 from products.tasks.backend.logic.services import loop_runs
 from products.tasks.backend.loop_lifecycle import (
@@ -871,10 +873,12 @@ def create_loop(
             notifications=data.get("notifications") or {},
             context_target=data.get("context_target") or {},
             # Backend-only: the API write serializer never carries these, so loops made through
-            # the public API are always user-facing and attributed to `user_created`.
+            # the public API are always user-facing, attributed to `user_created`, and unbound
+            # from any Slack thread.
             internal=data.get("internal", False),
             origin_product=data.get("origin_product", Task.OriginProduct.USER_CREATED),
             client_provenance=client_provenance,
+            slack_thread_target=data.get("slack_thread_target") or {},
         )
         created_triggers = [
             LoopTrigger.objects.create(
@@ -893,6 +897,65 @@ def create_loop(
 
     loop.refresh_from_db()
     return _loop_to_dto(loop)
+
+
+def create_slack_followup_loop(
+    team_id: int,
+    user: User,
+    *,
+    name: str,
+    instructions: str,
+    run_at: datetime,
+    slack_thread_target: dict,
+) -> LoopDTO:
+    """Create the loop behind a Slack "check this later" follow-up: a personal, user-visible
+    loop bound to the requesting thread, with a single one-time schedule trigger.
+
+    This is the boundary the Slack mention flow calls (products/tasks is isolated). Raises
+    `LoopPermissionError` when the requester lacks loops access, `LoopValidationError` on a bad
+    `run_at` or thread binding, and `LoopLimitError` when the team is at its loop cap."""
+    team = Team.objects.get(id=team_id)
+    if not has_loops_access(user, team):
+        raise LoopPermissionError("Loops are not enabled for this user or project.")
+
+    if run_at.tzinfo is None:
+        run_at = run_at.replace(tzinfo=UTC)
+    if run_at <= datetime.now(UTC):
+        raise LoopValidationError("The follow-up time must be in the future.")
+
+    target = dict(slack_thread_target or {})
+    if not target.get("integration_id") or not target.get("channel") or not target.get("thread_ts"):
+        raise LoopValidationError("The Slack thread binding needs integration_id, channel and thread_ts.")
+    # The binding must reference this team's own Slack workspace connection: a cross-team
+    # integration id would make the fired run post into another team's workspace.
+    if not Integration.objects.filter(id=target["integration_id"], team_id=team_id, kind="slack").exists():
+        raise LoopValidationError("Slack integration not found for this team.")
+    target.setdefault("max_defers", loop_runs.SLACK_FOLLOWUP_MAX_DEFERS_DEFAULT)
+
+    # Callers are backend flows (Temporal activities) with no ambient team scope, and
+    # create_loop's DTO mapping reads fail-closed related managers, so scope explicitly.
+    with team_scope(team_id, canonical=True):
+        return create_loop(
+            team_id,
+            user,
+            {
+                "name": name,
+                "description": "Scheduled follow-up from a Slack thread.",
+                "visibility": Loop.Visibility.PERSONAL,
+                "instructions": instructions,
+                "runtime_adapter": RuntimeAdapter.CLAUDE.value,
+                "model": "",
+                "connectors": {"posthog_mcp_scopes": "full"},
+                "origin_product": Task.OriginProduct.SLACK,
+                "slack_thread_target": target,
+                "triggers": [
+                    {
+                        "type": LoopTrigger.TriggerType.SCHEDULE,
+                        "config": {"run_at": run_at.astimezone(UTC).isoformat()},
+                    }
+                ],
+            },
+        )
 
 
 def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_data: dict) -> LoopDTO | None:

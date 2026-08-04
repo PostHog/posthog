@@ -1471,6 +1471,12 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # Drives feed placement (each run's Task.channel) and the context.md / canvas publish contract
     # injected into every run's prompt. See products/tasks/docs/LOOPS.md.
     context_target = models.JSONField(default=dict, blank=True)
+    # Binding to the Slack thread this loop reports into, or {} when unbound. Shape:
+    # {integration_id, slack_workspace_id, channel, thread_ts, requested_by_slack_user_id,
+    # max_defers}. Written by the Slack follow-up creation flow; loop_runs reads it at fire time
+    # to inject the run's slack_thread_context and upsert the thread's SlackThreadTaskMapping,
+    # which is what makes the run's final message land as a reply in that thread.
+    slack_thread_target = models.JSONField(default=dict, blank=True)
     # Skill bundles attached at save time: zipped local skills whose manifest entries (same shape
     # as TaskRun.artifacts entries, type "skill_bundle", bytes in object storage under
     # get_skill_bundle_s3_prefix()) are copied into every fired run so the sandbox installs them.

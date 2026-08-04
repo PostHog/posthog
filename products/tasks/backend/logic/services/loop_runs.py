@@ -20,10 +20,12 @@ from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
+from posthog.models.integration import Integration
 from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
+from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates
 from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
@@ -37,6 +39,10 @@ from products.tasks.backend.temporal.process_task.utils import (
 logger = logging.getLogger(__name__)
 
 LOOP_RATE_CAP_PER_DAY = 100
+# How often a thread-bound follow-up run may push its own check back ("data isn't ready yet")
+# before it must report with whatever is available. Stored per loop as
+# `slack_thread_target.max_defers` at creation, so this is only the default.
+SLACK_FOLLOWUP_MAX_DEFERS_DEFAULT = 3
 # Aggregate ceiling across all of a team's loops, so N loops can't each spend the per-loop cap
 # and collectively swamp the run pipeline. Sits above the per-loop cap on purpose.
 LOOP_TEAM_RATE_CAP_PER_DAY = 500
@@ -163,6 +169,39 @@ def render_context_target_block(context_target: dict | None) -> str:
             f"read as `expected_current_version_id`. Follow the `building-canvases` skill."
         )
     return "\n".join(lines)
+
+
+SLACK_FOLLOWUP_BLOCK = (
+    "This run is a scheduled follow-up requested in a Slack thread. Your final message is "
+    "posted as a reply in that thread, so write it for the people in that conversation: "
+    "lead with the answer, keep it concise, and skip preamble about being an automated run."
+)
+
+
+def slack_thread_context_from_target(target: object) -> dict[str, Any] | None:
+    """The `slack_thread_context` dict a run's dispatch and the Slack relay consume (the
+    `SlackThreadContext.to_dict()` shape from products/slack_app), derived from a loop's
+    `slack_thread_target`. None when the binding is absent or incomplete, which callers
+    treat as "not a thread-bound loop"."""
+    target = target if isinstance(target, dict) else {}
+    integration_id = target.get("integration_id")
+    channel = target.get("channel")
+    thread_ts = target.get("thread_ts")
+    if not integration_id or not channel or not thread_ts:
+        return None
+    context: dict[str, Any] = {"integration_id": integration_id, "channel": channel, "thread_ts": thread_ts}
+    requested_by = target.get("requested_by_slack_user_id")
+    if requested_by:
+        # The relay reply-tags this Slack user, so the requester is pinged when the report lands.
+        context["mentioning_slack_user_id"] = requested_by
+    return context
+
+
+def render_slack_followup_block(loop: Loop) -> str:
+    """The prompt framing added when a loop's runs report into a bound Slack thread."""
+    if slack_thread_context_from_target(loop.slack_thread_target) is None:
+        return ""
+    return SLACK_FOLLOWUP_BLOCK
 
 
 def _resolve_feed_channel_id(loop: Loop) -> str | None:
@@ -539,6 +578,7 @@ def _seed_skill_bundles_and_dispatch(
     run_id: str,
     create_pr: bool,
     posthog_mcp_scopes: PosthogMcpScopes,
+    slack_thread_target: dict[str, Any] | None = None,
 ) -> None:
     """Post-commit tail of a fire: seed the run's snapshotted skill bundles, then
     dispatch the Temporal workflow. Seeding copies S3 objects, and
@@ -563,6 +603,9 @@ def _seed_skill_bundles_and_dispatch(
         _terminalize_unstarted_task_run(run_id, "Failed to stage the loop's skill bundles for this run")
         return
 
+    if slack_thread_target:
+        _upsert_slack_thread_mapping(task_run, slack_thread_target)
+
     _execute_task_processing_workflow_for_loop(
         team_id=team_id,
         user_id=user_id,
@@ -570,6 +613,7 @@ def _seed_skill_bundles_and_dispatch(
         run_id=run_id,
         create_pr=create_pr,
         posthog_mcp_scopes=posthog_mcp_scopes,
+        slack_thread_context=slack_thread_context_from_target(slack_thread_target),
     )
 
 
@@ -694,7 +738,10 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
     context_block = render_context_target_block(context_target)
-    execution_context = "\n\n".join(part for part in [LOOP_FRAMING_BLOCK, context_block, trigger_context] if part)
+    followup_block = render_slack_followup_block(loop)
+    execution_context = "\n\n".join(
+        part for part in [LOOP_FRAMING_BLOCK, followup_block, context_block, trigger_context] if part
+    )
     pending_user_message = render_loop_run_message(loop.instructions, execution_context)
 
     feed_channel_id = resolved_channel_id if outputs["post_to_feed"] else None
@@ -755,6 +802,18 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     # opted into PR creation for could still push branches and open PRs.
     create_pr = bool(behaviors.get("create_prs", False))
     posthog_mcp_scopes = _augment_scopes_for_context(_resolve_posthog_mcp_scopes(loop.connectors), outputs=outputs)
+    slack_thread_target = loop.slack_thread_target if isinstance(loop.slack_thread_target, dict) else {}
+    slack_thread_context = slack_thread_context_from_target(slack_thread_target)
+    if slack_thread_context is not None and loop.created_by_id is not None:
+        # A thread-bound run is a Slack interaction so the pending-reply relay posts its final
+        # message there, using the loop owner for credential and follow-up resolution.
+        extra_state["interaction_origin"] = "slack"
+        extra_state.update(
+            slack_actor_state_updates(
+                user_id=loop.created_by_id,
+                slack_user_id=slack_thread_target.get("requested_by_slack_user_id"),
+            )
+        )
     # Same contract as Task.create_and_run: persist the dispatch params on the row so the
     # orphaned-QUEUED-run reconciler re-dispatches a lost fire with the loop's real
     # configuration instead of its generic defaults (create_pr=True, full MCP scopes),
@@ -763,7 +822,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "create_pr": create_pr,
         "posthog_mcp_scopes": posthog_mcp_scopes,
         "user_id": loop.created_by_id,
-        "slack_thread_context": None,
+        "slack_thread_context": slack_thread_context,
         "workflow_id_prefix": None,
     }
     # Freeze the bundle set on the run itself: seeding (post-commit and reconciler
@@ -789,6 +848,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
             run_id=run_id,
             create_pr=create_pr,
             posthog_mcp_scopes=posthog_mcp_scopes,
+            slack_thread_target=slack_thread_target if slack_thread_context is not None else None,
         )
     )
 
@@ -802,6 +862,54 @@ def _resolve_posthog_mcp_scopes(connectors: dict) -> PosthogMcpScopes:
     return "read_only"
 
 
+def _upsert_slack_thread_mapping(task_run: TaskRun, target: dict[str, Any]) -> None:
+    """Point the bound Slack thread's task mapping at this fired run, which is what routes the
+    relay's replies (and later messages in the thread) to it.
+
+    One mapping row exists per thread. A row whose run is still active is left alone: that live
+    conversation keeps the thread, and this run's report falls back to a direct thread post at
+    terminal time (see `_post_followup_report_fallback`). Best-effort by design, since a mapping
+    failure must degrade delivery, not fail the fire."""
+    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the fire path
+        SlackThreadTaskMapping,
+    )
+
+    try:
+        with transaction.atomic():
+            existing = (
+                SlackThreadTaskMapping.objects.select_for_update()
+                .select_related("task_run")
+                .filter(
+                    integration_id=target["integration_id"],
+                    channel=target["channel"],
+                    thread_ts=target["thread_ts"],
+                )
+                .first()
+            )
+            if existing is None:
+                SlackThreadTaskMapping.objects.create(
+                    team_id=task_run.team_id,
+                    integration_id=target["integration_id"],
+                    slack_workspace_id=str(target.get("slack_workspace_id") or ""),
+                    channel=target["channel"],
+                    thread_ts=target["thread_ts"],
+                    task_id=task_run.task_id,
+                    task_run_id=task_run.id,
+                    mentioning_slack_user_id=str(target.get("requested_by_slack_user_id") or ""),
+                )
+            elif existing.task_run.is_terminal:
+                existing.task_id = task_run.task_id
+                existing.task_run_id = task_run.id
+                existing.save(update_fields=["task", "task_run", "updated_at"])
+            else:
+                logger.info(
+                    "loop_run.slack_thread_mapping_left_in_place",
+                    extra={"task_run_id": str(task_run.id), "existing_task_run_id": str(existing.task_run_id)},
+                )
+    except Exception:
+        logger.exception("loop_run.slack_thread_mapping_upsert_failed", extra={"task_run_id": str(task_run.id)})
+
+
 def _execute_task_processing_workflow_for_loop(
     *,
     team_id: int,
@@ -810,7 +918,11 @@ def _execute_task_processing_workflow_for_loop(
     run_id: str,
     create_pr: bool,
     posthog_mcp_scopes: PosthogMcpScopes,
+    slack_thread_context: dict[str, Any] | None = None,
 ) -> None:
+    from products.slack_app.backend.slack_thread import (  # noqa: PLC0415 — cross-product import kept off the fire path
+        SlackThreadContext,
+    )
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 (keep temporalio off importers that only need dedup/rendering)
         execute_task_processing_workflow,
     )
@@ -819,6 +931,7 @@ def _execute_task_processing_workflow_for_loop(
         task_id=task_id,
         run_id=run_id,
         team_id=team_id,
+        slack_thread_context=SlackThreadContext.from_dict(slack_thread_context) if slack_thread_context else None,
         user_id=user_id,
         create_pr=create_pr,
         posthog_mcp_scopes=posthog_mcp_scopes,
@@ -922,8 +1035,60 @@ def dispatch_loop_run_terminal_notification(loop_id: str, team_id: int, event: s
         return
     run_id = payload.get("task_run_id")
     task_run = TaskRun.objects.filter(id=run_id, team_id=team_id).first() if run_id else None
+    final_message: str | None = None
     if task_run is not None and isinstance(task_run.output, dict):
-        final_message = task_run.output.get("final_message")
-        if isinstance(final_message, str) and final_message:
+        raw_final_message = task_run.output.get("final_message")
+        if isinstance(raw_final_message, str) and raw_final_message:
+            final_message = raw_final_message
             payload = {**payload, "report": final_message}
+    if event == "run_completed" and task_run is not None:
+        _post_followup_report_fallback(loop, task_run, final_message)
     dispatch_loop_event(loop, event, payload)
+
+
+def _post_followup_report_fallback(loop: Loop, task_run: TaskRun, report: str | None) -> None:
+    """Deliver a thread-bound run's report when the relay can't: the thread's mapping points at
+    a different run (a live conversation owned the thread at fire time, or a later mention
+    repointed it mid-run), so the pending-reply relay never posted the final message.
+
+    Posts the report straight into the bound thread. When the Slack integration row is gone
+    (the app was uninstalled), tells the owner in-app instead so the report isn't silently lost."""
+    context = slack_thread_context_from_target(loop.slack_thread_target)
+    if context is None or not report:
+        return
+
+    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off this module's import path
+        SlackThreadTaskMapping,
+    )
+    from products.slack_app.backend.slack_thread import (  # noqa: PLC0415 — cross-product import kept off this module's import path
+        SlackThreadContext,
+        SlackThreadHandler,
+    )
+
+    if SlackThreadTaskMapping.objects.filter(task_run=task_run).exists():
+        # The mapping points at this run, so the pending-reply relay owns delivery.
+        return
+
+    if not Integration.objects.filter(id=context["integration_id"], team_id=loop.team_id, kind="slack").exists():
+        dispatch_loop_event(
+            loop,
+            "needs_attention",
+            {
+                "title": f'Couldn\'t deliver the follow-up report for "{loop.name}"',
+                "body": (
+                    "The Slack workspace connection is gone, so the report couldn't be posted to "
+                    "the thread. Open the loop's latest run to read it."
+                ),
+                "task_id": str(task_run.task_id),
+                "task_run_id": str(task_run.id),
+            },
+        )
+        return
+
+    try:
+        SlackThreadHandler(SlackThreadContext.from_dict(context)).post_thread_message(report)
+    except Exception:
+        logger.exception(
+            "loop_run.followup_report_fallback_post_failed",
+            extra={"loop_id": str(loop.id), "task_run_id": str(task_run.id)},
+        )
