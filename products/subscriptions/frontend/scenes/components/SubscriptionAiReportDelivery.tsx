@@ -219,7 +219,13 @@ function parseContentSnapshotInsights(raw: SubscriptionDeliveryApi['content_snap
                     : typeof ins.short_id === 'string'
                       ? `short:${ins.short_id}`
                       : `idx:${index}`
-            return { key, name, failed: queryError !== null, pending: queryError === null && !hasResults, humanReadableError }
+            return {
+                key,
+                name,
+                failed: queryError !== null,
+                pending: queryError === null && !hasResults,
+                humanReadableError,
+            }
         })
         .filter((i): i is DeliveryInsightItem => i !== null)
 }
