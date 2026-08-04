@@ -192,13 +192,14 @@ locals {
         -- workflow that crashes before the interceptor can emit completion.
         WITH starts AS (
             SELECT
-                toDate(timestamp) AS date,
+                toDate(min(timestamp)) AS date,
                 properties.correlation_id AS correlation_id
             FROM events
             WHERE event = 'slo_operation_started'
                 AND properties.operation = 'subscription_delivery'
                 AND upper(properties.region) = upper('{{REGION}}')
                 AND timestamp >= now() - INTERVAL 30 DAY
+            GROUP BY correlation_id
         ), completed AS (
             SELECT
                 properties.correlation_id AS correlation_id,
