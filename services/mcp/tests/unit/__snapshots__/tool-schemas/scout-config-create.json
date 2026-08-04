@@ -78,6 +78,15 @@
             "description": "The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.",
             "maxLength": 200,
             "type": "string"
+        },
+        "tags": {
+            "description": "Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags of 50 characters each. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.",
+            "items": {
+                "maxLength": 50,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
         }
     },
     "required": ["skill_name"],
