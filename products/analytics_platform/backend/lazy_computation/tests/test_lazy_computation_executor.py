@@ -31,6 +31,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     DEFAULT_RETRIES,
     DEFAULT_TTL_SCHEDULE,
     DEFAULT_WAIT_TIMEOUT_SECONDS,
+    EMPTY_RESULT_TTL_SECONDS,
     EXPIRY_BUFFER_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
     PREAGGREGATION_INSERT_QUORUM,
@@ -42,6 +43,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     TtlSchedule,
     _build_manual_insert_sql,
     _get_insert_settings,
+    _written_rows,
     build_lazy_computation_insert_sql,
     compute_query_hash,
     create_lazy_computation_job,
@@ -1356,6 +1358,18 @@ class TestSplitRangesByTtl(BaseTest):
         assert result[1] == (datetime(2024, 1, 5, tzinfo=UTC), datetime(2024, 1, 7, tzinfo=UTC), 3600)
 
 
+class TestWrittenRows(BaseTest):
+    """`sync_execute` only swaps an INSERT's result for the `written_rows` counter when that
+    counter is nonzero, so the driver's passthrough result is how a zero-row insert shows up."""
+
+    def test_int_result_is_the_row_count(self):
+        assert _written_rows(42) == 42
+
+    def test_passthrough_driver_result_means_zero_rows(self):
+        assert _written_rows([]) == 0
+        assert _written_rows(None) == 0
+
+
 class TestComputationExecutor(BaseTest):
     def test_executor_with_custom_settings(self):
         default_executor = LazyComputationExecutor()
@@ -1633,6 +1647,77 @@ class TestComputationExecutorExecute(BaseTest):
         assert job.expires_at is not None
         time_diff = (job.expires_at - django_timezone.now()).total_seconds()
         assert one_hour - 100 < time_diff < one_hour + 100
+
+    # --- Empty inserts ---
+    #
+    # A job that writes no rows is only provisionally computed: the source may have had no
+    # activity, or it may not have been synced through the window yet. Coverage keys on the job
+    # existing rather than on rows existing, so an empty job holding a full band TTL freezes the
+    # window at zero even after the data lands. Callers that read a source which can lag opt into
+    # a capped TTL for that case.
+
+    LONG_TTL = 7 * 24 * 60 * 60
+
+    def _expires_in_seconds(self, job_id) -> float:
+        job = PreaggregationJob.objects.get(id=job_id)
+        assert job.expires_at is not None
+        return (job.expires_at - django_timezone.now()).total_seconds()
+
+    def _execute_with_insert(self, run_insert, ttl_schedule) -> LazyComputationResult:
+        query_info, _ = self._make_query_info()
+        return LazyComputationExecutor(ttl_schedule=ttl_schedule).execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=run_insert,
+        )
+
+    def test_zero_row_insert_caps_ttl_when_opted_in(self):
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=EMPTY_RESULT_TTL_SECONDS),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - EMPTY_RESULT_TTL_SECONDS) < 100
+
+    def test_zero_row_insert_keeps_band_ttl_when_not_opted_in(self):
+        # Shared infrastructure: a caller whose source can't lag (event tables) is unaffected.
+        result = self._execute_with_insert(lambda t, j: 0, TtlSchedule.from_seconds(self.LONG_TTL))
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_zero_row_insert_does_not_lengthen_a_shorter_ttl(self):
+        one_hour = 60 * 60
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(one_hour, empty_result_ttl_seconds=EMPTY_RESULT_TTL_SECONDS),
+        )
+
+        assert result.ready is True
+        # The cap is a ceiling, not a floor — today's short band must still come back sooner.
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - one_hour) < 100
+
+    def test_productive_insert_keeps_the_band_ttl(self):
+        result = self._execute_with_insert(
+            lambda t, j: 42,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=EMPTY_RESULT_TTL_SECONDS),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_insert_that_cannot_report_a_row_count_keeps_the_band_ttl(self):
+        # Returning None isn't a claim that the window was empty, so leave the TTL alone.
+        result = self._execute_with_insert(
+            lambda t, j: None,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=EMPTY_RESULT_TTL_SECONDS),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
 
     def test_short_ttl_does_not_infinite_loop(self):
         query_info, _ = self._make_query_info()
