@@ -2,6 +2,7 @@ import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-promp
 import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
+import { extractOrchestrationInstructions } from "@posthog/ui/features/sessions/components/session-update/orchestrationInstructions";
 
 export const PROMPT_RECALL_HINT_KEY = "recall-message-nav";
 
@@ -59,8 +60,11 @@ function stripInjectedPromptBlocks(content: string): string {
   const withoutChannel = extractChannelContext(content)?.stripped ?? content;
   const withoutCanvas =
     extractCanvasInstructions(withoutChannel)?.stripped ?? withoutChannel;
+  const withoutOrchestration =
+    extractOrchestrationInstructions(withoutCanvas)?.stripped ?? withoutCanvas;
   const withoutInstructions =
-    extractCustomInstructions(withoutCanvas)?.stripped ?? withoutCanvas;
+    extractCustomInstructions(withoutOrchestration)?.stripped ??
+    withoutOrchestration;
   return stripTrailingAttachmentSummary(withoutInstructions);
 }
 

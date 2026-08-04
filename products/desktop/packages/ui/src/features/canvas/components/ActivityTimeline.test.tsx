@@ -147,6 +147,23 @@ describe("ActivityTimeline", () => {
     ).toBeNull();
   });
 
+  it("hides orchestration framing alongside genuine custom instructions", () => {
+    renderTimeline(true, [
+      {
+        type: "user_message",
+        id: "orchestrated-message",
+        content:
+          "<orchestration_instructions>\nThe following system-generated instructions apply to this orchestrated child run. Follow them.\n\nUse tasks-notify-parent for progress.\n</orchestration_instructions>\n\nMake the focused change\n\n<user_custom_instructions>\nThe user has saved custom instructions that apply to all of their tasks. Follow them.\n\nAlways use tabs.\n</user_custom_instructions>",
+        timestamp: Date.parse("2026-07-17T09:05:00Z"),
+      },
+    ]);
+
+    expect(screen.getByText("Make the focused change")).toBeInTheDocument();
+    expect(screen.queryByText(/orchestration_instructions/)).toBeNull();
+    expect(screen.queryByText(/tasks-notify-parent/)).toBeNull();
+    expect(screen.queryByText(/Always use tabs/)).toBeNull();
+  });
+
   it("shows user-authored custom-instruction tag examples", () => {
     renderTimeline(true, [
       {

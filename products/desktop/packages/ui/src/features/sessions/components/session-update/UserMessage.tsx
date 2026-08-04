@@ -19,6 +19,7 @@ import { CollapsibleMessageContent } from "./CollapsibleMessageContent";
 import { extractCanvasInstructions } from "./canvasInstructions";
 import { extractChannelContext } from "./channelContext";
 import { extractCustomInstructions } from "./customInstructions";
+import { extractOrchestrationInstructions } from "./orchestrationInstructions";
 import {
   hasFileMentions,
   MentionChip,
@@ -89,12 +90,21 @@ export const UserMessage = memo(function UserMessage({
   const afterCanvasInstructions = canvasInstructions
     ? canvasInstructions.stripped
     : afterChannelContext;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterCanvasInstructions),
+  const orchestrationInstructions = useMemo(
+    () => extractOrchestrationInstructions(afterCanvasInstructions),
     [afterCanvasInstructions],
   );
+  const afterOrchestrationInstructions = orchestrationInstructions
+    ? orchestrationInstructions.stripped
+    : afterCanvasInstructions;
+  const customInstructions = useMemo(
+    () => extractCustomInstructions(afterOrchestrationInstructions),
+    [afterOrchestrationInstructions],
+  );
   const displayContent = collapsePiSkillInvocation(
-    customInstructions ? customInstructions.stripped : afterCanvasInstructions,
+    customInstructions
+      ? customInstructions.stripped
+      : afterOrchestrationInstructions,
   );
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
@@ -204,6 +214,7 @@ export const UserMessage = memo(function UserMessage({
           )}
           <Tooltip content={copied ? "Copied!" : "Copy message"}>
             <IconButton
+              aria-label="Copy message"
               size="1"
               variant="ghost"
               color={copied ? "green" : "gray"}

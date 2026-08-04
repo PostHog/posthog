@@ -28,7 +28,9 @@ MAX_ORCHESTRATION_RESUME_ATTEMPTS = 3
 CHILD_FRAMING_BLOCK = (
     "You were spawned by an orchestrator task. Stay strictly within the scope of your prompt. "
     "Your terminal status and final message are reported to the parent automatically, so write "
-    "your final message as that report. Do not spawn further tasks; orchestration supports one "
+    "your final message as that report. Use tasks-notify-parent when the parent needs an update "
+    "before you finish. Notifying the parent does not complete or stop your task; continue working "
+    "until your assigned work is complete. Do not spawn further tasks; orchestration supports one "
     "level of child tasks."
 )
 
@@ -36,12 +38,11 @@ _NON_TERMINAL_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, Tas
 
 
 def render_child_run_message(child_instructions: str) -> str:
-    escaped_framing = CHILD_FRAMING_BLOCK.replace("</user_custom_instructions>", "&lt;/user_custom_instructions&gt;")
     hidden_context = (
-        "<user_custom_instructions>\n"
+        "<orchestration_instructions>\n"
         "The following system-generated instructions apply to this orchestrated child run. Follow them.\n\n"
-        f"{escaped_framing}\n"
-        "</user_custom_instructions>"
+        f"{CHILD_FRAMING_BLOCK}\n"
+        "</orchestration_instructions>"
     )
     return f"{hidden_context}\n\n{child_instructions}"
 

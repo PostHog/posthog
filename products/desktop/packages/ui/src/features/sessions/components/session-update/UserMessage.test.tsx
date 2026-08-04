@@ -1,6 +1,6 @@
 import { ServiceProvider } from "@posthog/di/react";
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { Container } from "inversify";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,6 +32,9 @@ const PROMPT_WITH_CANVAS_INSTRUCTIONS =
 
 const PROMPT_WITH_PI_SKILL =
   '<skill name="code-review" location="/skills/code-review/SKILL.md">\nReferences are relative to /skills/code-review.\n\n# Review\n\nInspect the diff.\n</skill>\n\nReview this pull request.';
+
+const ORCHESTRATED_PROMPT =
+  "<orchestration_instructions>\nThe following system-generated instructions apply to this orchestrated child run. Follow them.\n\nUse tasks-notify-parent for progress.\n</orchestration_instructions>\n\nMake the focused change\n\n<user_custom_instructions>\nThe user has saved custom instructions that apply to all of their tasks. Follow them.\n\nAlways use tabs.\n</user_custom_instructions>";
 
 describe("UserMessage", () => {
   // useFeatureFlag falls back to import.meta.env.DEV, which is true under
@@ -115,5 +118,22 @@ describe("UserMessage", () => {
     expect(
       screen.queryByText(/canvas_generation_instructions/),
     ).not.toBeInTheDocument();
+  });
+
+  it("hides orchestration framing and genuine custom instructions from display and copy", () => {
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderWithFlags(<UserMessage content={ORCHESTRATED_PROMPT} />, true);
+
+    expect(screen.getByText("Make the focused change")).toBeInTheDocument();
+    expect(screen.queryByText(/orchestration_instructions/)).toBeNull();
+    expect(screen.queryByText(/tasks-notify-parent/)).toBeNull();
+    expect(screen.queryByText(/Always use tabs/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+    expect(writeText).toHaveBeenCalledWith("Make the focused change");
   });
 });
