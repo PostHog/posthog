@@ -41,7 +41,7 @@ Evaluation definitions are per-team database rows, not repo code; this document 
 
 - Every MCP analytics event is stamped with `mcp_data_catalog_enabled` (the evaluated `product-data-catalog` flag) for cohort splits.
 - `trackExecuteSqlGeneration` captures one `$ai_generation` per `execute-sql` call with the intent and SQL text; `$ai_trace_id` is the MCP session uuid, so a session is one trace.
-- `trackToolSpan` captures an `$ai_span` (args + truncated results) for every tool by default, joining the same session trace, so a trace-target evaluation sees a call's args and result.
+- `trackToolSpan` captures an `$ai_span` (args + truncated results) for every tool by default, joining the same session trace, so a trace-target evaluation sees a call's args and result. Secret-bearing fields (passwords, `client_secret`, API keys, tokens) are redacted from both input and output before capture, so defaulting every tool on never lands a credential in telemetry.
 - `execute-sql` is the one exception, because its payload is the query result and it serves all traffic. Spans are captured for its metadata queries only (SQL referencing `information_schema`, ~4.5% of calls): those results are small and describe what the agent knew about the workspace before writing its next query. That covers catalog lookups of `metrics`, `certifications`, and `relationships` without the telemetry layer naming them. The gate strips SQL comments and string literals before matching, so the marker inside a comment or literal on a data query does not pull the result into telemetry.
 
 ## Known limits

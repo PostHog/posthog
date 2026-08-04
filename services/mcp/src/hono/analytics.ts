@@ -259,12 +259,39 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     return typeof query === 'string' && isMetadataQuery(query)
 }
 
+const REDACTED_VALUE = '[redacted]'
+
+// Capturing every tool's raw args would land credentials in telemetry: tools
+// like user-settings-update carry `password`/`current_password`, warehouse
+// sources carry `client_secret`, and hog-function inputs carry `secret` values.
+// Match errs toward redaction — an over-redacted eval field is harmless, a
+// leaked credential is not. Deliberately excludes bare `key`/`id`/`token`, which
+// are almost always identifiers or token counts an evaluation needs.
+const SENSITIVE_KEY_PATTERN =
+    /password|passwd|passphrase|secret|credential|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer/i
+
+function redactSecrets(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(redactSecrets)
+    }
+    if (value !== null && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value).map(([key, val]) => [
+                key,
+                SENSITIVE_KEY_PATTERN.test(key) ? REDACTED_VALUE : redactSecrets(val),
+            ])
+        )
+    }
+    return value
+}
+
 function serializeSpanState(value: unknown): string | undefined {
     if (value === undefined) {
         return undefined
     }
     try {
-        const serialized = typeof value === 'string' ? value : JSON.stringify(value)
+        const redacted = redactSecrets(value)
+        const serialized = typeof redacted === 'string' ? redacted : JSON.stringify(redacted)
         return serialized?.slice(0, MAX_SPAN_STATE_LENGTH)
     } catch {
         return undefined

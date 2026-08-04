@@ -378,5 +378,24 @@ describe('Hono MCP analytics contexts', () => {
                 $ai_error: 'metric not found',
             })
         })
+
+        it('redacts secret-bearing fields from captured input and output', async () => {
+            // Capturing every tool by default would otherwise land user-settings /
+            // warehouse-source credentials in telemetry.
+            await trackToolSpan('user-settings-update', makeState(), {
+                durationMs: 100,
+                isError: false,
+                input: { first_name: 'Ada', password: 'hunter2', payload: { client_secret: 'oauth-secret' } },
+                output: { id: 1, api_key: 'phx_live_123' },
+            })
+
+            const { $ai_input_state, $ai_output_state } = mockCapture.mock.calls[0]![0].properties
+            expect(JSON.parse($ai_input_state)).toEqual({
+                first_name: 'Ada',
+                password: '[redacted]',
+                payload: { client_secret: '[redacted]' },
+            })
+            expect(JSON.parse($ai_output_state)).toEqual({ id: 1, api_key: '[redacted]' })
+        })
     })
 })
