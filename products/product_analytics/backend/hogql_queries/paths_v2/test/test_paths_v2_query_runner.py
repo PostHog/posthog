@@ -1,9 +1,25 @@
 from datetime import datetime, timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
-from posthog.schema import DateRange, PathsV2Filter, PathsV2Item, PathsV2Query, PathsV2Row, PathsV2StepSource
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+from pydantic import ValidationError as PydanticValidationError
+from rest_framework.exceptions import ValidationError
+
+from posthog.schema import (
+    DateRange,
+    FunnelConversionWindowTimeUnit,
+    PathsV2Filter,
+    PathsV2Item,
+    PathsV2Query,
+    PathsV2Row,
+    PathsV2StepSource,
+)
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.test.test_journeys import journeys_for
 
@@ -31,8 +47,98 @@ def _timeline(
     }
 
 
+def _item(event: str, label: str | None = None) -> PathsV2Item:
+    return PathsV2Item(event=event, label=label)
+
+
+def _row(event: str, count: float, label: str | None = None) -> PathsV2Row:
+    return PathsV2Row(item=_item(event, label), count=count)
+
+
+def _edge(
+    step_index: int, source: PathsV2Item | None, target: PathsV2Item | None, count: float
+) -> tuple[int, PathsV2Item | None, PathsV2Item | None, float]:
+    return (step_index, source, target, count)
+
+
+class TestPathsV2FilterConstraints(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("max_steps_below_min", {"maxSteps": 1}),
+            ("max_steps_above_max", {"maxSteps": 21}),
+            ("max_rows_below_min", {"maxRowsPerStep": 0}),
+            ("max_rows_above_max", {"maxRowsPerStep": 11}),
+            ("step_sources_empty", {"stepSources": []}),
+            ("step_sources_above_max", {"stepSources": [PathsV2StepSource(event=f"e{i}") for i in range(21)]}),
+        ]
+    )
+    def test_out_of_bounds_config_rejects(self, _name: str, kwargs: dict[str, Any]) -> None:
+        with self.assertRaises(PydanticValidationError):
+            PathsV2Filter(**kwargs)
+
+    def test_defaults(self) -> None:
+        paths_filter = PathsV2Filter()
+        self.assertEqual(paths_filter.maxSteps, 5)
+        self.assertEqual(paths_filter.maxRowsPerStep, 3)
+        self.assertEqual(paths_filter.gapInterval, 30)
+        self.assertEqual(paths_filter.gapIntervalUnit, FunnelConversionWindowTimeUnit.MINUTE)
+        self.assertEqual(paths_filter.collapseRepeats, True)
+        self.assertIsNone(paths_filter.stepSources)
+
+
+class TestPathsV2Validation(ClickhouseTestMixin, APIBaseTest):
+    def _runner(self, paths_filter: PathsV2Filter) -> PathsV2QueryRunner:
+        return PathsV2QueryRunner(query=PathsV2Query(pathsV2Filter=paths_filter), team=self.team)
+
+    @parameterized.expand(
+        [
+            ("second_above_max", 3601, FunnelConversionWindowTimeUnit.SECOND),
+            ("minute_above_max", 1441, FunnelConversionWindowTimeUnit.MINUTE),
+            ("hour_above_max", 25, FunnelConversionWindowTimeUnit.HOUR),
+            ("day_above_max", 366, FunnelConversionWindowTimeUnit.DAY),
+            ("week_above_max", 54, FunnelConversionWindowTimeUnit.WEEK),
+            ("month_above_max", 13, FunnelConversionWindowTimeUnit.MONTH),
+            ("minute_below_min", 0, FunnelConversionWindowTimeUnit.MINUTE),
+        ]
+    )
+    def test_out_of_bounds_gap_rejects(self, _name: str, interval: int, unit: FunnelConversionWindowTimeUnit) -> None:
+        runner = self._runner(PathsV2Filter(gapInterval=interval, gapIntervalUnit=unit))
+        with self.assertRaisesMessage(ValidationError, "gapInterval"):
+            runner.validate()
+
+    @parameterized.expand(
+        [
+            ("second_max", 3600, FunnelConversionWindowTimeUnit.SECOND),
+            ("minute_max", 1440, FunnelConversionWindowTimeUnit.MINUTE),
+            ("day_min", 1, FunnelConversionWindowTimeUnit.DAY),
+        ]
+    )
+    def test_gap_bounds_are_inclusive(self, _name: str, interval: int, unit: FunnelConversionWindowTimeUnit) -> None:
+        self._runner(PathsV2Filter(gapInterval=interval, gapIntervalUnit=unit)).validate()
+
+    @parameterized.expand(
+        [
+            ("duplicate_events", _sources("a", "a")),
+            ("empty_event", _sources("")),
+        ]
+    )
+    def test_invalid_step_sources_reject(self, _name: str, sources: list[PathsV2StepSource]) -> None:
+        runner = self._runner(PathsV2Filter(stepSources=sources))
+        with self.assertRaisesMessage(ValidationError, "stepSources"):
+            runner.validate()
+
+
 class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+
+    def _run(self, query: PathsV2Query) -> Any:
+        return PathsV2QueryRunner(query=query, team=self.team).calculate().results
+
+    def _steps(self, results: Any) -> list[tuple[int, list[PathsV2Row], float, float]]:
+        return [(step.stepIndex, step.rows, step.otherCount, step.dropOffCount) for step in results.steps]
+
+    def _edges(self, results: Any) -> list[tuple[int, PathsV2Item | None, PathsV2Item | None, float]]:
+        return [(edge.stepIndex, edge.source, edge.target, edge.count) for edge in results.edges]
 
     def test_open_mode_journey_grid(self):
         journeys_for(
@@ -49,63 +155,381 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
             dateRange=DATE_RANGE,
             pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "c", "d", "e", "s"), maxRowsPerStep=10),
         )
-        results = PathsV2QueryRunner(query=query, team=self.team).calculate().results
+        results = self._run(query)
 
-        step_rows = [(step.stepIndex, step.rows, step.otherCount, step.dropOffCount) for step in results.steps]
         self.assertEqual(
-            step_rows,
+            self._steps(results),
             [
-                (0, [PathsV2Row(item=PathsV2Item(event="a", label=None), count=4)], 0, 1),
-                (
-                    1,
-                    [
-                        PathsV2Row(item=PathsV2Item(event="b", label=None), count=2),
-                        PathsV2Row(item=PathsV2Item(event="s", label=None), count=1),
-                    ],
-                    0,
-                    0,
-                ),
-                (
-                    2,
-                    [
-                        PathsV2Row(item=PathsV2Item(event="c", label=None), count=2),
-                        PathsV2Row(item=PathsV2Item(event="b", label=None), count=1),
-                    ],
-                    0,
-                    1,
-                ),
-                (
-                    3,
-                    [
-                        PathsV2Row(item=PathsV2Item(event="c", label=None), count=1),
-                        PathsV2Row(item=PathsV2Item(event="d", label=None), count=1),
-                    ],
-                    0,
-                    0,
-                ),
-                (
-                    4,
-                    [
-                        PathsV2Row(item=PathsV2Item(event="d", label=None), count=1),
-                        PathsV2Row(item=PathsV2Item(event="e", label=None), count=1),
-                    ],
-                    0,
-                    1,
-                ),
+                (0, [_row("a", 4)], 0, 1),
+                (1, [_row("b", 2), _row("s", 1)], 0, 0),
+                (2, [_row("c", 2), _row("b", 1)], 0, 1),
+                (3, [_row("c", 1), _row("d", 1)], 0, 0),
+                (4, [_row("d", 1), _row("e", 1)], 0, 1),
+            ],
+        )
+        self.assertEqual(
+            self._edges(results),
+            [
+                _edge(0, _item("a"), _item("b"), 2),
+                _edge(0, _item("a"), _item("s"), 1),
+                _edge(1, _item("b"), _item("c"), 2),
+                _edge(1, _item("s"), _item("b"), 1),
+                _edge(2, _item("b"), _item("c"), 1),
+                _edge(2, _item("c"), _item("d"), 1),
+                _edge(3, _item("c"), _item("d"), 1),
+                _edge(3, _item("d"), _item("e"), 1),
             ],
         )
 
-        edge_rows = [(edge.stepIndex, edge.source, edge.target, edge.count) for edge in results.edges]
+    @parameterized.expand(
+        [
+            ("gap_of_exactly_g_stays_together", "2023-03-10 10:30:00", True),
+            ("gap_above_g_splits", "2023-03-10 10:30:01", False),
+        ]
+    )
+    def test_gap_boundary(self, _name: str, second_timestamp: str, same_journey: bool):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    {"event": "a", "timestamp": "2023-03-10 10:00:00"},
+                    {"event": "b", "timestamp": second_timestamp},
+                ]
+            },
+        )
+
+        query = PathsV2Query(dateRange=DATE_RANGE, pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b")))
+        results = self._run(query)
+
+        if same_journey:
+            self.assertEqual(
+                self._steps(results),
+                [(0, [_row("a", 1)], 0, 0), (1, [_row("b", 1)], 0, 1)],
+            )
+            self.assertEqual(self._edges(results), [_edge(0, _item("a"), _item("b"), 1)])
+        else:
+            # Two one-item journeys of the same actor: both start at the first step and both end
+            # there, so the actor still counts once per element.
+            self.assertEqual(
+                self._steps(results),
+                [(0, [_row("a", 1), _row("b", 1)], 0, 1)],
+            )
+            self.assertEqual(self._edges(results), [])
+
+    @parameterized.expand(
+        [
+            ("collapse_on", True),
+            ("collapse_off", False),
+        ]
+    )
+    def test_collapse_repeats(self, _name: str, collapse: bool):
+        journeys_for(team=self.team, events_by_person=_timeline("p1", "a", "a", "b"))
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b"), collapseRepeats=collapse),
+        )
+        results = self._run(query)
+
+        if collapse:
+            self.assertEqual(
+                self._steps(results),
+                [(0, [_row("a", 1)], 0, 0), (1, [_row("b", 1)], 0, 1)],
+            )
+            self.assertEqual(self._edges(results), [_edge(0, _item("a"), _item("b"), 1)])
+        else:
+            self.assertEqual(
+                self._steps(results),
+                [(0, [_row("a", 1)], 0, 0), (1, [_row("a", 1)], 0, 0), (2, [_row("b", 1)], 0, 1)],
+            )
+            self.assertEqual(
+                self._edges(results),
+                [_edge(0, _item("a"), _item("a"), 1), _edge(1, _item("a"), _item("b"), 1)],
+            )
+
+    def test_unique_actor_dedup_across_journeys(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    *_timeline("p1", "a", "b")["p1"],
+                    *_timeline("p1", "a", "c", start="2023-03-10 14:00:00")["p1"],
+                ],
+                **_timeline("p2", "a", "b"),
+            },
+        )
+
+        query = PathsV2Query(dateRange=DATE_RANGE, pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "c")))
+        results = self._run(query)
+
+        # p1 touches (step 0, a) with both journeys but counts once; the edge a -> b counts p1 once
+        # alongside p2. Both of p1's journeys end at the second step, deduped into one drop-off.
         self.assertEqual(
-            edge_rows,
+            self._steps(results),
             [
-                (0, PathsV2Item(event="a", label=None), PathsV2Item(event="b", label=None), 2),
-                (0, PathsV2Item(event="a", label=None), PathsV2Item(event="s", label=None), 1),
-                (1, PathsV2Item(event="b", label=None), PathsV2Item(event="c", label=None), 2),
-                (1, PathsV2Item(event="s", label=None), PathsV2Item(event="b", label=None), 1),
-                (2, PathsV2Item(event="b", label=None), PathsV2Item(event="c", label=None), 1),
-                (2, PathsV2Item(event="c", label=None), PathsV2Item(event="d", label=None), 1),
-                (3, PathsV2Item(event="c", label=None), PathsV2Item(event="d", label=None), 1),
-                (3, PathsV2Item(event="d", label=None), PathsV2Item(event="e", label=None), 1),
+                (0, [_row("a", 2)], 0, 0),
+                (1, [_row("b", 2), _row("c", 1)], 0, 2),
+            ],
+        )
+        self.assertEqual(
+            self._edges(results),
+            [_edge(0, _item("a"), _item("b"), 2), _edge(0, _item("a"), _item("c"), 1)],
+        )
+
+    def test_other_bucketing_dedups_actors(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                **_timeline("p1", "x", "m1"),
+                "p2": [
+                    *_timeline("p2", "x", "m2")["p2"],
+                    *_timeline("p2", "x", "m3", start="2023-03-10 14:00:00")["p2"],
+                ],
+                **_timeline("p3", "x", "m1"),
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(stepSources=_sources("x", "m1", "m2", "m3"), maxRowsPerStep=1),
+        )
+        results = self._run(query)
+
+        # m2 and m3 fall beyond the top row at the second step. p2 touches both, so the other row
+        # counts p2 once, and so does the edge from x into the other bucket.
+        self.assertEqual(
+            self._steps(results),
+            [
+                (0, [_row("x", 3)], 0, 0),
+                (1, [_row("m1", 2)], 1, 3),
+            ],
+        )
+        self.assertEqual(
+            self._edges(results),
+            [
+                _edge(0, _item("x"), _item("m1"), 2),
+                _edge(0, _item("x"), None, 1),
+            ],
+        )
+
+    def test_date_range_clips_journeys(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    {"event": "a", "timestamp": "2023-02-28 23:50:00"},
+                    {"event": "b", "timestamp": "2023-03-01 00:05:00"},
+                    {"event": "c", "timestamp": "2023-03-01 00:10:00"},
+                ]
+            },
+        )
+
+        query = PathsV2Query(dateRange=DATE_RANGE, pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "c")))
+        results = self._run(query)
+
+        # The pre-range event is invisible, so the journey starts at its first in-range item.
+        self.assertEqual(
+            self._steps(results),
+            [(0, [_row("b", 1)], 0, 0), (1, [_row("c", 1)], 0, 1)],
+        )
+        self.assertEqual(self._edges(results), [_edge(0, _item("b"), _item("c"), 1)])
+
+    def test_naming_property_sources(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    {"event": "signup", "timestamp": "2023-03-10 10:00:00"},
+                    {"event": "stage changed", "timestamp": "2023-03-10 10:05:00", "properties": {"stage": "lead"}},
+                    {"event": "stage changed", "timestamp": "2023-03-10 10:10:00", "properties": {"stage": "won"}},
+                ],
+                "p2": [
+                    {"event": "signup", "timestamp": "2023-03-10 10:00:00"},
+                    {"event": "stage changed", "timestamp": "2023-03-10 10:05:00"},
+                ],
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(
+                stepSources=[
+                    PathsV2StepSource(event="signup"),
+                    PathsV2StepSource(event="stage changed", namingProperty="stage"),
+                ]
+            ),
+        )
+        results = self._run(query)
+
+        # Consecutive events of the same source with different labels are distinct items; a missing
+        # naming property labels the item with an empty string; sources without a naming property
+        # have no label at all.
+        self.assertEqual(
+            self._steps(results),
+            [
+                (0, [_row("signup", 2)], 0, 0),
+                (1, [_row("stage changed", 1, label=""), _row("stage changed", 1, label="lead")], 0, 1),
+                (2, [_row("stage changed", 1, label="won")], 0, 1),
+            ],
+        )
+        self.assertEqual(
+            self._edges(results),
+            [
+                _edge(0, _item("signup"), _item("stage changed", label=""), 1),
+                _edge(0, _item("signup"), _item("stage changed", label="lead"), 1),
+                _edge(1, _item("stage changed", label="lead"), _item("stage changed", label="won"), 1),
+            ],
+        )
+
+    def test_path_cleaning_merges_items(self):
+        self.team.path_cleaning_filters = [{"alias": "/item/<id>", "regex": r"/item/\d+"}]
+        self.team.save()
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:00:00", "properties": {"$pathname": "/item/1"}},
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:05:00", "properties": {"$pathname": "/item/2"}},
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:10:00", "properties": {"$pathname": "/about"}},
+                ]
+            },
+        )
+
+        query = PathsV2Query(dateRange=DATE_RANGE)
+        results = self._run(query)
+
+        # Cleaning applies before collapse, so the two /item/<id> pageviews merge into one item.
+        self.assertEqual(
+            self._steps(results),
+            [
+                (0, [_row("$pageview", 1, label="/item/<id>")], 0, 0),
+                (1, [_row("$pageview", 1, label="/about")], 0, 1),
+            ],
+        )
+        self.assertEqual(
+            self._edges(results),
+            [_edge(0, _item("$pageview", label="/item/<id>"), _item("$pageview", label="/about"), 1)],
+        )
+
+    def test_max_steps_trims_journeys(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                **_timeline("p1", "a", "b", "c", "d", "e"),
+                **_timeline("p2", "a", "b", "c"),
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "c", "d", "e"), maxSteps=3),
+        )
+        results = self._run(query)
+
+        # p1's journey continues beyond the grid: its items past the third step are invisible and
+        # it never counts as a drop-off. p2's journey genuinely ends at the third step.
+        self.assertEqual(
+            self._steps(results),
+            [
+                (0, [_row("a", 2)], 0, 0),
+                (1, [_row("b", 2)], 0, 0),
+                (2, [_row("c", 2)], 0, 1),
+            ],
+        )
+        self.assertEqual(
+            self._edges(results),
+            [_edge(0, _item("a"), _item("b"), 2), _edge(1, _item("b"), _item("c"), 2)],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_default_pageview_preset_snapshot(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:00:00", "properties": {"$pathname": "/"}},
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:05:00", "properties": {"$pathname": "/pricing"}},
+                    {"event": "other event", "timestamp": "2023-03-10 10:07:00"},
+                ]
+            },
+        )
+
+        results = self._run(PathsV2Query(dateRange=DATE_RANGE))
+
+        # Events outside the step sources are invisible and do not break adjacency.
+        self.assertEqual(
+            self._steps(results),
+            [
+                (0, [_row("$pageview", 1, label="/")], 0, 0),
+                (1, [_row("$pageview", 1, label="/pricing")], 0, 1),
+            ],
+        )
+        self.assertEqual(
+            self._edges(results),
+            [_edge(0, _item("$pageview", label="/"), _item("$pageview", label="/pricing"), 1)],
+        )
+
+    def test_executable_via_query_api(self):
+        journeys_for(team=self.team, events_by_person=_timeline("p1", "a", "b"))
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "PathsV2Query",
+                    "dateRange": {"date_from": "2023-03-01", "date_to": "2023-03-31"},
+                    "pathsV2Filter": {"stepSources": [{"event": "a"}, {"event": "b"}]},
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        results = response.json()["results"]
+        self.assertEqual(len(results["steps"]), 2)
+        self.assertEqual(len(results["edges"]), 1)
+
+    def test_query_api_rejects_out_of_bounds_config(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "PathsV2Query", "pathsV2Filter": {"maxSteps": 21}}},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("maxSteps", str(response.json()))
+
+    def test_elements_per_actor_stage(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    *_timeline("p1", "a", "a", "b")["p1"],
+                    *_timeline("p1", "c", start="2023-03-10 14:00:00")["p1"],
+                ]
+            },
+        )
+
+        runner = PathsV2QueryRunner(
+            query=PathsV2Query(dateRange=DATE_RANGE, pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "c"))),
+            team=self.team,
+        )
+        response = execute_hogql_query(
+            query=runner._elements_per_actor_query(),
+            team=self.team,
+        )
+
+        self.assertEqual(len(response.results), 1)
+        assert response.columns is not None
+        elements = response.results[0][response.columns.index("elements")]
+        self.assertCountEqual(
+            elements,
+            [
+                # first journey, collapsed to [a, b]
+                ("node", 1, ("a", ""), ("", "")),
+                ("node", 2, ("b", ""), ("", "")),
+                ("edge", 1, ("a", ""), ("b", "")),
+                ("dropoff", 2, ("", ""), ("", "")),
+                # second journey, split off by the four-hour gap
+                ("node", 1, ("c", ""), ("", "")),
+                ("dropoff", 1, ("", ""), ("", "")),
             ],
         )
