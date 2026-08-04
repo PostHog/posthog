@@ -106,11 +106,20 @@ describe("isTriggerDraftValid", () => {
       expected: false,
     },
     {
-      name: "github with a blank value among several",
+      // A trailing separator is what a half-typed second value looks like; drop it rather
+      // than blocking the form while someone is still writing.
+      name: "github with a blank value alongside a real one",
       trigger: githubTrigger({
         filters: {
           payload: [{ path: "requested_team.slug", equals: ["a", " "] }],
         },
+      }),
+      expected: true,
+    },
+    {
+      name: "github with a payload condition holding only separators",
+      trigger: githubTrigger({
+        filters: { payload: [{ path: "requested_team.slug", equals: " , " }] },
       }),
       expected: false,
     },
@@ -225,6 +234,33 @@ describe("formValuesToLoopWrite", () => {
       outputs: { post_to_feed: true, update_context: false, canvas_id: null },
     });
     expect(formValuesToLoopWrite(validFormValues()).context_target).toBeNull();
+  });
+
+  it("splits an edited multi-value payload condition back into a list", () => {
+    // A condition authored over the API or MCP renders in one input as "a, b". Writing that
+    // display string back as a single literal would silently stop the trigger matching either.
+    const write = formValuesToLoopWrite({
+      ...validFormValues(),
+      triggers: [
+        githubTrigger({
+          filters: {
+            payload: [
+              {
+                path: "requested_team.slug",
+                equals: "team-security, team-infra",
+              },
+            ],
+          },
+        }),
+      ],
+    });
+
+    expect(
+      (write.triggers?.[0].config as LoopSchemas.LoopGithubTriggerConfig)
+        .filters?.payload,
+    ).toEqual([
+      { path: "requested_team.slug", equals: ["team-security", "team-infra"] },
+    ]);
   });
 
   it("carries trigger ids through so the backend updates in place", () => {

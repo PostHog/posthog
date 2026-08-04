@@ -224,7 +224,12 @@ export function formValuesToLoopWrite(
       id: trigger.id,
       type: trigger.type,
       enabled: trigger.enabled,
-      config: trigger.config,
+      config:
+        trigger.type === "github"
+          ? withNormalizedPayloadConditions(
+              trigger.config as LoopSchemas.LoopGithubTriggerConfig,
+            )
+          : trigger.config,
     })),
     behaviors: values.behaviors,
     notifications: values.notifications,
@@ -268,16 +273,44 @@ export function isTriggerDraftValid(trigger: LoopTriggerDraft): boolean {
   return true;
 }
 
+/** A condition holding several accepted values shows them comma-separated in the editor's
+ * single input, so a comma is how the user writes and edits a multi-value condition. Splitting
+ * here rather than in the input's `onChange` keeps typing a plain string: parsing per keystroke
+ * turns "a," into ["a", ""] and re-renders a separator the user can't delete. The cost is that
+ * a value cannot itself contain a comma, which no GitHub payload scalar we match on does. */
+function payloadConditionValues(
+  condition: LoopSchemas.LoopGithubTriggerPayloadFilter,
+): string[] {
+  const values = Array.isArray(condition.equals)
+    ? condition.equals
+    : condition.equals.split(",");
+  return values.map((value) => value.trim()).filter(Boolean);
+}
+
+function withNormalizedPayloadConditions(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+): LoopSchemas.LoopGithubTriggerConfig {
+  const conditions = config.filters?.payload;
+  if (!conditions) {
+    return config;
+  }
+  return {
+    ...config,
+    filters: {
+      ...config.filters,
+      payload: conditions.map((condition) => ({
+        path: condition.path.trim(),
+        equals: payloadConditionValues(condition),
+      })),
+    },
+  };
+}
+
 // A half-filled row would submit and come back as a 400 from the trigger serializer.
 function isPayloadConditionValid(
   condition: LoopSchemas.LoopGithubTriggerPayloadFilter,
 ): boolean {
-  const values = Array.isArray(condition.equals)
-    ? condition.equals
-    : [condition.equals];
   return (
-    !!condition.path.trim() &&
-    values.length > 0 &&
-    values.every((value) => !!value.trim())
+    !!condition.path.trim() && payloadConditionValues(condition).length > 0
   );
 }

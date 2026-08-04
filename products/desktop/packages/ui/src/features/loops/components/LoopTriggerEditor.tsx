@@ -669,8 +669,8 @@ function GithubTriggerFields({
               />
               <span className="text-[12px] text-gray-10">is</span>
               <Input
-                // One value per row here. A condition authored over the API or MCP can
-                // carry several, so those are shown joined and left alone unless edited.
+                // Comma-separated when the condition accepts several values. The split
+                // happens on save, not per keystroke, so typing stays a plain string.
                 value={
                   Array.isArray(condition.equals)
                     ? condition.equals.join(", ")
