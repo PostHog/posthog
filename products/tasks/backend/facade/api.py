@@ -117,6 +117,12 @@ WIZARD_CLOUD_RUN_RUNTIME_ADAPTER = "claude"
 WIZARD_CLOUD_RUN_MODEL = "claude-sonnet-5"
 WIZARD_CLOUD_RUN_AI_STAGE = "wizard_pr_agent"
 
+
+def render_child_run_message(child_instructions: str) -> str:
+    from products.tasks.backend.logic.services.orchestration import render_child_run_message as render
+
+    return render(child_instructions)
+
 __all__ = [
     "CODE_INVITE_INVALID_CODE",
     "CODE_INVITE_NOT_REDEEMABLE",
@@ -149,6 +155,7 @@ __all__ = [
     "create_task_run_living_artifact",
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
+    "render_child_run_message",
     "claim_and_fail_stale_run",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",

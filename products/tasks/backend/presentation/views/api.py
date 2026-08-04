@@ -76,7 +76,6 @@ from products.tasks.backend.facade.streams import (
     get_task_run_stream_key,
     run_uses_dedicated_stream,
 )
-from products.tasks.backend.logic.services.orchestration import render_child_run_message
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
@@ -450,7 +449,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 child_task.id,
                 self.team_id,
                 self._user_id(),
-                validated_data={"pending_user_message": render_child_run_message(child_task.description)},
+                validated_data={"pending_user_message": tasks_facade.render_child_run_message(child_task.description)},
             )
             if outcome != "started":
                 raise ValidationError(outcome)
