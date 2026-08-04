@@ -2,7 +2,7 @@
 
 Two of our own merged PRs, rewritten in ASD-STE100, next to what actually shipped.
 The point is to see the difference and judge whether it reads better.
-This is the reasoning behind the style rules in the PR template. Nothing here is enforced by a check.
+This is the reasoning behind the shape rule in `/writing-pr-descriptions`. Nothing here is enforced by a check.
 
 ## The standard, in short
 

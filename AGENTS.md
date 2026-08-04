@@ -65,7 +65,7 @@ Examples:
 
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
-**Style:** one fact per bullet, sentences under 25 words, active voice, no idioms. The template's authoring rules carry the worked example; [docs/internal/pr-description-voice-ste.md](docs/internal/pr-description-voice-ste.md) carries the reasoning.
+**Shape:** invoke `/writing-pr-descriptions` before writing the body. It carries the form routing (bullet, table, diagram, screenshot), the prose rule (one fact per bullet, sentences under 25 words, active voice, no idioms), and a self-check to run before creating the PR.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
@@ -235,6 +235,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
+- `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
 
 **Invoke when in the area:**
 

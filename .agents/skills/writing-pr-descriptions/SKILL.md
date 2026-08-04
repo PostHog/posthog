@@ -1,0 +1,108 @@
+---
+name: writing-pr-descriptions
+description: >
+  Shapes a PR body into something a reviewer understands at a glance.
+  Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve an existing description.
+  Routes each fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), then holds the prose to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
+  Ends with a self-check the agent runs over its own draft.
+  Not for commit messages (see AGENTS.md, "Commit types") or user-facing product copy (see `/writing-user-facing-copy`).
+---
+
+# Writing PR descriptions
+
+A reviewer scans a description in seconds and decides where to spend attention. The body is a scanning surface, not an essay. Everything below serves one goal: a reviewer understands the change without reading twice.
+
+Work in three passes. Route, write, check. Do not skip the check.
+
+## Pass 1: route each fact to a form
+
+Prose is the slowest form on the page. Before writing a sentence, ask what carries the fact faster.
+
+| The fact you have                                                                    | The form that carries it                                  |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| A visual change (any UI a person sees)                                               | Screenshot, before and after. Mandatory, not optional     |
+| A change to a flow or topology (CI wiring, pipelines, state machines, request paths) | Two `flowchart` blocks, before first                      |
+| Several values compared across the same dimensions                                   | A markdown table                                          |
+| A config or setting change                                                           | A fenced `diff` block                                     |
+| Existing code a reviewer needs to see                                                | A line-range permalink, which GitHub renders as a snippet |
+| Test output, logs, long command transcripts                                          | A `<details>` block                                       |
+| A behavior change or a risk a reviewer must not miss                                 | `> [!WARNING]` or `> [!NOTE]`                             |
+| Anything else                                                                        | Bullets, under the shape rule in pass 2                   |
+
+No PR needs every form. A one-file fix is three bullets and nothing else. Reach for a form because it makes review faster, never as decoration. An empty section gets one bullet or "None".
+
+### Screenshots
+
+Upload with `hogli pr:upload-image <file>` and paste the markdown it prints. The first run only warns; re-run with `--yes`. The assets are public forever, so never upload customer data, customer names, secrets, or internal info.
+
+### Mermaid
+
+Keep diagrams simple. A syntax error renders as an error block. Pick `TD` for tall pipelines, `LR` for wide paths. Mermaid cannot read CSS vars, so use the hex directly, and pair every `fill` with a text `color` so nodes stay legible in GitHub light and dark.
+
+```text
+classDef phBlue fill:#1d4aff,stroke:#1d4aff,color:#fff;
+classDef phRed fill:#f54e00,stroke:#f54e00,color:#fff;
+classDef phYellow fill:#f9bd2b,stroke:#f9bd2b,color:#000;
+classDef phGray fill:#e5e7eb,stroke:#c7ccd1,color:#000;
+```
+
+Assign by role (`class NodeA,NodeB phBlue;`): `phBlue` agents and primary paths, `phRed` APIs and external systems, `phYellow` entry and exit, `phGray` data and artifacts. Shape by kind: `{{hexagon}}` agents, `[rect]` steps.
+
+## Pass 2: write the bullets to a shape
+
+The shape is checkable. Tone is not, which is why this skill does not ask for one.
+
+1. One fact per bullet.
+2. Sentences under 25 words.
+3. Active voice, with a stated subject.
+4. Simple tenses. No idioms, no understatement, no jokes.
+5. The same word for the same thing, every time. Never vary for style.
+6. Keep the articles. "The job downloads the artifact", not "job downloads artifact".
+
+A reviewer scans, stops, checks one claim, moves on. A sentence that packs four facts into three clauses makes them hold all four to check any one. Split it.
+
+This governs prose only. A table cell is not a sentence, and a diagram is not prose.
+
+### Worked example
+
+❌ One bullet, five links in a causal chain:
+
+> When the signals job's artifact glob matches one artifact (every selective-mode run), `download-artifact` extracts it flat, so spans get `job_key ...:None` and re-run recovery joins miss.
+
+✅ Four bullets, each checkable on its own:
+
+> - In selective mode the glob matches one artifact.
+> - `download-artifact` then extracts the files flat.
+> - The span gets the job key `...:None`.
+> - The re-run recovery cannot join on that key.
+
+Copy the shape of the second one.
+
+### Other prose rules
+
+- No em-dashes. Use en-dashes only if needed.
+- Sentence case for titles, headings, and bolded text. Only the first word and proper nouns.
+- Spare use of inline code. Limited use of the colon and semicolon.
+- Do not hard-wrap at a column width and do not space-align tables. GitHub renders markdown and flows the text.
+- Write in first person as the author. When an agent did the work, say so: "I (actually Claude) moved the derivation into one place."
+
+## Pass 3: check your own draft
+
+Run this over the body you just wrote, before `gh pr create` or `gh pr edit`. Fix what fails.
+
+1. Read each bullet alone. Does it state one fact? If it states two, split it.
+2. Count the words in the longest sentence. Over 25, split it.
+3. Find every sentence without a subject doing something. Rewrite it in active voice.
+4. Does the PR change anything a person sees? If yes, is a screenshot in the body?
+5. Does it change a flow or topology? If yes, are the before and after diagrams there?
+6. Is any comparison sitting in prose that belongs in a table?
+7. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
+8. Does the body claim manual testing that did not happen? Delete it.
+9. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+10. Read the first three bullets only. Do they tell a reviewer what changed and why? If not, reorder.
+
+## Background
+
+`references/ste.md` carries the reasoning: the ASD-STE100 rules this shape is adapted from, two of our merged PRs rewritten in it side by side, what the rewrite cost, and measurements over 60 merged PRs. Read it when deciding whether to change these rules, not when writing a PR.
+
+Nothing here is enforced by a check. Pass 3 is the enforcement.
