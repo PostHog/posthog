@@ -280,14 +280,31 @@ Have: `accounts`, `campaigns`, `campaign_groups`, `creatives`, `conversions`, `c
 - [ ] Budget and bid data on campaigns. (skipped: `dailyBudget`, `unitCost` and `costType` already sync on `campaigns` and `totalBudget` on `campaign_groups`; the remainder would mean adding columns to live tables)
 - [ ] Video ad analytics. (skipped: `videoViews` and `videoCompletions` already sync on the stats tables; the extra quartile metrics would mean adding columns to live tables)
 
-### Google Search Console — needs confirmation
+### Google Search Console — spec-verified
 
-Seven tables, all of them `search_analytics` dimension bundles.
+Diffed against the [Search Console API discovery document](https://searchconsole.googleapis.com/$discovery/rest?version=v1)
+(revision 20260803) on 2026-08-04.
 
-- [ ] `sitemaps` — submission status, errors, indexed counts.
-- [ ] `sites` — the property list itself.
-- [ ] URL inspection results (index status per URL).
-- [ ] Additional dimension combinations, notably date + page + query together, and country + device.
+Have: `search_analytics_by_date`, `search_analytics_by_query`, `search_analytics_by_page`,
+`search_analytics_by_country`, `search_analytics_by_device`, `search_analytics_by_country_device`,
+`search_analytics_by_query_page`, `search_analytics_by_search_appearance`, `search_analytics_by_hour`,
+`sites`, `sitemaps`, `sitemap_contents`.
+
+- [x] `sitemaps` — submission status, errors, indexed counts. (`indexed` itself is marked deprecated
+      "do not use" in the discovery document, so the per-content-type `submitted` count ships instead,
+      as a `sitemap_contents` table.)
+- [x] `sites` — the property list itself.
+- [ ] URL inspection results (index status per URL). (skipped: `urlInspection.index.inspect` is a
+      per-URL POST with no listing endpoint, and nothing in the API yields a bounded URL list —
+      `sitemaps.list` returns sitemap file paths, not the URLs inside them. Combined with the
+      2,000 inspections per property per day quota, there is no way to drive it as a table.)
+- [x] Additional dimension combinations: country + device. (date + page + query already shipped as
+      `search_analytics_by_query_page`.) Also added `search_analytics_by_hour`, the only dimension
+      Google serves outside the 16-month daily window — it retains 10 days and needs
+      `dataState: hourly_all`.
+- [ ] Per search type (`type`: image, video, news, discover, googleNews) variants of the dimension
+      bundles. (skipped: real endpoint, but the docs do not state which dimensions each type supports,
+      so the table set could not be pinned down from the spec alone.)
 
 ### Clerk — spec-verified
 
