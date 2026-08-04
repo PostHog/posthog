@@ -1744,14 +1744,20 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
       `discussion_notes.py`. The question otherwise lives only on the ephemeral discussion task, which
       is in no scout's run context, so this note is its sole carrier and the full gate applies —
       `llm_skill:write` and `signal_scout:write` included.
+    - `REPORT_FEEDBACK` — rating a report useful/not useful with a note, see `feedback_notes.py`. Like
+      a discussion the note is the only path the text takes to a scout (the rating otherwise lands only
+      on a product-analytics event), so the full gate applies too. Forwarded only for a report with a
+      resolvable authoring scout, since the feedback is a verdict on that scout's own report.
     `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
-    on one report, and a discussion as a question to weigh rather than fleet-level steering.
+    on one report, a discussion as a question to weigh, and feedback as a reader's rating — rather than
+    fleet-level steering.
     """
 
     class Origin(models.TextChoices):
         HUMAN = "human", "Left directly"
         REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
+        REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

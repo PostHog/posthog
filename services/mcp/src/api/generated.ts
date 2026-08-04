@@ -12515,6 +12515,34 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    export interface BulkOptOutEntry {
+      /**
+         * The recipient identifier to opt out (e.g. email address).
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Message category key for this recipient. Overrides the request-level category_key. */
+      category_key?: string;
+    }
+
+    export interface BulkAddOptOutsRequest {
+      /** Recipients to opt out, at most 1000 per request. */
+      opt_outs: BulkOptOutEntry[];
+      /** Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages. */
+      category_key?: string;
+    }
+
+    export interface BulkAddOptOutsResult {
+      /** Number of opt-out entries received. */
+      total: number;
+      /** Number of recipient and category pairs recorded as opted out. */
+      opted_out: number;
+      /** Number of entries skipped because their category_key doesn't exist. */
+      skipped: number;
+      /** The first few entry-level problems, so the caller can fix their list. */
+      errors: string[];
+    }
+
     /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
@@ -13907,6 +13935,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `certified` - certified
+     * * `deprecated` - deprecated
+     */
+    export type ProposedStatusEnum = typeof ProposedStatusEnum[keyof typeof ProposedStatusEnum];
+
+
+    export const ProposedStatusEnum = {
+      Certified: 'certified',
+      Deprecated: 'deprecated',
+    } as const;
+
+    /**
      * Input for proposing a certification: address the target by id or (convenience) by name.
      */
     export interface CertificationCreate {
@@ -13920,6 +13960,11 @@ export namespace Schemas {
       view_name?: string;
       /** Why this mark exists. */
       notes?: string;
+      /** Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).
+       *
+       * * `certified` - certified
+       * * `deprecated` - deprecated */
+      proposed_status?: ProposedStatusEnum;
     }
 
     export type ChangeRequestApprovalsItem = { [key: string]: unknown };
@@ -17183,6 +17228,8 @@ export namespace Schemas {
       readonly target_name: string;
       /** proposed, certified (prefer this source), or deprecated (avoid this source). */
       readonly status: string;
+      /** The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled. */
+      readonly proposed_status: string;
       /** Why this mark exists, e.g. 'canonical MRR source'. */
       notes?: string;
       /** User who last set certified/deprecated, or null. */
@@ -34997,7 +35044,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -35056,7 +35103,7 @@ export namespace Schemas {
        * * `random_cohort_branch` - random_cohort_branch
        * * `exit` - exit */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -35798,6 +35845,17 @@ export namespace Schemas {
       readonly batch_export_id: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /** Incremented every time the live config changes. See the revisions endpoint. */
+      readonly version: number;
+      /** Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear. */
+      readonly draft: unknown;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+      /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+      base_updated_at?: string;
     }
 
     /**
@@ -35811,8 +35869,10 @@ export namespace Schemas {
     export type HogFunctionInvocationClickhouseEvent = { [key: string]: unknown };
 
     export interface HogFunctionInvocation {
-      /** Full function configuration to test. */
-      configuration: HogFunction;
+      /** Full function configuration to test. Omit when use_draft is true. */
+      configuration?: HogFunction;
+      /** Test the function's staged draft instead of passing a configuration. Staged secret inputs are used; secrets the draft doesn't change fall back to the live values. 400 when nothing is staged. */
+      use_draft?: boolean;
       /** Mock global variables available during test invocation. */
       globals?: HogFunctionInvocationGlobals;
       /** Mock ClickHouse event data to test the function with. */
@@ -35851,6 +35911,61 @@ export namespace Schemas {
       readonly execution_order: number | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+    }
+
+    export interface HogFunctionPublishRequest {
+      /** False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function. */
+      confirm?: boolean;
+      /** From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed. */
+      confirm_token?: string;
+    }
+
+    export interface HogFunctionPublishResponse {
+      /** Whether the draft was applied to the live function. */
+      published: boolean;
+      /**
+         * The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.
+         * @nullable
+         */
+      draft_updated_at: string | null;
+      /**
+         * Echo this back with confirm=true to publish the previewed draft. Only set on previews.
+         * @nullable
+         */
+      confirm_token: string | null;
+      /**
+         * Config fields publishing would change (hog, inputs_schema, inputs, filters, mappings, masking). Only set on previews.
+         * @nullable
+         */
+      changed_fields: string[] | null;
+      /** The function after publishing (only set when published=true). */
+      function?: HogFunction | null;
+    }
+
+    export interface HogFunctionRevision {
+      /** Function version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+      /** Full snapshot of the function's config fields (hog, inputs_schema, inputs, filters, mappings, masking) at this version. */
+      readonly content: unknown;
+    }
+
+    export interface HogFunctionRevisionBasic {
+      /** Function version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface HogFunctionRevisionRestoreRequest {
+      /** Replace the open staged draft with this revision's config. Without it, restoring while a draft is open returns 409. */
+      overwrite?: boolean;
     }
 
     /**
@@ -40361,9 +40476,21 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface LogsRetentionRuleNameSuggestion {
+      /** Suggested rule name. Empty when no suggestion could be generated — clients hide the hint. */
+      name: string;
+    }
+
     export interface LogsRetentionRuleReorder {
       /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
       ordered_ids: string[];
+    }
+
+    export interface LogsRetentionRuleSuggestName {
+      /** Retention tier the rule would assign, in days. */
+      retention_days: number;
+      /** PropertyGroupFilter tree the rule would match on. */
+      filter_group: unknown;
     }
 
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
@@ -42490,6 +42617,11 @@ export namespace Schemas {
       message_category?: string | null;
       /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
+    }
+
+    export interface MessagingError {
+      /** Human-readable description of what went wrong. */
+      error: string;
     }
 
     /**
@@ -45077,6 +45209,15 @@ export namespace Schemas {
       results: HogFunctionMinimal[];
     }
 
+    export interface PaginatedHogFunctionRevisionBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFunctionRevisionBasic[];
+    }
+
     export interface PaginatedHogFunctionTemplateList {
       count: number;
       /** @nullable */
@@ -45463,6 +45604,26 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ObjectMediaPreview[];
+    }
+
+    /**
+     * OpenAPI shape for the paginated opt-outs response, so the generated clients get the
+     * {count, next, previous, results} envelope instead of an untyped object.
+     */
+    export interface PaginatedOptOuts {
+      /** Total number of opted-out recipients for the category. */
+      count: number;
+      /**
+         * URL for the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      results: MessagePreferences[];
     }
 
     export interface PaginatedOrganizationDomainList {
@@ -48382,6 +48543,30 @@ export namespace Schemas {
       Openai: 'openai',
     } as const;
 
+    /**
+     * * `off` - off
+     * * `minimal` - minimal
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode
+     */
+    export type TaskRunReasoningEffortEnum = typeof TaskRunReasoningEffortEnum[keyof typeof TaskRunReasoningEffortEnum];
+
+
+    export const TaskRunReasoningEffortEnum = {
+      Off: 'off',
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+      Max: 'max',
+      Ultracode: 'ultracode',
+    } as const;
+
     export interface TaskRunArtifactMetadata {
       /**
          * Name of the local skill included in a skill_bundle artifact.
@@ -48476,13 +48661,15 @@ export namespace Schemas {
       model?: string | null;
       /** Configured reasoning effort for this run when the selected model supports it.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: TaskRunReasoningEffortEnum | null;
       /**
          * Presigned S3 URL for log access (valid for 1 hour).
          * @nullable
@@ -52921,6 +53108,17 @@ export namespace Schemas {
       readonly batch_export_id?: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
+      /** Incremented every time the live config changes. See the revisions endpoint. */
+      readonly version?: number;
+      /** Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear. */
+      readonly draft?: unknown;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at?: string | null;
+      /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+      base_updated_at?: string;
     }
 
     /**
@@ -63275,6 +63473,16 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd_prev: number | null;
+      /**
+         * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
+         * @nullable
+         */
+      merge_queue_billable_minutes: number | null;
+      /**
+         * Merge-queue billable minutes over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      merge_queue_billable_minutes_prev: number | null;
       /** Whether the job-level source is synced (cost and queue figures exist). */
       jobs_available: boolean;
       /** 'master' or 'main', picked by observed run volume in the window. */
@@ -64946,7 +65154,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. */
       origin: string;
     }
 
@@ -65171,6 +65379,18 @@ export namespace Schemas {
       /** If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately. */
       send_async?: boolean;
     }
+
+    /**
+     * * `positive` - positive
+     * * `negative` - negative
+     */
+    export type SentimentEnum = typeof SentimentEnum[keyof typeof SentimentEnum];
+
+
+    export const SentimentEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+    } as const;
 
     export interface ServiceAccountAccessUpdate {
       /** Gateway server to share or stop sharing. */
@@ -65501,6 +65721,24 @@ export namespace Schemas {
       failed_count: number;
       /** Number of requested ids not visible to the caller. */
       not_found_count: number;
+    }
+
+    export interface SignalReportFeedbackRequest {
+      /** The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).
+       *
+       * * `positive` - positive
+       * * `negative` - negative */
+      sentiment: SentimentEnum;
+      /**
+         * Free-form note explaining the rating. Capped at 4000 characters. Only submitted alongside a note — a bare thumb carries none — and, for a report authored by a scout, forwarded to that scout as a steering note.
+         * @maxLength 4000
+         */
+      note: string;
+    }
+
+    export interface SignalReportFeedbackResponse {
+      /** Whether the note was forwarded to the report's authoring scout as a steering note. False when the report has no resolvable authoring scout, or the caller lacks scout-steering access. */
+      forwarded: boolean;
     }
 
     export interface SignalReportRefundRequest {
@@ -72122,13 +72360,15 @@ export namespace Schemas {
       model?: string;
       /** Reasoning effort to request for models that expose an effort control.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum;
+      reasoning_effort?: TaskRunReasoningEffortEnum;
       /** Context window size for models that support the 1M window.
        *
        * * `200k` - 200k
@@ -77725,7 +77965,7 @@ export namespace Schemas {
 
     export type CohortsListParams = {
     /**
-     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     * Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.
      */
     basic?: boolean;
     /**
@@ -81217,6 +81457,17 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
+    export type HogFunctionsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type IdentityMatchingLinksListParams = {
     /**
      * Identity matching run to read. Defaults to the team's most recent run.
@@ -83071,6 +83322,22 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MessagingPreferencesExportOptOutsCsvRetrieveParams = {
+    /**
+     * Message category key to export. If omitted, exports recipients opted out of all marketing messages.
+     */
+    category_key?: string;
+    };
+
+    export type MessagingPreferencesOptOutsRetrieveParams = {
+    /**
+     * Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.
+     */
+    category_key?: string;
+    page?: number;
+    page_size?: number;
+    };
+
     export type MessagingSuppressionsSuppressionsRetrieveParams = {
     page?: number;
     page_size?: number;
@@ -84076,6 +84343,10 @@ export namespace Schemas {
      * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
      */
     scout?: string;
+    /**
+     * Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.
+     */
+    scout_prefix?: string;
     /**
      * Case-insensitive substring match against report title and summary.
      */

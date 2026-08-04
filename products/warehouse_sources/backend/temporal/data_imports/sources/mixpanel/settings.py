@@ -30,12 +30,18 @@ class MixpanelRegion(StrEnum):
     IN = "in"
 
 
-# region -> (query/app API base, raw export API base). Mixpanel splits the heavy raw
-# export traffic onto a separate `data*` host per data-residency region.
-REGION_HOSTS: dict[str, tuple[str, str]] = {
-    MixpanelRegion.US: ("https://mixpanel.com", "https://data.mixpanel.com"),
-    MixpanelRegion.EU: ("https://eu.mixpanel.com", "https://data-eu.mixpanel.com"),
-    MixpanelRegion.IN: ("https://in.mixpanel.com", "https://data-in.mixpanel.com"),
+@dataclass(frozen=True, kw_only=True, slots=True)
+class RegionHosts:
+    query_base: str  # query/app API base
+    export_base: str  # raw export API base
+
+
+# Mixpanel splits the heavy raw export traffic onto a separate `data*` host per
+# data-residency region.
+REGION_HOSTS: dict[str, RegionHosts] = {
+    MixpanelRegion.US: RegionHosts(query_base="https://mixpanel.com", export_base="https://data.mixpanel.com"),
+    MixpanelRegion.EU: RegionHosts(query_base="https://eu.mixpanel.com", export_base="https://data-eu.mixpanel.com"),
+    MixpanelRegion.IN: RegionHosts(query_base="https://in.mixpanel.com", export_base="https://data-in.mixpanel.com"),
 }
 
 # First sync of the raw export endpoint only pulls this far back to avoid replaying
