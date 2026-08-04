@@ -33,7 +33,7 @@ export interface ChatViewProps {
     /** Whether to show delivery status on team messages */
     showDeliveryStatus?: boolean
     /** Draft content to restore (for tab persistence) */
-    draftContent?: JSONContent | null
+    draftContent?: JSONContent | string | null
     /** Called when draft content changes */
     onDraftChange?: (content: JSONContent | null) => void
     /** Whether the private note checkbox is checked */
@@ -63,6 +63,11 @@ export interface ChatViewProps {
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    currentUserId?: number | null
+    editingMessageId?: string | null
+    onEditMessage?: (message: ChatMessage) => void
+    onDeleteMessage?: (messageId: string) => void
+    onCancelEdit?: () => void
 }
 
 export function ChatView({
@@ -98,6 +103,11 @@ export function ChatView({
     showAiReplyFeedback,
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
+    currentUserId,
+    editingMessageId,
+    onEditMessage,
+    onDeleteMessage,
+    onCancelEdit,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -122,6 +132,9 @@ export function ChatView({
                 aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
                 extras={threadExtras}
+                currentUserId={currentUserId}
+                onEditMessage={onEditMessage}
+                onDeleteMessage={onDeleteMessage}
             />
             <div className="border-t pt-3">
                 <MessageInput
@@ -141,6 +154,8 @@ export function ChatView({
                     sendConfirmationMessage={sendConfirmationMessage}
                     sendAndSetStatusOptions={sendAndSetStatusOptions}
                     unsavedTicketChanges={unsavedTicketChanges}
+                    editingMessageId={editingMessageId}
+                    onCancelEdit={onCancelEdit}
                 />
             </div>
         </LemonCard>

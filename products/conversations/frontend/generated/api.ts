@@ -701,3 +701,30 @@ export const conversationsZendeskImportsStatusRetrieve = async (
         method: 'GET',
     })
 }
+
+export const conversationsTicketsNotePartialUpdate = async (
+    projectId: string,
+    id: string,
+    messageId: string,
+    body?: { message: string; rich_content?: Record<string, unknown> | null },
+    options?: RequestInit
+): Promise<TicketMessageApi> => {
+    return apiMutator<TicketMessageApi>(`/api/projects/${projectId}/conversations/tickets/${id}/notes/${messageId}/`, {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(body),
+    })
+}
+
+export const conversationsTicketsDeleteNoteDestroy = async (
+    projectId: string,
+    id: string,
+    messageId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(`/api/projects/${projectId}/conversations/tickets/${id}/notes/${messageId}/`, {
+        ...options,
+        method: 'DELETE',
+    })
+}

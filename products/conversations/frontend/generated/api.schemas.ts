@@ -928,6 +928,8 @@ export interface TicketMessageApi {
     readonly author_name: string
     /** True for internal notes not visible to the customer. */
     readonly is_private: boolean
+    /** Edit count. 0 means never edited. */
+    readonly version: number
     readonly created_at: string
 }
 
@@ -951,6 +953,19 @@ export interface TicketReplyRequestApi {
     message: string
     /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
     is_private?: boolean
+    /** Optional TipTap rich content JSON for formatted messages. */
+    rich_content?: unknown
+}
+
+/**
+ * Payload for updating a private note on a ticket.
+ */
+export interface TicketNoteUpdateRequestApi {
+    /**
+     * Updated note content in markdown.
+     * @maxLength 5000
+     */
+    message: string
     /** Optional TipTap rich content JSON for formatted messages. */
     rich_content?: unknown
 }
