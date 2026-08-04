@@ -1,0 +1,8 @@
+[data-nav-density='compact'] {
+    --button-height-base: var(--button-height-xs);
+    --lemon-tree-button-height: var(--button-height-xs);
+
+    .button-primitive {
+        font-size: 0.75rem;
+    }
+}

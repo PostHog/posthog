@@ -235,6 +235,7 @@ from posthog.schema_enums import (
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
+    SidebarDensity as SidebarDensity,
     SlackIntegrationScope as SlackIntegrationScope,
     SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
@@ -22579,6 +22580,7 @@ class SidebarConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    density: SidebarDensity | None = Field(default=None, description="Row density of the sidebar.")
     items: SidebarItemsConfiguration | None = None
     sections: SidebarSectionsConfiguration | None = None
 

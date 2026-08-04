@@ -8886,10 +8886,15 @@ export interface SidebarItemsConfiguration {
     help?: UIVisibilityConfig
 }
 
+/** How densely the sidebar renders its rows. An absent value means "comfortable". */
+export type SidebarDensity = 'comfortable' | 'compact'
+
 /** Customization of the main navigation sidebar. */
 export interface SidebarConfiguration {
     sections?: SidebarSectionsConfiguration
     items?: SidebarItemsConfiguration
+    /** Row density of the sidebar. */
+    density?: SidebarDensity
 }
 
 /**
