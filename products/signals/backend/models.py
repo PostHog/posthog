@@ -128,6 +128,20 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
+class ScoutModelChoice(models.TextChoices):
+    """The models a team may put its scouts on.
+
+    Deliberately much shorter than everything the runtimes accept: a scout run is long, unattended,
+    and writes straight into the customer's inbox, so this is the set we're confident in for
+    autonomous work rather than the full catalog. Each id must be servable by one of the two agent
+    runtimes, since `_infer_runtime_adapter` derives the runtime from the id.
+    """
+
+    OPUS = "claude-opus-5", "Claude Opus 5"
+    FABLE = "claude-fable-5", "Claude Fable 5"
+    SOL = "gpt-5.6-sol", "GPT-5.6 Sol"
+
+
 class SignalTeamConfig(UUIDModel):
     team = models.OneToOneField(
         "posthog.Team",
@@ -141,6 +155,11 @@ class SignalTeamConfig(UUIDModel):
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
+    # The model this team's scouts run on. Null means PostHog picks, which is the default and stays
+    # the recommendation — it lets the default improve without every team re-choosing. The
+    # `scouts-model-selection` flag still outranks this, so an in-flight model trial isn't broken by
+    # a team setting the field.
+    scout_model = models.CharField(max_length=64, choices=ScoutModelChoice, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

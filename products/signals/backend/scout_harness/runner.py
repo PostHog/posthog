@@ -28,7 +28,7 @@ from products.signals.backend.scout_harness.limits import (
     FAILURE_STREAK_PAUSE_THRESHOLD,
     STALE_RUN_CUTOFF_S,
 )
-from products.signals.backend.scout_harness.model_selection import resolve_scout_model
+from products.signals.backend.scout_harness.model_selection import resolve_configured_scout_model, resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
     SignalScoutRunSummary,
@@ -250,10 +250,14 @@ async def arun_signals_scout(
         team, skill.name, str(run_id), configured_model=config.model
     )
 
-    # The scout-model resolution (config pin, then experiment gate) sits above the
-    # `signals-pipeline-models` runtime pin, the default layer beneath it. When it resolves a model
-    # for this run it wins (the gate's unallocated remainder resolves None and falls through to the
-    # pin), so a fleet-wide pin can't silently swallow a configured model. Either way the whole
+    configured_model = await database_sync_to_async(resolve_configured_scout_model, thread_sensitive=False)(team_id)
+
+    # Four layers, most specific first. `resolve_scout_model` above already covers the top two — the
+    # scout's own config pin, then the per-run experiment gate. Under those sits the team's own inbox
+    # choice, and beneath everything the `signals-pipeline-models` runtime pin, the fleet-wide
+    # default. A higher layer that resolves a model for this run wins (the gate's unallocated
+    # remainder resolves None and falls through), so neither a team's choice nor a fleet-wide pin can
+    # silently swallow a pinned scout or a configured model trial. Either way the whole
     # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
     # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
     # model+runtime as a pair, and overriding one without the other would mis-route.
@@ -262,6 +266,10 @@ async def arun_signals_scout(
         runtime_adapter: str | None = scout_model.runtime_adapter
         model: str | None = scout_model.model
         reasoning_effort: str | None = scout_model.reasoning_effort
+    elif configured_model.model:
+        runtime_adapter = configured_model.runtime_adapter
+        model = configured_model.model
+        reasoning_effort = configured_model.reasoning_effort
     elif agent_runtime.runtime_adapter:
         runtime_adapter = agent_runtime.runtime_adapter
         model = agent_runtime.model

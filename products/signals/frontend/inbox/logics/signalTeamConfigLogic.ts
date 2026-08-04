@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 
 import { captureInboxSettingsChanged } from '../inboxAnalytics'
-import type { SignalReportPriority, SignalTeamConfig } from '../types'
+import type { ScoutModel, SignalReportPriority, SignalTeamConfig } from '../types'
 
 export interface BaseBranchOverride {
     repo: string
@@ -27,6 +27,7 @@ export interface signalTeamConfigLogicValues {
     draftBaseBranchBranch: string
     draftBaseBranchIntegrationId: number | null
     draftBaseBranchRepo: string
+    scoutModel: ScoutModel | null
     teamConfig: SignalTeamConfig | null
     teamConfigLoading: boolean
     teamConfigUpdating: boolean
@@ -108,6 +109,7 @@ export interface signalTeamConfigLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         autostartEnabled: (teamConfig: SignalTeamConfig | null) => boolean
         defaultAutostartPriority: (teamConfig: SignalTeamConfig | null) => SignalReportPriority
+        scoutModel: (teamConfig: SignalTeamConfig | null) => ScoutModel | null
         baseBranchOverrides: (teamConfig: SignalTeamConfig | null) => BaseBranchOverride[]
         teamConfigUpdating: (teamConfigLoading: boolean, teamConfig: SignalTeamConfig | null) => boolean
         addBaseBranchOverrideDisabledReason: (
@@ -223,6 +225,12 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): SignalReportPriority =>
                 teamConfig?.default_autostart_priority ?? 'P4',
+        ],
+        // Null is "let PostHog pick", which is both the default and the recommendation — so it's a
+        // real choice in the picker, not an absence of one.
+        scoutModel: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): ScoutModel | null => teamConfig?.scout_model ?? null,
         ],
         baseBranchOverrides: [
             (s) => [s.teamConfig],

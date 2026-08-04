@@ -52,6 +52,10 @@ One layer sits above the payload: a per-scout `SignalScoutConfig.model` pin, hon
 `scouts-model-config` dogfood flag is on for the team (`scout_model_config_enabled`). An explicit
 pin routes every run of that scout onto its model deterministically — no bucketing — and beats the
 payload's distribution; everything else falls through to the payload as described above.
+
+`resolve_configured_scout_model` at the bottom is the other, much simpler half: the model a team
+picked for itself in the inbox. It sits below both layers above, and above the fleet-wide runtime
+pin — the runner stacks them.
 """
 
 from __future__ import annotations
@@ -65,6 +69,7 @@ import posthoganalytics
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
+from products.signals.backend.models import ScoutModelChoice, SignalTeamConfig
 from products.tasks.backend.facade.run_config import get_models_for_runtime_adapter
 
 SCOUTS_MODEL_FLAG = "scouts-model-selection"
@@ -376,3 +381,18 @@ def resolve_scout_model(team: Team, skill_name: str, run_id: str, configured_mod
         runtime_adapter=adapters.get(model) or _infer_runtime_adapter(model),
         reasoning_effort=efforts.get(model),
     )
+
+
+def resolve_configured_scout_model(team_id: int) -> ScoutModel:
+    """The model this team picked for its scouts in the inbox, if any.
+
+    The runner resolves this beneath `resolve_scout_model`, so a per-run trial keeps winning.
+    Effort stays unset: the picker offers a model, not a depth. `ScoutModel(None, None)` means
+    PostHog picks, which is the default.
+    """
+    model = SignalTeamConfig.objects.filter(team_id=team_id).values_list("scout_model", flat=True).first()
+    # `choices` is no DB constraint, so a value outside the curated set can sit in a row written
+    # before an id was retired. Fall back rather than route a run onto a model we've since dropped.
+    if model not in ScoutModelChoice.values:
+        return ScoutModel(model=None, runtime_adapter=None)
+    return ScoutModel(model=model, runtime_adapter=_infer_runtime_adapter(model))

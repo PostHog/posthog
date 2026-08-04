@@ -182,11 +182,19 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
+            "scout_model",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {
+            "scout_model": {
+                "help_text": (
+                    "The model this team's scouts run on. Null (the default) lets PostHog pick, so the "
+                    "default can improve without the team re-choosing. Restricted to models vetted for "
+                    "unattended work; an internal model trial still takes precedence when one is running."
+                )
+            },
             "autostart_enabled": {
                 "help_text": (
                     "Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set "

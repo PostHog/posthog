@@ -13,6 +13,7 @@ import { AgentsRoster } from './AgentsRoster'
 import { ConnectionsSection } from './ConnectionsSection'
 import { DataSourceSetup } from './DataSourceSetup'
 import { McpServersSection } from './McpServersSection'
+import { ScoutModelPicker } from './scouts/ScoutModelPicker'
 import { ScoutsFleetSection } from './scouts/ScoutsFleetSection'
 import { SlackNotificationsSection } from './SlackNotificationsSection'
 
@@ -101,6 +102,7 @@ export function AgentsTab(): JSX.Element {
                     title="Scouts"
                     description="Scheduled agents that sweep this project on a cadence and emit signals to your inbox."
                 >
+                    <ScoutModelPicker />
                     <ScoutsFleetSection />
                 </Subsection>
 

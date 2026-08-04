@@ -1,4 +1,4 @@
-import { calculateFreeTier } from 'scenes/billing/billing-utils'
+import { calculateFreeTier, currencyFormatter } from 'scenes/billing/billing-utils'
 
 import { BillingProductV2Type, BillingTierType } from '~/types'
 
@@ -62,4 +62,17 @@ export function pricePerPrUsd(product: BillingProductV2Type | null): number | nu
 export function freePrs(product: BillingProductV2Type | null): number {
     const credits = creditsPerPr(product)
     return product && credits ? Math.round(calculateFreeTier(product) / credits) : 0
+}
+
+/**
+ * The pricing terms as one sentence. Shared so the free tier and per-PR price read identically
+ * everywhere they appear — they're a commitment, and two phrasings of a commitment invite the
+ * reader to wonder which one is the real deal. Null when there's no price to state.
+ */
+export function pricingTermsText(freePrCount: number, perPrUsd: number | null): string | null {
+    if (perPrUsd == null) {
+        return null
+    }
+    const price = currencyFormatter(perPrUsd)
+    return freePrCount > 0 ? `First ${freePrCount} free each month, then ${price} per PR.` : `${price} per PR.`
 }

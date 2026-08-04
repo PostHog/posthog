@@ -255,6 +255,9 @@ export interface SignalUserAutonomyConfig {
 
 // ── Team-level autonomy config (backend SignalTeamConfigViewSet; singleton per team) ─
 
+/** Models a team can put its scouts on. Mirrors `ScoutModelChoice` in the signals backend. */
+export type ScoutModel = 'claude-opus-5' | 'claude-fable-5' | 'gpt-5.6-sol'
+
 export interface SignalTeamConfig {
     id?: string
     /** Master switch for autonomous inbox PRs. Only an explicit false disables auto-start; null (never set) leaves it on. */
@@ -265,6 +268,8 @@ export interface SignalTeamConfig {
     default_slack_notification_channel?: string | null
     /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
     autostart_base_branches?: Record<string, string>
+    /** Model this team's scouts run on. Null means PostHog picks; an internal model trial still outranks it. */
+    scout_model?: ScoutModel | null
     created_at?: string
     updated_at?: string
 }

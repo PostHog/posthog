@@ -3,13 +3,21 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import cast
 
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.scout_harness.model_selection import GLM_MODEL, ScoutModel, resolve_scout_model
+from products.signals.backend.models import ScoutModelChoice, SignalTeamConfig
+from products.signals.backend.scout_harness.model_selection import (
+    GLM_MODEL,
+    ScoutModel,
+    resolve_configured_scout_model,
+    resolve_scout_model,
+)
+from products.tasks.backend.facade.run_config import get_models_for_runtime_adapter
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.model_selection.posthoganalytics.get_feature_flag_payload"
 
@@ -245,3 +253,37 @@ class TestConfigModelPin:
         ):
             resolved = resolve_scout_model(_fake_team(), _SKILL, _RUN_ID, configured_model="claude-opus-4-5")
         assert resolved.model == _GPT
+
+
+class TestConfiguredScoutModel(BaseTest):
+    @parameterized.expand(
+        [
+            ("opus_routes_to_claude", ScoutModelChoice.OPUS, "claude-opus-5", "claude"),
+            ("sol_routes_to_codex", ScoutModelChoice.SOL, "gpt-5.6-sol", "codex"),
+        ]
+    )
+    def test_configured_model_carries_its_runtime(
+        self, _name: str, choice: str, expected_model: str, expected_runtime: str
+    ) -> None:
+        # The runtime is what the agent server routes on; a model handed over without the right one
+        # silently falls back to the server default, so the pairing is the thing worth pinning down.
+        SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"scout_model": choice})
+        resolved = resolve_configured_scout_model(self.team.id)
+        assert resolved == ScoutModel(model=expected_model, runtime_adapter=expected_runtime)
+
+    def test_retired_model_id_falls_back_to_agent_default(self) -> None:
+        # Only reachable on a row written before an id left the curated set, which is exactly when
+        # routing a run onto it would be wrong. `choices` is no DB constraint, so this is real.
+        SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"scout_model": "gpt-4o"})
+        assert resolve_configured_scout_model(self.team.id) == ScoutModel(model=None, runtime_adapter=None)
+
+    def test_team_with_no_config_row_keeps_agent_default(self) -> None:
+        SignalTeamConfig.objects.filter(team=self.team).delete()
+        assert resolve_configured_scout_model(self.team.id) == ScoutModel(model=None, runtime_adapter=None)
+
+    def test_every_offered_model_is_in_the_runtime_catalog(self) -> None:
+        # The curated set is hand-listed and deliberately narrower than the catalog, but an id that
+        # drifts out of the catalog entirely would route runs onto a model no runtime serves — and
+        # `resolve_configured_scout_model` can't catch that, since it validates against the copy.
+        servable = set(get_models_for_runtime_adapter("claude")) | set(get_models_for_runtime_adapter("codex"))
+        assert set(ScoutModelChoice.values) <= servable

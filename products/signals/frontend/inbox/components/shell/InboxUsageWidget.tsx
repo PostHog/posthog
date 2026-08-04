@@ -7,6 +7,7 @@ import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
+import { pricingTermsText } from 'scenes/billing/inboxPricing'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { BillingProductV2Type } from '~/types'
@@ -104,10 +105,8 @@ function EditLimitModal(): JSX.Element {
                     <LemonInput type="number" min={0} step={1} autoFocus />
                 </LemonField>
                 <div className="flex flex-col gap-2 text-xs">
-                    {freePrs > 0 && pricePerPrUsd != null && (
-                        <span className="text-secondary">
-                            The first {freePrs} PRs each month are free, then {currencyFormatter(pricePerPrUsd)} per PR.
-                        </span>
+                    {pricingTermsText(freePrs, pricePerPrUsd) && (
+                        <span className="text-secondary">{pricingTermsText(freePrs, pricePerPrUsd)}</span>
                     )}
                     {estimatedBudgetUsd != null && pricePerPrUsd != null && (
                         <div className="flex flex-col gap-0.5 rounded bg-surface-secondary px-2 py-1.5">
@@ -131,11 +130,31 @@ function EditLimitModal(): JSX.Element {
 }
 
 /**
+ * What the team is on the hook for, deliberately not role-gated: the edit modal never mounts for a
+ * member who can't access billing, so it can't be the only place the price is written down.
+ */
+function PricingTerms(): JSX.Element | null {
+    const { freePrs, pricePerPrUsd, limitPrs, isSubscribed } = useValues(inboxUsageLogic)
+
+    const terms = pricingTermsText(freePrs, pricePerPrUsd)
+    if (!terms) {
+        return null
+    }
+    return (
+        <p className="text-[11px] text-tertiary leading-snug mb-0">
+            {terms}
+            {/* Uncapped is the default, and the bar alone reads as though something will stop the spend. */}
+            {isSubscribed && limitPrs == null && ' No monthly limit set.'}
+        </p>
+    )
+}
+
+/**
  * Compact PR-usage meter for the inbox agents rail: a status-coloured usage bar with USD spent so far
- * alongside it, then `X / Y PRs created` on the left and `Resets <date>` on the right. On a paid plan
- * the limit is editable (and the edit affordance escalates to "Increase limit" at the cap); on the
- * free plan it shows an in-place upgrade instead. Renders nothing until billing has loaded and the
- * inbox product is present.
+ * alongside it, then `X / Y PRs created` on the left and `Resets <date>` on the right, over a line
+ * stating the free tier and per-PR price. On a paid plan the limit is editable (and the edit
+ * affordance escalates to "Increase limit" at the cap); on the free plan it shows an in-place upgrade
+ * instead. Renders nothing until billing has loaded and the inbox product is present.
  */
 export function InboxUsageWidget(): JSX.Element | null {
     const {
@@ -145,7 +164,6 @@ export function InboxUsageWidget(): JSX.Element | null {
         canAccessBilling,
         usedPrsDisplay,
         limitPrs,
-        freePrs,
         status,
         quotaLimited,
         resetDate,
@@ -186,11 +204,9 @@ export function InboxUsageWidget(): JSX.Element | null {
                     ) : null}
                 </div>
                 <div className="flex items-center gap-2">
-                    <Tooltip title={freePrs > 0 ? `The first ${freePrs} PRs each month are free` : undefined}>
-                        <div className="flex-1">
-                            <UsageBar percentage={percentage} status={status} />
-                        </div>
-                    </Tooltip>
+                    <div className="flex-1">
+                        <UsageBar percentage={percentage} status={status} />
+                    </div>
                     {spentUsd != null && (
                         <span className="text-xs font-medium text-default tabular-nums">
                             {currencyFormatter(spentUsd)}
@@ -214,6 +230,7 @@ export function InboxUsageWidget(): JSX.Element | null {
                         Agents are paused and won't open new pull requests until the limit is raised or usage resets.
                     </span>
                 )}
+                <PricingTerms />
                 {canAccessBilling ? (
                     !isSubscribed ? (
                         <UpgradeButton product={product} />
