@@ -1233,6 +1233,7 @@ doesn't conflict with concurrent PRs.
 - quay
 - quickbooks
 - railz
+- raisely
 - raken
 - rapid7_insightvm
 - raygun
@@ -1408,6 +1409,8 @@ doesn't conflict with concurrent PRs.
 - who_gho
 - whop
 - wikipedia_pageviews
+- windsor_ai
+- wix
 - wiz
 - wompi
 - workato
