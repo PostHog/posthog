@@ -33,6 +33,8 @@ export interface DataModelingJobApi {
     readonly error: string | null
     readonly created_at: string
     readonly last_run_at: string
+    /** When the job row last changed. For finished jobs this is when the run reached its terminal status. */
+    readonly updated_at: string
     /** @nullable */
     readonly workflow_id: string | null
     /** @nullable */

@@ -1079,7 +1079,8 @@ mod tombstone_redirect_tests {
     use crate::merge::transfer::Tombstone;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
-        CaptureCascadeSink, CaptureSink, CaptureStreamEventSink, CaptureTransferSink,
+        CaptureCascadeSink, CaptureReconcileMarkerSink, CaptureSink, CaptureStreamEventSink,
+        CaptureTransferSink,
     };
     use crate::stage1::person_record::PersonRecord;
     use crate::stage1::state::AppliedOffsets;
@@ -1217,12 +1218,14 @@ mod tombstone_redirect_tests {
         })
     }
 
-    fn reconcile_deps() -> Arc<MergeWorkerDeps> {
+    fn reconcile_deps() -> (Arc<MergeWorkerDeps>, CaptureReconcileMarkerSink) {
         let mut deps = Arc::try_unwrap(merge_deps_with(CaptureStreamEventSink::new()))
             .unwrap_or_else(|_| panic!("test owns the only dependency Arc"));
         deps.reconcile.enabled = true;
         deps.reconcile.scan_page = 2;
-        Arc::new(deps)
+        let markers = CaptureReconcileMarkerSink::new();
+        deps.reconcile.marker_sink = Arc::new(markers.clone());
+        (Arc::new(deps), markers)
     }
 
     /// Deps with the `stage2_orphan_gc_enabled` kill-switch set to `stage2_orphan_gc_enabled`.
@@ -1343,7 +1346,7 @@ mod tombstone_redirect_tests {
 
         let (_dir, store) = temp_store();
         let membership = CaptureSink::new();
-        let merge = reconcile_deps();
+        let (merge, marker_sink) = reconcile_deps();
         let seed_tracker = merge.seed_tracker.clone();
         let backlog = merge.reconcile.backlog.clone();
         let events_tracker = Arc::new(OffsetTracker::new());
@@ -1374,7 +1377,7 @@ mod tombstone_redirect_tests {
         .await;
 
         assert!(membership.changes().is_empty());
-        let markers = membership.markers();
+        let markers = marker_sink.markers();
         assert_eq!(markers.len(), 1);
         assert_eq!(markers[0].partition(), 0);
         assert_eq!(markers[0].run_id(), RunId(Uuid::from_u128(7)));
