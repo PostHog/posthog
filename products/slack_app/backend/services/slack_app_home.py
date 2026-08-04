@@ -935,13 +935,13 @@ def _tasks_controls_block(state: TasksState) -> dict:
 # Charts are drawn as text. Block Kit does have a native `data_visualization` block, but
 # `views.publish` rejects it on the App Home surface with "Unsupported block type" — note
 # that `blocks.validate` accepts it, so the schema check is not proof a surface takes it.
-# `data_table` is fine on Home, hence the real table below the bars.
-_STATS_MAX_MODEL_ROWS = 6
-_STATS_MAX_LABEL_CHARS = 20
-_STATS_BAR_WIDTH = 12
+_STATS_MAX_BREAKDOWN_ROWS = 6
+# Breakdown labels and bars share a half-width column, so both are tighter than the
+# full-width sparkline row above them.
+_STATS_COLUMN_LABEL_CHARS = 14
+_STATS_BAR_WIDTH = 8
 # Slack renders `section.fields` in two columns and rejects more than 10 cells.
 _STATS_MAX_FIELDS = 10
-_STATS_TABLE_PAGE_SIZE = 5
 
 # Eight levels of block-fill, so a sparkline reads as a shape rather than a row of dots.
 _SPARK_LEVELS = "▁▂▃▄▅▆▇█"
@@ -979,8 +979,7 @@ def _stats_section_blocks(state: StatsState) -> list[dict]:
         for block in (
             _stats_outcomes_block(state),
             _stats_trend_block(state),
-            _stats_models_block(state),
-            _stats_people_table(state),
+            _stats_breakdowns_block(state),
         )
         if block
     )
@@ -1077,18 +1076,27 @@ def _stats_trend_block(state: StatsState) -> dict | None:
     }
 
 
-def _stats_models_block(state: StatsState) -> dict | None:
-    """Share of runs per model, as a bar column with the long tail folded into "Other".
+def _stats_breakdowns_block(state: StatsState) -> dict | None:
+    """Models and people side by side.
 
-    Rendered inside a fenced block so the bars and counts line up — proportional text
-    would leave the columns ragged.
+    `section.fields` is Block Kit's only two-column layout, so the two breakdowns share
+    one block instead of stacking. Each column is fenced: the counts only line up under a
+    monospace font, and proportional text leaves them ragged.
     """
+    columns = [column for column in (_stats_models_column(state), _stats_people_column(state)) if column]
+    if not columns:
+        return None
+    return {"type": "section", "fields": [{"type": "mrkdwn", "text": column} for column in columns]}
+
+
+def _stats_models_column(state: StatsState) -> str | None:
+    """Share of runs per model, with the long tail folded into "Other"."""
     if not state.models:
         return None
 
-    fits = len(state.models) <= _STATS_MAX_MODEL_ROWS
-    head = state.models if fits else state.models[: _STATS_MAX_MODEL_ROWS - 1]
-    tail = () if fits else state.models[_STATS_MAX_MODEL_ROWS - 1 :]
+    fits = len(state.models) <= _STATS_MAX_BREAKDOWN_ROWS
+    head = state.models if fits else state.models[: _STATS_MAX_BREAKDOWN_ROWS - 1]
+    tail = () if fits else state.models[_STATS_MAX_BREAKDOWN_ROWS - 1 :]
 
     rows = [(_stats_model_label(usage), usage.value) for usage in head if usage.value > 0]
     other = sum(usage.value for usage in tail)
@@ -1099,8 +1107,24 @@ def _stats_models_block(state: StatsState) -> dict | None:
 
     peak = max(value for _, value in rows)
     width = max(len(label) for label, _ in rows)
-    lines = "\n".join(f"{label:<{width}}  {_bar(value, peak)} {value:>3}" for label, value in rows)
-    return {"type": "section", "text": {"type": "mrkdwn", "text": f"*Models*\n```\n{lines}\n```"}}
+    lines = "\n".join(f"{label:<{width}} {_bar(value, peak)} {value:>3}" for label, value in rows)
+    return f"*Models*\n```\n{lines}\n```"
+
+
+def _stats_people_column(state: StatsState) -> str | None:
+    """Leaderboard as text: who started how many, and how many of those merged."""
+    people = state.people[:_STATS_MAX_BREAKDOWN_ROWS]
+    if not people:
+        return None
+
+    names = [_truncate(person.name, _STATS_COLUMN_LABEL_CHARS) for person in people]
+    width = max(len(name) for name in names)
+    lines = "\n".join(f"{name:<{width}} {person.tasks:>3} {person.merged:>4}" for name, person in zip(names, people))
+    return f"*Most active* _tasks · merged_\n```\n{lines}\n```"
+
+
+def _truncate(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _sparkline(values: list[int], peak: int) -> str:
@@ -1123,37 +1147,7 @@ def _bar(value: int, peak: int, width: int = _STATS_BAR_WIDTH) -> str:
 def _stats_model_label(usage: ModelUsage) -> str:
     """Display label for a model, truncated so the bar column stays aligned."""
     label = _format_model_id(usage.model, owned_by=_provider_for_runtime_adapter(usage.runtime_adapter))
-    if len(label) <= _STATS_MAX_LABEL_CHARS:
-        return label
-    return label[: _STATS_MAX_LABEL_CHARS - 1] + "…"
-
-
-def _stats_people_table(state: StatsState) -> dict | None:
-    """Sortable leaderboard. `raw_number` cells carry both the rendered `text` and the
-    numeric `value` Slack sorts on."""
-    if not state.people:
-        return None
-    rows: list[list[dict[str, Any]]] = [
-        [
-            {"type": "raw_text", "text": "Person"},
-            {"type": "raw_text", "text": "Tasks"},
-            {"type": "raw_text", "text": "PRs merged"},
-        ]
-    ]
-    rows.extend(
-        [
-            {"type": "raw_text", "text": person.name},
-            {"type": "raw_number", "text": str(person.tasks), "value": person.tasks},
-            {"type": "raw_number", "text": str(person.merged), "value": person.merged},
-        ]
-        for person in state.people
-    )
-    return {
-        "type": "data_table",
-        "caption": "Most active people",
-        "page_size": _STATS_TABLE_PAGE_SIZE,
-        "rows": rows,
-    }
+    return _truncate(label, _STATS_COLUMN_LABEL_CHARS)
 
 
 def _stats_footnote_blocks(state: StatsState) -> list[dict]:

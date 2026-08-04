@@ -34,7 +34,7 @@ SLACK_USER = "U_ADMIN"
 # `invalid_blocks`, which takes down the whole Home tab and not just this card.
 MAX_MODEL_ROWS = 6
 MAX_CHART_POINTS = 20
-MAX_LABEL_CHARS = 20
+MAX_LABEL_CHARS = 14
 MAX_SECTION_FIELDS = 10
 
 
@@ -130,6 +130,22 @@ def _blocks_of_type(view: dict, block_type: str) -> list[dict]:
     return [b for b in view["blocks"] if b["type"] == block_type]
 
 
+def _fields_blocks(view: dict) -> list[dict]:
+    return [b for b in view["blocks"] if b["type"] == "section" and "fields" in b]
+
+
+def _kpi_grid(view: dict) -> dict:
+    return next(b for b in _fields_blocks(view) if any(f["text"].startswith("*Tasks*") for f in b["fields"]))
+
+
+def _breakdowns_block(view: dict) -> dict:
+    return next(b for b in _fields_blocks(view) if any(f["text"].startswith("*Models*") for f in b["fields"]))
+
+
+def _column(view: dict, heading: str) -> str:
+    return next(f["text"] for b in _fields_blocks(view) for f in b["fields"] if f["text"].startswith(heading))
+
+
 def _render(state: StatsState | None) -> dict:
     return render_home_view(
         effective=AIPreferences(),
@@ -161,22 +177,21 @@ class TestWindowCoercion:
 class TestStatsCardRendering:
     def test_card_omitted_when_state_is_none(self):
         view = _render(None)
-        assert not _blocks_of_type(view, "data_table")
         assert "Workspace activity" not in str(view)
 
     def test_empty_window_renders_controls_without_charts(self):
         view = _render(StatsState(window_days=30))
         assert "Workspace activity" in str(view)
         # An empty window has nothing to plot and nobody to list.
-        assert not _blocks_of_type(view, "data_table")
         assert "*Models*" not in str(view)
+        assert "*Most active*" not in str(view)
 
     def test_model_bars_fold_the_tail_without_losing_counts(self):
         models = tuple(ModelUsage(model=f"model-{i}", runtime_adapter="claude", value=20 - i) for i in range(15))
         view = _render(StatsState(tasks_started=100, models=models))
 
-        block = next(b for b in view["blocks"] if b["type"] == "section" and "*Models*" in str(b.get("text")))
-        lines = [line for line in block["text"]["text"].splitlines() if line and not line.startswith(("*", "`"))]
+        column = _column(view, "*Models*")
+        lines = [line for line in column.splitlines() if line and not line.startswith(("*", "`"))]
 
         assert len(lines) <= MAX_MODEL_ROWS
         assert lines[-1].startswith("Other")
@@ -206,7 +221,7 @@ class TestStatsCardRendering:
                 median_cycle_seconds=840,
             )
         )
-        grid = next(b for b in view["blocks"] if b["type"] == "section" and "fields" in b)
+        grid = _kpi_grid(view)
 
         # Slack lays `fields` out in two columns and rejects more than 10 cells; a stack of
         # sections instead would cost one full-width row per KPI.
@@ -230,8 +245,7 @@ class TestStatsCardRendering:
     )
     def test_durations_render_compactly(self, seconds, expected):
         view = _render(StatsState(tasks_started=1, median_cycle_seconds=seconds))
-        grid = next(b for b in view["blocks"] if b["type"] == "section" and "fields" in b)
-        assert f"*Median run*\n{expected}" in [f["text"] for f in grid["fields"]]
+        assert f"*Median run*\n{expected}" in [f["text"] for f in _kpi_grid(view)["fields"]]
 
     def test_long_model_ids_are_truncated_to_the_label_cap(self):
         view = _render(
@@ -246,10 +260,9 @@ class TestStatsCardRendering:
                 ),
             )
         )
-        block = next(b for b in view["blocks"] if b["type"] == "section" and "*Models*" in str(b.get("text")))
         labels = [
-            line.split("  ")[0]
-            for line in block["text"]["text"].splitlines()
+            line.split(" ")[0]
+            for line in _column(view, "*Models*").splitlines()
             if line and not line.startswith(("*", "`"))
         ]
         # A long label would push the bar column out of alignment inside the fenced block.
@@ -276,16 +289,35 @@ class TestStatsCardRendering:
         view = _render(StatsState(tasks_started=3, tasks_with_pr=0, trend=trend))
         assert not [b for b in view["blocks"] if b["type"] == "context" and "*PRs*" in str(b)]
 
-    def test_leaderboard_numbers_carry_both_display_text_and_sort_value(self):
-        view = _render(StatsState(tasks_started=9, people=(PersonRow(name="Vojta", tasks=9, merged=6),)))
+    def test_models_and_people_render_as_two_columns_of_one_block(self):
+        view = _render(
+            StatsState(
+                tasks_started=9,
+                models=(ModelUsage(model="claude-opus-5", runtime_adapter="claude", value=9),),
+                people=(PersonRow(name="Vojta", tasks=9, merged=6), PersonRow(name="Anna", tasks=4, merged=1)),
+            )
+        )
 
-        table = _blocks_of_type(view, "data_table")[0]
-        data_row = table["rows"][1]
+        # `section.fields` is the only two-column layout Block Kit offers, so both
+        # breakdowns have to share one block to sit side by side.
+        block = _breakdowns_block(view)
+        columns = [f["text"] for f in block["fields"]]
 
-        assert data_row[0] == {"type": "raw_text", "text": "Vojta"}
-        # Slack sorts on `value` and renders `text`; omitting either is rejected.
-        assert data_row[1] == {"type": "raw_number", "text": "9", "value": 9}
-        assert data_row[2] == {"type": "raw_number", "text": "6", "value": 6}
+        assert len(columns) == 2
+        assert columns[0].startswith("*Models*")
+        assert columns[1].startswith("*Most active*")
+        assert "Vojta" in columns[1] and "Anna" in columns[1]
+
+    def test_leaderboard_columns_stay_aligned_under_a_long_name(self):
+        people = (PersonRow(name="A", tasks=9, merged=6), PersonRow(name="Bartholomew Wigglesworth", tasks=4, merged=1))
+        view = _render(StatsState(tasks_started=13, people=people))
+
+        column = _column(view, "*Most active*")
+        rows = [line for line in column.splitlines() if line and not line.startswith(("*", "`"))]
+
+        # Names are padded to a common width inside the fenced block, so the count
+        # columns line up rather than drifting with each name's length.
+        assert len({len(row) for row in rows}) == 1
 
 
 class TestResolveStatsState:
