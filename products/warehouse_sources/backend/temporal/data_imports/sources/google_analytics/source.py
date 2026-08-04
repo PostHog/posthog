@@ -65,6 +65,12 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             "401 Client Error": "Your Google Analytics connection is invalid or expired. Please reconnect your account.",
             "403 Client Error": "PostHog is not authorized to read this Google Analytics property. Please make sure the connected Google account has access to the property.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Analytics account with the required scopes.",
+            # Raised as a bare `RefreshError` from `AuthorizedSession` when the stored refresh token
+            # has been revoked or expired. `validate_credentials` already maps this to a reconnect
+            # prompt, but only runs before a sync starts. Mid-sync it reaches `_run_report` via
+            # `session.post()` before any HTTP status is available to match on, so match Google's
+            # stable OAuth error code instead.
+            "invalid_grant": "Your Google Analytics connection has expired or been revoked. Please reconnect your account.",
         }
 
     def get_retryable_errors(self) -> set[str]:

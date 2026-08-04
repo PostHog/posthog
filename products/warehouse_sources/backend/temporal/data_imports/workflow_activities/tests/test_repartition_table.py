@@ -5,6 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
     _maybe_flag_pre_extraction,
@@ -54,7 +57,7 @@ class TestRepartitionActivityDeltaFolder:
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
-    @patch(f"{MODULE}.DeltaTableHelper")
+    @patch(f"{MODULE}.DeltaTableRef")
     @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
@@ -84,7 +87,7 @@ class TestRepartitionActivityDeltaFolder:
         assert mock_repartition.await_count == 1
         await_args = mock_repartition.await_args
         assert await_args is not None
-        assert await_args.kwargs["helper"] is mock_helper_cls.return_value
+        assert await_args.kwargs["table_ref"] is mock_helper_cls.return_value
         assert mock_job_model.objects.get.call_args.kwargs == {"id": JOB_ID}
 
 
@@ -93,27 +96,27 @@ class TestMaybeFlagPreExtraction:
         [
             (
                 "generic_s3_error",
-                OSError(
-                    "Generic S3 error: Error getting list response body: HTTP error: "
-                    "request or response body error: operation timed out"
-                ),
+                "Generic S3 error: Error getting list response body: HTTP error: "
+                "request or response body error: operation timed out",
             ),
             (
                 "credential_provider_timeout",
-                OSError(
-                    "Operation not supported: an error occurred while loading credentials: "
-                    "dispatch failure: timeout: client error (Connect): HTTP connect timeout occurred: timed out"
-                ),
+                "Operation not supported: an error occurred while loading credentials: "
+                "dispatch failure: timeout: client error (Connect): HTTP connect timeout occurred: timed out",
             ),
         ]
     )
     @patch(f"{MODULE}.capture_exception")
     def test_transient_object_store_error_is_not_reported(
-        self, _name: str, error: OSError, mock_capture: MagicMock
+        self, _name: str, message: str, mock_capture: MagicMock
     ) -> None:
+        # `get_delta_table` never lets the raw OSError/DeltaError escape for a recognized transient
+        # blip — it re-raises `TransientObjectStoreError` instead (see `_capture_unless_transient`).
+        # Mocking the raw error here would miss the exact bug this test guards: a caller re-running
+        # `is_transient_object_store_error` on the wrapper it actually receives, not on the original.
         schema = _schema(name="stripe_charge", s3_folder_name=None)
         helper = MagicMock()
-        helper.get_delta_table = AsyncMock(side_effect=error)
+        helper.get_delta_table = AsyncMock(side_effect=TransientObjectStoreError(message))
 
         result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock(), enabled=True)
 

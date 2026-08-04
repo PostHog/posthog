@@ -1,5 +1,8 @@
 import {
+    cohortPercentagesAddUp,
     getBranchRemovalDisabledReason,
+    normalizeCohortPercentages,
+    parseCohortPercentage,
     removeBranchEdge,
     updateItemWithOptionalName,
     updateOptionalName,
@@ -213,6 +216,79 @@ describe('utils', () => {
             const result = removeBranchEdge(edges, 1)
 
             expect(result).not.toBe(edges)
+        })
+    })
+
+    describe('normalizeCohortPercentages', () => {
+        it.each([
+            { name: 'splits evenly when the count divides 100', count: 4, expected: [25, 25, 25, 25] },
+            {
+                name: 'uses a fractional share when whole percents cannot divide 100',
+                count: 8,
+                expected: [12.5, 12.5, 12.5, 12.5, 12.5, 12.5, 12.5, 12.5],
+            },
+            {
+                name: 'spreads the leftover hundredths across the leading cohorts',
+                count: 3,
+                expected: [33.34, 33.33, 33.33],
+            },
+            { name: 'returns nothing when there are no cohorts', count: 0, expected: [] },
+        ])('$name', ({ count, expected }) => {
+            expect(normalizeCohortPercentages(count)).toEqual(expected)
+        })
+
+        // Allocating in whole percents summed to 100 too, but unevenly: 30 cohorts came out as ten
+        // shares of 4% and twenty of 3%, so a third of the branches took 33% more traffic than the
+        // rest. Asserting the total alone would not have caught that, hence the per-share bound.
+        it.each([2, 3, 7, 8, 30, 99])('gives %i cohorts an equal share totalling 100', (count) => {
+            const percentages = normalizeCohortPercentages(count)
+            const total = percentages.reduce((sum, percentage) => sum + percentage, 0)
+
+            expect(percentages).toHaveLength(count)
+            expect(total).toBeCloseTo(100, 6)
+            for (const percentage of percentages) {
+                expect(Math.abs(percentage - 100 / count)).toBeLessThanOrEqual(0.01)
+            }
+        })
+    })
+
+    describe('cohortPercentagesAddUp', () => {
+        // Both directions of this have bitten: comparing against 100 exactly reports the balance
+        // button's own output as unbalanced, while a tolerance wide enough to cover a hundredth of a
+        // percent hides shortfalls the runtime really does reroute to the last cohort.
+        it.each([2, 3, 7, 8, 30, 99])('accepts the even split produced for %i cohorts', (count) => {
+            expect(cohortPercentagesAddUp(normalizeCohortPercentages(count))).toBe(true)
+        })
+
+        it.each([
+            { name: 'accepts shares totalling exactly 100', percentages: [50, 50], expected: true },
+            {
+                name: 'rejects a shortfall smaller than a hundredth of a percent',
+                percentages: [50, 49.996],
+                expected: false,
+            },
+            { name: 'rejects a whole-percent shortfall', percentages: [30, 30, 30], expected: false },
+            { name: 'rejects an excess', percentages: [60, 60], expected: false },
+            { name: 'rejects no shares at all', percentages: [], expected: false },
+        ])('$name', ({ percentages, expected }) => {
+            expect(cohortPercentagesAddUp(percentages)).toBe(expected)
+        })
+    })
+
+    describe('parseCohortPercentage', () => {
+        // A number field accepts more than plain decimals, and its max attribute only gates form
+        // validation, which this input is not wired to. Without the clamp, "1e5" stores 100000 and
+        // every cohort after the first becomes unreachable.
+        it.each([
+            { name: 'keeps a fractional share', value: '3.3', expected: 3.3 },
+            { name: 'keeps a whole share', value: '50', expected: 50 },
+            { name: 'clamps scientific notation over the maximum', value: '1e5', expected: 100 },
+            { name: 'clamps a value over the maximum', value: '500', expected: 100 },
+            { name: 'clamps a negative value up to zero', value: '-5', expected: 0 },
+            { name: 'reads empty text as zero', value: '', expected: 0 },
+            { name: 'reads unparseable text as zero', value: 'abc', expected: 0 },
+        ])('$name', ({ value, expected }) => {
+            expect(parseCohortPercentage(value)).toBe(expected)
         })
     })
 

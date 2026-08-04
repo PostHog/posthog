@@ -1,5 +1,16 @@
+import random
+import logging
+from dataclasses import dataclass
+
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
-from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
+from products.tasks.backend.facade.run_config import (
+    ReasoningEffort,
+    RuntimeAdapter,
+    get_models_for_runtime_adapter,
+    get_reasoning_effort_error,
+)
+
+logger = logging.getLogger(__name__)
 
 # REVIEW MODEL
 REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
@@ -8,6 +19,101 @@ REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
 # Claude sandboxes run with bypassPermissions by default, so headless MCP skill pulls need no
 # extra approval mode. (Only Codex's default "auto" stalls on MCP calls and needs "full-access".)
 REVIEW_INITIAL_PERMISSION_MODE = None
+
+
+@dataclass(frozen=True)
+class ReviewArm:
+    """One reviewer configuration the model experiment can assign to a report.
+
+    The four fields travel as one bundle: provider routing is derived from the adapter, so a model
+    handed over without its adapter silently falls back to the agent server's default, and Codex
+    needs "full-access" because its default "auto" mode stalls headless runs on MCP approval.
+    """
+
+    runtime_adapter: RuntimeAdapter
+    model: str
+    reasoning_effort: ReasoningEffort
+    initial_permission_mode: str | None = None
+
+
+DEFAULT_REVIEW_ARM = ReviewArm(
+    runtime_adapter=REVIEW_RUNTIME_ADAPTER,
+    model=REVIEW_MODEL,
+    reasoning_effort=REVIEW_REASONING_EFFORT,
+    initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
+)
+
+# The reviewer-model experiment: each new report draws its arm once at creation and keeps it for
+# life, because a per-turn redraw would feed one arm's findings into the other arm's
+# "already covered" injection. Weights are relative shares (`random.choices` normalizes them). End
+# the experiment by dropping arms HERE, never by deregistering the model in products/tasks:
+# persisted assignments resolve against the live registry per unit, so a mid-experiment
+# deregistration silently falls in-flight turns back to the default pins, unit by unit.
+REVIEW_EXPERIMENT_ARMS: tuple[tuple[float, ReviewArm], ...] = (
+    (0.5, DEFAULT_REVIEW_ARM),
+    (
+        0.5,
+        ReviewArm(
+            runtime_adapter=RuntimeAdapter.CODEX,
+            model="gpt-5.6-sol",
+            reasoning_effort=ReasoningEffort.XHIGH,
+            initial_permission_mode="full-access",
+        ),
+    ),
+)
+
+
+def draw_review_arm() -> ReviewArm:
+    """The weighted arm draw for a newly created report; persisted once, never redrawn."""
+    arms = [arm for _, arm in REVIEW_EXPERIMENT_ARMS]
+    weights = [weight for weight, _ in REVIEW_EXPERIMENT_ARMS]
+    return random.choices(arms, weights=weights, k=1)[0]
+
+
+def resolve_review_arm(
+    runtime_adapter: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    initial_permission_mode: str | None,
+) -> ReviewArm:
+    """The arm a report's review units actually run on: its persisted assignment, else the pins.
+
+    Missing fields (pre-experiment rows) fall back silently. An assignment that is no longer a
+    registry-supported combo also falls back, with a warning, so a persisted model that outlives
+    its registration degrades to the default reviewer instead of burning sandbox turns on a
+    rejected model.
+    """
+    if not (runtime_adapter and model and reasoning_effort):
+        return DEFAULT_REVIEW_ARM
+    try:
+        adapter = RuntimeAdapter(runtime_adapter)
+        effort = ReasoningEffort(reasoning_effort)
+    except ValueError:
+        logger.warning(
+            "Unknown review-arm values (%s, %s, %s); using the default pins", runtime_adapter, model, reasoning_effort
+        )
+        return DEFAULT_REVIEW_ARM
+    # Membership is checked on top of the effort gate because the Codex effort registry is
+    # permissive below xhigh (any unknown gpt-* model maps to the default effort set), so the
+    # effort check alone cannot detect a deregistered Codex model.
+    if (
+        model not in get_models_for_runtime_adapter(adapter)
+        or get_reasoning_effort_error(adapter, model, effort) is not None
+    ):
+        logger.warning(
+            "Persisted review arm (%s, %s, %s) is not registry-supported; using the default pins",
+            adapter,
+            model,
+            effort,
+        )
+        return DEFAULT_REVIEW_ARM
+    # Codex's default "auto" mode stalls headless runs on MCP approval, so a Codex assignment
+    # without "full-access" could never finish a unit and counts as invalid.
+    if adapter is RuntimeAdapter.CODEX and initial_permission_mode != "full-access":
+        logger.warning("Persisted Codex review arm (%s, %s) lacks full-access; using the default pins", model, effort)
+        return DEFAULT_REVIEW_ARM
+    return ReviewArm(adapter, model, effort, initial_permission_mode)
+
 
 # VALIDATION MODEL
 # Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
