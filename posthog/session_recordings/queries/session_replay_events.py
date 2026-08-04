@@ -698,24 +698,11 @@ class SessionReplayEvents:
         else:
             hq = self.get_events_query(session_id, metadata, events_to_ignore, extra_fields, limit, page)
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
-        if ch_user is not ClickHouseUser.DEFAULT:
-            # HogQLQueryRunner has no ch_user plumbing; go straight to the executor so background
-            # workers can query as their dedicated ClickHouse user instead of the shared default.
-            from posthog.hogql import ast
-            from posthog.hogql.query import execute_hogql_query
-
-            result: HogQLQueryResponse = execute_hogql_query(
-                query=hq.query,
-                placeholders={key: ast.Constant(value=value) for key, value in (hq.values or {}).items()},
-                team=team,
-                query_type="HogQLQuery",
-                ch_user=ch_user,
-            )
-        else:
-            result = HogQLQueryRunner(
-                team=team,
-                query=hq,
-            ).calculate()
+        result: HogQLQueryResponse = HogQLQueryRunner(
+            team=team,
+            query=hq,
+            ch_user=ch_user,
+        ).calculate()
         columns, rows = result.columns, result.results
         if limit is not None and limit > 0 and rows is not None and len(rows) > limit:
             return SessionEventsPage(columns=columns, rows=rows[:limit], has_more=True)

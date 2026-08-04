@@ -44,10 +44,6 @@ DEFAULT_MAX_EXECUTION_SECONDS = 180
 # Calibrated from the prod score distribution: focused keeps roughly the top 25% of sessions, balanced the top 65%.
 FOCUSED_SURFACING_THRESHOLD = 0.30
 BALANCED_SURFACING_THRESHOLD = 0.10
-# Unscored sessions get the same neutral score the recordings list shows, so a session visible
-# as eligible in the UI is also eligible to the sweep (passes both filtered-mode thresholds).
-NULL_SURFACING_SCORE_FALLBACK = UNSCORED_SURFACING_SCORE
-
 _SURFACING_THRESHOLDS = {
     SamplingMode.FOCUSED: FOCUSED_SURFACING_THRESHOLD,
     SamplingMode.BALANCED: BALANCED_SURFACING_THRESHOLD,
@@ -65,7 +61,9 @@ def surfacing_score_predicate(sampling_mode: SamplingMode | str) -> ast.Expr | N
             name="coalesce",
             args=[
                 ast.Call(name="max", args=[ast.Field(chain=["s", "surfacing_score"])]),
-                ast.Constant(value=NULL_SURFACING_SCORE_FALLBACK),
+                # Unscored sessions get the same neutral score the recordings list shows, so a session
+                # visible as eligible in the UI is also eligible to the sweep.
+                ast.Constant(value=UNSCORED_SURFACING_SCORE),
             ],
         ),
         right=ast.Constant(value=threshold),
@@ -135,6 +133,8 @@ class ScannerCandidateQuery:
         self._sampling_salt = sampling_salt
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
+        # Fixed at construction and exposed so callers can persist exactly the horizon the query filtered on.
+        self.settle_cutoff = dt.datetime.now(dt.UTC) - SETTLE_INTERVAL
 
         # The schedule owns the time window, not the user.
         inner_query = query.model_copy(deep=True)
@@ -177,7 +177,7 @@ class ScannerCandidateQuery:
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
                 left=ast.Field(chain=["sessions", "end_time"]),
-                right=ast.Constant(value=dt.datetime.now(dt.UTC) - SETTLE_INTERVAL),
+                right=ast.Constant(value=self.settle_cutoff),
             ),
             # Excludes attacker-supplied over-length session_ids that would later wedge wire-payload validation.
             ast.CompareOperation(
