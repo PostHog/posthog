@@ -78,7 +78,7 @@ class _TableReferenceCollector(TraversingVisitor):
         super().visit_join_expr(node)
 
 
-def _references(query: ast.SelectQuery | ast.SelectSetQuery, candidates: set[str]) -> set[str]:
+def _references(query: ast.Expr, candidates: set[str]) -> set[str]:
     collector = _TableReferenceCollector(candidates)
     collector.visit(query)
     # A name the query defines as its own CTE shadows the ref — don't pull it in.
@@ -152,11 +152,33 @@ def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
     root = main if isinstance(main, ast.SelectQuery) else parse_select(f"select * from ({code}\n)")
     if not isinstance(root, ast.SelectQuery):  # narrow for the type checker; the wrap is always a SelectQuery
         return code
-    ctes: dict[str, ast.CTE] = dict(root.ctes or {})
-    for name in order:
-        # setdefault so the user's own CTE of the same name always wins over a node ref.
-        ctes.setdefault(name, ast.CTE(name=name, expr=parse_ref(name), cte_type="subquery"))
-    root.ctes = ctes
+    user_ctes: dict[str, ast.CTE] = dict(root.ctes or {})
+    # The user's own CTE of the same name always wins over a node ref.
+    injected = {
+        name: ast.CTE(name=name, expr=parse_ref(name), cte_type="subquery") for name in order if name not in user_ctes
+    }
+
+    # A CTE must be printed before every CTE that reads it, and the user's own WITH clauses
+    # can read node refs just as node definitions can read a shadowing user CTE. So the two
+    # sides get merged in one dependency order rather than concatenated — appending the refs
+    # after a `with … as (select … from df1)` leaves df1 an unknown table.
+    all_names = set(injected) | set(user_ctes)
+    merged: dict[str, ast.CTE] = {}
+    emitting: set[str] = set()
+
+    def emit(name: str) -> None:
+        if name in merged or name in emitting:  # already placed, or a cycle — let HogQL report it
+            return
+        emitting.add(name)
+        cte = injected.get(name) or user_ctes[name]
+        for dependency in sorted(_references(cte.expr, all_names)):
+            emit(dependency)
+        emitting.discard(name)
+        merged[name] = cte
+
+    for name in [*injected, *user_ctes]:
+        emit(name)
+    root.ctes = merged
 
     return print_prepared_ast(root, context=HogQLContext(team_id=None), dialect="hogql")
 

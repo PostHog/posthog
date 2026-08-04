@@ -1,5 +1,7 @@
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
     SQLV2ReferenceError,
@@ -171,6 +173,23 @@ class TestResolveSQLV2References(SimpleTestCase):
         )
         self.assertIn("mine AS", resolved)
         self.assertIn("df1 AS", resolved)
+
+    @parameterized.expand(
+        [
+            # The user's own WITH reads a node frame, so the injected CTE has to precede it.
+            ("user_cte_reads_a_ref", "with mine as (select id from df1) select * from mine", "df1 AS", "mine AS"),
+            # And the reverse: the node's definition reads a name the user's WITH shadows.
+            ("ref_reads_a_shadowed_cte", "with df1 as (select 5 as id) select * from df2", "df1 AS", "df2 AS"),
+        ]
+    )
+    def test_ctes_are_merged_in_dependency_order(self, _name, code, first, second):
+        # Whichever side a CTE comes from, it must be printed before the one that reads it —
+        # appending the refs after the user's WITH leaves them unknown tables.
+        resolved = resolve_sql_v2_references(
+            code,
+            {"df1": "select uuid as id from events", "df2": "select id from df1 where id > 0"},
+        )
+        self.assertLess(resolved.index(first), resolved.index(second))
 
     def test_union_query_with_a_trailing_line_comment_still_resolves(self):
         # The UNION wrap embeds the raw text in `select * from (…)`; without a newline before
