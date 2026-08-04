@@ -470,27 +470,34 @@ export const settingsLogic = kea<settingsLogicType>([
                     return true
                 }
 
-                const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
-                    if (section.hideSelfHost && !isCloudOrDev) {
-                        return false
-                    }
-                    if (
-                        section.id === 'organization-integrations' &&
-                        (!organizationIntegrations || organizationIntegrations.length === 0)
-                    ) {
-                        return false
-                    }
+                const sections = SETTINGS_MAP.filter(doesMatchFlags)
+                    .filter((section) => {
+                        if (section.hideSelfHost && !isCloudOrDev) {
+                            return false
+                        }
 
-                    // Explicit gates to avoid showing this in the sidebar when the use doesn't have access to it
-                    if (section.id === 'organization-billing' && !canAccessBilling) {
-                        return false
-                    }
-                    if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
-                        return false
-                    }
+                        // Explicit gates to avoid showing this in the sidebar when the use doesn't have access to it
+                        if (section.id === 'organization-billing' && !canAccessBilling) {
+                            return false
+                        }
+                        if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
+                            return false
+                        }
 
-                    return true
-                })
+                        return true
+                    })
+                    .map((section) => {
+                        // Hide from the sidebar when there's nothing connected, but keep the section
+                        // resolvable so navigating straight to it (or being on it when the last
+                        // integration is disconnected) doesn't turn into a false "not found".
+                        if (
+                            section.id === 'organization-integrations' &&
+                            (!organizationIntegrations || organizationIntegrations.length === 0)
+                        ) {
+                            return { ...section, hideFromNavigation: true }
+                        }
+                        return section
+                    })
 
                 // If there's no current organization, hide everything except user sections
                 if (!currentOrganization) {

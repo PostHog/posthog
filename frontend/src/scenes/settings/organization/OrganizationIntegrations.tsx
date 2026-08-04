@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 
+import { IconPlug } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { IntegrationView } from 'lib/integrations/IntegrationView'
@@ -9,7 +10,7 @@ import { IntegrationType } from '~/types'
 
 import { organizationIntegrationsLogic } from './organizationIntegrationsLogic'
 
-export function OrganizationIntegrations(): JSX.Element | null {
+export function OrganizationIntegrations(): JSX.Element {
     const { organizationIntegrations, organizationIntegrationsLoading } = useValues(organizationIntegrationsLogic)
 
     if (organizationIntegrationsLoading) {
@@ -22,7 +23,12 @@ export function OrganizationIntegrations(): JSX.Element | null {
     }
 
     if (!organizationIntegrations || organizationIntegrations.length === 0) {
-        return null
+        return (
+            <div className="px-4 py-6 text-center text-sm text-secondary rounded border bg-surface-primary">
+                <IconPlug className="text-3xl mb-2 opacity-40" />
+                <p className="mb-0">No integrations connected at the organization level</p>
+            </div>
+        )
     }
 
     return (
