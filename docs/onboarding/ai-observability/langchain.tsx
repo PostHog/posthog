@@ -168,7 +168,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     )
 
                                     const model = new ChatOpenAI({ apiKey: 'your_openai_api_key' })
-                                    const agent = createAgent({ llm: model, tools: [getWeather] })
+                                    const agent = createAgent({ model, tools: [getWeather] })
 
                                     async function ask(userInput: string, userId: string, conversationId: string): Promise<string> {
                                       const handler = createHandler(userId, conversationId)
