@@ -96,8 +96,8 @@ Additional properties:
 
 Tracked when a cold orchestrator parent is resumed and its queued child wakes are delivered.
 
-| Property       | Type   | Description                                      |
-| -------------- | ------ | ------------------------------------------------ |
+| Property       | Type   | Description                                       |
+| -------------- | ------ | ------------------------------------------------- |
 | `source`       | `str`  | `terminal`, `pr_merged`, or `multiple`            |
 | `cold`         | `bool` | Whether delivery required an automatic resume     |
 | `queued_count` | `int`  | Number of queued wake messages delivered together |
