@@ -434,8 +434,14 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # still be classified as a create and could land `disabled` over the policy an admin had just
         # written. Omitting the key entirely stays open to members and is what connecting a channel
         # without touching the policy does — that path preserves whatever is already stored.
-        requested_verification = (validated_data.get("config") or {}).get("push_identity_verification")
-        if requested_verification and not github_callback_state.has_team_management_access(
+        config_in = validated_data.get("config") or {}
+        requested_verification = config_in.get("push_identity_verification")
+        # Registering/clearing public keys is a security-policy change (it decides which signer is
+        # trusted), so it carries the same admin bar as the mode. `is not None` covers clearing too.
+        requested_public_keys = config_in.get("push_identity_public_keys")
+        if (
+            requested_verification or requested_public_keys is not None
+        ) and not github_callback_state.has_team_management_access(
             self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Changing push identity verification requires project admin access.")
@@ -500,6 +506,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 team_id,
                 request.user,
                 push_identity_verification=(validated_data.get("config") or {}).get("push_identity_verification"),
+                push_identity_public_keys=(validated_data.get("config") or {}).get("push_identity_public_keys"),
             )
             return instance
 
@@ -713,6 +720,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 created_by=request.user,
                 environment=environment,
                 push_identity_verification=config.get("push_identity_verification"),
+                push_identity_public_keys=config.get("push_identity_public_keys"),
             )
             return instance
 

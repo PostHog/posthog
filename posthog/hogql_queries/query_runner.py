@@ -1621,12 +1621,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 )
 
             if not self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response)):
-                count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
+                count_query_cache_hit(hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
 
-            count_query_cache_hit(self.team.pk, hit="stale", trigger=cached_response.calculation_trigger or "")
+            count_query_cache_hit(hit="stale", trigger=cached_response.calculation_trigger or "")
             # We have a stale result. If we aren't allowed to calculate, let's still return it
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -1658,7 +1658,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
         else:
-            count_query_cache_hit(self.team.pk, hit="miss", trigger="")
+            count_query_cache_hit(hit="miss", trigger="")
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
