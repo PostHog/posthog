@@ -13289,7 +13289,6 @@ export namespace Schemas {
       readonly pinned: boolean;
       /** @nullable */
       readonly pinned_at: string | null;
-      readonly is_home: boolean;
       /**
          * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
          * @nullable
@@ -13494,8 +13493,6 @@ export namespace Schemas {
          * @maxLength 64
          */
       template_id?: string;
-      /** Create the canvas as the channel's home board (at most one per channel). */
-      is_home?: boolean;
     }
 
     /**
@@ -48378,6 +48375,30 @@ export namespace Schemas {
       Openai: 'openai',
     } as const;
 
+    /**
+     * * `off` - off
+     * * `minimal` - minimal
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode
+     */
+    export type TaskRunReasoningEffortEnum = typeof TaskRunReasoningEffortEnum[keyof typeof TaskRunReasoningEffortEnum];
+
+
+    export const TaskRunReasoningEffortEnum = {
+      Off: 'off',
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+      Max: 'max',
+      Ultracode: 'ultracode',
+    } as const;
+
     export interface TaskRunArtifactMetadata {
       /**
          * Name of the local skill included in a skill_bundle artifact.
@@ -48472,13 +48493,15 @@ export namespace Schemas {
       model?: string | null;
       /** Configured reasoning effort for this run when the selected model supports it.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: TaskRunReasoningEffortEnum | null;
       /**
          * Presigned S3 URL for log access (valid for 1 hour).
          * @nullable
@@ -63271,6 +63294,16 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd_prev: number | null;
+      /**
+         * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
+         * @nullable
+         */
+      merge_queue_billable_minutes: number | null;
+      /**
+         * Merge-queue billable minutes over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      merge_queue_billable_minutes_prev: number | null;
       /** Whether the job-level source is synced (cost and queue figures exist). */
       jobs_available: boolean;
       /** 'master' or 'main', picked by observed run volume in the window. */
@@ -72116,13 +72149,15 @@ export namespace Schemas {
       model?: string;
       /** Reasoning effort to request for models that expose an effort control.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum;
+      reasoning_effort?: TaskRunReasoningEffortEnum;
       /** Context window size for models that support the 1M window.
        *
        * * `200k` - 200k
@@ -77666,10 +77701,6 @@ export namespace Schemas {
      * Only return canvases in this channel.
      */
     channel?: string;
-    /**
-     * Filter by channel-home status.
-     */
-    is_home?: boolean;
     /**
      * Number of results to return per page.
      */
