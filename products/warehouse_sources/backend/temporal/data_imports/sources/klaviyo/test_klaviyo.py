@@ -574,6 +574,36 @@ class TestGeneralizedFanOut:
             }
         ]
 
+    def test_coupon_codes_fan_out_over_coupons_instead_of_the_unfiltered_collection(self, monkeypatch: Any) -> None:
+        # Klaviyo's flat /coupon-codes list requires a coupon.id or profile.id filter and 400s
+        # without one; fanning out per coupon avoids ever calling that unfiltered endpoint.
+        pages = {
+            "https://a.klaviyo.com/api/coupons?page[size]=100": {
+                "data": [{"id": "C1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/coupons/C1/coupon-codes?page[size]=100": {
+                "data": [
+                    {
+                        "type": "coupon-code",
+                        "id": "C1-CODE1",
+                        "attributes": {"unique_code": "CODE1", "status": "UNASSIGNED"},
+                    }
+                ],
+                "links": {"next": None},
+            },
+        }
+        rows = _collect_rows("coupon_codes", monkeypatch, pages)
+        assert rows == [
+            {
+                "type": "coupon-code",
+                "id": "C1-CODE1",
+                "unique_code": "CODE1",
+                "status": "UNASSIGNED",
+                "coupon_id": "C1",
+            }
+        ]
+
     def test_flow_messages_walk_flows_then_actions_and_carry_both_ancestors(self, monkeypatch: Any) -> None:
         # Two-level fan-out: the intermediate path must be formatted with the grandparent id, and
         # each row must carry both ancestors or the flow -> action -> message chain can't be rebuilt.
