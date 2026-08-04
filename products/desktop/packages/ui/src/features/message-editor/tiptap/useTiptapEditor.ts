@@ -43,6 +43,7 @@ import { usePasteUndoStore } from "../pasteUndoStore";
 import { usePromptHistoryStore } from "../promptHistoryStore";
 import { findChipRangeById } from "../tiptap/chipRange";
 import { getEditorExtensions } from "../tiptap/extensions";
+import { getPromptEditorAttributes } from "../tiptap/promptEditorAttributes";
 import {
   type DraftContext,
   editorContentToTiptapJson,
@@ -81,9 +82,6 @@ export interface UseTiptapEditorOptions {
   onFocus?: () => void;
   onBlur?: () => void;
 }
-
-const EDITOR_CLASS =
-  "cli-editor min-h-[1.5em] w-full break-words border-none bg-transparent pr-2 text-[14px] text-[var(--gray-12)] outline-none [overflow-wrap:break-word] [white-space:pre-wrap] [word-break:break-word]";
 
 interface TrackedAutoConvertedPaste extends AutoConvertedPaste {
   kind: "file" | "github-ref";
@@ -361,7 +359,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
       editable: !disabled,
       autofocus: autoFocus ? "end" : false,
       editorProps: {
-        attributes: { class: EDITOR_CLASS, spellcheck: "false" },
+        attributes: getPromptEditorAttributes(),
         handleDOMEvents: {
           click: (_view, event) => {
             const target = (event.target as HTMLElement).closest("a");

@@ -8,6 +8,7 @@ import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 from posthog.models.person.util import get_person_by_distinct_id
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -112,7 +113,7 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
 def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     team = Team.objects.get(pk=team_id)
     events_obj = SessionReplayEvents()
-    metadata = events_obj.get_metadata(session_id=session_id, team=team)
+    metadata = events_obj.get_metadata(session_id=session_id, team=team, ch_user=ClickHouseUser.REPLAY_VISION)
     if metadata is None:
         raise IneligibleSessionError(
             "No replay metadata found",
@@ -149,6 +150,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
             extra_fields=_EXTRA_FIELDS,
             limit=_EVENTS_PER_PAGE,
             page=page_number,
+            ch_user=ClickHouseUser.REPLAY_VISION,
         )
         if page.columns and columns is None:
             columns = list(page.columns)
