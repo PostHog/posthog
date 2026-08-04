@@ -17,6 +17,7 @@ from django.conf import settings
 from kafka import KafkaProducer
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.usage_report_events_preagg.sql import (
     DISTRIBUTED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL,
@@ -86,10 +87,14 @@ def _wait_for_team_row(
 
 class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
+        # Unique group per run: reusing the shared consumer group across test invocations
+        # left a zombie session behind for the broker to time out, delaying partition
+        # assignment to the new consumer past the test's polling window.
+        self.consumer_group = f"{CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG}_test_{uuid4().hex}"
         sync_execute(SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
         sync_execute(DISTRIBUTED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
         sync_execute(WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
-        sync_execute(KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
+        sync_execute(KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL(group=self.consumer_group))
         sync_execute(USAGE_REPORT_EVENTS_PREAGG_MV_SQL())
         sync_execute(
             f"DELETE FROM {SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE} WHERE team_id = %(t)s",
