@@ -926,6 +926,25 @@ class RevokeOtherSessionsResponseSerializer(serializers.Serializer):
     revoked_count = serializers.IntegerField(help_text="Number of other login sessions that were revoked.")
 
 
+class RequestEmailVerificationSerializer(serializers.Serializer):
+    uuid = serializers.CharField(help_text="UUID of the user to send (or resend) a verification email to.")
+
+
+class RequestEmailVerificationResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the request was processed without error.")
+    email = serializers.EmailField(
+        required=False,
+        help_text="The email address the verification link was (or would be) sent to.",
+    )
+    email_sent = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the verification email was actually sent. False means the address is on our "
+            "email provider's suppression list and delivery was skipped."
+        ),
+    )
+
+
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
@@ -1152,6 +1171,10 @@ class UserViewSet(
         report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
+    @extend_schema(
+        request=RequestEmailVerificationSerializer,
+        responses=RequestEmailVerificationResponseSerializer,
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -1177,7 +1200,9 @@ class UserViewSet(
                     "Email is already verified.",
                     code="already_verified",
                 )
-            EmailVerifier.create_token_and_send_email_verification(user)
+            target_email = user.pending_email or user.email
+            email_sent = EmailVerifier.create_token_and_send_email_verification(user, check_suppression=True)
+            return Response({"success": True, "email": target_email, "email_sent": email_sent})
 
         return Response({"success": True})
 

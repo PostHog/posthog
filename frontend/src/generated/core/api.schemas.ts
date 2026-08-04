@@ -3877,6 +3877,20 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
+export interface RequestEmailVerificationApi {
+    /** UUID of the user to send (or resend) a verification email to. */
+    uuid: string
+}
+
+export interface RequestEmailVerificationResponseApi {
+    /** Whether the request was processed without error. */
+    success: boolean
+    /** The email address the verification link was (or would be) sent to. */
+    email?: string
+    /** Whether the verification email was actually sent. False means the address is on our email provider's suppression list and delivery was skipped. */
+    email_sent?: boolean
+}
+
 export type CimdVerificationTokensListParams = {
     /**
      * Number of results to return per page.

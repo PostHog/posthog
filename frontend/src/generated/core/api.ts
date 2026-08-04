@@ -62,6 +62,8 @@ import type {
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
+    RequestEmailVerificationApi,
+    RequestEmailVerificationResponseApi,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
@@ -2962,14 +2964,14 @@ export const getUsersRequestEmailVerificationCreateUrl = () => {
 }
 
 export const usersRequestEmailVerificationCreate = async (
-    userApi: NonReadonly<UserApi>,
+    requestEmailVerificationApi: RequestEmailVerificationApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getUsersRequestEmailVerificationCreateUrl(), {
+): Promise<RequestEmailVerificationResponseApi> => {
+    return apiMutator<RequestEmailVerificationResponseApi>(getUsersRequestEmailVerificationCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(userApi),
+        body: JSON.stringify(requestEmailVerificationApi),
     })
 }
 

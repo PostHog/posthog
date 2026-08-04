@@ -107,7 +107,7 @@ function NotSeeingIt(): JSX.Element {
 }
 
 function VerifyEmail(): JSX.Element {
-    const { view, uuid, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
+    const { view, uuid, email, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -230,7 +230,14 @@ function VerifyEmail(): JSX.Element {
                         Check your inbox
                     </h1>
                     <p className="PaperDesk__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                        We sent you a verification link. Click the link inside and you're in. It's valid for 24 hours.
+                        {email ? (
+                            <>
+                                We sent a verification link to <strong>{email}</strong>. Click the link inside and
+                                you're in. It's valid for 24 hours.
+                            </>
+                        ) : (
+                            "We sent you a verification link. Click the link inside and you're in. It's valid for 24 hours."
+                        )}
                     </p>
                     <NotSeeingIt />
                 </div>

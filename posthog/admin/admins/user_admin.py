@@ -195,9 +195,17 @@ class UserAdmin(DjangoUserAdmin):
         if request.POST.get("send_verification") == "1":
             try:
                 if user and not user.is_email_verified:
-                    EmailVerifier.create_token_and_send_email_verification(user)
-                    self.log_change(request, user, "Sent verification email.")
-                    messages.success(request, f"Verification email sent to {user.email}")
+                    email_sent = EmailVerifier.create_token_and_send_email_verification(user, check_suppression=True)
+                    if email_sent:
+                        self.log_change(request, user, "Sent verification email.")
+                        messages.success(request, f"Verification email sent to {user.email}")
+                    else:
+                        self.log_change(request, user, "Verification email held back (address suppressed).")
+                        messages.warning(
+                            request,
+                            f"Verification email to {user.email} was not sent. This address is on our "
+                            "email provider's suppression list and is rejecting delivery.",
+                        )
                 else:
                     messages.warning(request, "User is already verified or not found.")
             except Exception as e:

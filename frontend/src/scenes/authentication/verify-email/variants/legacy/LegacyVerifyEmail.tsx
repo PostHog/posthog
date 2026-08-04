@@ -123,7 +123,7 @@ const GetHelp = (): JSX.Element => {
 }
 
 function VerifyEmail(): JSX.Element {
-    const { view } = useValues(verifyEmailLogic)
+    const { view, email } = useValues(verifyEmailLogic)
 
     return (
         <div className="flex h-full flex-col">
@@ -137,7 +137,16 @@ function VerifyEmail(): JSX.Element {
                                 <div className="max-w-60 my-10">
                                     <MailHog className="w-full h-full" />
                                 </div>
-                                <p className="mb-6">An email has been sent with a link to verify your email address.</p>
+                                <p className="mb-6">
+                                    {email ? (
+                                        <>
+                                            An email has been sent to <strong>{email}</strong> with a link to verify
+                                            your email address.
+                                        </>
+                                    ) : (
+                                        'An email has been sent with a link to verify your email address.'
+                                    )}
+                                </p>
                                 <GetHelp />
                             </>
                         ) : view === 'verify' ? (

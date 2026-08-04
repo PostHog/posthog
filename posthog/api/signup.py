@@ -83,8 +83,12 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
     if require_email_verification:
         redirect_url = "/verify_email/" + uuid
 
+        # Surfaced so the pending-verification screen can show the user which address the email
+        # actually went to, instead of leaving them to guess whether they mistyped it.
+        query_params = [("email", user.pending_email or user.email)]
         if next_url:
-            redirect_url += "?next=" + quote(next_url, safe="")
+            query_params.append(("next", next_url))
+        redirect_url += "?" + urlencode(query_params, quote_via=quote)
 
         return redirect_url
 

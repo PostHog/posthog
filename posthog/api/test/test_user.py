@@ -29,6 +29,7 @@ from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import UserSerializer
 from posthog.constants import AvailableFeature
+from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
@@ -2642,6 +2643,15 @@ class TestEmailVerificationAPI(APIBaseTest):
         assert not self.other_user.is_email_verified
         assert not self.other_user.is_email_verified
 
+        # Resends check ESP suppression; default to "not suppressed" so existing send-path
+        # assertions aren't sensitive to a real (and here, unavailable) Customer.io lookup.
+        esp_suppression_patcher = patch(
+            "posthog.api.email_verification.check_esp_suppression",
+            return_value=ESPSuppressionResult(is_suppressed=False, from_cache=False),
+        )
+        self.mock_check_esp_suppression = esp_suppression_patcher.start()
+        self.addCleanup(esp_suppression_patcher.stop)
+
     # Email verification request
 
     @patch("posthoganalytics.capture")
@@ -2650,7 +2660,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content.decode(), '{"success":true}')
+        self.assertEqual(response.json(), {"success": True, "email": self.user.email, "email_sent": True})
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
         self.assertEqual(mail.outbox[0].subject, "Verify your email address")
@@ -2920,6 +2930,28 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["new-address@posthog.com"])
+
+    @patch("posthoganalytics.capture")
+    def test_request_verification_email_held_back_when_address_suppressed(self, mock_capture):
+        # A resend into a confirmed-suppressed mailbox must not go out silently - support needs
+        # a traceable event, and the resend response must say so, instead of a resend loop that
+        # never delivers and never explains why.
+        set_instance_setting("EMAIL_HOST", "localhost")
+        self.mock_check_esp_suppression.return_value = ESPSuppressionResult(
+            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
+        )
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.other_user.uuid})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "email": self.other_user.email, "email_sent": False})
+        self.assertEqual(len(mail.outbox), 0)
+        mock_capture.assert_any_call(
+            distinct_id=self.other_user.distinct_id,
+            event="verification email not sent",
+            properties={"reason": ESPSuppressionReason.SUPPRESSED},
+        )
 
 
 class TestUserTwoFactor(APIBaseTest):
