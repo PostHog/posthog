@@ -3323,7 +3323,7 @@ export interface EmitReportResponseApi {
     /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
     emitted: boolean
     /**
-     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `self_driving_disabled` | `source_disabled` | null when not gate-skipped.
      * @nullable
      */
     skipped_reason: string | null
@@ -3423,7 +3423,7 @@ export interface EmitFindingResponseApi {
     /** Whether `emit_signal` was actually fired. */
     emitted: boolean
     /**
-     * `ai_processing_not_approved` | `source_disabled` | null when emitted normally.
+     * `ai_processing_not_approved` | `self_driving_disabled` | `source_disabled` | null when emitted normally.
      * @nullable
      */
     skipped_reason: string | null
