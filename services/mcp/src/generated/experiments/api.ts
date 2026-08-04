@@ -12417,6 +12417,10 @@ export const ExperimentsBulkUpdateTagsCreateParams = /* @__PURE__ */ zod.object(
 
 export const experimentsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const experimentsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const experimentsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const ExperimentsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -12428,7 +12432,10 @@ export const ExperimentsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(experimentsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(experimentsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**

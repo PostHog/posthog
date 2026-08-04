@@ -12835,7 +12835,11 @@ export namespace Schemas {
        * * `remove` - remove
        * * `set` - set */
       action: BulkUpdateTagsActionEnum;
-      /** Tag names to add, remove, or set. */
+      /**
+         * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
       tags: string[];
     }
 
@@ -12847,7 +12851,7 @@ export namespace Schemas {
     export interface BulkUpdateTagsUUIDError {
       /** UUID of the object that was skipped. */
       id: string;
-      /** Why the object was skipped, e.g. 'Not found'. */
+      /** Why the object was skipped, e.g. 'Not found or no edit access'. */
       reason: string;
     }
 
@@ -12873,7 +12877,11 @@ export namespace Schemas {
        * * `remove` - remove
        * * `set` - set */
       action: BulkUpdateTagsActionEnum;
-      /** Tag names to add, remove, or set. */
+      /**
+         * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
       tags: string[];
     }
 

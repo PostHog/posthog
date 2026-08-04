@@ -9106,7 +9106,7 @@ class TestExperimentTags(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["updated"] == [{"id": experiment["id"], "tags": ["added", "existing"]}]
-        assert body["skipped"] == [{"id": 999999, "reason": "Not found"}]
+        assert body["skipped"] == [{"id": 999999, "reason": "Not found or no edit access"}]
 
     def test_bulk_update_tags_works_with_personal_api_key(self):
         # scope_object_write_actions must include bulk_update_tags for PAT access — a config-only

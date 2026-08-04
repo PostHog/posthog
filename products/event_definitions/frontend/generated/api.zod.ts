@@ -102,6 +102,10 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const eventDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const eventDefinitionsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const eventDefinitionsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const EventDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
     .object({
         ids: zod
@@ -114,6 +118,9 @@ export const EventDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
             ),
-        tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+        tags: zod
+            .array(zod.string().max(eventDefinitionsBulkUpdateTagsCreateBodyTagsItemMax))
+            .max(eventDefinitionsBulkUpdateTagsCreateBodyTagsMax)
+            .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
     })
     .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')

@@ -290,6 +290,10 @@ export const InsightsBulkRestoreCreateBody = /* @__PURE__ */ zod.object({
  */
 export const insightsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const insightsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const insightsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -301,7 +305,10 @@ export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(insightsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(insightsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**
