@@ -91,10 +91,7 @@ describe('Hogflow Executor', () => {
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorAsyncService(
-            new HogExecutorService(
-                { executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
-                hogInputsService
-            ),
+            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
