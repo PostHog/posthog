@@ -46,6 +46,7 @@ from posthog.models.file_system.file_system_view_log import get_recent_file_syst
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
 logger = logging.getLogger(__name__)
@@ -221,9 +222,38 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return {}
         return denied_short_id_refs(self.user_access_control, self.team.project_id)
 
+    @cached_property
+    def _accessible_team_ids(self) -> Optional[set[int]]:
+        """Environments in this project the user may see, or None when nothing needs filtering.
+
+        The tree deliberately spans every environment in the project, but project-level access is
+        configured per environment and a user can be denied one outright. Resource and object
+        rules don't express that: an environment with no rules of its own falls back to the
+        resource default, so a denied environment's rows would otherwise list and resolve as
+        editable. Mirrors the carve-outs in `filter_and_annotate_file_system_queryset`, which
+        already lets staff and org admins past every other check here.
+        """
+        user_access_control = self.user_access_control
+        if not user_access_control:
+            return None
+        if self.request.user.is_staff or user_access_control.is_organization_admin:
+            return None
+        if not EE_AVAILABLE or not user_access_control.access_controls_supported:
+            return None
+
+        team_ids = Team.objects.filter(project_id=self.team.project_id).values_list("id", flat=True)
+        return {
+            team_id
+            for team_id, team_access in user_access_control.for_team_ids(team_ids).items()
+            if team_access.has_project_access
+        }
+
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
         if not self.user_access_control:
             return queryset
+        accessible_team_ids = self._accessible_team_ids
+        if accessible_team_ids is not None:
+            queryset = queryset.filter(team_id__in=accessible_team_ids)
         return self.user_access_control.filter_and_annotate_file_system_queryset(
             queryset, extra_denied_refs=self._denied_short_id_refs
         )

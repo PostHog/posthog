@@ -1648,6 +1648,30 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=entry.pk).exists())
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_environment_denied_at_project_level_is_neither_listed_nor_deletable(self, mock_flag):
+        team2 = self._create_sibling_team()
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        self._create_access_control(
+            resource="project",
+            resource_id=str(team2.id),
+            access_level="none",
+            organization_member=membership,
+            team=team2,
+        )
+        dashboard = Dashboard.objects.create(team=team2, name="Denied env", created_by=self.other_user)
+        entry = self._sole_entry_for(file_type="dashboard", ref=str(dashboard.pk), path="Docs/Denied env", team=team2)
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.content)
+        paths = {item["path"] for item in list_response.json()["results"]}
+        self.assertNotIn("Docs/Denied env", paths)
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_queries_do_not_scale_with_environment_count(self, mock_flag):
         insight = Insight.objects.create(team=self.team, name="Denied insight", created_by=self.other_user)
         self._create_access_control(resource="insight", resource_id=str(insight.pk), access_level="none")

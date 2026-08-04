@@ -1266,6 +1266,20 @@ class UserAccessControl:
         return bool(level and level != NO_ACCESS_LEVEL)
 
     @cached_property
+    def has_project_access(self) -> bool:
+        """Whether the user has any access to this instance's own team at the project level.
+
+        Resource and object rules only answer what the user may do with a kind of thing inside a
+        team, and fall back to `default_access_level` for a team that has no rules of its own. On
+        their own they will therefore grant editor in a team the user was explicitly denied, so
+        anything resolving access across several teams has to consult this separately.
+        """
+        if self._team is None:
+            return True
+        level = self.access_level_for_object(self._team, "project")
+        return bool(level and level != NO_ACCESS_LEVEL)
+
+    @cached_property
     def blocked_resources(self) -> list[str]:
         """Sorted list of resources the user has no access to at the resource level."""
         if self.is_organization_admin:

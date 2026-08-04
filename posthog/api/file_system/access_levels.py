@@ -282,6 +282,14 @@ def bulk_file_system_access_levels(
     for (entry_type, team_id), creator_by_provided_ref in entries_by_type_team.items():
         resource = cast(APIScopeObject, entry_type)
 
+        if not access_controls_by_team[team_id].has_project_access:
+            # Denied the whole environment, so nothing in it resolves. Without this the object
+            # rules below fall back to the resource default (editor for most types) for an
+            # environment that has no rules of its own, granting exactly what was denied.
+            for ref in creator_by_provided_ref:
+                results[(entry_type, ref, team_id)] = None
+            continue
+
         objects: list[tuple[str, Optional[int]]] = []
         ref_by_pk: dict[str, str] = {}
         for ref, provided_creator in creator_by_provided_ref.items():
