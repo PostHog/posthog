@@ -2439,6 +2439,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 )
                 actions.setExperiment(response)
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 refreshTreeItem('experiment', String(values.experimentId))
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to end experiment')
@@ -2464,6 +2465,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/pause`
                 )
                 actions.setExperiment(response)
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 actions.closePauseExperimentModal()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to pause experiment')
@@ -2475,6 +2477,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/resume`
                 )
                 actions.setExperiment(response)
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 actions.closeResumeExperimentModal()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to resume experiment')
@@ -2490,6 +2493,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure`
                 )
                 actions.setExperiment(response)
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 refreshTreeItem('experiment', String(values.experimentId))
                 lemonToast.success('Exposure frozen — enrolled users keep their variant and metrics keep updating')
             } catch (error: any) {
@@ -2508,6 +2512,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unfreeze_exposure`
                 )
                 actions.setExperiment(response)
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 refreshTreeItem('experiment', String(values.experimentId))
                 lemonToast.success('Exposure unfrozen — new users can enroll again')
             } catch (error: any) {
@@ -2523,6 +2528,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     { disable_feature_flag: disableFeatureFlag }
                 )
                 actions.setExperiment(response)
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 refreshTreeItem('experiment', String(values.experimentId))
                 lemonToast.info('Experiment archived')
             } catch (error: any) {
@@ -2535,6 +2541,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unarchive`
                 )
                 actions.setExperiment(response)
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 refreshTreeItem('experiment', String(values.experimentId))
                 lemonToast.info('Experiment unarchived')
             } catch (error: any) {
@@ -2729,6 +2736,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/reset`
                 )
                 actions.setExperiment(response)
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 refreshTreeItem('experiment', String(values.experimentId))
                 // Metric results live in separate reducers not covered by setExperiment
                 actions.clearMetricsResults()
@@ -2777,6 +2785,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 )
                 actions.setExperiment(response)
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 refreshTreeItem('experiment', String(values.experimentId))
                 actions.closeFinishExperimentModal()
                 lemonToast.success(
@@ -2811,37 +2820,35 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
+            const updatedParameters = {
+                ...values.experiment.parameters,
+                variant_screenshot_media_ids: variantPreviewMediaIds,
+            }
+            // Routed through updateExperiment (not a raw api.update) so this write carries the
+            // concurrency handshake and keeps unmodifiedExperiment.version in sync — otherwise the
+            // server-side version bump it causes goes unnoticed and 409s the user's next edit.
+            // updateExperiment already surfaces its own error toast on failure.
             try {
-                const updatedParameters = {
-                    ...values.experiment.parameters,
-                    variant_screenshot_media_ids: variantPreviewMediaIds,
-                }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                await asyncActions.updateExperiment({
                     parameters: updatedParameters,
                     update_feature_flag_params: false,
                 })
-                actions.setExperiment({
-                    parameters: updatedParameters,
-                })
             } catch {
-                lemonToast.error('Failed to update experiment variant images')
+                // handled by updateExperiment
             }
         },
         updateExperimentVariantNotes: async ({ variantNotes }) => {
+            const updatedParameters = {
+                ...values.experiment.parameters,
+                variant_notes: variantNotes,
+            }
             try {
-                const updatedParameters = {
-                    ...values.experiment.parameters,
-                    variant_notes: variantNotes,
-                }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                await asyncActions.updateExperiment({
                     parameters: updatedParameters,
                     update_feature_flag_params: false,
                 })
-                actions.setExperiment({
-                    parameters: updatedParameters,
-                })
             } catch {
-                lemonToast.error('Failed to update experiment variant notes')
+                // handled by updateExperiment
             }
         },
         updateDistribution: async ({ variants, rolloutPercentage }) => {

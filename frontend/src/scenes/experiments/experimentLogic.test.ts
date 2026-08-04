@@ -559,6 +559,38 @@ describe('experimentLogic', () => {
             )
         })
 
+        it('includes the concurrency payload when updating variant screenshots', async () => {
+            const snapshot = { ...experiment, version: 4 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue(snapshot)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperimentVariantImages({ control: ['media-1'] })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ version: 4 })
+            )
+        })
+
+        it('includes the concurrency payload when updating variant notes', async () => {
+            const snapshot = { ...experiment, version: 4 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue(snapshot)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperimentVariantNotes({ control: 'looks good' })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ version: 4 })
+            )
+        })
+
         it('reloads fresh state but keeps the rejected scalar edit on a version conflict', async () => {
             const snapshot = { ...experiment, version: 1 } as Experiment
             logic.actions.setUnmodifiedExperiment(snapshot)
@@ -1243,12 +1275,13 @@ describe('experimentLogic', () => {
 
     describe('archiveExperiment', () => {
         it('calls archive endpoint and dispatches setExperiment with response', async () => {
-            const archivedResponse = { ...experiment, archived: true }
+            const archivedResponse = { ...experiment, archived: true, version: (experiment.version ?? 0) + 1 }
             const createSpy = jest.spyOn(api, 'create').mockResolvedValue(archivedResponse)
 
             const keyed = experimentLogic({ experimentId: experiment.id })
             keyed.mount()
             keyed.actions.setExperiment(experiment)
+            keyed.actions.setUnmodifiedExperiment(experiment)
 
             await expectLogic(keyed, () => {
                 keyed.actions.archiveExperiment()
@@ -1259,6 +1292,9 @@ describe('experimentLogic', () => {
             expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/archive`), {
                 disable_feature_flag: false,
             })
+            // The archive endpoint bumps the server-side version — unmodifiedExperiment must track it,
+            // or the next PATCH sends a stale version and 409s against the user's own edit.
+            expect(keyed.values.unmodifiedExperiment?.version).toBe(archivedResponse.version)
             createSpy.mockRestore()
             keyed.unmount()
         })
@@ -1296,17 +1332,47 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('unarchiveExperiment', () => {
+        it('calls unarchive endpoint and syncs unmodifiedExperiment with the response', async () => {
+            const archivedExperiment = { ...experiment, archived: true } as Experiment
+            const unarchivedResponse = { ...experiment, archived: false, version: (experiment.version ?? 0) + 1 }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(unarchivedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(archivedExperiment)
+            keyed.actions.setUnmodifiedExperiment(archivedExperiment)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.unarchiveExperiment()
+            })
+                .toDispatchActions(['unarchiveExperiment', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/unarchive`))
+            expect(keyed.values.experiment.archived).toBe(false)
+            // Unarchiving bumps the server-side version — unmodifiedExperiment must track it, or the
+            // next edit sends a stale version and 409s against the user's own change.
+            expect(keyed.values.unmodifiedExperiment?.version).toBe(unarchivedResponse.version)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+    })
+
     describe('pauseExperiment', () => {
         it('calls pause endpoint and updates both experiment and feature flag state', async () => {
             const pausedResponse = {
                 ...experiment,
                 feature_flag: { ...experiment.feature_flag, active: false },
+                version: (experiment.version ?? 0) + 1,
             }
             const createSpy = jest.spyOn(api, 'create').mockResolvedValue(pausedResponse)
 
             const keyed = experimentLogic({ experimentId: experiment.id })
             keyed.mount()
             keyed.actions.setExperiment(experiment)
+            keyed.actions.setUnmodifiedExperiment(experiment)
 
             // Pre-condition: flag is active
             expect(keyed.values.experiment.feature_flag?.active).toBe(true)
@@ -1322,6 +1388,9 @@ describe('experimentLogic', () => {
             // Post-condition: both experiment and nested feature flag are updated
             expect(keyed.values.experiment.feature_flag?.active).toBe(false)
             expect(keyed.values.experiment.id).toBe(experiment.id)
+            // Pausing bumps the server-side version — unmodifiedExperiment must track it, or the
+            // next edit sends a stale version and 409s against the user's own change.
+            expect(keyed.values.unmodifiedExperiment?.version).toBe(pausedResponse.version)
 
             createSpy.mockRestore()
             keyed.unmount()
@@ -1369,12 +1438,14 @@ describe('experimentLogic', () => {
             const resumedResponse = {
                 ...experiment,
                 feature_flag: { ...experiment.feature_flag, active: true },
+                version: (experiment.version ?? 0) + 1,
             }
             const createSpy = jest.spyOn(api, 'create').mockResolvedValue(resumedResponse)
 
             const keyed = experimentLogic({ experimentId: experiment.id })
             keyed.mount()
             keyed.actions.setExperiment(pausedExperiment)
+            keyed.actions.setUnmodifiedExperiment(pausedExperiment)
 
             // Pre-condition: flag is inactive (paused)
             expect(keyed.values.experiment.feature_flag?.active).toBe(false)
@@ -1390,6 +1461,9 @@ describe('experimentLogic', () => {
             // Post-condition: both experiment and nested feature flag are updated
             expect(keyed.values.experiment.feature_flag?.active).toBe(true)
             expect(keyed.values.experiment.id).toBe(experiment.id)
+            // Resuming bumps the server-side version — unmodifiedExperiment must track it, or the
+            // next edit sends a stale version and 409s against the user's own change.
+            expect(keyed.values.unmodifiedExperiment?.version).toBe(resumedResponse.version)
 
             createSpy.mockRestore()
             keyed.unmount()
@@ -1430,12 +1504,13 @@ describe('experimentLogic', () => {
 
     describe('freezeExposure', () => {
         it('calls freeze_exposure endpoint, updates experiment, and toggles the loading guard', async () => {
-            const frozenResponse = { ...experiment, status: 'exposure_frozen' }
+            const frozenResponse = { ...experiment, status: 'exposure_frozen', version: (experiment.version ?? 0) + 1 }
             const createSpy = jest.spyOn(api, 'create').mockResolvedValue(frozenResponse)
 
             const keyed = experimentLogic({ experimentId: experiment.id })
             keyed.mount()
             keyed.actions.setExperiment(experiment)
+            keyed.actions.setUnmodifiedExperiment(experiment)
 
             expect(keyed.values.freezeExposureLoading).toBe(false)
 
@@ -1451,6 +1526,9 @@ describe('experimentLogic', () => {
             expect(keyed.values.experiment.status).toBe('exposure_frozen')
             // Loading guard is reset after the request settles.
             expect(keyed.values.freezeExposureLoading).toBe(false)
+            // Freezing bumps the server-side version — unmodifiedExperiment must track it, or the
+            // next edit sends a stale version and 409s against the user's own change.
+            expect(keyed.values.unmodifiedExperiment?.version).toBe(frozenResponse.version)
 
             createSpy.mockRestore()
             keyed.unmount()
@@ -1477,12 +1555,14 @@ describe('experimentLogic', () => {
 
     describe('unfreezeExposure', () => {
         it('calls unfreeze_exposure endpoint, updates experiment, and toggles the loading guard', async () => {
-            const unfrozenResponse = { ...experiment, status: 'running' }
+            const unfrozenResponse = { ...experiment, status: 'running', version: (experiment.version ?? 0) + 1 }
             const createSpy = jest.spyOn(api, 'create').mockResolvedValue(unfrozenResponse)
 
             const keyed = experimentLogic({ experimentId: experiment.id })
             keyed.mount()
-            keyed.actions.setExperiment({ ...experiment, status: 'exposure_frozen' } as Experiment)
+            const frozenExperiment = { ...experiment, status: 'exposure_frozen' } as Experiment
+            keyed.actions.setExperiment(frozenExperiment)
+            keyed.actions.setUnmodifiedExperiment(frozenExperiment)
 
             await expectLogic(keyed, () => {
                 keyed.actions.unfreezeExposure()
@@ -1495,6 +1575,9 @@ describe('experimentLogic', () => {
             )
             expect(keyed.values.experiment.status).toBe('running')
             expect(keyed.values.unfreezeExposureLoading).toBe(false)
+            // Unfreezing bumps the server-side version — unmodifiedExperiment must track it, or the
+            // next edit sends a stale version and 409s against the user's own change.
+            expect(keyed.values.unmodifiedExperiment?.version).toBe(unfrozenResponse.version)
 
             createSpy.mockRestore()
             keyed.unmount()
@@ -1516,12 +1599,14 @@ describe('experimentLogic', () => {
                 conclusion: null,
                 conclusion_comment: null,
                 status: 'draft',
+                version: (experiment.version ?? 0) + 1,
             }
             const createSpy = jest.spyOn(api, 'create').mockResolvedValue(resetResponse)
 
             const keyed = experimentLogic({ experimentId: experiment.id })
             keyed.mount()
             keyed.actions.setExperiment(runningExperiment)
+            keyed.actions.setUnmodifiedExperiment(runningExperiment)
 
             // Pre-condition: experiment is running with cached metric results
             expect(keyed.values.experiment.start_date).toBe('2026-03-17T10:00:00Z')
@@ -1550,6 +1635,9 @@ describe('experimentLogic', () => {
             expect(keyed.values.secondaryMetricsResults).toEqual([])
             expect(keyed.values.primaryMetricsResultsErrors).toEqual([])
             expect(keyed.values.secondaryMetricsResultsErrors).toEqual([])
+            // Resetting bumps the server-side version — unmodifiedExperiment must track it, or the
+            // next edit sends a stale version and 409s against the user's own change.
+            expect(keyed.values.unmodifiedExperiment?.version).toBe(resetResponse.version)
 
             createSpy.mockRestore()
             keyed.unmount()
@@ -1601,12 +1689,14 @@ describe('experimentLogic', () => {
                 ...runningExperiment,
                 end_date: '2026-03-24T10:00:00Z',
                 status: 'stopped',
+                version: (experiment.version ?? 0) + 1,
             }
             const createSpy = jest.spyOn(api, 'create').mockResolvedValue(endedResponse)
 
             const keyed = experimentLogic({ experimentId: experiment.id })
             keyed.mount()
             keyed.actions.setExperiment(runningExperiment)
+            keyed.actions.setUnmodifiedExperiment(runningExperiment)
 
             // Pre-condition: experiment is running
             expect(keyed.values.experiment.end_date).toBeFalsy()
@@ -1627,6 +1717,9 @@ describe('experimentLogic', () => {
             // Post-condition: experiment is ended
             expect(keyed.values.experiment.end_date).toBe('2026-03-24T10:00:00Z')
             expect(keyed.values.experiment.status).toBe('stopped')
+            // Ending bumps the server-side version — unmodifiedExperiment must track it, or the
+            // next edit sends a stale version and 409s against the user's own change.
+            expect(keyed.values.unmodifiedExperiment?.version).toBe(endedResponse.version)
 
             createSpy.mockRestore()
             keyed.unmount()
@@ -1693,12 +1786,14 @@ describe('experimentLogic', () => {
                         },
                     },
                 },
+                version: (experiment.version ?? 0) + 1,
             }
             const createSpy = jest.spyOn(api, 'create').mockResolvedValue(shippedResponse)
 
             const keyed = experimentLogic({ experimentId: experiment.id })
             keyed.mount()
             keyed.actions.setExperiment(runningExperiment)
+            keyed.actions.setUnmodifiedExperiment(runningExperiment)
 
             // Pre-condition: experiment is running
             expect(keyed.values.experiment.status).toBe('running')
@@ -1727,6 +1822,9 @@ describe('experimentLogic', () => {
                 { key: 'control', rollout_percentage: 0 },
                 { key: 'test', rollout_percentage: 100 },
             ])
+            // Shipping bumps the server-side version — unmodifiedExperiment must track it, or the
+            // next edit sends a stale version and 409s against the user's own change.
+            expect(keyed.values.unmodifiedExperiment?.version).toBe(shippedResponse.version)
 
             createSpy.mockRestore()
             keyed.unmount()
