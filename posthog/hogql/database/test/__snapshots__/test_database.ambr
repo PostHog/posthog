@@ -3932,6 +3932,155 @@
           "row_count": null,
           "type": "system"
       },
+      "system.canvases": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "channel_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "channel_id",
+                  "id": null,
+                  "name": "channel_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "template_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "template_id",
+                  "id": null,
+                  "name": "template_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "context": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "context",
+                  "id": null,
+                  "name": "context",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "generation_task_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "generation_task_id",
+                  "id": null,
+                  "name": "generation_task_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "pinned_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "pinned_at",
+                  "id": null,
+                  "name": "pinned_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "is_home": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_home",
+                  "id": null,
+                  "name": "is_home",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "current_source_version_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "current_source_version_id",
+                  "id": null,
+                  "name": "current_source_version_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "published_build_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "published_build_id",
+                  "id": null,
+                  "name": "published_build_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.canvases",
+          "name": "system.canvases",
+          "row_count": null,
+          "type": "system"
+      },
       "system.cohort_calculation_history": {
           "certification": null,
           "fields": {
@@ -12819,6 +12968,155 @@
           },
           "id": "system.business_knowledge_sources",
           "name": "system.business_knowledge_sources",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.canvases": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "channel_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "channel_id",
+                  "id": null,
+                  "name": "channel_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "template_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "template_id",
+                  "id": null,
+                  "name": "template_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "context": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "context",
+                  "id": null,
+                  "name": "context",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "generation_task_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "generation_task_id",
+                  "id": null,
+                  "name": "generation_task_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "pinned_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "pinned_at",
+                  "id": null,
+                  "name": "pinned_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "is_home": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_home",
+                  "id": null,
+                  "name": "is_home",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "current_source_version_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "current_source_version_id",
+                  "id": null,
+                  "name": "current_source_version_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "published_build_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "published_build_id",
+                  "id": null,
+                  "name": "published_build_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.canvases",
+          "name": "system.canvases",
           "row_count": null,
           "type": "system"
       },
