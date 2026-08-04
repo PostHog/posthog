@@ -75,6 +75,7 @@ import type {
     TaskCreateApi,
     TaskDetailDTOApi,
     TaskMentionsListParams,
+    TaskParentMessageRequestApi,
     TaskPinRequestApi,
     TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
@@ -2238,6 +2239,27 @@ export const tasksActiveWizardRunRetrieve = async (
     return apiMutator<WizardCloudRunDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksMessageParentCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/message-parent/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ * @summary Send a message to the parent task
+ */
+export const tasksMessageParentCreate = async (
+    projectId: string,
+    taskParentMessageRequestApi: TaskParentMessageRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksMessageParentCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskParentMessageRequestApi),
     })
 }
 

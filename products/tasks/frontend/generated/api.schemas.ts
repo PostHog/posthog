@@ -3463,6 +3463,10 @@ export interface WizardCloudRunDTOApi {
     started_at?: string | null
 }
 
+export interface TaskParentMessageRequestApi {
+    message: string
+}
+
 export interface PinnedTaskIdsResponseApi {
     /** Visible task IDs pinned by the requester, newest pin first. */
     task_ids: string[]
