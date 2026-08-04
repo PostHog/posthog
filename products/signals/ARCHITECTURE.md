@@ -1205,6 +1205,10 @@ Enforcement exists to stop runaway generation, not to guarantee billing capture,
 A cancel that errors part-way is logged loudly (`self_driving_quota_cancel_failed`) rather than counted as a quota-check fail-open, and nothing is released:
 a still-alive run gets the cancel retried on the next recheck, while a run the completion signal did reach keeps its implementation records until they are released manually.
 
+**The pause is blanket: billing-exempt reports pause too.**
+Every gate reads only the org-level quota verdict; none consults a report's `billing_exempt_reason`, so PostHog-system reports (health checks, engineering analytics, exempt scout skills) — which never consume the quota — pause alongside billable work while the org is over its cap.
+This is deliberate: a single org-level contract ("over the cap → self-driving pauses") stays simple to reason about and support, the paused work is PostHog-generated and resumes organically once the limit lifts, and an org at its spend ceiling also stops consuming agent compute for non-billable reports.
+
 **Resume is organic, never automatic.**
 Nothing re-spawns paused work when the limit is raised or the billing period resets:
 a `candidate` report re-promotes on its next matching signal (ingestion unmutes once the team is no longer limited),
