@@ -589,13 +589,14 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
 
     links = "[ENG-123](https://linear.app/acme/issue/ENG-123), [#42](https://github.com/acme/repo/issues/42)"
     assert (f"Source issues: {links}" in description) is expect_references
-    # The PR-body instruction must carry the concrete links: an agent told merely to "reference the
-    # source issue" has nothing to link, which is the gap this feature closes.
-    assert (f"References: {links}" in description) is expect_references
-    # No references must mean no dangling block at all, not an empty "Source issues:" label.
+    # The refs ride the established PR footer convention with their concrete links: an agent told
+    # merely to "reference the source issue" has nothing to link, which is the gap this feature closes.
+    assert (f", addressing {links}.' -" in description) is expect_references
+    # No references must mean the plain footer and no dangling block, not an empty label.
     if not expect_references:
         assert "Source issues" not in description
-        assert "References:" not in description
+        assert "addressing" not in description
+        assert "inbox/reports/0198c0de-0000-7000-8000-000000000001).' -" in description
 
 
 @pytest.mark.parametrize(
