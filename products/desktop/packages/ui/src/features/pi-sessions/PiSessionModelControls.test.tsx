@@ -7,6 +7,11 @@ import { PiSessionModelControls } from "./PiSessionModelControls";
 
 const setConfig = vi.hoisted(() => vi.fn());
 
+vi.mock("@posthog/ui/utils/browser", () => ({ openUrlInBrowser: vi.fn() }));
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => false,
+}));
+
 vi.mock("./piPendingConfigStore", () => ({
   getPiPendingConfig: () => undefined,
   usePiPendingConfigStore: (
@@ -44,7 +49,7 @@ describe("PiSessionModelControls", () => {
       thinkingLevelsLoaded: true,
       commands: [],
       status: {
-        model: { provider: "posthog", id: "claude-opus-4-8" },
+        model: { provider: "posthog", id: "claude-opus-5" },
         thinkingLevel: "high",
       },
       queue: { steering: [], followUp: [] },
@@ -66,9 +71,10 @@ describe("PiSessionModelControls", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Model and reasoning: claude-opus-4-8 High",
+        name: "Model and reasoning: Claude Opus 5 High",
       }),
     );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
     await user.click(await screen.findByRole("menuitem", { name: /^Model/ }));
 
     expect(

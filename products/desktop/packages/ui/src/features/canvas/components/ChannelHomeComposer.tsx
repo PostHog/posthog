@@ -24,7 +24,7 @@ import { PromptInput } from "../../message-editor/components/PromptInput";
 import { contentToPlainText } from "../../message-editor/content";
 import { useDraftStore } from "../../message-editor/draftStore";
 import type { EditorHandle } from "../../message-editor/types";
-import { PiModelSelector } from "../../pi-sessions/PiSessionControls";
+import { PiReasoningLevelSelector } from "../../pi-sessions/PiReasoningLevelSelector";
 import { usePiModelCatalog } from "../../pi-sessions/usePiModelCatalog";
 import type { AgentHarness } from "../../sessions/components/HarnessSubmenu";
 import { ReasoningLevelSelector } from "../../sessions/components/ReasoningLevelSelector";
@@ -579,24 +579,20 @@ export const ChannelHomeComposer = forwardRef<
         }
         enableCommands
         enableBashMode={false}
-        modelSelector={
+        reasoningSelector={
           runtime === "pi" ? (
-            <PiModelSelector
+            <PiReasoningLevelSelector
               models={piModelCatalog}
               currentModel={currentPiModel}
-              thinkingLevel={
-                supportsPiThinking ? currentPiThinkingLevel : undefined
-              }
               thinkingLevels={piThinkingLevels}
-              disabled={isBusy || isPiConfigLoading}
-              onChange={handlePiModelChange}
+              currentThinkingLevel={currentPiThinkingLevel}
+              disabled={isBusy}
+              isLoading={isPiConfigLoading}
+              onModelChange={handlePiModelChange}
               onThinkingLevelChange={handlePiThinkingLevelChange}
               onHarnessChange={handleHarnessChange}
             />
-          ) : null
-        }
-        reasoningSelector={
-          runtime === "pi" || isLoading ? null : (
+          ) : isLoading ? null : (
             <ReasoningLevelSelector
               thoughtOption={thoughtOption}
               modelOption={modelOption}

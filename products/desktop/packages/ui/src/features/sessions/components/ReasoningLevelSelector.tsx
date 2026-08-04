@@ -65,6 +65,7 @@ interface ReasoningLevelSelectorProps {
   onChange?: (value: string) => void;
   onModelChange?: (value: string) => void;
   onAdapterChange?: (adapter: AgentAdapter) => void;
+  harness?: AgentHarness;
   onHarnessChange?: (harness: AgentHarness) => void;
   includePiHarness?: boolean;
   onConfigOptionChange?: (configId: string, value: string) => void;
@@ -125,6 +126,7 @@ export function ReasoningLevelSelector({
   onChange,
   onModelChange,
   onAdapterChange,
+  harness,
   onHarnessChange,
   includePiHarness,
   onConfigOptionChange,
@@ -196,6 +198,8 @@ export function ReasoningLevelSelector({
       onConfigOptionChange?.(modelSelect.id, value);
     }
   };
+
+  const currentHarness = harness ?? adapter;
 
   const ladderStops =
     adapter && modelSelect
@@ -398,27 +402,27 @@ export function ReasoningLevelSelector({
                 transition={{ duration: 0.12, ease: "easeOut" }}
               >
                 {onNotch && <BackRow onClick={() => setAdvanced(false)} />}
-                {adapter && (onAdapterChange || onHarnessChange) && (
+                {currentHarness && (onAdapterChange || onHarnessChange) && (
                   <HarnessSubmenu
-                    value={adapter}
+                    value={currentHarness}
                     includePi={includePiHarness && !!onHarnessChange}
-                    onChange={(harness) => {
-                      if (harness === adapter) {
+                    onChange={(nextHarness) => {
+                      if (nextHarness === currentHarness) {
                         return;
                       }
 
                       selectAndClose(() => {
-                        if (harness === "pi") {
-                          onHarnessChange?.(harness);
+                        if (nextHarness === "pi") {
+                          onHarnessChange?.(nextHarness);
                           return;
                         }
 
                         if (onHarnessChange) {
-                          onHarnessChange(harness);
+                          onHarnessChange(nextHarness);
                           return;
                         }
 
-                        onAdapterChange?.(harness);
+                        onAdapterChange?.(nextHarness);
                       });
                     }}
                   />

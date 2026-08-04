@@ -89,7 +89,7 @@ import type { EditorHandle } from "../../message-editor/types";
 import { useAutoFocusOnTyping } from "../../message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "../../message-editor/utils/persistFile";
 import { usePanelLayoutStore } from "../../panels/panelLayoutStore";
-import { PiModelSelector } from "../../pi-sessions/PiSessionControls";
+import { PiReasoningLevelSelector } from "../../pi-sessions/PiReasoningLevelSelector";
 import { usePiModelCatalog } from "../../pi-sessions/usePiModelCatalog";
 import { DropZoneOverlay } from "../../sessions/components/DropZoneOverlay";
 import type { AgentHarness } from "../../sessions/components/HarnessSubmenu";
@@ -1477,24 +1477,6 @@ export function TaskInput({
                   }
                   enableCommands
                   enableBashMode={false}
-                  modelSelector={
-                    autoresearchDraft ? null : runtime === "pi" ? (
-                      <PiModelSelector
-                        models={piModelCatalog}
-                        currentModel={currentPiModel}
-                        thinkingLevel={
-                          supportsPiThinking
-                            ? currentPiThinkingLevel
-                            : undefined
-                        }
-                        thinkingLevels={piThinkingLevels}
-                        disabled={isCreatingTask || isPiConfigLoading}
-                        onChange={handlePiModelChange}
-                        onThinkingLevelChange={handlePiThinkingLevelChange}
-                        onHarnessChange={handleHarnessChange}
-                      />
-                    ) : null
-                  }
                   historyButton={
                     <PromptHistoryDialog
                       onSelect={handleHistorySelect}
@@ -1503,7 +1485,19 @@ export function TaskInput({
                     />
                   }
                   reasoningSelector={
-                    autoresearchDraft || runtime === "pi" ? null : (
+                    autoresearchDraft ? null : runtime === "pi" ? (
+                      <PiReasoningLevelSelector
+                        models={piModelCatalog}
+                        currentModel={currentPiModel}
+                        thinkingLevels={piThinkingLevels}
+                        currentThinkingLevel={currentPiThinkingLevel}
+                        disabled={isCreatingTask}
+                        isLoading={isPiConfigLoading}
+                        onModelChange={handlePiModelChange}
+                        onThinkingLevelChange={handlePiThinkingLevelChange}
+                        onHarnessChange={handleHarnessChange}
+                      />
+                    ) : (
                       <ReasoningLevelSelector
                         thoughtOption={thoughtOption}
                         modelOption={modelOption}
