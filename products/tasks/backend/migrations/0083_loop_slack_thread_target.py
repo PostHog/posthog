@@ -4,13 +4,12 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [("tasks", "0082_task_client_provenance")]
 
     operations = [
         migrations.AddField(
-            model_name='loop',
-            name='slack_thread_target',
+            model_name="loop",
+            name="slack_thread_target",
             field=models.JSONField(blank=True, default=dict),
         ),
     ]
