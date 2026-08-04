@@ -15,6 +15,8 @@ on:
 
 concurrency:
     group: desktop-warm-caches-${{ github.ref }}
+    # hogli-lint: allow-master-cancel -- a warm cache for the newest master commit supersedes an
+    # older one, so latest-wins is the point rather than lost coverage.
     cancel-in-progress: true
 
 jobs:

@@ -1,4 +1,6 @@
-"""PR-triggered ``ci-*.yml`` workflows must declare concurrency control.
+"""Workflows must declare concurrency control that cancels the right runs.
+
+PR-triggered ``ci-*.yml`` workflows must declare a block at all.
 
 Without it, every push to a PR branch starts a fresh run while the in-flight
 one keeps burning minutes. The repo convention (used by 30+ workflows):
@@ -14,6 +16,12 @@ strategies (e.g. some jobs are per-SHA while others are per-branch).
 Using ``github.run_id`` as the fallback looks similar but disables dedup for
 push events because every run gets a unique group.
 
+A bare ``cancel-in-progress: true`` on a workflow that also triggers on push
+cancels across master pushes: the group is the same for every commit on the
+branch, so each push kills the previous commit's run. Whatever that run was
+proving (a test suite, a published artifact) never finishes for that commit.
+Gate it on the event, or key the push arm per-SHA when the workflow publishes.
+
 Some workflows are intentionally exempt from cancellation (telemetry / shadow
 measurement, schedule-dominant jobs). Those are listed in ``SKIP`` below with
 a one-line reason each.
@@ -22,17 +30,19 @@ a one-line reason each.
 from __future__ import annotations
 
 import re
+from functools import cache
 
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow
 
 BAD_FALLBACK = re.compile(r"head_ref\s*\|\|\s*github\.run_id")
+MASTER_CANCEL_MARKER = "hogli-lint: allow-master-cancel"
 
 
 class PrConcurrencyCheck(WorkflowCheck):
     id = "WF002-pr-concurrency"
     label = "PR concurrency"
-    description = "PR-triggered ci-*.yml workflows declare safe concurrency (top-level or per-job)"
+    description = "ci-*.yml PR workflows declare concurrency; push-triggered ones don't cancel master runs"
 
     # Workflows intentionally exempt from concurrency cancellation. Each entry has
     # a one-line reason so the next reader knows why.
@@ -61,6 +71,12 @@ class PrConcurrencyCheck(WorkflowCheck):
             "\n"
             "Do not use `github.run_id` as the fallback; it creates a unique concurrency group per push run.\n"
             "\n"
+            "A push-triggered workflow must not carry a bare `cancel-in-progress: true` — every commit on the\n"
+            "branch shares one group, so each push cancels the previous commit's run. Gate it on the event, or\n"
+            "for publish-on-push workflows key the push arm per-SHA:\n"
+            "    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}\n"
+            f"Latest-wins is occasionally correct (cache warmers); say so with `# {MASTER_CANCEL_MARKER} -- <reason>`.\n"
+            "\n"
             "Or, if cancelling stale runs would lose data (telemetry, schedule-only PR triggers, etc.),\n"
             f"add the filename to {type(self).__name__}.SKIP with a one-line reason."
         )
@@ -69,6 +85,19 @@ class PrConcurrencyCheck(WorkflowCheck):
         result = CheckResult()
         for wf in workflows:
             group_expr = _concurrency_group_expr(wf.concurrency)
+            if _cancels_master_pushes(wf, group_expr):
+                result.issues.append(
+                    Issue(
+                        workflow=wf.path.name,
+                        message=(
+                            "`cancel-in-progress: true` on a push-triggered workflow cancels master runs; "
+                            "gate it with `${{ github.event_name == 'pull_request' }}`, or key the push arm "
+                            "per-SHA when the workflow publishes on push"
+                        ),
+                        file=str(wf.path),
+                    )
+                )
+
             if BAD_FALLBACK.search(group_expr):
                 result.issues.append(
                     Issue(
@@ -101,6 +130,42 @@ class PrConcurrencyCheck(WorkflowCheck):
                 )
             )
         return result
+
+
+def _is_push_triggered(triggers: object) -> bool:
+    if isinstance(triggers, str):
+        return triggers == "push"
+    if isinstance(triggers, (list, dict)):
+        return "push" in triggers
+    return False
+
+
+def _cancels_master_pushes(wf: Workflow, group_expr: str) -> bool:
+    if not isinstance(wf.concurrency, dict) or wf.concurrency.get("cancel-in-progress") is not True:
+        return False
+    if not _is_push_triggered(wf.on):
+        return False
+    # A per-SHA push arm gives every commit its own group, so nothing is cancelled across pushes.
+    if "github.sha" in group_expr:
+        return False
+    return not _has_master_cancel_marker(str(wf.path))
+
+
+@cache
+def _has_master_cancel_marker(path: str) -> bool:
+    """Report an explicit, reasoned bypass comment anywhere in the file.
+
+    PyYAML drops comments, so the parsed model decides the violation and this
+    raw scan only looks for the reviewable opt-out.
+    """
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if MASTER_CANCEL_MARKER not in line:
+                continue
+            _, _, reason = line.partition(MASTER_CANCEL_MARKER)
+            if reason.strip().startswith("--") and reason.strip()[2:].strip():
+                return True
+    return False
 
 
 def _has_job_level_concurrency(wf: Workflow) -> bool:

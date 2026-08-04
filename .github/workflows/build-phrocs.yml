@@ -21,7 +21,9 @@ on:
             - '.github/workflows/build-phrocs.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
+    # Per-SHA on push: each master commit publishes its own release, so a later push must not
+    # cancel an in-flight one.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
     cancel-in-progress: true
 
 permissions:
