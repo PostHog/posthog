@@ -34,6 +34,7 @@ SLACK_USER = "U_ADMIN"
 MAX_PIE_SEGMENTS = 12
 MAX_CHART_POINTS = 20
 MAX_LABEL_CHARS = 20
+MAX_SECTION_FIELDS = 10
 
 
 @pytest.fixture(autouse=True)
@@ -184,6 +185,43 @@ class TestStatsCardRendering:
         # Slack rejects a segment whose value isn't positive.
         assert all(s["value"] > 0 for s in segments)
 
+    def test_headline_renders_as_a_two_column_field_grid(self):
+        view = _render(
+            StatsState(
+                tasks_started=24,
+                tasks_with_pr=18,
+                tasks_merged=11,
+                active_people=5,
+                median_cycle_seconds=840,
+            )
+        )
+        grid = next(b for b in view["blocks"] if b["type"] == "section" and "fields" in b)
+
+        # Slack lays `fields` out in two columns and rejects more than 10 cells; a stack of
+        # sections instead would cost one full-width row per KPI.
+        assert len(grid["fields"]) <= MAX_SECTION_FIELDS
+        rendered = [f["text"] for f in grid["fields"]]
+        assert "*Tasks*\n24" in rendered
+        assert "*Merge rate*\n61%" in rendered
+        assert "*Median run*\n14m" in rendered
+        assert "*People*\n5" in rendered
+
+    @pytest.mark.parametrize(
+        "seconds, expected",
+        [
+            (None, "—"),
+            (45, "45s"),
+            (840, "14m"),
+            (3600, "1h"),
+            (7500, "2h 5m"),
+            (259200, "3d"),
+        ],
+    )
+    def test_durations_render_compactly(self, seconds, expected):
+        view = _render(StatsState(tasks_started=1, median_cycle_seconds=seconds))
+        grid = next(b for b in view["blocks"] if b["type"] == "section" and "fields" in b)
+        assert f"*Median run*\n{expected}" in [f["text"] for f in grid["fields"]]
+
     def test_long_model_ids_are_truncated_to_the_label_cap(self):
         view = _render(
             StatsState(
@@ -258,6 +296,35 @@ class TestResolveStatsState:
         assert state.tasks_with_pr == 1
         assert state.tasks_merged == 1
         assert state.merge_rate_percent == 100
+
+    def test_median_run_time_ignores_runs_that_did_not_complete(self, slack_integration):
+        team = slack_integration.team
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        # Completed runs of 10 and 30 minutes, plus a failed one that ran for a week. The
+        # failed run stopped at an arbitrary point, so letting it in would swamp the median.
+        for index, (status, minutes) in enumerate([("completed", 10), ("completed", 30), ("failed", 10080)]):
+            mapping = _mk_task_with_run(team=team, integration=slack_integration, thread_ts=f"1.{index}", status=status)
+            TaskRun.objects.filter(pk=mapping.task_run_id).update(
+                completed_at=mapping.task_run.created_at + timedelta(minutes=minutes)
+            )
+
+        state = build_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
+
+        assert state.median_cycle_seconds == 20 * 60
+
+    def test_active_people_counts_everyone_not_just_the_leaderboard(self, slack_integration):
+        team = slack_integration.team
+        for index in range(3):
+            _mk_task_with_run(
+                team=team,
+                integration=slack_integration,
+                thread_ts=f"1.{index}",
+                slack_user_id=f"U_PERSON_{index}",
+            )
+
+        state = build_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
+
+        assert state.active_people == 3
 
     def test_model_usage_is_aggregated_from_the_latest_run_state(self, slack_integration):
         team = slack_integration.team

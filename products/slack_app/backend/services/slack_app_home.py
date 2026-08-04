@@ -933,6 +933,8 @@ def _tasks_controls_block(state: TasksState) -> dict:
 # because they describe what Slack will draw, not what the workspace did.
 _STATS_MAX_PIE_SEGMENTS = 12
 _STATS_MAX_LABEL_CHARS = 20
+# Slack renders `section.fields` in two columns and rejects more than 10 cells.
+_STATS_MAX_FIELDS = 10
 _STATS_TABLE_PAGE_SIZE = 5
 
 _OUTCOME_EMOJI: dict[str, str] = {
@@ -999,15 +1001,36 @@ def _stats_controls_block(state: StatsState) -> dict:
 
 
 def _stats_headline_block(state: StatsState) -> dict:
-    parts = [
-        f"*{state.tasks_started}* tasks",
-        f"*{state.tasks_with_pr}* opened a PR",
-        f"*{state.tasks_merged}* merged",
-    ]
     merge_rate = state.merge_rate_percent
-    if merge_rate is not None:
-        parts.append(f"*{merge_rate}%* merge rate")
-    return {"type": "section", "text": {"type": "mrkdwn", "text": "  ·  ".join(parts)}}
+    cells = [
+        ("Tasks", str(state.tasks_started)),
+        ("Opened a PR", str(state.tasks_with_pr)),
+        ("Merged", str(state.tasks_merged)),
+        ("Merge rate", "—" if merge_rate is None else f"{merge_rate}%"),
+        ("Median run", _format_duration(state.median_cycle_seconds)),
+        ("People", str(state.active_people)),
+    ]
+    # `fields` lays out in two columns, so six KPIs cost three rows instead of the six
+    # lines a stack of sections would take. Slack caps this at 10 cells.
+    return {
+        "type": "section",
+        "fields": [{"type": "mrkdwn", "text": f"*{label}*\n{value}"} for label, value in cells[:_STATS_MAX_FIELDS]],
+    }
+
+
+def _format_duration(seconds: int | None) -> str:
+    """Compact wall-clock label — `45s`, `12m`, `2h 5m`, `3d`."""
+    if seconds is None:
+        return "—"
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m"
+    hours, mins = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h {mins}m" if mins else f"{hours}h"
+    return f"{hours // 24}d"
 
 
 def _stats_outcomes_block(state: StatsState) -> dict | None:

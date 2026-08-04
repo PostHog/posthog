@@ -23,6 +23,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from statistics import median
 from typing import Any
 
 from django.core.cache import cache
@@ -128,6 +129,11 @@ class StatsState:
     tasks_started: int = 0
     tasks_with_pr: int = 0
     tasks_merged: int = 0
+    # Everyone who started something, not just the leaderboard's top rows.
+    active_people: int = 0
+    # Median wall-clock of runs that finished successfully. Failed and cancelled runs are
+    # excluded — they stop at an arbitrary point and would drag the figure toward noise.
+    median_cycle_seconds: int | None = None
     outcomes: tuple[Slice, ...] = ()
     trend: tuple[TrendBucket, ...] = ()
     models: tuple[ModelUsage, ...] = ()
@@ -252,6 +258,7 @@ def _compute_stats_state(*, slack_workspace_id: str, team_ids: list[int], window
     merged_by_person: dict[str, int] = defaultdict(int)
     opened_by_bucket: dict[date, int] = defaultdict(int)
     merged_by_bucket: dict[date, int] = defaultdict(int)
+    cycle_seconds: list[int] = []
     tasks_with_pr = 0
 
     bucket_by_week = window_days > MAX_TREND_POINTS
@@ -267,6 +274,10 @@ def _compute_stats_state(*, slack_workspace_id: str, team_ids: list[int], window
             model = (run.state or {}).get("model")
             if model:
                 model_counts[(str(model), (run.state or {}).get("runtime_adapter"))] += 1
+            if run.status == "completed" and run.completed_at and run.created_at:
+                elapsed = int((run.completed_at - run.created_at).total_seconds())
+                if elapsed >= 0:
+                    cycle_seconds.append(elapsed)
 
         tasks_by_person[person] += 1
 
@@ -282,6 +293,8 @@ def _compute_stats_state(*, slack_workspace_id: str, team_ids: list[int], window
         tasks_started=len(first_row_by_task),
         tasks_with_pr=tasks_with_pr,
         tasks_merged=len(merged_task_ids),
+        active_people=len(tasks_by_person),
+        median_cycle_seconds=int(median(cycle_seconds)) if cycle_seconds else None,
         outcomes=tuple(
             Slice(label=label, value=outcome_counts[label]) for label in _OUTCOME_ORDER if outcome_counts.get(label)
         ),
