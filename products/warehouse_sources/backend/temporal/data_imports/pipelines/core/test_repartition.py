@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
     append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
     _rewrite_into_temp,
@@ -318,6 +319,78 @@ class TestRewriteIntoTemp:
         # Partition keys recomputed under the new (day) scheme — values are %Y-%m-%d.
         for key in new_sizes:
             assert key is not None and len(key) == len("2024-01-05")
+
+    def test_stops_mid_stream_once_the_deadline_passes(self, tmp_path):
+        rows = [
+            (1, datetime.datetime(2024, 1, 5)),
+            (2, datetime.datetime(2024, 1, 20)),
+            (3, datetime.datetime(2024, 1, 25)),
+            (4, datetime.datetime(2024, 2, 2)),
+        ]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        temp_uri = str(tmp_path / "tmp")
+
+        # One reading per batch read. Batches coalesce into a commit rather than writing one each,
+        # so the deadline has to fall after the buffer has flushed at least once for any row to be
+        # observable in temp at all.
+        clock = Mock(side_effect=[0.0, 0.0, 100.0])
+
+        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
+            with pytest.raises(RepartitionBudgetExceededError):
+                asyncio.run(
+                    _rewrite_into_temp(
+                        old_delta=old_delta,
+                        temp_uri=temp_uri,
+                        storage_options={},
+                        target=RepartitionTarget(
+                            partition_keys=["created_at"],
+                            trigger_reason="test",
+                            partition_mode="datetime",
+                            partition_format="day",
+                        ),
+                        batch_size=2,
+                        logger=logger,
+                        deadline=50.0,
+                    )
+                )
+
+        # Some rows landed but not all: the deadline is checked per batch inside the streaming loop,
+        # so the rewrite gives up partway instead of either draining the reader (no bound at all) or
+        # bailing before it starts. The exact count is not asserted because the reader yields at
+        # least one batch per source file, so batch boundaries follow the source layout.
+        written = deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows
+        assert 0 < written < len(rows)
+
+    def test_a_finished_rewrite_beats_the_deadline(self, tmp_path):
+        # One source file, one batch, so the reader is exhausted on the second loop iteration. The
+        # clock is over the deadline by then: a rewrite that has already copied every row must still
+        # reach the swap rather than be thrown away and charged a failed attempt.
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        temp_uri = str(tmp_path / "tmp")
+
+        clock = Mock(side_effect=[0.0, 100.0])
+
+        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
+            rows_written, _ = asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=old_delta,
+                    temp_uri=temp_uri,
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    batch_size=2,
+                    logger=logger,
+                    deadline=50.0,
+                )
+            )
+
+        assert rows_written == len(rows)
+        assert deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows == len(rows)
 
     def test_resolved_mode_is_fixed_by_first_batch(self, tmp_path):
         # Auto-detect (mode=None) must resolve once and apply to every batch, not re-detect per batch.
