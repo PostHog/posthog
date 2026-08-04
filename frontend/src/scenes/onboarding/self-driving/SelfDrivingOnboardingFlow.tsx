@@ -15,6 +15,7 @@ import { onboardingLogic } from '../legacy/onboardingLogic'
 import { onboardingEventUsageLogic, type SelfDrivingOnboardingStepId } from '../onboardingEventUsageLogic'
 import type { SelfDrivingGoal } from './goals'
 import { goalSelectionLogic } from './goalSelectionLogic'
+import { RoughMark } from './RoughMark'
 import { AIObservabilityStep } from './steps/AIObservabilityStep'
 import { AuthorizedUrlsStep } from './steps/AuthorizedUrlsStep'
 import { BillingStep } from './steps/BillingStep'
@@ -120,7 +121,7 @@ function buildSteps(goal: SelfDrivingGoal | null): StepDef[] {
 // The card: chrome (sm+ panel; full-bleed on mobile) plus the content flex-column. Width varies per
 // step via StepDef.maxWidth — SelfDrivingOnboarding just provides the backdrop + logo.
 const CARD_CLASSES =
-    'relative w-full flex flex-col gap-5 overflow-hidden p-0 transition-[max-width] duration-300 sm:max-h-[calc(100dvh-7rem)] sm:p-8 md:p-10 sm:bg-surface-primary sm:rounded-xl sm:shadow-md sm:border sm:border-primary'
+    'relative w-full flex flex-col gap-5 overflow-hidden p-0 sm:max-h-[calc(100dvh-7rem)] sm:p-8 md:p-10 sm:bg-[#f6f5f0] sm:rounded-2xl sm:shadow-[0_16px_40px_rgb(30_50_10_/_25%)] sm:border sm:border-primary'
 
 export function SelfDrivingOnboardingFlow(): JSX.Element {
     const { completeSelfDrivingOnboarding } = useActions(onboardingLogic)
@@ -238,7 +239,20 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                     </div>
                     <div className="w-8 shrink-0" />
                 </div>
-                {step.title && <h1 className="text-2xl font-bold text-center m-0">{step.title}</h1>}
+                {step.title && (
+                    <h1 className="text-2xl font-bold text-center m-0">
+                        {/* The hand-drawn squiggle from the website's section headers - only on the
+                            goals step, where the question is the hero. Keyed by title so the
+                            annotation is redrawn at the text's width (it only measures on mount). */}
+                        {step.id === 'goals' ? (
+                            <RoughMark key={step.title} type="underline" color="#f54e00" padding={4}>
+                                {step.title}
+                            </RoughMark>
+                        ) : (
+                            step.title
+                        )}
+                    </h1>
+                )}
             </div>
 
             {/* Scrollable middle: fade edges + hover scrollbar so tall steps don't hard-crop. */}
