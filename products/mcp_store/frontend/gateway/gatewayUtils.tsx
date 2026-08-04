@@ -1,12 +1,28 @@
 import { IconCheck, IconShieldLock, IconX } from '@posthog/icons'
 import { LemonBadge, LemonTag } from '@posthog/lemon-ui'
 
+import { fullName } from 'lib/utils/strings'
+
 import { MCPToolApprovalStateEnumApi, UserBasicApi } from '../generated/api.schemas'
 
 /** ProfilePicture wants a UserBasicType-ish shape; the generated UserBasicApi's
  * `hedgehog_config` type isn't assignable, so pass the fields it actually reads. */
 export function toProfileUser(user: UserBasicApi): { first_name?: string; last_name?: string; email: string } {
     return { first_name: user.first_name, last_name: user.last_name, email: user.email }
+}
+
+/** Attributes a grant backed by someone else's connection, so a member never reads
+ * a teammate's share as their own. */
+export function sharedByLabel(users: UserBasicApi[]): string | null {
+    if (users.length === 0) {
+        return null
+    }
+    const [first, ...rest] = users
+    const name = fullName(first) || first.email
+    if (rest.length === 0) {
+        return `Shared by ${name}`
+    }
+    return `Shared by ${name} and ${rest.length} other${rest.length === 1 ? '' : 's'}`
 }
 
 export const POLICY_LABELS: Record<MCPToolApprovalStateEnumApi, string> = {

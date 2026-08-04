@@ -12,7 +12,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { ServerIcon } from '../scene/icons'
 import { gatewayAgentLogic } from './gatewayAgentLogic'
-import { DecisionTag } from './gatewayUtils'
+import { DecisionTag, sharedByLabel } from './gatewayUtils'
 import { agentServerAccessKey } from './mcpGatewayLogic'
 
 export const scene: SceneExport<(typeof gatewayAgentLogic)['props']> = {
@@ -30,6 +30,7 @@ export function GatewayAgentScene(): JSX.Element {
         allServers,
         allServersLoading,
         sharedServerIds,
+        sharesByServerId,
         recentCalls,
         recentCallsLoading,
     } = useValues(gatewayAgentLogic)
@@ -78,6 +79,9 @@ export function GatewayAgentScene(): JSX.Element {
                 <h3 className="mb-0">
                     Shared servers{!allServersLoading && ` · ${sharedServerIds.size} of ${allServers.length}`}
                 </h3>
+                <div className="text-sm text-secondary">
+                    Sharing is personal. {account.name} uses your connection only when it runs for you.
+                </div>
                 <div className="border rounded divide-y">
                     {allServersLoading && allServers.length === 0 ? (
                         <div className="flex items-center gap-2 p-3 text-sm text-secondary">
@@ -85,15 +89,18 @@ export function GatewayAgentScene(): JSX.Element {
                         </div>
                     ) : (
                         allServers.map((server) => {
+                            const share = sharesByServerId[server.id]
+                            const sharedByYou = Boolean(share?.sharedByYou)
+                            const attribution = sharedByLabel(share?.sharedByOthers ?? [])
                             const shared = sharedServerIds.has(server.id)
-                            const needsConnection = !shared && server.your_connection === null
+                            const needsConnection = !sharedByYou && server.your_connection === null
                             return (
                                 <div key={server.id} className="flex items-center gap-3 p-2">
                                     <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
                                     <div className="flex-1 min-w-0">
                                         <div className="font-semibold">{server.name}</div>
-                                        <div className="text-xs text-secondary">
-                                            {shared ? `${server.tool_count} tools` : 'Not shared'}
+                                        <div className="text-xs text-secondary truncate">
+                                            {sharedByYou ? `${server.tool_count} tools` : (attribution ?? 'Not shared')}
                                         </div>
                                     </div>
                                     {shared && (
@@ -106,7 +113,7 @@ export function GatewayAgentScene(): JSX.Element {
                                         </LemonButton>
                                     )}
                                     <LemonSwitch
-                                        checked={shared}
+                                        checked={sharedByYou}
                                         loading={agentServerAccessLoadingKeys.has(
                                             agentServerAccessKey(account.id, server.id)
                                         )}
@@ -115,7 +122,12 @@ export function GatewayAgentScene(): JSX.Element {
                                                 ? 'Connect this server before sharing it with an agent.'
                                                 : undefined
                                         }
-                                        aria-label={`${shared ? 'Revoke' : 'Grant'} ${account.name} access to ${server.name}`}
+                                        tooltip={
+                                            attribution
+                                                ? `Turning this off also removes the shares your teammates made with ${account.name}.`
+                                                : undefined
+                                        }
+                                        aria-label={`${sharedByYou ? 'Stop sharing' : 'Share'} your ${server.name} connection with ${account.name}`}
                                         onChange={(checked) => setAgentServerAccess(account.id, server.id, checked)}
                                     />
                                 </div>

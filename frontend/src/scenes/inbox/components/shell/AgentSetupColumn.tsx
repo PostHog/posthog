@@ -221,7 +221,7 @@ function CodeAccessWidget(): JSX.Element {
 
 function McpServersWidget(): JSX.Element {
     useMountedLogic(scoutMcpServersLogic)
-    const { availableScoutServers, scoutAccount, scoutServers, scoutServersLoading, scoutServersNeedingSetup } =
+    const { availableScoutServers, scoutAccount, scoutServersLoading, scoutServersNeedingSetup, yourScoutServers } =
         useValues(scoutMcpServersLogic)
     const { openSetupModal } = useActions(agentSetupModalLogic)
     const availableCount = availableScoutServers.length
@@ -234,7 +234,7 @@ function McpServersWidget(): JSX.Element {
         status = `${availableCount} available · ${needsSetupCount} need setup`
         tone = 'done'
     } else if (availableCount > 0) {
-        status = `${availableCount} available to Scout`
+        status = `${availableCount} available to your scouts`
         tone = 'done'
     } else if (needsSetupCount > 0) {
         status = `${needsSetupCount} need setup`
@@ -246,17 +246,17 @@ function McpServersWidget(): JSX.Element {
             title="MCP servers"
             size="md"
             tone={tone}
-            loading={scoutServersLoading && scoutServers.length === 0}
+            loading={scoutServersLoading && yourScoutServers.length === 0}
             status={status}
             onClick={() => openSetupModal('mcp-servers')}
         >
-            {scoutServers.length > 0 && (
+            {yourScoutServers.length > 0 && (
                 <div className="flex items-center gap-1 pt-1">
-                    {scoutServers.slice(0, 6).map((server) => (
+                    {yourScoutServers.slice(0, 6).map((server) => (
                         <ServerIcon key={server.id} iconDomain={server.icon_domain} size={16} />
                     ))}
-                    {scoutServers.length > 6 && (
-                        <span className="text-[11px] text-muted">+{scoutServers.length - 6}</span>
+                    {yourScoutServers.length > 6 && (
+                        <span className="text-[11px] text-muted">+{yourScoutServers.length - 6}</span>
                     )}
                 </div>
             )}
@@ -328,7 +328,7 @@ const SETUP_MODALS: Record<
     },
     'mcp-servers': {
         title: 'MCP servers',
-        description: 'Shared external tools available to scheduled Scouts.',
+        description: 'Connections you share with your scheduled scouts.',
         width: 560,
         body: <McpServersSection />,
     },

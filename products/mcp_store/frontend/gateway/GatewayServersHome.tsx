@@ -317,7 +317,8 @@ function PeopleRow({ server }: { server: GatewayServerEntry }): JSX.Element {
         return <div className="text-xs text-secondary mt-1">Disabled — enable it in Team settings</div>
     }
     const connections = server.connections ?? []
-    const agentCount = (server.agents ?? []).length
+    // `agents` holds one row per member grant, so an agent repeats once per member sharing it.
+    const agentCount = new Set((server.agents ?? []).map((agent) => agent.service_account_id)).size
     return (
         <div className="flex items-center gap-2 text-xs text-secondary mt-1">
             <div className="flex -space-x-1">

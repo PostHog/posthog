@@ -11,6 +11,7 @@ import { GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
 
 export function GatewayTeamAndAgents(): JSX.Element {
     const {
+        agentSharedServerCounts,
         serviceAccounts,
         members,
         memberCount,
@@ -37,33 +38,39 @@ export function GatewayTeamAndAgents(): JSX.Element {
                             No PostHog agents are available for this project.
                         </div>
                     ) : (
-                        serviceAccounts.map((account) => (
-                            <div key={account.id} className="flex items-center gap-3 p-3">
-                                <div className="flex items-center justify-center bg-surface-secondary rounded w-9 h-9">
-                                    <IconSparkles />
-                                </div>
-                                <button
-                                    className="flex-1 text-left"
-                                    onClick={() => router.actions.push(urls.mcpGatewayAgent(account.id))}
-                                >
-                                    <div className="font-semibold hover:text-accent">{account.name}</div>
-                                    <div className="text-xs text-secondary">
-                                        {account.server_ids.length} server{account.server_ids.length === 1 ? '' : 's'}
+                        serviceAccounts.map((account) => {
+                            const serverCount = agentSharedServerCounts[account.id] ?? 0
+                            return (
+                                <div key={account.id} className="flex items-center gap-3 p-3">
+                                    <div className="flex items-center justify-center bg-surface-secondary rounded w-9 h-9">
+                                        <IconSparkles />
                                     </div>
-                                </button>
-                                <div className="flex items-center justify-end gap-1 flex-wrap">
-                                    <LemonTag type={account.status === 'paused' ? 'warning' : 'success'} size="small">
-                                        {account.status === 'paused' ? 'MCP paused' : 'MCP enabled'}
-                                    </LemonTag>
+                                    <button
+                                        className="flex-1 text-left"
+                                        onClick={() => router.actions.push(urls.mcpGatewayAgent(account.id))}
+                                    >
+                                        <div className="font-semibold hover:text-accent">{account.name}</div>
+                                        <div className="text-xs text-secondary">
+                                            {serverCount} server{serverCount === 1 ? '' : 's'}
+                                        </div>
+                                    </button>
+                                    <div className="flex items-center justify-end gap-1 flex-wrap">
+                                        <LemonTag
+                                            type={account.status === 'paused' ? 'warning' : 'success'}
+                                            size="small"
+                                        >
+                                            {account.status === 'paused' ? 'MCP paused' : 'MCP enabled'}
+                                        </LemonTag>
+                                    </div>
+                                    <LemonSwitch
+                                        checked={account.status === 'active'}
+                                        loading={accountStatusLoadingIds.has(account.id)}
+                                        aria-label={`${account.status === 'active' ? 'Pause' : 'Resume'} ${account.name}`}
+                                        onChange={(checked) => toggleAccountStatus(account.id, !checked)}
+                                    />
                                 </div>
-                                <LemonSwitch
-                                    checked={account.status === 'active'}
-                                    loading={accountStatusLoadingIds.has(account.id)}
-                                    aria-label={`${account.status === 'active' ? 'Pause' : 'Resume'} ${account.name}`}
-                                    onChange={(checked) => toggleAccountStatus(account.id, !checked)}
-                                />
-                            </div>
-                        ))
+                            )
+                        })
                     )}
                 </div>
             </div>

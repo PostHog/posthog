@@ -1,4 +1,6 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -13,17 +15,29 @@ import type {
 
 import { scoutMcpServersLogic } from './scoutMcpServersLogic'
 
-const SHARED_BY: UserBasicApi = {
-    id: 1,
-    uuid: 'user-uuid',
-    email: 'member@posthog.com',
+const YOU: UserBasicApi = {
+    id: MOCK_DEFAULT_USER.id,
+    uuid: MOCK_DEFAULT_USER.uuid,
+    email: MOCK_DEFAULT_USER.email,
     hedgehog_config: null,
 }
 
-function server(id: string, name: string, connectionState: ConnectionStateEnumApi): MCPServiceAccountServerApi {
+const TEAMMATE: UserBasicApi = {
+    id: MOCK_DEFAULT_USER.id + 1,
+    uuid: 'teammate-uuid',
+    email: 'teammate@posthog.com',
+    hedgehog_config: null,
+}
+
+function server(
+    id: string,
+    name: string,
+    connectionState: ConnectionStateEnumApi,
+    sharedBy: UserBasicApi = YOU
+): MCPServiceAccountServerApi {
     return {
         id,
-        shared_by: SHARED_BY,
+        shared_by: sharedBy,
         name,
         description: `${name} workspace`,
         icon_key: name.toLowerCase(),
@@ -63,9 +77,10 @@ describe('scoutMcpServersLogic', () => {
         logic?.unmount()
     })
 
-    it('shows Scout grants and separates servers that still need setup', async () => {
+    it('separates your Scout grants from teammate grants and flags the ones needing setup', async () => {
         const notion = server('notion-id', 'Notion', 'missing_credential')
         const linear = server('linear-id', 'Linear', 'ready')
+        const teammateGithub = server('github-id', 'GitHub', 'ready', TEAMMATE)
         const zendesk = server('zendesk-id', 'Zendesk', 'ready')
         useMocks({
             get: {
@@ -75,7 +90,7 @@ describe('scoutMcpServersLogic', () => {
                         count: 2,
                         next: null,
                         previous: null,
-                        results: [account('support', [zendesk]), account('scout', [notion, linear])],
+                        results: [account('support', [zendesk]), account('scout', [notion, linear, teammateGithub])],
                     },
                 ],
             },
@@ -85,7 +100,9 @@ describe('scoutMcpServersLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.scoutServers).toEqual([notion, linear])
+        expect(logic.values.scoutServers).toEqual([notion, linear, teammateGithub])
+        expect(logic.values.yourScoutServers).toEqual([notion, linear])
+        expect(logic.values.teammateScoutServers).toEqual([teammateGithub])
         expect(logic.values.isScoutMcpAccessEnabled).toBe(true)
         expect(logic.values.readyScoutServers).toEqual([linear])
         expect(logic.values.availableScoutServers).toEqual([linear])

@@ -8,7 +8,7 @@ import { Breadcrumb } from '~/types'
 
 import { mcpGatewayAuditList } from '../generated/api'
 import { MCPAuditEventApi, MCPGatewayServerApi, MCPServiceAccountApi } from '../generated/api.schemas'
-import { mcpGatewayLogic } from './mcpGatewayLogic'
+import { AgentServerShare, agentServerShare, mcpGatewayLogic } from './mcpGatewayLogic'
 
 export interface GatewayAgentLogicProps {
     id: string
@@ -25,11 +25,13 @@ export interface gatewayAgentLogicValues {
     agentServerAccessLoadingKeys: Set<string> // mcpGatewayLogic
     allServers: MCPGatewayServerApi[] // mcpGatewayLogic
     allServersLoading: boolean // mcpGatewayLogic
+    currentUserId: number | null // mcpGatewayLogic
     serviceAccounts: MCPServiceAccountApi[] // mcpGatewayLogic
     account: MCPServiceAccountApi | null
     breadcrumbs: Breadcrumb[]
     recentCalls: MCPAuditEventApi[]
     recentCallsLoading: boolean
+    sharesByServerId: Record<string, AgentServerShare>
     sharedServerIds: Set<string>
 }
 
@@ -75,6 +77,11 @@ export interface gatewayAgentLogicMeta {
         account: (serviceAccounts: MCPServiceAccountApi[], arg: any) => MCPServiceAccountApi | null
         breadcrumbs: (account: MCPServiceAccountApi | null) => Breadcrumb[]
         sharedServerIds: (account: MCPServiceAccountApi | null) => Set<string>
+        sharesByServerId: (
+            account: MCPServiceAccountApi | null,
+            allServers: MCPGatewayServerApi[],
+            currentUserId: number | null
+        ) => Record<string, AgentServerShare>
     }
 }
 
@@ -96,6 +103,7 @@ export const gatewayAgentLogic = kea<gatewayAgentLogicType>([
             [
                 'accountStatusLoadingIds',
                 'agentServerAccessLoadingKeys',
+                'currentUserId',
                 'servers as allServers',
                 'serversLoading as allServersLoading',
                 'serviceAccounts',
@@ -136,6 +144,17 @@ export const gatewayAgentLogic = kea<gatewayAgentLogicType>([
         sharedServerIds: [
             (s) => [s.account],
             (account: MCPServiceAccountApi | null): Set<string> => new Set(account?.server_ids ?? []),
+        ],
+        sharesByServerId: [
+            (s) => [s.account, s.allServers, s.currentUserId],
+            (
+                account: MCPServiceAccountApi | null,
+                allServers: MCPGatewayServerApi[],
+                currentUserId: number | null
+            ): Record<string, AgentServerShare> =>
+                Object.fromEntries(
+                    allServers.map((server) => [server.id, agentServerShare(account, server.id, currentUserId)])
+                ),
         ],
     }),
 
