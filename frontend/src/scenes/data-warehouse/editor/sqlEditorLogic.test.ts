@@ -1498,6 +1498,31 @@ describe('sqlEditorLogic', () => {
             limit: 1000,
         }
 
+        it('offers only the PostHog tables visible in the schema sidebar', () => {
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            databaseLogic.actions.loadDatabaseSuccess({
+                tables: {
+                    persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                    hidden_table: { id: 'hidden_table', name: 'hidden_table', type: 'posthog', fields: {} },
+                    events: { id: 'events', name: 'events', type: 'posthog', fields: {} },
+                    sessions: { id: 'sessions', name: 'sessions', type: 'posthog', fields: {} },
+                    groups: { id: 'groups', name: 'groups', type: 'posthog', fields: {} },
+                },
+                joins: [],
+            })
+
+            expect(biLogic.values.availableDataSources).toEqual([
+                { table: 'events', connectionId: undefined },
+                { table: 'groups', connectionId: undefined },
+                { table: 'persons', connectionId: undefined },
+                { table: 'sessions', connectionId: undefined },
+            ])
+
+            biLogic.unmount()
+        })
+
         it('restores BI mode and configuration from the URL and keeps changes in the hash', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,

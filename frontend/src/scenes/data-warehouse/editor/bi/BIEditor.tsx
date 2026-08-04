@@ -14,7 +14,7 @@ import {
     IconTrends,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonLabel, LemonSearchableSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { dayjs } from 'lib/dayjs'
@@ -125,7 +125,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                         </LemonButton>
                     </div>
                     <div className="flex items-center gap-2">
-                        <LemonSelect
+                        <LemonSearchableSelect
                             value={config.source?.table}
                             options={availableDataSources.map((source) => ({
                                 value: source.table,
@@ -142,6 +142,9 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                     : undefined
                             }
                             placeholder="Select a table"
+                            searchPlaceholder="Search tables"
+                            searchInputDataAttr="bi-editor-data-source-search"
+                            noResultsMessage="No matching tables"
                             size="small"
                             className="min-w-64 max-w-120"
                             truncateText={{ maxWidthClass: 'max-w-96' }}

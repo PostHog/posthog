@@ -154,6 +154,7 @@ export interface biEditorLogicValues {
     allTables: DatabaseSchemaTable[] // databaseTableListLogic
     databaseConnectionId: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
+    posthogTables: DatabaseSchemaTable[] // databaseTableListLogic
     activeTab: QueryTab | null // sqlEditorLogic
     activeDropShelf: BIShelf | null
     activeExpressionEditorId: string | null
@@ -276,7 +277,11 @@ export interface biEditorLogicActions {
 export interface biEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        availableDataSources: (allTables: DatabaseSchemaTable[], databaseConnectionId: string | null) => BIDataSource[]
+        availableDataSources: (
+            allTables: DatabaseSchemaTable[],
+            posthogTables: DatabaseSchemaTable[],
+            databaseConnectionId: string | null
+        ) => BIDataSource[]
         generatedQuery: (config: BIConfig) => BIQueryBuildResult | null
     }
 }
@@ -297,7 +302,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
             sqlEditorLogic({ tabId: logicProps.tabId }),
             ['activeTab'],
             databaseTableListLogic,
-            ['allTables', 'connectionId as databaseConnectionId', 'databaseLoading'],
+            ['allTables', 'posthogTables', 'connectionId as databaseConnectionId', 'databaseLoading'],
         ],
         actions: [sqlEditorLogic({ tabId: logicProps.tabId }), ['setSourceQuery', 'syncUrlWithQuery', 'updateTab']],
     })),
@@ -401,9 +406,13 @@ export const biEditorLogic = kea<biEditorLogicType>([
     }),
     selectors({
         availableDataSources: [
-            (selectors) => [selectors.allTables, selectors.databaseConnectionId],
-            (allTables: DatabaseSchemaTable[], databaseConnectionId: string | null): BIDataSource[] =>
-                allTables
+            (selectors) => [selectors.allTables, selectors.posthogTables, selectors.databaseConnectionId],
+            (
+                allTables: DatabaseSchemaTable[],
+                posthogTables: DatabaseSchemaTable[],
+                databaseConnectionId: string | null
+            ): BIDataSource[] =>
+                (databaseConnectionId ? allTables : posthogTables)
                     .map((table) => ({ table: table.name, connectionId: databaseConnectionId ?? undefined }))
                     .sort((first, second) => first.table.localeCompare(second.table)),
         ],
