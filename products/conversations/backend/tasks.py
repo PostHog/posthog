@@ -22,16 +22,24 @@ from celery import shared_task
 from celery.exceptions import MaxRetriesExceededError, Retry
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.models.user import User
+from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
-from products.conversations.backend.events import capture_ticket_status_changed
+from products.conversations.backend.events import (
+    capture_message_received,
+    capture_message_sent,
+    capture_ticket_status_changed,
+)
 from products.conversations.backend.formatting import (
     extract_images_from_rich_content,
     rich_content_to_html,
@@ -45,6 +53,7 @@ from products.conversations.backend.mailgun import (
     MailgunTransientError,
     send_mime,
 )
+from products.conversations.backend.messages import comment_created_by_id, is_private_message, is_team_message
 from products.conversations.backend.models import (
     EmailMessageMapping,
     EmailOutboxMessage,
@@ -111,6 +120,107 @@ SUPPORTHOG_GITHUB_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:github:event:"
 def _is_duplicate_supporthog_event(event_id: str) -> bool:
     key = f"{SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX}{event_id}"
     return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
+
+
+def _is_first_customer_message(comment: CommentModel) -> bool:
+    """True when no earlier visible message exists on the ticket, i.e. this one opened it.
+
+    Derived from the messages themselves rather than the ticket's denormalized
+    message_count, so a counter that drifted can't suppress the notification.
+    """
+    return (
+        not CommentModel.objects.filter(
+            team_id=comment.team_id,
+            scope="conversations_ticket",
+            item_id=comment.item_id,
+            deleted=False,
+            created_at__lt=comment.created_at,
+        )
+        .filter(models.Q(item_context__is_private__isnull=True) | ~models.Q(item_context__is_private=True))
+        .exists()
+    )
+
+
+def _capture_support_message_usage(ticket: Ticket, event: str, properties: dict[str, Any], author: User | None) -> None:
+    """Internal product analytics for support messages, mirroring report_user_action /
+    report_team_action — but through a scoped client, since this runs in a Celery task
+    where the global client's flush can be lost."""
+    with ph_scoped_capture() as capture:
+        if author is not None and author.distinct_id:
+            if author.email:
+                properties = {**properties, "$set_once": {"email": author.email}}
+            capture(
+                distinct_id=author.distinct_id,
+                event=event,
+                properties=properties,
+                groups=groups(ticket.team.organization, ticket.team),
+            )
+        else:
+            capture(
+                distinct_id=str(ticket.team.uuid),
+                event=event,
+                properties=properties,
+                groups=groups(team=ticket.team),
+            )
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
+def process_ticket_message_side_effects(self, team_id: int, comment_id: str) -> None:
+    """Emit analytics and the new-ticket notification for a just-created ticket message.
+
+    Runs outside the request that created the message: capture_internal is a blocking
+    HTTP hop, and this used to inflate the very POST whose response the sender is
+    waiting on. Everything is re-derived from the committed comment row so a retry is
+    safe, save for the analytics events themselves, which can be emitted twice.
+    """
+    comment = CommentModel.objects.select_related("created_by").filter(id=comment_id, team_id=team_id).first()
+    if comment is None or comment.deleted:
+        return
+
+    item_context = comment.item_context
+    if is_private_message(item_context):
+        return
+
+    ticket = Ticket.objects.select_related("team").filter(id=comment.item_id, team_id=team_id).first()
+    if ticket is None:
+        return
+
+    team_message = is_team_message(item_context, comment_created_by_id(comment))
+    content = comment.content or ""
+    author = comment.created_by if team_message else None
+
+    try:
+        if team_message:
+            capture_message_sent(ticket, str(comment.id), content, author=author)
+        else:
+            capture_message_received(ticket, str(comment.id), content)
+
+        _capture_support_message_usage(
+            ticket,
+            "support message sent" if team_message else "support message received",
+            {"channel_source": ticket.channel_source},
+            author,
+        )
+
+        if not team_message and _is_first_customer_message(comment):
+            conversations_settings = ticket.team.conversations_settings or {}
+            if conversations_settings.get("notification_recipients"):
+                # posthog.tasks.__init__ eagerly imports every task module, and this module is
+                # reachable from django.setup() via the conversations signals.
+                from posthog.tasks.email import send_new_ticket_notification  # noqa: PLC0415
+
+                send_new_ticket_notification.delay(
+                    ticket_id=str(ticket.id),
+                    team_id=team_id,
+                    first_message_content=content[:500],
+                )
+    except Exception as e:
+        capture_exception(e, {"ticket_id": str(ticket.id), "comment_id": comment_id})
+        try:
+            raise cast(Any, self).retry(exc=e)
+        except MaxRetriesExceededError:
+            return
 
 
 def is_duplicate_teams_event(activity_id: str) -> bool:

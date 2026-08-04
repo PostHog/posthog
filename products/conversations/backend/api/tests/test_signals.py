@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.messages import is_outbound_reply, is_team_message
 from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel
 
@@ -343,6 +344,39 @@ class TestTicketMessageSignals(BaseTest):
 
         mock_invalidate.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("customer_message", "customer", False, True),
+            ("team_reply", "team", False, True),
+            ("private_team_note", "team", True, False),
+        ]
+    )
+    @patch("products.conversations.backend.tasks.process_ticket_message_side_effects.delay")
+    def test_message_hands_side_effects_to_celery(
+        self, _name, author_type, is_private, expected_enqueue, mock_delay, mock_on_commit
+    ):
+        comment = (
+            self._create_customer_message("Hello")
+            if author_type == "customer"
+            else self._create_team_message("Hi there", is_private=is_private)
+        )
+
+        if not expected_enqueue:
+            mock_delay.assert_not_called()
+            return
+        mock_delay.assert_called_once_with(team_id=self.team.id, comment_id=str(comment.id))
+
+    @patch(
+        "products.conversations.backend.tasks.process_ticket_message_side_effects.delay",
+        side_effect=Exception("broker down"),
+    )
+    def test_stats_still_land_when_the_side_effect_task_cannot_be_queued(self, mock_delay, mock_on_commit):
+        # A broker blip must not fail the request that posted the message.
+        self._create_customer_message("Hello")
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 1
+
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestTicketCreatedEventSignal(BaseTest):
@@ -481,6 +515,21 @@ class TestIsOutboundReply:
         ]
     )
     def test_outbound_reply_gating(self, _name, item_context, created_by_id, expected):
-        from products.conversations.backend.signals import _is_outbound_reply
+        assert is_outbound_reply(item_context, created_by_id) is expected
 
-        assert _is_outbound_reply(item_context, created_by_id) is expected
+
+class TestIsTeamMessage:
+    @parameterized.expand(
+        [
+            ("human_team_reply", {"author_type": "support", "is_private": False}, 42, True),
+            ("private_human_note", {"author_type": "support", "is_private": True}, 42, True),
+            ("public_ai_reply", {"author_type": "AI", "is_private": False}, None, True),
+            ("private_ai_note", {"author_type": "AI", "is_private": True}, None, False),
+            ("customer_message", {"author_type": "customer", "is_private": False}, None, False),
+            ("customer_with_created_by", {"author_type": "customer", "is_private": False}, 1, False),
+            ("none_context_with_author", None, 42, True),
+            ("none_context_no_author", None, None, False),
+        ]
+    )
+    def test_team_message_gating(self, _name, item_context, created_by_id, expected):
+        assert is_team_message(item_context, created_by_id) is expected

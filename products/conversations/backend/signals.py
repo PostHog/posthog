@@ -9,15 +9,14 @@ from django.dispatch import receiver
 
 import structlog
 
-from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import secret_api_token_rotated
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
-from .events import capture_message_received, capture_message_sent, capture_ticket_created
+from .events import capture_ticket_created
+from .messages import comment_created_by_id, is_outbound_reply, is_private_message, is_team_message
 from .models import EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import Channel
 from .tasks import (
@@ -25,41 +24,12 @@ from .tasks import (
     post_reply_to_slack,
     post_reply_to_teams,
     post_reply_to_teams_via_graph,
+    process_ticket_message_side_effects,
     send_email_reply,
 )
 from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
 
 logger = structlog.get_logger(__name__)
-
-
-def _is_private_message(item_context: dict | None) -> bool:
-    """Check if a message is marked as private."""
-    if not isinstance(item_context, dict):
-        return False
-    return item_context.get("is_private", False) is True
-
-
-def _get_comment_created_by_id(comment: Comment) -> int | None:
-    created_by_id = getattr(comment, "created_by_id", None)
-    return created_by_id if isinstance(created_by_id, int) else None
-
-
-def _is_outbound_reply(item_context: dict | None, created_by_id: int | None) -> bool:
-    """True for messages that should be delivered to the customer's channel.
-
-    This includes human team replies (has created_by, non-customer, non-private) and
-    public AI replies (author_type == "AI" with is_private == False).
-    """
-    if not isinstance(item_context, dict):
-        return False
-    if _is_private_message(item_context):
-        return False
-    author_type = item_context.get("author_type")
-    if created_by_id and author_type != "customer":
-        return True
-    if author_type == "AI":
-        return True
-    return False
 
 
 AI_BOT_DISPLAY_NAME = "AI assistant"
@@ -104,7 +74,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     Private messages are excluded from denormalized stats to prevent leaking
     to widget via last_message_text and to keep message_count accurate for customers.
 
-    Uses transaction.on_commit() to defer work and avoid blocking the request.
+    Only the stat write and cache invalidation happen here: the ticket list reads both
+    immediately after a reply is posted. Analytics and the new-ticket notification are
+    handed to process_ticket_message_side_effects so their latency stays off the
+    request the sender is waiting on.
     """
     if instance.scope != "conversations_ticket":
         return
@@ -122,18 +95,12 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     created_at = instance.created_at
     content = instance.content
     item_context = instance.item_context
-    created_by_id = _get_comment_created_by_id(instance)
+    created_by_id = comment_created_by_id(instance)
 
     def do_update():
         # Private messages don't update denormalized stats (to avoid leaking to widget)
-        if _is_private_message(item_context):
+        if is_private_message(item_context):
             return
-
-        # New message: update denormalized stats
-        author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
-        is_team_message = (created_by_id and author_type != "customer") or (
-            author_type == "AI" and not _is_private_message(item_context)
-        )
 
         update_fields = {
             "message_count": F("message_count") + 1,
@@ -142,56 +109,26 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             "updated_at": created_at,
         }
 
-        if is_team_message:
+        if is_team_message(item_context, created_by_id):
             update_fields["unread_customer_count"] = F("unread_customer_count") + 1
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
-        # Emit analytics events and invalidate cache
         try:
-            ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
             # Invalidate widget caches so list and messages reflect the new message
-            if ticket.widget_session_id:
-                invalidate_tickets_cache(team_id, ticket.widget_session_id)
+            widget_session_id = (
+                Ticket.objects.filter(id=item_id, team_id=team_id).values_list("widget_session_id", flat=True).first()
+            )
+            if widget_session_id:
+                invalidate_tickets_cache(team_id, widget_session_id)
             invalidate_messages_cache(team_id, item_id)
-
-            # Customer-facing analytics (to customer's project)
-            if is_team_message:
-                author = User.objects.filter(id=created_by_id).first() if created_by_id else None
-                capture_message_sent(ticket, comment_id, content or "", author=author)
-            else:
-                author = None
-                capture_message_received(ticket, comment_id, content or "")
-
-            # Internal analytics (PostHog tracking its own usage)
-            props = {"channel_source": ticket.channel_source}
-            if is_team_message:
-                if author:
-                    report_user_action(author, "support message sent", props, team=ticket.team)
-                else:
-                    report_team_action(ticket.team, "support message sent", props)
-            else:
-                report_team_action(ticket.team, "support message received", props)
-            # Send email notification on first customer message (i.e. new ticket)
-            if ticket.message_count == 1 and not is_team_message:
-                try:
-                    conversations_settings = ticket.team.conversations_settings or {}
-                    if conversations_settings.get("notification_recipients"):
-                        # posthog.tasks.__init__ eagerly imports every task module; this signal
-                        # module is wired at django.setup(), so import the task lazily.
-                        from posthog.tasks.email import send_new_ticket_notification  # noqa: PLC0415
-
-                        send_new_ticket_notification.delay(
-                            ticket_id=item_id,
-                            team_id=team_id,
-                            first_message_content=(content or "")[:500],
-                        )
-                except Exception as e:
-                    capture_exception(e, {"ticket_id": item_id})
-        except Ticket.DoesNotExist:
-            pass
         except Exception as e:
             capture_exception(e, {"ticket_id": item_id})
+
+        try:
+            cast(Any, process_ticket_message_side_effects).delay(team_id=team_id, comment_id=comment_id)
+        except Exception:
+            logger.exception("ticket_message_side_effects_enqueue_failed", item_id=item_id)
 
     transaction.on_commit(do_update)
 
@@ -229,26 +166,26 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
         item_id = instance.item_id
         comment_pk = instance.pk
         item_context = instance.item_context
-        created_by_id = _get_comment_created_by_id(instance)
+        created_by_id = comment_created_by_id(instance)
 
         def do_soft_delete_update():
-            is_private = _is_private_message(item_context)
+            is_private = is_private_message(item_context)
 
             # Only decrement counts if this wasn't a private message
             # (private messages weren't counted in the first place)
             if not is_private:
                 author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
-                is_team_message = created_by_id and author_type != "customer"
+                was_team_message = created_by_id and author_type != "customer"
 
                 # Use Greatest to prevent negative counts from race conditions or data inconsistencies
                 update_fields = {"message_count": Greatest(F("message_count") - 1, 0)}
-                if is_team_message:
+                if was_team_message:
                     update_fields["unread_customer_count"] = Greatest(F("unread_customer_count") - 1, 0)
 
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
             # Recalculate last_message from remaining non-private messages
-            # Use exclude + isnull to match _is_private_message() identity check:
+            # Use exclude + isnull to match is_private_message() identity check:
             # - Exclude only exact boolean True
             # - Include everything else (False, None, missing key, weird values)
             # The isnull handles SQL NULL semantics where ~Q alone would exclude missing keys
@@ -297,9 +234,9 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     item_context = instance.item_context
-    created_by_id = _get_comment_created_by_id(instance)
+    created_by_id = comment_created_by_id(instance)
 
-    if not _is_outbound_reply(item_context, created_by_id):
+    if not is_outbound_reply(item_context, created_by_id):
         return
 
     # Don't echo messages that originated from Slack back to Slack
@@ -371,9 +308,9 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     item_context = instance.item_context
-    created_by_id = _get_comment_created_by_id(instance)
+    created_by_id = comment_created_by_id(instance)
 
-    if not _is_outbound_reply(item_context, created_by_id):
+    if not is_outbound_reply(item_context, created_by_id):
         return
 
     # Don't echo messages that originated from email back via email
@@ -445,9 +382,9 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     item_context = instance.item_context
-    created_by_id = _get_comment_created_by_id(instance)
+    created_by_id = comment_created_by_id(instance)
 
-    if not _is_outbound_reply(item_context, created_by_id):
+    if not is_outbound_reply(item_context, created_by_id):
         return
 
     # Don't echo messages that originated from Teams back to Teams
@@ -534,9 +471,9 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
         return
 
     item_context = instance.item_context
-    created_by_id = _get_comment_created_by_id(instance)
+    created_by_id = comment_created_by_id(instance)
 
-    if not _is_outbound_reply(item_context, created_by_id):
+    if not is_outbound_reply(item_context, created_by_id):
         return
 
     if isinstance(item_context, dict) and item_context.get("from_github"):
