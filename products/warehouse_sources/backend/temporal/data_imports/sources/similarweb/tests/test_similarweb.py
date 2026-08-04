@@ -254,6 +254,18 @@ class TestSimilarwebTransport:
         with pytest.raises(requests.HTTPError):
             _run(VISITS, session, domains="a.com")
 
+    def test_connection_error_is_reraised_without_the_api_key(self) -> None:
+        session = mock.MagicMock(spec=requests.Session)
+        session.get.side_effect = requests.ConnectionError(
+            "Max retries exceeded with url: /v1/website/a.com/...?api_key=key-123&format=json"
+        )
+
+        with pytest.raises(requests.ConnectionError) as excinfo:
+            _run(VISITS, session, domains="a.com")
+
+        assert "key-123" not in str(excinfo.value)
+        assert "Similarweb request failed" in str(excinfo.value)
+
     def test_rows_with_an_unparsable_period_are_dropped(self) -> None:
         session = _session(
             _response(
@@ -269,23 +281,45 @@ class TestSimilarwebTransport:
 
     @parameterized.expand(
         [
-            ("no_window_configured", None, False, None, None, None),
-            ("configured_start_only", "2024-01", False, None, "2024-01", "2024-06"),
-            ("watermark_wins_when_later", "2024-01", True, datetime(2024, 4, 20, tzinfo=UTC), "2024-04", "2024-06"),
+            # Monthly has no valid no-date mode, so an unconfigured window falls back to the current
+            # month; daily and weekly keep the API's dateless "last 28 days" default.
+            ("monthly_no_window_defaults_to_current_month", "monthly", None, False, None, "2024-06", "2024-06"),
+            ("daily_no_window_uses_api_default", "daily", None, False, None, None, None),
+            ("weekly_no_window_uses_api_default", "weekly", None, False, None, None, None),
+            ("configured_start_only", "monthly", "2024-01", False, None, "2024-01", "2024-06"),
+            (
+                "watermark_wins_when_later",
+                "monthly",
+                "2024-01",
+                True,
+                datetime(2024, 4, 20, tzinfo=UTC),
+                "2024-04",
+                "2024-06",
+            ),
             (
                 "configured_start_wins_when_later",
+                "monthly",
                 "2024-05",
                 True,
                 datetime(2024, 4, 20, tzinfo=UTC),
                 "2024-05",
                 "2024-06",
             ),
-            ("watermark_without_configured_start", None, True, datetime(2024, 4, 20, tzinfo=UTC), "2024-04", "2024-06"),
+            (
+                "watermark_without_configured_start",
+                "monthly",
+                None,
+                True,
+                datetime(2024, 4, 20, tzinfo=UTC),
+                "2024-04",
+                "2024-06",
+            ),
         ]
     )
     def test_window_params(
         self,
         _name: str,
+        granularity: str,
         start_date: Optional[str],
         should_use_incremental_field: bool,
         last_value: Any,
@@ -299,6 +333,7 @@ class TestSimilarwebTransport:
                 VISITS,
                 session,
                 domains="a.com",
+                granularity=granularity,
                 start_date=start_date,
                 should_use_incremental_field=should_use_incremental_field,
                 db_incremental_field_last_value=last_value,

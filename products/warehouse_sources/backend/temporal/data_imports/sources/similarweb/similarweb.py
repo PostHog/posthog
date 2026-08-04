@@ -141,7 +141,12 @@ def _request(
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
     url = f"{BASE_URL}{config.path.format(domain=quote(domain, safe=''))}"
-    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+    try:
+        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.RequestException as exc:
+        # Connection/timeout exceptions carry the prepared URL — including the api_key query param —
+        # and str(exc) is persisted as the import's error, so re-raise with the param-free url only.
+        raise type(exc)(f"Similarweb request failed ({type(exc).__name__}) for {url}") from None
 
     # Similarweb answers 401 with "data not found" — the documented cause is a domain it has no
     # data for, not a bad key (that is 403). One unknown domain shouldn't fail the other domains'
@@ -239,6 +244,8 @@ def _record_rows(body: dict[str, Any], config: SimilarwebEndpointConfig, domain:
 
 
 def _resolve_window(
+    config: SimilarwebEndpointConfig,
+    granularity: str,
     start_date: Optional[str],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
@@ -253,11 +260,18 @@ def _resolve_window(
             # month-granular, and merge dedupes the periods already loaded.
             start_month = max(start_month, watermark) if start_month else watermark
 
+    now = datetime.now(UTC)
+    current_month = f"{now.year:04d}-{now.month:02d}"
+
     if start_month is None:
+        # Similarweb's no-date "last 28 days" default is only valid for daily/weekly granularity, so
+        # a monthly request must carry an explicit window; fall back to the current month rather than
+        # send an invalid monthly/no-date request.
+        if config.accepts_granularity and granularity == "monthly":
+            return current_month, current_month
         return None, None
 
-    now = datetime.now(UTC)
-    return start_month, f"{now.year:04d}-{now.month:02d}"
+    return start_month, current_month
 
 
 def _paginated_rows(
@@ -350,7 +364,9 @@ def _get_rows(
 
     config = SIMILARWEB_ENDPOINTS[endpoint]
     normalized_country = normalize_country(country)
-    start_month, end_month = _resolve_window(start_date, should_use_incremental_field, db_incremental_field_last_value)
+    start_month, end_month = _resolve_window(
+        config, granularity, start_date, should_use_incremental_field, db_incremental_field_last_value
+    )
 
     # The key rides in a query param, so it has to be named explicitly for redaction.
     session = make_tracked_session(redact_values=(api_key,))

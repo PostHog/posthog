@@ -199,7 +199,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                         placeholder="2024-01",
                         secret=False,
                         caption=(
-                            "Earliest month to sync (YYYY-MM). Leave empty to sync the last 28 days only. "
+                            "Earliest month to sync (YYYY-MM). Leave empty to sync only the most recent period. "
                             "How far back you can go depends on your plan."
                         ),
                     ),
