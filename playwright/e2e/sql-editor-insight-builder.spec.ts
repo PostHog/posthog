@@ -178,17 +178,28 @@ test.describe('SQL editor insight builder', () => {
         })
 
         await test.step('SQL hand-edited outside the builder wins: the insight opens classic', async () => {
-            // Simulate an API edit that desyncs the SQL from the builder config
+            // Simulate an API edit that desyncs the SQL from the builder config. Session-cookie
+            // writes are CSRF-blocked from page.request, so authenticate with the workspace key.
+            const authHeaders = {
+                Authorization: `Bearer ${workspace!.personal_api_key}`,
+                'Content-Type': 'application/json',
+            }
             const listResponse = await page.request.get(
-                `/api/environments/@current/insights/?short_id=${insightShortId}`
+                `/api/projects/${workspace!.team_id}/insights/?short_id=${insightShortId}`,
+                { headers: authHeaders }
             )
+            expect(listResponse.ok()).toBeTruthy()
             const { results } = await listResponse.json()
             const insight = results[0]
-            const patchResponse = await page.request.patch(`/api/environments/@current/insights/${insight.id}/`, {
-                data: {
-                    query: { ...insight.query, source: { ...insight.query.source, query: 'SELECT 3 AS result' } },
-                },
-            })
+            const patchResponse = await page.request.patch(
+                `/api/projects/${workspace!.team_id}/insights/${insight.id}/`,
+                {
+                    headers: authHeaders,
+                    data: {
+                        query: { ...insight.query, source: { ...insight.query.source, query: 'SELECT 3 AS result' } },
+                    },
+                }
+            )
             expect(patchResponse.ok()).toBeTruthy()
 
             await goToSqlEditor(page, `/sql?open_insight=${insightShortId}`)
