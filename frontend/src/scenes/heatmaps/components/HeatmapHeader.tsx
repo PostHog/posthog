@@ -25,7 +25,7 @@ export function HeatmapHeader(): JSX.Element {
         userAccessLevel,
     } = useValues(heatmapLogic)
     const { iframeBanner, dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
-    const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot, changeCaptureMethod } = useActions(heatmapLogic)
+    const { setPageUrlDraft, applyPageUrlDraft, retryScreenshot, changeCaptureMethod } = useActions(heatmapLogic)
 
     const draftIsEmpty = pageUrlDraft.trim() === ''
     const disabledReason = !isPageUrlDraftValid ? 'Enter a valid URL' : draftIsEmpty ? 'Enter a URL' : null
@@ -84,7 +84,7 @@ export function HeatmapHeader(): JSX.Element {
                                 type="error"
                                 action={{
                                     children: 'Retry',
-                                    onClick: regenerateScreenshot,
+                                    onClick: retryScreenshot,
                                 }}
                             >
                                 {screenshotError}

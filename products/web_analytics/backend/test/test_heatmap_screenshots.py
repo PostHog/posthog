@@ -423,6 +423,10 @@ class TestHeatmapsAPI(APIBaseTest):
 
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
+        # Must come back as the standard `detail` envelope, not an ad-hoc `error` key — the
+        # frontend's error message helper only reads `detail`, so a bare `error` key would silently
+        # regress back to a generic "Failed to regenerate screenshot" fallback with the real reason lost.
+        self.assertIn("Only screenshot heatmaps can be regenerated", r.data["detail"])
 
 
 class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):

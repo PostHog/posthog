@@ -1397,9 +1397,10 @@ class SavedHeatmapViewSet(
     def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
         if obj.type != SavedHeatmap.Type.SCREENSHOT:
-            return response.Response(
-                {"error": "Only screenshot heatmaps can be regenerated"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            # Raise rather than hand-build the response so this goes through the standard
+            # exceptions-hog envelope (`detail`, not an ad-hoc `error` key) — the frontend's
+            # error handling only reads the standard shape.
+            raise serializers.ValidationError("Only screenshot heatmaps can be regenerated")
 
         self._regenerate(obj)
         response_serializer = HeatmapScreenshotResponseSerializer(obj, context=self.get_serializer_context())
