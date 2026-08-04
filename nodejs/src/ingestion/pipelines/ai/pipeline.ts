@@ -178,8 +178,8 @@ export function createAiIngestionPipeline<
             .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Read-only batch person fetch (no person writes). The personhog
             // client retries transient gRPC errors for ~150ms; this outer
-            // retry absorbs longer blips (persons DB failover) that would
-            // otherwise crash the worker via an unhandled rejection.
+            // retry absorbs longer blips that would otherwise crash the
+            // worker via an unhandled rejection.
             .pipeChunk(createFetchPersonChunkStep(personRepository), {
                 retry: { tries: 5, sleepMs: 100, name: 'fetch_person_chunk' },
             })

@@ -190,8 +190,8 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         afterCymbal
             // Batch fetch person (read-only, no updates). The personhog client
             // retries transient gRPC errors for ~150ms; this outer retry
-            // absorbs longer blips (persons DB failover) that would otherwise
-            // crash the worker via an unhandled rejection.
+            // absorbs longer blips that would otherwise crash the worker via
+            // an unhandled rejection.
             .pipeChunk(createFetchPersonChunkStep(personRepository), {
                 retry: { tries: 5, sleepMs: 100, name: 'fetch_person_chunk' },
             })
