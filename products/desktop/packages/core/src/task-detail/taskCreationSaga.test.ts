@@ -21,6 +21,7 @@ const mockHost = vi.hoisted(() => ({
   detectRepo: vi.fn(),
   getCloudPromptTransport: vi.fn(),
   resolveLocalSkillCommandPrompt: vi.fn(async (prompt: string) => prompt),
+  getCustomInstructions: vi.fn(() => ""),
   takeWarmTaskLease: vi.fn(
     (): { taskId: string; runId: string } | null => null,
   ),
@@ -116,6 +117,7 @@ describe("TaskCreationSaga", () => {
     mockHost.getTaskDirectory.mockResolvedValue(null);
     mockHost.ensureScratchDir.mockResolvedValue("/tmp/scratch/task-123");
     mockHost.getWorkspace.mockResolvedValue(null);
+    mockHost.getCustomInstructions.mockReturnValue("");
     mockHost.getFolders.mockResolvedValue([]);
     mockHost.uploadRunAttachments.mockResolvedValue([]);
     mockHost.linkTaskBranch.mockResolvedValue(undefined);
@@ -283,6 +285,84 @@ describe("TaskCreationSaga", () => {
       "task-123",
       sentMessage,
     );
+  });
+
+  it("falls back to settings personalization when the caller passes no customInstructions", async () => {
+    // Only the composer routes through prepareTaskInput. Callers that build the
+    // input by hand (canvas generation, CONTEXT.md generation, inbox runners)
+    // omit customInstructions, and cloud has no system-prompt seam to recover
+    // it — so without this fallback they run with no personalization at all.
+    const createdTask = createTask();
+    const startTaskRunMock = vi
+      .fn()
+      .mockResolvedValue(createTask({ latest_run: createRun() }));
+    mockHost.getCustomInstructions.mockReturnValue("Speak concisely.");
+
+    const saga = new TaskCreationSaga({
+      posthogClient: {
+        createTask: vi.fn().mockResolvedValue(createdTask),
+        deleteTask: vi.fn(),
+        getTask: vi.fn(),
+        createTaskRun: vi.fn().mockResolvedValue(createRun()),
+        startTaskRun: startTaskRunMock,
+        sendRunCommand: vi.fn(),
+        updateTask: vi.fn(),
+      } as never,
+      host,
+      sessionService,
+      piRunner,
+      track: vi.fn(),
+    });
+
+    const result = await saga.run({
+      content: "Generate a canvas",
+      repository: "posthog/posthog",
+      workspaceMode: "cloud",
+    });
+
+    expect(result.success).toBe(true);
+    expect(startTaskRunMock.mock.calls[0][2].pendingUserMessage).toContain(
+      "Speak concisely.",
+    );
+  });
+
+  it("prefers caller-supplied customInstructions over settings", async () => {
+    // The loop builder deliberately substitutes its own system instructions;
+    // the settings fallback must not append or override them.
+    const createdTask = createTask();
+    const startTaskRunMock = vi
+      .fn()
+      .mockResolvedValue(createTask({ latest_run: createRun() }));
+    mockHost.getCustomInstructions.mockReturnValue("Speak concisely.");
+
+    const saga = new TaskCreationSaga({
+      posthogClient: {
+        createTask: vi.fn().mockResolvedValue(createdTask),
+        deleteTask: vi.fn(),
+        getTask: vi.fn(),
+        createTaskRun: vi.fn().mockResolvedValue(createRun()),
+        startTaskRun: startTaskRunMock,
+        sendRunCommand: vi.fn(),
+        updateTask: vi.fn(),
+      } as never,
+      host,
+      sessionService,
+      piRunner,
+      track: vi.fn(),
+    });
+
+    const result = await saga.run({
+      content: "Build a loop",
+      repository: "posthog/posthog",
+      workspaceMode: "cloud",
+      customInstructions: "You are the loop builder.",
+    });
+
+    expect(result.success).toBe(true);
+    const sentMessage = startTaskRunMock.mock.calls[0][2]
+      .pendingUserMessage as string;
+    expect(sentMessage).toContain("You are the loop builder.");
+    expect(sentMessage).not.toContain("Speak concisely.");
   });
 
   it("does not fold personalization into a file-only cloud task with no typed text", async () => {

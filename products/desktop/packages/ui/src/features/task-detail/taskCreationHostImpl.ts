@@ -33,6 +33,10 @@ import { resolveLocalSkillPrompt } from "../message-editor/commands";
 import { DEFAULT_PANEL_IDS } from "../panels/panelConstants";
 import { usePanelLayoutStore } from "../panels/panelLayoutStore";
 import { useProvisioningStore } from "../provisioning/store";
+import {
+  getEffectiveCustomInstructions,
+  useSettingsStore,
+} from "../settings/settingsStore";
 import { takeWarmTaskLease } from "./hooks/warmTaskLease";
 
 interface EnvironmentHostClient {
@@ -154,6 +158,10 @@ export class TrpcTaskCreationHost implements ITaskCreationHost {
         hostClient().skills.list.query(),
       )) ?? prompt
     );
+  }
+
+  getCustomInstructions(): string {
+    return getEffectiveCustomInstructions(useSettingsStore.getState());
   }
 
   takeWarmTaskLease(args: {

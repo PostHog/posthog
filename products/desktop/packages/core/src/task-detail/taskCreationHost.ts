@@ -104,6 +104,12 @@ export interface ITaskCreationHost {
    */
   resolveLocalSkillCommandPrompt(prompt: string): Promise<string>;
   /**
+   * The user's personalization from settings. Cloud runs have no client-side
+   * system-prompt seam, so the saga folds this into the first message for any
+   * caller that did not supply `customInstructions` of its own.
+   */
+  getCustomInstructions(): string;
+  /**
    * Return-and-clear the pre-warmed sandbox lease matching the composer
    * selection, if one was provisioned while the user typed. The saga uploads
    * first-message attachments (skill bundles, files) to this run before

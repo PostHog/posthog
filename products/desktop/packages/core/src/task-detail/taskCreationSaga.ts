@@ -51,12 +51,21 @@ interface WarmActivationPayload {
 // so fold both blocks into the first message here. Order: user's message, then
 // personalization (user-level), then channel context (workspace-level).
 // Personalization is folded only when there is message text to augment.
+//
+// `customInstructions` falls back to settings when the caller left it unset:
+// only the composer routes through prepareTaskInput, so callers that build the
+// input by hand (canvas generation, CONTEXT.md generation, the inbox runners)
+// would otherwise silently run without the user's personalization. A caller
+// that deliberately supplies its own (the loop builder) still wins.
 function buildCloudFirstMessage(
   messageText: string | undefined,
   input: TaskCreationInput,
+  settingsCustomInstructions: string,
 ): { pendingUserMessage?: string; augmented: boolean } {
   const customInstructionsText = messageText
-    ? buildCustomInstructionsText(input.customInstructions)
+    ? buildCustomInstructionsText(
+        input.customInstructions ?? settingsCustomInstructions,
+      )
     : null;
   const channelContextText = buildChannelContextText(
     input.channelContext,
@@ -387,7 +396,11 @@ export class TaskCreationSaga extends Saga<
 
           const { pendingUserMessage, augmented } = warmPayload
             ? warmPayload
-            : buildCloudFirstMessage(transport?.messageText, input);
+            : buildCloudFirstMessage(
+                transport?.messageText,
+                input,
+                this.deps.host.getCustomInstructions(),
+              );
 
           // The sandbox echoes pendingUserMessage back once it boots; until then
           // the optimistic placeholder would show the bare task description with
@@ -725,6 +738,7 @@ export class TaskCreationSaga extends Saga<
     const { pendingUserMessage, augmented } = buildCloudFirstMessage(
       transport.messageText,
       input,
+      this.deps.host.getCustomInstructions(),
     );
     const base: WarmActivationPayload = {
       transport,
