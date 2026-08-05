@@ -39,6 +39,8 @@ use std::time::Duration;
 
 use integration_utils::DEFAULT_CONFIG;
 
+const GATEWAY_REQUEST_ID: &str = "otel-request-1";
+
 struct FixedTime {
     pub time: DateTime<Utc>,
 }
@@ -280,6 +282,7 @@ async fn send_signed_body_with_client(
         .header("Authorization", format!("Bearer {}", TOKEN))
         .header("PostHog-Ai-Gateway-Signature", signature)
         .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .header("PostHog-Ai-Gateway-Request-Id", GATEWAY_REQUEST_ID)
         .body(body)
         .send()
         .await;
@@ -301,6 +304,7 @@ fn sign_gateway_body(
         content_type,
         content_encoding,
         body_digest.as_str(),
+        GATEWAY_REQUEST_ID,
         signed_at,
     ];
     let mut message = Vec::new();
@@ -479,6 +483,7 @@ async fn test_verified_gzip_gateway_batch_stamps_trusted_provenance() {
         .header("Authorization", format!("Bearer {}", TOKEN))
         .header("PostHog-Ai-Gateway-Signature", signature)
         .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .header("PostHog-Ai-Gateway-Request-Id", GATEWAY_REQUEST_ID)
         .body(body)
         .send()
         .await;
