@@ -62,10 +62,64 @@ def _set_estimate(scanner: ReplayScanner, value: int, hours_ago: float) -> None:
     )
 
 
+@pytest.mark.django_db
+def test_estimate_samples_events_subqueries_and_corrects_count() -> None:
+    from posthog.schema import RecordingsQuery
+
+    from posthog.hogql import ast
+
+    from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+
+    from products.replay_vision.backend.queries.scanner_volume_estimate import _ESTIMATE_EVENTS_SAMPLE_FACTOR
+
+    scanner = _make_scanner()
+    query = RecordingsQuery(events=[{"id": "$pageview", "type": "events", "name": "$pageview"}])
+    list_query = SessionRecordingListFromQuery(
+        team=scanner.team, query=query, events_sample_factor=_ESTIMATE_EVENTS_SAMPLE_FACTOR
+    )
+    built = list_query.get_query()
+
+    assert list_query.events_subqueries_sampled
+
+    import dataclasses
+
+    def _collect_samples(node: object, out: list[ast.SampleExpr]) -> None:
+        if isinstance(node, ast.JoinExpr) and node.sample is not None:
+            out.append(node.sample)
+        if isinstance(node, ast.AST):
+            for field in dataclasses.fields(node):
+                _collect_samples(getattr(node, field.name), out)
+        elif isinstance(node, list):
+            for item in node:
+                _collect_samples(item, out)
+
+    samples: list[ast.SampleExpr] = []
+    _collect_samples(built, samples)
+    assert len(samples) >= 1
+    assert samples[0].sample_value.left.value == _ESTIMATE_EVENTS_SAMPLE_FACTOR
+
+
+@pytest.mark.django_db
+def test_estimate_without_event_filters_does_not_sample() -> None:
+    from posthog.schema import RecordingsQuery
+
+    from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+
+    from products.replay_vision.backend.queries.scanner_volume_estimate import _ESTIMATE_EVENTS_SAMPLE_FACTOR
+
+    scanner = _make_scanner()
+    list_query = SessionRecordingListFromQuery(
+        team=scanner.team, query=RecordingsQuery(), events_sample_factor=_ESTIMATE_EVENTS_SAMPLE_FACTOR
+    )
+    list_query.get_query()
+    assert not list_query.events_subqueries_sampled
+
+
 @pytest.mark.parametrize(
     "matched, window_days, sampling_rate, expected",
     [
         (60, 30, 1.0, 60),
+        (14, 7, 1.0, 60),
         (60, 30, 0.5, 30),
         (0, 30, 1.0, 0),
         (10, 1, 0.5, 150),

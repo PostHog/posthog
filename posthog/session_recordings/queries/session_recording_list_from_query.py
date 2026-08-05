@@ -134,9 +134,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         session_ids_to_exclude: list[str] | None = None,
         bypass_date_window_for_session_ids: bool = False,
         user: User | None = None,
+        events_sample_factor: float | None = None,
         **_,
     ):
         self._user = user
+        # Storage-level SAMPLE on any events subqueries (estimates only); deterministic by distinct_id, so positive and negative subqueries stay consistent.
+        self._events_sample_factor = events_sample_factor
+        self.events_subqueries_sampled = False
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
         # otherwise we'll end up with a lot of duplicated test account filters in the query
@@ -278,6 +282,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
 
+    def _maybe_sample_events_subquery(self, subquery: ast.Expr) -> None:
+        if (
+            self._events_sample_factor is None
+            or not isinstance(subquery, ast.SelectQuery)
+            or subquery.select_from is None
+        ):
+            return
+        subquery.select_from.sample = ast.SampleExpr(
+            sample_value=ast.RatioExpr(left=ast.Constant(value=self._events_sample_factor))
+        )
+        self.events_subqueries_sampled = True
+
     @tracer.start_as_current_span("SessionRecordingListFromQuery._where_predicates")
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = []
@@ -376,6 +392,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         )
         events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
+            self._maybe_sample_events_subquery(events_sub_query)
             optional_exprs.append(
                 ast.CompareOperation(
                     # this hits the distributed events table from the distributed session_replay_events table
@@ -392,6 +409,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # This avoids scanning all event-sessions which can exceed the LIMIT on high-traffic teams.
         negative_blocklist = events_sub_query_builder.get_negative_blocklist_query()
         if negative_blocklist:
+            self._maybe_sample_events_subquery(negative_blocklist)
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GlobalNotIn,
