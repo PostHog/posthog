@@ -26,6 +26,7 @@ from products.data_modeling.backend.logic.freshness import (
 )
 from products.data_modeling.backend.logic.node_frequency import build_frequency_graph
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW
 
 
@@ -61,6 +62,10 @@ CORRECTLY_UNSCHEDULED = "correctly_unscheduled"  # no target and no live tier â€
 # Reconcile refuses the *whole DAG* when any desired tier is not a schedulable bucket, so this must
 # never be reported as stale_needs_reconcile: running reconcile would change nothing and raise.
 UNSUPPORTED_TARGET = "unsupported_target"
+# Typed VIEW while a table backs the query, so `get_dag_structure` calls it ephemeral and every tier
+# run skips it â€” reporting success and writing no job. Outranks every tier verdict: the node can sit
+# in exactly the right tier and still never materialize, and reconcile cannot fix a node's type.
+EPHEMERAL_SKIPPED = "ephemeral_skipped"
 
 
 def _interval_from_schedule_id(schedule_id: str) -> int | None:
@@ -159,6 +164,7 @@ def classify_node(
     live_tiers: list[LiveTier],
     expected_interval: int | None,
     reconcile_blocked: bool = False,
+    has_backing_table: bool = False,
 ) -> NodeScheduleStatus:
     """Compare a node's live tier membership against what reconcile would schedule for it."""
     live_intervals = [
@@ -168,7 +174,9 @@ def classify_node(
     ]
     covered_live = bool(live_intervals)
 
-    if covered_live and expected_interval is not None:
+    if node_type == NodeType.VIEW and has_backing_table:
+        verdict = EPHEMERAL_SKIPPED
+    elif covered_live and expected_interval is not None:
         # A whole-DAG (interval None) schedule always satisfies expectation.
         verdict = SCHEDULED if (None in live_intervals or expected_interval in live_intervals) else SCHEDULED_WRONG_TIER
     elif covered_live and expected_interval is None:

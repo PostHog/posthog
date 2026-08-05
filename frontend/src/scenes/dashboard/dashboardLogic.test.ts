@@ -11,6 +11,7 @@ import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboar
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -845,6 +846,72 @@ describe('dashboardLogic', () => {
                 restoreSpy.mockRestore()
             })
 
+            it('discarding after a previewed filter change reloads tiles', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-14d', null)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        // anchor at the discard dispatch, so the refresh matched below is the
+                        // discard-triggered one and not an earlier (initial load / preview) one
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                        'refreshDashboardItems',
+                    ])
+                    .toFinishAllListeners()
+            })
+
+            it('discarding without a previewed filter change does not reload tiles', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        // anchor at the discard dispatch, so only actions after it are considered
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['refreshDashboardItems'])
+            })
+
+            it('discarding an unapplied filter edit above the auto-preview limit does not reload tiles', async () => {
+                // The skip-reload check relies on unpreviewed edits never reaching the URL:
+                // when the dashboard is over the auto-preview limit, filter edits stay
+                // intermittent (no URL write, no refresh) until "Apply filters" is clicked.
+                const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
+
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.canAutoPreview).toBe(false)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-14d', null)
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['refreshDashboardItems'])
+
+                payloadSpy.mockRestore()
+            })
+
             it('filter edit source clears layout edit mode', async () => {
                 await expectLogic(logic).toFinishAllListeners()
 
@@ -1161,6 +1228,90 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('tile streaming failure classification', () => {
+        let lemonToastErrorSpy: jest.SpiedFunction<typeof lemonToast.error>
+
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        beforeEach(() => {
+            lemonToastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            lemonToastErrorSpy.mockRestore()
+        })
+
+        // A genuine 404 from the stream's initial response is the only signal that flips the scene to
+        // "Dashboard not found". A stream error whose message merely mentions 404 (e.g. a tile query that
+        // failed upstream) carries no status and must stay a toast — string-matching '404' used to turn
+        // these blips into a hard NotFound on valid, loaded dashboards.
+        it('only marks NotFound on a real 404 status, not a message that mentions 404', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(false)
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(lemonToastErrorSpy).toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(true)
+        })
+
+        it('routes a 403 status to access denied and other errors to a toast', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'forbidden', status: 403 })
+            }).toFinishAllListeners()
+            expect(logic.values.accessDeniedToDashboard).toBe(true)
+            expect(logic.values.error404).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'HTTP 500: something broke', status: 500 })
+            }).toFinishAllListeners()
+            expect(lemonToastErrorSpy).toHaveBeenCalledWith(expect.stringContaining('something broke'))
+        })
+
+        // The failure that drove the reports: a transient stream error before any metadata arrives leaves
+        // dashboard === null. The empty-state gate would then render "Dashboard not found"; instead the
+        // load is marked failed so a load-error state shows, and it must NOT be classified as a 404.
+        it('marks the load failed (not NotFound) when a transient error leaves no dashboard', async () => {
+            // Dispatched before the initial load resolves (loaders breakpoint for 200ms), so dashboard is null.
+            expect(logic.values.dashboard).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            }).toDispatchActions(['setDashboardStreamFailed'])
+
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+        })
+
+        // fetchEventSource auto-retries transient failures, so the stream can recover on its own:
+        // metadata arriving after a failure must clear the load-error state, not leave it latched
+        // over a fully loaded dashboard.
+        it('clears the failed state when a stream retry delivers metadata', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            }).toDispatchActions(['setDashboardStreamFailed'])
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(logic.values.dashboard).not.toBeNull()
+        })
+    })
+
     describe('when a dashboard item API errors', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 8 })
@@ -1285,6 +1436,31 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
                 expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
+            })
+
+            it('persisting the last refresh keeps refreshed results instead of an earlier snapshot', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const snapshot = logic.values.dashboard!
+                dashboardsModel.actions.updateDashboardSuccess(snapshot)
+
+                const insight = snapshot.tiles.find((tile) => !!tile.insight)!.insight!
+                const freshResult = [{ count: 42 }]
+
+                await expectLogic(logic, () => {
+                    dashboardsModel.actions.updateDashboardInsight(
+                        { ...insight, result: freshResult, query: insight.query ?? null },
+                        undefined,
+                        5
+                    )
+                }).toFinishAllListeners()
+
+                await expectLogic(dashboardsModel, () => {
+                    logic.actions.updateDashboardLastRefresh(now())
+                }).toDispatchActions(['updateDashboard', 'updateDashboardSuccess'])
+
+                const refreshedTile = logic.values.tiles.find((tile) => tile.insight?.short_id === insight.short_id)
+                expect(refreshedTile?.insight?.result).toEqual(freshResult)
             })
         })
 

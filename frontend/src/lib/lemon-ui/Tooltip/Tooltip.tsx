@@ -127,6 +127,21 @@ export function Tooltip({
         }
     }, [open, onOpen])
 
+    // Dismiss on scroll, otherwise the tooltip lingers detached after its trigger scrolls away
+    useEffect(() => {
+        if (!open || controlledOpen !== undefined) {
+            return
+        }
+        const handleScroll = (event: Event): void => {
+            if (event.target instanceof Element && event.target.closest('.Tooltip')) {
+                return
+            }
+            setUncontrolledOpen(false)
+        }
+        window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+        return () => window.removeEventListener('scroll', handleScroll, { capture: true })
+    }, [open, controlledOpen])
+
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
     if (!title && !docLink) {

@@ -16,6 +16,7 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { captureInboxReportActionCompleted } from './inboxAnalytics'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -41,6 +42,15 @@ const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
     reasoning_effort: ReasoningEffortEnumApi.High,
 }
 
+// Pressing "Create PR" is a strong engagement signal — the user is committing to a real
+// implementation run — so it pins the stronger model rather than taking the server-side default of
+// Sonnet, giving the change the best shot at landing.
+const CREATE_PR_RUNTIME: ClaudeRuntimeSelection = {
+    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+    model: 'claude-opus-5',
+    reasoning_effort: ReasoningEffortEnumApi.High,
+}
+
 function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
     const base = `Act on PostHog Inbox report "${report.title ?? report.id}" (id ${report.id}). Investigate the root cause using the report's contributing findings, implement the fix, and open a PR.${
         report.summary ? `\n\nReport summary:\n${report.summary}` : ''
@@ -55,7 +65,7 @@ function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): str
 function buildDiscussReportPrompt(reportUrl: string, question: string): string {
     // The task is already linked to the report, but including the URL lets the agent open and read
     // the full report itself. The user's question follows after a blank line for clear separation.
-    return `Let's discuss this PostHog Inbox report: ${reportUrl}\n\n${question.trim()}`
+    return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
 }
 
 async function createReportTask(
@@ -198,6 +208,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             // run endpoint enforces no consent of its own.
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'discuss',
+                    outcome: 'blocked',
+                    blockedReason: values.aiConsentDisabledReason,
+                })
                 actions.discussReportFailure()
                 return
             }
@@ -206,18 +222,26 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     report,
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
                     buildDiscussReportPrompt(reportUrl, question),
-                    'Discuss report',
+                    'Ask AI about report',
                     DISCUSS_RUNTIME
                 )
+                captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || 'Failed to start discussion')
+                lemonToast.error(error?.detail || error?.message || "Couldn't ask AI about this report. Try again.")
+                captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'failure' })
                 actions.discussReportFailure()
             }
         },
         createPrFromReport: async ({ report }) => {
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'create_pr',
+                    outcome: 'blocked',
+                    blockedReason: values.aiConsentDisabledReason,
+                })
                 actions.createPrFailure()
                 return
             }
@@ -226,11 +250,14 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     report,
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report),
-                    'Implement report fix'
+                    'Implement report fix',
+                    CREATE_PR_RUNTIME
                 )
+                captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
                 actions.createPrSuccess()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to start PR task')
+                captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'failure' })
                 actions.createPrFailure()
             }
         },
