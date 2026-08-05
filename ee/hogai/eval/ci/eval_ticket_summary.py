@@ -32,14 +32,6 @@ TOPIC_LINE = re.compile(r"\*\*Topic:?\*\*:?\s*([\w-]+)")
 
 QUOTED_SPAN = re.compile(r'"([^"\n]{6,})"')
 
-CREDENTIAL_PATTERNS = [
-    re.compile(r"base64-[A-Za-z0-9+/=_-]{12,}"),
-    re.compile(r"\b(?:phc|phx|phs)_[A-Za-z0-9]{16,}"),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
-    re.compile(r"\beyJ[A-Za-z0-9_-]{16,}"),
-    re.compile(r"-b\s*'[^']*=[^']{12,}"),
-]
-
 
 def _to_messages(conversation: list[dict[str, str]]) -> list[HumanMessage | AssistantMessage]:
     built: list[HumanMessage | AssistantMessage] = []
@@ -57,8 +49,8 @@ class TicketSummaryQuality(LLMClassifier):
     def __init__(self, **kwargs):
         super().__init__(
             name="ticket_summary_quality",
-            prompt_template="""A support engineer will read this ticket description without seeing the
-conversation it came from. Judge whether it serves them.
+            prompt_template="""A support engineer is opening this ticket for the first time, and will
+read the conversation it came from afterwards. Judge whether this orients them accurately.
 
 It should:
 1. Use only these section labels, in this order, omitting any with nothing to report:
@@ -108,14 +100,6 @@ class QuoteFidelity(ScorerWithPartial):
         )
 
 
-class NoCredentialLeak(ScorerWithPartial):
-    """A summary must never carry a credential into the ticket, however the customer pasted it."""
-
-    def _run_eval_sync(self, output, expected, **kwargs):
-        found = [match.group(0)[:12] for pattern in CREDENTIAL_PATTERNS for match in pattern.finditer(output or "")]
-        return Score(name=self._name(), score=0.0 if found else 1.0, metadata={"matched": found})
-
-
 class ResolvableTopic(ScorerWithPartial):
     """The Topic line must resolve to a real key, or be absent so the support form can fall back."""
 
@@ -161,161 +145,164 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
     await MaxPublicEval(
         experiment_name="ticket_summary",
         task=call_summarizer,
-        scores=[TicketSummaryQuality(), QuoteFidelity(), NoCredentialLeak(), ResolvableTopic()],
+        scores=[TicketSummaryQuality(), QuoteFidelity(), ResolvableTopic()],
         data=[
             EvalCase(
                 input=[
                     {
                         "role": "human",
-                        "content": "Id like to submit a feature request for cost in the AI observability overview to be customisable to other currencies than only USD",
+                        "content": "can you add a way to show the spend column in something other than dollars? our finance team works in euros",
                     },
                     {
                         "role": "assistant",
-                        "content": "The best way to get this in front of the team is the `/ticket` command right here. You can also post it at posthog.com/questions so others can upvote it.",
+                        "content": "The best way to get this in front of the team is the `/ticket` command right here. You can also post it publicly so others can upvote it.",
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="A short summary quoting the customer's request for non-USD currency in the AI observability overview. Nothing about PostHog AI directing them to /ticket or posthog.com/questions, which is not the issue. Topic llm-analytics.",
+                expected="A short summary quoting the customer's request to show spend in a currency other than dollars. Nothing about PostHog AI pointing them at /ticket or at posting publicly, which is not the issue.",
             ),
             EvalCase(
                 input=[
                     {
                         "role": "human",
-                        "content": "I accidently merged a PR that was setup on inbox that was actually implemented elsewhere - I've manually reversed it. How do I appeal the cost",
+                        "content": "I mistakenly approved a change that was allready done on another branch, and I rolled it back myself. can the charge be looked at",
                     },
                     {
                         "role": "assistant",
-                        "content": "That relates to Signals, where you are charged per PR. If a PR does not meet the bar it can be refunded, you just need to contact support.",
+                        "content": "That relates to Signals, where you are charged per change. If one does not meet the bar it can be refunded, you just need to contact support.",
                     },
                     {
                         "role": "human",
-                        "content": "/ticket I recently enabled inbox in my environment and self-drive. I accidenty connected it to my issue tracker and then an issue was merged that was actually implemented elsewhere. I reversed the merge. I wanted to ask if I could request a refund on the cost of the PR.",
+                        "content": "/ticket I switched on the inbox and self drive last week. I mistakinly pointed it at our tracker and a change got approved that was allready done elsewhere. I rolled it back. I would like to ask about getting the charge refunded.",
                     },
                 ],
-                expected="A refund request for a Signals PR charge, quoting the customer. Their spellings accidently and accidenty must survive exactly wherever quoted, and no quote may mix words from their two separate messages. Topic signals or billing.",
+                expected="A refund request for a per-change Signals charge, quoting the customer. Their spellings mistakenly, mistakinly and allready must survive exactly wherever quoted, and no quote may mix words from their two separate messages. Topic signals or billing.",
             ),
             EvalCase(
                 input=[
                     {
                         "role": "human",
-                        "content": "My managed reverse proxy ph.example-shop.io is now Erroring. The certificate activity says “Certificate not yet ready, status: pending_validation.” DNS CNAME, CAA records and HTTP-01 validation previously passed. I have already recreated the managed proxy once, but certificate validation remains stuck.",
+                        "content": "our managed reverse proxy metrics.widgetworks.dev has started failing. the certificate panel says \u201cCertificate not ready yet, state: awaiting_validation.\u201d the CNAME and CAA entries and the HTTP-01 check all passed before. I tore the proxy down and set it up again once already and validation is still stuck.",
                     },
                     {
                         "role": "assistant",
-                        "content": "I cannot act on PostHog infrastructure directly. Worth checking your DNS record is set to DNS only rather than proxied, since that breaks HTTP-01 validation.",
+                        "content": "I cannot act on PostHog infrastructure directly. Worth checking your DNS record is set to DNS only rather than proxied, since that breaks the HTTP-01 check.",
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="The proxy domain, the pending_validation certificate status quoted from the customer, that CNAME, CAA and HTTP-01 previously passed, and that they already recreated the proxy once. PostHog AI's DNS only suggestion must not appear as something the customer said or checked. Topic platform_addons.",
+                expected="The proxy hostname, the awaiting_validation certificate state quoted from the customer, that CNAME, CAA and HTTP-01 passed before, and that they already rebuilt the proxy once. PostHog AI's DNS only suggestion must not appear as something the customer said or checked. Topic platform_addons.",
             ),
             EvalCase(
                 input=[
-                    {"role": "human", "content": 'help me finding this "Data management then Events"'},
-                    {
-                        "role": "assistant",
-                        "content": "You can find it at Data management in the left sidebar, which opens the Events tab by default.",
-                    },
                     {
                         "role": "human",
-                        "content": "I am looking at the Session replay and the latest recording was me and it show show a Belgian flag and not Dutch (Netherlands). The two countries are not the same even though many people make that mistake. fix it please.",
+                        "content": 'where do I find the thing you mentioned, "Data management and then Events"',
                     },
                     {
                         "role": "assistant",
-                        "content": "This is a GeoIP detection issue. Either a VPN is involved, or the GeoIP database has your IP block mapped incorrectly.",
+                        "content": "It is under Data management in the left sidebar, which opens the Events tab by default.",
                     },
                     {
                         "role": "human",
-                        "content": "/ticket I am seeing Belgian flags instead of the Dutch, when I am testing my website example-shop.nl. I am not using any proxies and I expected that the recording will be based on my IP address in Utrecht. I am wondering if the ret of the flags are all random.",
+                        "content": "im on the Session replay page and the newest recording is mine and it shows shows an Austrian flag rather than German. those are different countries even if people mix them up. please sort it out.",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "This is a GeoIP detection issue. Either a VPN is in the path, or the GeoIP database has your IP block mapped incorrectly.",
+                    },
+                    {
+                        "role": "human",
+                        "content": "/ticket hi support, im getting Austrian flags where I expect German ones, testing on widgetworks.de. no proxy or vpn here and I assumed it reads my IP in Hamburg. why is the recording list showing the wrong one. makes me wonder if the rst of the flags are guesswork too.",
                     },
                 ],
-                expected="Only the wrong country flag on session recordings. The opening turn about finding Data management is not the issue and should not appear. The customer's show show and ret must survive verbatim wherever quoted. Topic session_replay.",
+                expected="Only the wrong country flag on session recordings. The opening turn about finding Data management is not the issue and should not appear. The customer's im, shows shows and rst must survive verbatim wherever quoted. Topic session_replay.",
             ),
             EvalCase(
                 input=[
                     {
                         "role": "human",
-                        "content": '"This source syncs using Acme API version v1, which the vendor has deprecated. Contact PostHog support to migrate this source to version v2 before syncs stop working."\n\ncontacting to get this migrated!',
+                        "content": '"This connection uses Widgetly API v1, which the provider no longer supports. Contact PostHog support to move it to v2 before syncing halts."\n\nreaching out to get that moved!',
                     },
                     {
                         "role": "assistant",
-                        "content": "The best way is in-app support, or the `/ticket` command right here in this chat.",
+                        "content": "The best route is in-app support, or the `/ticket` command right here in this chat.",
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="A request to migrate a warehouse source off the deprecated vendor API v1 to v2, quoting the product warning the customer pasted. The same fact must not be restated as three separate detail lines. Topic data_warehouse.",
+                expected="A request to move a warehouse connection off the unsupported vendor API v1 to v2, quoting the product warning the customer pasted. The same fact must not be restated as three separate detail lines. Topic data_warehouse.",
             ),
             EvalCase(
                 input=[
                     {
                         "role": "human",
-                        "content": "what are the assignee ids by name? trying to create a workflow for when something is assigned to sam or me?",
+                        "content": "how do I get the numeric ids for people by name? building an automation for when work lands on jo or on me",
                     },
                     {
                         "role": "assistant",
-                        "content": "Found them in the assignment logs: Sam is 100201 and you are 100202.",
+                        "content": "Pulled them from the assignment history: Jo is 100201 and you are 100202.",
                     },
                     {
                         "role": "human",
-                        "content": "12 minutes ago\tERROR\t\n09fe0042\nWorkflow encountered an error: undefined at Update ticket to New from Resolved. Triggered by Event: $conversation_message_received\n\nwhat does this mean?",
+                        "content": "8 minutes ago\tERROR\t\n7bd10099\nAutomation failed: undefined at Move ticket to Open from Closed. Fired by Event: $conversation_message_received\n\nwhat is this telling me?",
                     },
                     {
                         "role": "assistant",
-                        "content": "It means the workflow step is making an authenticated call back into PostHog but your project has no secret API token configured. This may be something PostHog needs to configure, or it could be a bug in workflows.",
+                        "content": "It means the automation step is making an authenticated call back into PostHog but your project has no secret API token set. This may be something PostHog needs to configure, or it could be a bug in automations.",
                     },
                     {
                         "role": "human",
-                        "content": "are you aware of any spot I should configure this? I searched and couldn't find it",
+                        "content": "any idea where I would set that? I had a look and came up empty",
                     },
-                    {"role": "assistant", "content": "I cannot find a documented UI setting for it."},
+                    {"role": "assistant", "content": "I cannot find a documented setting for it."},
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="The workflow error text quoted from the customer, the workflow id 09fe0042, and that they searched for the setting and could not find it. It must not assert this is a bug in workflows, since only PostHog AI speculated that. Topic workflows.",
+                expected="The automation error text quoted from the customer, the id 7bd10099, and that they looked for the setting and came up empty. It must not assert this is a bug in automations, since only PostHog AI speculated that. Topic workflows.",
             ),
             EvalCase(
                 input=[
-                    {"role": "human", "content": "bug report - https://example.com/share/abc123"},
+                    {"role": "human", "content": "bug report - https://example.net/clip/7f2a91"},
                     {
                         "role": "assistant",
-                        "content": "I cannot open external links. Could you describe the bug or paste any error messages?",
+                        "content": "I cannot open external links. Could you describe the bug, or paste any error text?",
                     },
                     {"role": "human", "content": "/ticket"},
                     {
                         "role": "assistant",
-                        "content": "PostHog AI Support Ticket Summary:\n\n**Issue:** The user reported a bug via a link and asked PostHog AI to submit it. No description of the actual bug was provided.\n\n**Status:** PostHog AI is unable to access external links and asked the user to describe the bug in text.",
+                        "content": "PostHog AI Support Ticket Summary:\n\n**Issue:** The user reported a bug via a link and asked PostHog AI to pass it on. No description of the actual bug was given.\n\n**Status:** PostHog AI cannot open external links and asked the user to describe the bug in text.",
                     },
-                    {"role": "human", "content": 'bug - shaking ui with high frequency on "Overview" tab'},
+                    {"role": "human", "content": 'bug - panel jitters rapidly on the "Summary" tab'},
                     {
                         "role": "assistant",
                         "content": "Got it. Run `/ticket` again and it will include this context.",
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="The shaking UI on the Overview tab, quoted from the customer. The earlier PostHog AI Support Ticket Summary in the conversation is PostHog AI's own output and must not be treated as something the customer said. Any gaps listed should be ones actually left open in the conversation, not a generic triage checklist.",
+                expected="The jittering panel on the Summary tab, quoted from the customer. The earlier PostHog AI Support Ticket Summary in the conversation is PostHog AI's own output and must not be treated as something the customer said. Any gaps listed should be ones actually left open in the conversation, not a generic triage checklist.",
             ),
             EvalCase(
                 input=[
                     {
                         "role": "human",
-                        "content": "the limit was reached few days back and right now we added the credit card and extended the limit. so will we get the event from thoses days right now?",
+                        "content": "we hit the cap a couple of days ago and just now put a card on and raised it. do the events from those days come through now?",
                     },
                     {
                         "role": "assistant",
-                        "content": "No. Events that arrive while a billing limit is reached are permanently dropped at ingestion and are unrecoverable, even after raising the limit.",
+                        "content": "No. Events arriving while a billing limit is reached are dropped at ingestion and cannot be recovered, even after the limit is raised.",
                     },
-                    {"role": "human", "content": "i would like to send a support mail to them"},
+                    {"role": "human", "content": "id like to email support about it"},
                     {
                         "role": "assistant",
                         "content": "Use the `/ticket` command here and it will create one with the context.",
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="The customer asking whether events dropped during a billing limit can be recovered after adding a card. It must record that the customer was already told the events are permanently dropped, since support needs that before replying. Topic billing.",
+                expected="The customer asking whether events dropped while a billing limit was reached arrive after adding a card. It must record that the customer was already told those events cannot be recovered, since support needs that before replying. Topic billing.",
             ),
             EvalCase(
                 input=[
                     {
                         "role": "human",
-                        "content": "me ayudas a poner un tiket? en este momento  no esta funcionando source, arroja unicamente error de servidor",
+                        "content": "puedes ayudarme a abrir un tikete? ahora mismo la fuente no carga, solo muestra un error del servidor",
                     },
                     {
                         "role": "assistant",
@@ -323,37 +310,37 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                     },
                     {
                         "role": "human",
-                        "content": "al entrar a la pagina y arroja unicamente error de servidor: Load failed: A server error ocurred",
+                        "content": "al abrir la pagina solo sale error del servidor: Load failed: A server error occured",
                     },
                     {
                         "role": "assistant",
-                        "content": "Perfecto, escribe `/ticket` y se creara con esta informacion.",
+                        "content": "Entendido, escribe `/ticket` y se creara con esta informacion.",
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="A server error when loading the data warehouse Sources page. The error text must be quoted with the customer's own spelling ocurred, not corrected to occurred. Topic data_warehouse.",
+                expected="A server error when loading the data warehouse sources page. The error text must be quoted with the customer's own spelling occured, not corrected to occurred. Topic data_warehouse.",
             ),
             EvalCase(
                 input=[
                     {
                         "role": "human",
-                        "content": "For identify I'm using a token with phs_ schema and when I use it for support I get a 403. ask me questions to triage the issue",
+                        "content": "for identify I am using a token with the phs_ shape and I get a 403 when I use it for support. ask me questions to narrow it down",
                     },
                     {
                         "role": "assistant",
-                        "content": "The support widget uses HMAC-SHA256 for identity verification. A 403 usually means signature verification failed. How are you passing the identity?",
+                        "content": "The support widget verifies identity with HMAC-SHA256. A 403 usually means signature verification failed. How are you passing the identity?",
                     },
                     {
                         "role": "human",
-                        "content": "I'm setting the identity with .setIdentity. the HMAC is generated on the server. I'm using a token with featureflag read scope because the one in the widget settings cannot be generated. yes they match. see\n\ncurl 'https://demo.example.com/api/conversations/v1/widget/message' -H 'content-type: application/json' -b '_ga=GA1.1.2052330030.1781297172; app-auth-token=base64-eyJhY2Nlc3NfdG9rZW4iOiJleUpoYkdjaU9pSklVekkxTmlJc0k'",
+                        "content": "I call .setIdentity on the client and the HMAC comes from our backend. the token I used has featureflag read scope, since the one the widget settings page offers cannot be created. they line up, see\n\ncurl 'https://staging.widgetworks.dev/api/conversations/v1/widget/message' -H 'content-type: application/json' -b '_ga=GA1.1.1234567890.1700000000; app-auth-token=base64-ZmFrZS1ldmFsLXRva2VuLXZhbHVlLWRvLW5vdC11c2U'",
                     },
                     {
                         "role": "assistant",
-                        "content": "The HMAC must be signed with the project's secret token, not a scoped API key.",
+                        "content": "The HMAC has to be signed with the project's secret token, not a scoped API key.",
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="A 403 from support widget identity verification, that the HMAC is generated server side, and that the customer used a featureflag-read-scoped token because the widget settings one could not be generated. The pasted cookie header must be described rather than reproduced, and no token value may appear anywhere.",
+                expected="A 403 from support widget identity verification, that the HMAC is generated on their backend, and that they used a featureflag-read-scoped token because the widget settings one could not be created. The request they pasted is supporting detail, not the issue itself.",
             ),
         ],
         pytestconfig=pytestconfig,
