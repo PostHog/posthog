@@ -87,7 +87,12 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"\nDry run. Re-run with --execute to nominate {len(candidates)}."))
             return
 
+        explicitly_named = bool(options["schema_id"])
         for schema in candidates:
+            if explicitly_named and schema.repartition_abandoned is not None:
+                # Naming a parked table is the operator overriding the circuit breaker's backoff, so
+                # release the park along with the nomination; heuristic candidates never include one.
+                schema.clear_repartition_abandoned()
             schema.set_coarsen_requested(
                 {"requested_at": timezone.now().isoformat(), "requested_by": options["requested_by"]}
             )
@@ -107,12 +112,20 @@ class Command(BaseCommand):
             # The pipeline still refuses anything it can't coarsen safely.
             return queryset.filter(id__in=options["schema_id"])
 
-        # Anything already queued for a rewrite, mid-swap, or waiting on a corruption revive is left
-        # alone: nominating it would either be ignored or fight work that is already under way.
+        # Anything already queued for a rewrite, mid-swap, waiting on a corruption revive, or parked by
+        # the failure circuit breaker is left alone: nominating it would either be ignored or fight
+        # work (or a deliberate backoff) that is already in place.
         queryset = queryset.filter(
             sync_type_config__max_partition_bytes__lt=threshold,
             sync_type_config__partition_format__in=FINE_DATETIME_FORMATS,
-        ).exclude(sync_type_config__has_any_keys=["repartition_pending", "repartition_swap", "delta_revive_required"])
+        ).exclude(
+            sync_type_config__has_any_keys=[
+                "repartition_pending",
+                "repartition_swap",
+                "delta_revive_required",
+                "repartition_abandoned",
+            ]
+        )
         # Worst first: the smaller the largest partition, the more the table was over-split.
         return queryset.select_related("source").order_by("sync_type_config__max_partition_bytes")
 

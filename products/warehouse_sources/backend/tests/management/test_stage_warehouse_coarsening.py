@@ -68,12 +68,15 @@ class TestStageWarehouseCoarsening(BaseTest):
         already_queued = self._fragmented("queued", repartition_pending={"partition_mode": "datetime"})
         reviving = self._fragmented("reviving", delta_revive_required={"reason": "x"})
         coarse = self._fragmented("coarse", partition_format="month")
+        parked = self._fragmented(
+            "parked", repartition_abandoned={"reason": "max_total_failures", "retry_after": "2099-01-01T00:00:00+00:00"}
+        )
         eligible = self._fragmented("eligible")
 
         output = self._run(execute=True)
 
         assert str(eligible.id) in output
-        for schema in (healthy, already_queued, reviving, coarse):
+        for schema in (healthy, already_queued, reviving, coarse, parked):
             schema.refresh_from_db()
             assert schema.coarsen_requested is None, schema.name
 
@@ -86,3 +89,16 @@ class TestStageWarehouseCoarsening(BaseTest):
 
         healthy.refresh_from_db()
         assert healthy.coarsen_requested is not None
+
+    def test_named_parked_schema_clears_the_park(self) -> None:
+        # Naming a parked table overrides the circuit breaker's backoff along with the shape filters;
+        # without the clear, the nomination would sit unconsumed behind the park.
+        parked = self._fragmented(
+            "parked", repartition_abandoned={"reason": "max_total_failures", "retry_after": "2099-01-01T00:00:00+00:00"}
+        )
+
+        self._run(execute=True, schema_id=[str(parked.id)])
+
+        parked.refresh_from_db()
+        assert parked.coarsen_requested is not None
+        assert parked.repartition_abandoned is None
