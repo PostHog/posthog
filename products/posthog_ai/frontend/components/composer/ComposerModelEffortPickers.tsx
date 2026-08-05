@@ -1,14 +1,12 @@
 import { useState } from 'react'
 
-import { IconChevronDown, IconRefresh } from '@posthog/icons'
+import { IconChevronDown } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
     DropdownMenuContent,
-    DropdownMenuItem,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
-    DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
@@ -16,8 +14,6 @@ import {
 } from '@posthog/quill-primitives'
 
 import {
-    DEFAULT_COMPOSER_EFFORT,
-    DEFAULT_COMPOSER_MODEL,
     getEffortLabel,
     getEffortsForModel,
     getModelLabel,
@@ -73,16 +69,6 @@ export function ComposerModelEffortPickers({
         if (first && first.model !== selectedModel) {
             onModelChange(first.model)
         }
-    }
-
-    // Reset stays inside a locked harness — offering a default that needs a different runtime would be a dead option.
-    const resetToDefault = (): void => {
-        const fallback = lockedRuntimeAdapter
-            ? (modelsForRuntimeAdapter(models, lockedRuntimeAdapter)[0]?.model ?? DEFAULT_COMPOSER_MODEL)
-            : DEFAULT_COMPOSER_MODEL
-        onModelChange(fallback)
-        onEffortChange(DEFAULT_COMPOSER_EFFORT)
-        setOpen(false)
     }
 
     return (
@@ -175,12 +161,6 @@ export function ComposerModelEffortPickers({
                         </DropdownMenuSubContent>
                     </DropdownMenuSub>
                 )}
-
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={resetToDefault}>
-                    <IconRefresh />
-                    Reset to default
-                </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
     )
