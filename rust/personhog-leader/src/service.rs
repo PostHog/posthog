@@ -820,6 +820,21 @@ impl PersonHogLeader for PersonHogLeaderService {
             return Err(Status::invalid_argument("op_type must be specified"));
         }
 
+        // Fencing produces nothing to Kafka, but the handoff guard is
+        // still load-bearing — for ownership currency, not the HWM: a
+        // fence accepted by a drained (deposed) pod lands in a map the
+        // new owner never consults and is silently discarded at release,
+        // while the saga walks away holding a seal that protects nothing.
+        // Refusing here is what makes "a mark committed after the
+        // takeover scan arrives as a FencePerson call to the current
+        // owner" true: the retry re-routes to the new owner and installs
+        // the fence in the map that is actually consulted.
+        let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
+            return Err(Status::failed_precondition(format!(
+                "partition {partition} is fenced for handoff; writes are rejected"
+            )));
+        };
+
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
             person_id: req.person_id,

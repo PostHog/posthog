@@ -75,6 +75,7 @@ struct FenceHarness {
     person_id: i64,
     bootstrap: String,
     cache: Arc<PartitionedCache>,
+    inflight: Arc<InflightTracker>,
     _cancel: CancellationToken,
     _mock_cluster:
         rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
@@ -88,6 +89,7 @@ async fn start_fence_harness(seed: CachedPerson, fallback: Option<PgFallback>) -
     let partition = partition_for_person(TEAM_ID, person_id, NUM_PARTITIONS);
 
     let cache = Arc::new(PartitionedCache::new(100));
+    let inflight = Arc::new(InflightTracker::new());
     // Recovery consumes the same mock cluster so a post-death cache miss
     // can recover the death document.
     let service = PersonHogLeaderService::new(
@@ -96,7 +98,7 @@ async fn start_fence_harness(seed: CachedPerson, fallback: Option<PgFallback>) -
         CHANGELOG_TOPIC.to_string(),
         fallback,
         Arc::new(DashMap::new()),
-        Arc::new(InflightTracker::new()),
+        Arc::clone(&inflight),
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(&bootstrap),
@@ -130,6 +132,7 @@ async fn start_fence_harness(seed: CachedPerson, fallback: Option<PgFallback>) -
         person_id,
         bootstrap,
         cache,
+        inflight,
         _cancel: cancel,
         _mock_cluster: mock_cluster,
     }
@@ -478,6 +481,39 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
         .await
         .expect("the person is still alive");
     assert_eq!(read.into_inner().person.unwrap().version, sealed.version);
+}
+
+/// A drained (deposed) pod must refuse FencePerson: a fence accepted
+/// there lands in a map the new owner never consults and is silently
+/// discarded at release, leaving the saga with a seal that protects
+/// nothing. The refusal is what forces the saga's retry onto the current
+/// owner.
+#[tokio::test]
+async fn fencing_is_refused_while_the_partition_is_handoff_fenced() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let op = Uuid::now_v7();
+
+    harness.inflight.fence(partition);
+    let status = harness
+        .client
+        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .await
+        .expect_err("a handoff-fenced partition refuses FencePerson");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    assert!(
+        status.metadata().get(FENCED_METADATA_KEY).is_none(),
+        "a handoff rejection is not a person-fence rejection"
+    );
+
+    // Re-admission (a cancelled handoff, or a fresh warm) restores fencing.
+    harness.inflight.unfence(partition);
+    harness
+        .client
+        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .await
+        .expect("fencing resumes once the partition is re-admitted");
 }
 
 #[tokio::test]
