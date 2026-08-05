@@ -658,41 +658,16 @@ export function buildSurveyOptionalBooleanPropertyFilter(
     return `coalesce(JSONExtractString(properties, '${propertyName}'), '') != '${excludedValue}'`
 }
 
-/**
- * Builds a boolean HogQL expression checking that `responseExpr` (as returned by
- * `getSurveyResponse`) actually carries an answer, so callers can prefer the submission event
- * that answers a specific question over one that merely completes the flow.
- */
-export function buildResponseAnsweredExpr(responseExpr: string, question: SurveyQuestion): string {
-    if (question.type === SurveyQuestionType.MultipleChoice) {
-        return `notEmpty(coalesce(${responseExpr}, []))`
-    }
-    return `coalesce(${responseExpr}, '') != ''`
-}
-
-export function buildPartialResponsesFilter(
-    survey: Survey,
-    dateRange?: SurveyDateRange | null,
-    isAnsweredExpr?: string
-): string {
+export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
     if (!survey.enable_partial_responses) {
         return `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
     }
 
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
 
-    // A submission can span multiple events (e.g. a rating event followed by a separate
-    // follow-up-text event, joined by $survey_submission_id). Electing the plain latest event
-    // per submission silently drops whichever question that event doesn't carry an answer for.
-    // When the caller cares about a specific question's answer, prefer the event within the
-    // submission that actually carries it, falling back to the latest event otherwise.
-    const electionPriority = isAnsweredExpr
-        ? `if(${isAnsweredExpr}, timestamp, toDateTime64('1970-01-01 00:00:00', 6))`
-        : 'timestamp'
-
     return `AND uuid in (
         SELECT
-            argMax(uuid, ${electionPriority})
+            argMax(uuid, timestamp)
         FROM events
         WHERE and(
             equals(event, '${SurveyEventName.SENT}'),
@@ -729,7 +704,16 @@ export function buildAggregateQuery(
     filters: SurveyQueryFilters,
     dateRange?: SurveyDateRange | null
 ): string | null {
+    const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
     const branches: string[] = []
+
+    const baseWhere = `event = '${SurveyEventName.SENT}'
+        AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${survey.id}'
+        ${filters.timestampFilter}
+        ${filters.answerFilterHogQLExpression}
+        ${filters.archivedResponsesFilter}
+        ${dedupFilter}
+        AND {filters}`
 
     for (const [index, question] of survey.questions.entries()) {
         if (!question.id || question.type === SurveyQuestionType.Link) {
@@ -737,23 +721,6 @@ export function buildAggregateQuery(
         }
 
         const responseExpr = getSurveyResponse(question, index)
-        // Elect, per submission, the event that actually answers this question — a submission
-        // split across multiple events (e.g. rating + separate follow-up text) would otherwise
-        // lose this question's answer whenever a later event in the same submission wins the
-        // dedup election but doesn't carry it.
-        const dedupFilter = buildPartialResponsesFilter(
-            survey,
-            dateRange,
-            buildResponseAnsweredExpr(responseExpr, question)
-        )
-
-        const baseWhere = `event = '${SurveyEventName.SENT}'
-        AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${survey.id}'
-        ${filters.timestampFilter}
-        ${filters.answerFilterHogQLExpression}
-        ${filters.archivedResponsesFilter}
-        ${dedupFilter}
-        AND {filters}`
 
         if (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice) {
             branches.push(`SELECT '${question.id}' AS question_id,
@@ -813,8 +780,8 @@ export function buildOpenEndedQuery(
     dateRange?: SurveyDateRange | null,
     limit: number = 50000
 ): { query: string; columnMap: OpenEndedColumnMap } | null {
+    const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
     const openColumns: string[] = []
-    const answeredExprs: string[] = []
     const columnMap: OpenEndedColumnMap = {}
     let columnIndex = 0
 
@@ -830,9 +797,7 @@ export function buildOpenEndedQuery(
             (question as MultipleSurveyQuestion).hasOpenChoice
 
         if (isOpen || hasOpenChoice) {
-            const responseExpr = getSurveyResponse(question, index)
-            openColumns.push(`${responseExpr} AS q${index}_response`)
-            answeredExprs.push(buildResponseAnsweredExpr(responseExpr, question))
+            openColumns.push(`${getSurveyResponse(question, index)} AS q${index}_response`)
             columnMap[question.id] = { columnIndex, questionIndex: index, type: question.type }
             columnIndex++
         }
@@ -841,10 +806,6 @@ export function buildOpenEndedQuery(
     if (openColumns.length === 0) {
         return null
     }
-
-    // Prefer the submission event that answers one of these open-text questions over one that
-    // merely completes the flow (e.g. a rating event with no text) — see buildAggregateQuery.
-    const dedupFilter = buildPartialResponsesFilter(survey, dateRange, `(${answeredExprs.join(' OR ')})`)
 
     const query = `SELECT
             ${openColumns.join(',\n')},

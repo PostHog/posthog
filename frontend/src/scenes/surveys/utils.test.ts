@@ -19,10 +19,8 @@ import {
 } from '~/types'
 
 import {
-    buildAggregateQuery,
     buildSurveyExampleInvocationGlobals,
     buildPartialResponsesFilter,
-    buildResponseAnsweredExpr,
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
@@ -1027,68 +1025,6 @@ describe('survey utils', () => {
             expect(partialFilter).toContain('properties.`$survey_id`')
             expect(partialFilter).toContain('properties.`$survey_submission_id`')
             expect(partialFilter).not.toContain('JSONExtractString')
-        })
-
-        it('elects the submission event that answers the question, not just the latest one', () => {
-            // A submission can be split across events (e.g. a rating event followed by a
-            // separate follow-up-text event). Without this, the dedup subquery always picks the
-            // latest event per submission, silently dropping whichever question that event
-            // doesn't carry an answer for.
-            const survey = {
-                id: 'test-survey-id',
-                created_at: '2024-11-19T00:00:00Z',
-                end_date: null,
-                enable_partial_responses: true,
-            } as Survey
-
-            const withoutPriority = buildPartialResponsesFilter(survey)
-            const withPriority = buildPartialResponsesFilter(survey, undefined, "coalesce(answer, '') != ''")
-
-            expect(withoutPriority).toContain('argMax(uuid, timestamp)')
-            expect(withPriority).toContain(
-                "argMax(uuid, if(coalesce(answer, '') != '', timestamp, toDateTime64('1970-01-01 00:00:00', 6)))"
-            )
-        })
-    })
-
-    describe('buildResponseAnsweredExpr', () => {
-        it('checks array emptiness for multiple choice questions and string emptiness otherwise', () => {
-            const multipleChoice = { type: SurveyQuestionType.MultipleChoice } as SurveyQuestion
-            const rating = { type: SurveyQuestionType.Rating } as SurveyQuestion
-
-            expect(buildResponseAnsweredExpr('answerExpr', multipleChoice)).toBe('notEmpty(coalesce(answerExpr, []))')
-            expect(buildResponseAnsweredExpr('answerExpr', rating)).toBe("coalesce(answerExpr, '') != ''")
-        })
-    })
-
-    describe('buildAggregateQuery', () => {
-        it('dedupes each question against the event that actually answers it', () => {
-            // Regression test: a thumbs rating (q1) and its negative-feedback follow-up text
-            // (q2) are sent as two separate `survey sent` events sharing $survey_submission_id.
-            // Deduping every question against the same "latest event wins" election reports the
-            // rating as answered on the follow-up event, which never carries $survey_response —
-            // the rating silently vanishes from the results while the follow-up text survives.
-            const survey = {
-                id: 'test-survey-id',
-                created_at: '2024-11-19T00:00:00Z',
-                end_date: null,
-                enable_partial_responses: true,
-                questions: [
-                    { id: 'q1', type: SurveyQuestionType.Rating, scale: 2, display: 'emoji' },
-                    { id: 'q2', type: SurveyQuestionType.Open, question: 'Why not?' },
-                ],
-            } as unknown as Survey
-
-            const filters = { timestampFilter: '', answerFilterHogQLExpression: '', archivedResponsesFilter: '' }
-
-            const query = buildAggregateQuery(survey, filters) as string
-
-            expect(query).toContain(
-                "argMax(uuid, if(coalesce(getSurveyResponse(0, 'q1'), '') != '', timestamp, toDateTime64('1970-01-01 00:00:00', 6)))"
-            )
-            expect(query).toContain(
-                "argMax(uuid, if(coalesce(getSurveyResponse(1, 'q2'), '') != '', timestamp, toDateTime64('1970-01-01 00:00:00', 6)))"
-            )
         })
     })
 
