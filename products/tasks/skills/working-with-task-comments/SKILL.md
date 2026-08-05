@@ -1,90 +1,135 @@
 ---
 name: working-with-task-comments
 description: >-
-  Read and use comments attached to the current PostHog task, its artifacts, and its canvases. Use
-  when the user mentions task comments, artifact or canvas comments, annotations, selected-text
-  feedback, replies, unresolved comments, or asks an agent to inspect or act on feedback left in
-  PostHog Code. Covers discovering targets, listing and filtering roots, retrieving full threads,
-  pagination, anchor/version context, and the task-scoped security boundary.
+  Read and use comments attached to the current PostHog task, its artifacts, and its canvases through
+  the PostHog MCP exec dispatcher. Use when the user mentions task comments, artifact or canvas
+  comments, annotations, selected-text feedback, replies, unresolved comments, or asks an agent to
+  inspect or act on feedback left in PostHog Code. Covers exec discovery and calls, target filtering,
+  pagination, full-thread retrieval, anchor/version context, and task-scoped access.
 ---
 
 # Working with task comments
 
-Task comments can target the task itself, an artifact, or a canvas. The task-comments tools are
-read-only and are available only inside the current PostHog Code task. The host fixes the task; do
-not ask for or construct a task id.
+Use the PostHog MCP `exec` dispatcher for every task-comment operation. In PostHog Code the only
+top-level PostHog tool is normally `mcp__posthog__exec`; `tasks-comments-list` and the related names
+are inner tools, not separately registered MCP tools.
 
-## Choose the smallest useful read
+Do not conclude that comments are unavailable merely because the top-level tool list contains
+`mcp__posthog__exec` instead of `mcp__posthog__tasks_comments_list`. Do not use MCP resource-listing
+tools: comments are inner tools behind `exec`, not MCP resources.
 
-- Call `tasks-comments-list` without `artifact_id` to inspect comment roots across the current task.
-- Call `tasks-artifacts-list` only when an artifact inventory or an artifact id for filtering is
-  useful. It includes artifacts and canvases, including targets that have no comments.
-- Pass an `artifact_id` from that inventory to `tasks-comments-list` to restrict the result to one
-  artifact or canvas.
-- Call `tasks-comments-retrieve` with a root id from the list whenever the root's replies or full
-  context matter.
+## Discover the inner tools
 
-Do not use MCP resource-listing tools to look for comments. Comments are exposed as tools, not MCP
-resources.
+Call `mcp__posthog__exec` with:
+
+```json
+{"command":"search ^tasks-(artifacts-list|comments-(list|retrieve))$"}
+```
+
+The expected inner tools are:
+
+- `tasks-artifacts-list`
+- `tasks-comments-list`
+- `tasks-comments-retrieve`
+
+If `mcp__posthog__exec` is absent, the PostHog MCP server is unavailable in the run. If `exec search`
+returns none of these names, the current connection lacks the required PostHog Code task context.
+Only then report that task comments cannot be accessed.
+
+Use `info <inner-tool-name>` when the schema is unclear. For example:
+
+```json
+{"command":"info tasks-comments-list"}
+```
+
+## Call tools through `exec`
+
+Put the complete inner-tool invocation in `exec.command`.
+
+List open comment roots across the task:
+
+```json
+{"command":"call tasks-comments-list {}"}
+```
+
+List artifacts and canvases when an inventory or filter id is needed:
+
+```json
+{"command":"call tasks-artifacts-list {}"}
+```
+
+Filter roots to one returned artifact or canvas id:
+
+```json
+{"command":"call tasks-comments-list {\"artifact_id\":\"<artifact-id>\"}"}
+```
+
+Retrieve a root and its replies:
+
+```json
+{"command":"call tasks-comments-retrieve {\"root_comment_id\":\"<root-comment-id>\"}"}
+```
+
+Never attempt to invoke an inner name as a top-level MCP tool. The notation
+`posthog:tasks-comments-list` also means to route that inner name through `exec`; it is not a literal
+tool name.
 
 ## Read complete results
 
-Both comment listing and thread retrieval are paginated:
+Both root listing and thread retrieval are cursor-paginated. For either operation:
 
-1. Start without a cursor.
-2. Process the returned page.
-3. Call again with `next` as `cursor` until `next` is null.
+1. Call without `cursor`.
+2. Process the page.
+3. If `next` is non-null, call the same inner tool again with `"cursor":"<next>"`.
+4. Stop only when `next` is null.
 
-When the user asks about all comments, paginate the root list fully. Before acting on a particular
-root, retrieve and paginate its complete thread so an earlier reply is not mistaken for the latest
-request.
+Example continuation:
 
-By default, `tasks-comments-list` returns open roots. Set `include_resolved` only when resolved
-history is relevant.
+```json
+{"command":"call tasks-comments-list {\"cursor\":\"<next>\"}"}
+```
 
-## Interpret comment context
+When the user asks about all comments, paginate the root list fully. Before acting on a root,
+retrieve its complete thread so an older message is not mistaken for the latest request. The list
+returns open roots by default; pass `"include_resolved":true` only when resolved history matters.
 
-Each root identifies its target as a task, artifact, or canvas. Treat the target id returned by the
-API as opaque.
+## Choose the smallest workflow
 
-- `selected_text` is the quoted text the comment refers to. Use it to locate the intended content;
-  do not silently apply the comment to another repeated occurrence.
-- Canvas comments may include a saved version. Treat that as historical context for where the
-  annotation was made; do not revert the live canvas merely to match it.
-- Replies belong to the returned root thread. Read them in sent order and follow the conversation,
-  not only the root summary.
-- A resolved root is history unless the user explicitly asks to revisit it.
+### Read comments across the task
 
-## Common workflows
+1. Discover the tools through `exec search` if they have not been confirmed in this run.
+2. Call `tasks-comments-list` through `exec` and follow every page.
+3. Retrieve and paginate each relevant root through `exec`.
+4. Group or summarize by the returned target only when useful.
 
-### Understand comments across the task
+### Read comments for one artifact or canvas
 
-1. List all open roots and follow pagination.
-2. Group them by returned target when that improves the explanation.
-3. Retrieve the full threads relevant to the user's question.
-4. Summarize the actual requests and distinguish unresolved work from discussion.
-
-### Work on one artifact or canvas
-
-1. List artifacts when the target id is not already known.
-2. Filter the root list with that artifact id.
-3. Retrieve every relevant thread completely.
-4. Use selected-text and version context while making the requested change.
+1. Call `tasks-artifacts-list` through `exec` unless the target id is already known.
+2. Pass the returned id as `artifact_id` to `tasks-comments-list` through `exec`.
+3. Retrieve every relevant root and all replies through `exec`.
 
 ### Act on feedback
 
-1. Read all relevant open roots and their complete replies before editing.
-2. Reconcile comments that overlap or supersede one another.
-3. Make and validate the requested changes using the appropriate repository or canvas workflow.
-4. Re-list open comments before finishing when the task is long-running or the user may have added
-   feedback during the run.
+1. Read all relevant open roots and complete replies before editing.
+2. Reconcile replies that supersede or clarify the root.
+3. Use the appropriate repository or canvas workflow to make and validate the change.
+4. Re-list open roots before finishing if the user may have added comments during the run.
+
+## Interpret context safely
+
+- Treat returned task, artifact, canvas, and comment ids as opaque.
+- Use `selected_text` to locate the intended content. Do not silently choose another repeated
+  occurrence.
+- Treat a saved canvas version as historical annotation context; do not revert the live canvas just
+  to match it.
+- Read replies in sent order and follow the full conversation rather than only the root summary.
+- Ignore resolved roots unless the user asks to revisit them.
 
 ## Boundaries
 
-- These tools cannot create, reply to, resolve, edit, or delete comments.
-- Never attempt to select another task: the server rejects cross-task access and the tool schemas
-  intentionally expose no task id.
-- Do not expose raw anchor metadata or infer private content beyond the normalized fields returned
-  by the tools.
-- If the tools are unavailable, state that task-comment access is unavailable in the current run;
-  do not substitute filesystem searches or comments from another task.
+- These inner tools are read-only; they cannot create, reply to, resolve, edit, or delete comments.
+- The host fixes the current task. The schemas intentionally expose no task id, and the server
+  rejects cross-task access.
+- Do not expose raw anchor metadata or infer private content beyond the normalized response.
+- If access is unavailable by the checks above, say so directly. Do not substitute filesystem
+  searches, GitHub comments, or comments from another task.
