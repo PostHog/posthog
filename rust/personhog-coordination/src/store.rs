@@ -99,6 +99,13 @@ impl PersonhogStore {
         Ok(self.inner.put(&key, pod, Some(lease_id)).await?)
     }
 
+    /// The exact key `register_pod` writes for a pod, for watchers that
+    /// must match their own registration and nothing else under the
+    /// prefix.
+    pub fn pod_registration_key(&self, pod_name: &str) -> String {
+        self.key(StoreKey::Pod(pod_name))
+    }
+
     pub async fn get_pod(&self, pod_name: &str) -> Result<Option<RegisteredPod>> {
         let key = self.key(StoreKey::Pod(pod_name));
         Ok(self.inner.get(&key).await?)
