@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { citedTextToPlainText } from './citations'
+import { citedTextToPlainText, parseCitedSegments } from './citations'
 
 export function readModelOutput(obs: ReplayObservationApi): Record<string, unknown> | null {
     const out = obs.scanner_result?.model_output
@@ -49,6 +49,50 @@ export function readFreeformTags(obs: ReplayObservationApi): string[] {
 
 export function readTags(obs: ReplayObservationApi): string[] {
     return [...readFixedTags(obs), ...readFreeformTags(obs)]
+}
+
+export function readCitedTimestampsMs(obs: ReplayObservationApi): number[] {
+    const output = readModelOutput(obs)
+    if (!output || obs.status !== 'succeeded') {
+        return []
+    }
+    const [text, segments] =
+        obs.scanner_snapshot?.scanner_type === 'summarizer'
+            ? [output.summary, output.summary_segments]
+            : [output.reasoning, output.reasoning_segments]
+    if (typeof text !== 'string' || !text) {
+        return []
+    }
+    const timestamps = new Set<number>()
+    for (const segment of parseCitedSegments(text, segments)) {
+        if (segment.kind === 'chip') {
+            timestamps.add(segment.timestamp_ms)
+        }
+    }
+    return [...timestamps].sort((a, b) => a - b)
+}
+
+export interface ObservationSeekbarMark {
+    timestampMs: number
+    scannerNames: string[]
+}
+
+/** One mark per cited timestamp; scanner names merged when they cite the same moment. */
+export function observationSeekbarMarks(observations: ReplayObservationApi[]): ObservationSeekbarMark[] {
+    const namesByTimestamp = new Map<number, Set<string>>()
+    for (const obs of observations) {
+        const scannerName = obs.scanner_snapshot?.name
+        for (const timestampMs of readCitedTimestampsMs(obs)) {
+            const names = namesByTimestamp.get(timestampMs) ?? new Set<string>()
+            if (scannerName) {
+                names.add(scannerName)
+            }
+            namesByTimestamp.set(timestampMs, names)
+        }
+    }
+    return [...namesByTimestamp.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([timestampMs, names]) => ({ timestampMs, scannerNames: [...names] }))
 }
 
 /** One succeeded observation as clipboard text: a metadata line, then the result body. */
