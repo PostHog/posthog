@@ -10,17 +10,17 @@ two places:
 
 - a `SignalScoutStructuredOutput` row (Postgres, queryable via the `scout-*` MCP tools),
 - a customer-facing `$scout_structured_output` event in the team's own project (via
-  `capture_internal`), so the records are chartable in PostHog — trend a `verdict`
+  `capture_batch_internal`), so the records are chartable in PostHog — trend a `verdict`
   breakdown, alert on a rate — with no export step.
 
 Validation is all-or-nothing per call: if any record fails the schema, nothing is written
 and the error names the failing records, so the agent can fix and resubmit the batch
-without deduping a partial write. Accepted calls are NOT idempotent at the row layer (a
-resubmitted batch writes new rows), but the customer-facing events carry a deterministic
-uuid derived from `(run, batch index, subject, payload)`, so an identical resubmission
-collapses at ingestion instead of double-firing downstream automation while in-batch
-duplicate records still count separately. Events for a batch go out as ONE
-`capture_batch_internal` POST, never one HTTP call per record.
+without deduping a partial write. Accepted calls are NOT idempotent (record
+each batch exactly once): a resubmitted batch writes new rows, and each persisted row
+mirrors as exactly one customer-facing event whose uuid is the row's own id — events stay
+1:1 with rows, with no content-derived dedupe that could undercount repeated records.
+Events for a batch go out as ONE `capture_batch_internal` POST, never one HTTP call per
+record.
 
 Cardinality is deliberately the scout's call, not a config mode: the schema describes one
 record, and the scout may submit one per run, one per judged entity, or a batch per call
@@ -30,7 +30,6 @@ record, and the scout may submit one per run, one per judged entity, or a batch 
 from __future__ import annotations
 
 import json
-import uuid
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -214,7 +213,7 @@ def record_structured_output_sync(
         record_ids=[str(row.id) for row in rows],
     )
     _capture_recorded(team=team, run=run, recorded_count=len(rows))
-    _forward_structured_output_events(team=team, run=run, records=records)
+    _forward_structured_output_events(team=team, run=run, rows=rows)
     return result
 
 
@@ -242,7 +241,7 @@ async def record_structured_output(
     # The forward helper does one DB read (`_build_forwards`) plus one blocking batch HTTP
     # POST; `to_thread` keeps both off the event loop without occupying the DB-thread pool
     # for the HTTP leg.
-    await asyncio.to_thread(_forward_structured_output_events, team=team, run=run, records=records)
+    await asyncio.to_thread(_forward_structured_output_events, team=team, run=run, rows=rows)
     return result
 
 
@@ -406,12 +405,12 @@ class _StructuredOutputForward:
 
 
 def _build_forwards(
-    *, team: Team, run: SignalScoutRun, records: list[StructuredOutputRecord]
+    *, team: Team, run: SignalScoutRun, rows: list[SignalScoutStructuredOutput]
 ) -> list[_StructuredOutputForward]:
-    """One customer-facing event per record, into the team's own project. Scalar top-level
-    payload keys are flattened to `output_<key>` properties so trends can break down on
-    them directly (nested access works too; the flat copy is the ergonomic path), and the
-    full record rides under `output`. Suppressed entirely for a dry-run scout
+    """One customer-facing event per persisted row, into the team's own project. Scalar
+    top-level payload keys are flattened to `output_<key>` properties so trends can break
+    down on them directly (nested access works too; the flat copy is the ergonomic path),
+    and the full record rides under `output`. Suppressed entirely for a dry-run scout
     (`config.emit=False`): rows still record — that's how a scout is validated — but a
     dry-run must not drive customer-visible automation, matching the report channel's
     inactive-skip rule."""
@@ -430,37 +429,30 @@ def _build_forwards(
         "run_id": str(run.id),
         "task_run_id": str(run.task_run_id) if run.task_run_id else None,
     }
-    for index, record in enumerate(records):
+    for row in rows:
         flattened = {
             f"output_{key}": value
-            for key, value in record.payload.items()
+            for key, value in row.payload.items()
             if isinstance(value, (str, int, float, bool)) or value is None
         }
-        payload_key = json.dumps(record.payload, sort_keys=True, separators=(",", ":"))
         forwards.append(
             _StructuredOutputForward(
                 distinct_id=f"signals_scout:{run.skill_name}",
-                # `index` keeps in-batch duplicates (two records with identical subject +
-                # payload that are meant to count separately) as distinct events, while a
-                # resubmitted identical batch — same records at the same positions — still
-                # collapses at ingestion instead of double-firing downstream automation.
-                event_uuid=str(
-                    uuid.uuid5(
-                        uuid.NAMESPACE_URL,
-                        "signals_scout_structured_output:"
-                        + json.dumps(
-                            [str(run.id), str(index), record.subject or "", payload_key], separators=(",", ":")
-                        ),
-                    )
-                ),
-                properties={**base, "subject": record.subject, "output": record.payload, **flattened},
+                # The persisted row's own uuid keeps events exactly 1:1 with rows: no two
+                # rows can ever collide (unlike any content-derived key, where a later call
+                # repeating a record at the same position would dedupe at ingestion and
+                # undercount), and the event joins straight back to its row. A retried call
+                # writes new rows and therefore new events — matching the documented row
+                # semantics: record each batch exactly once.
+                event_uuid=str(row.id),
+                properties={**base, "subject": row.subject or None, "output": row.payload, **flattened},
             )
         )
     return forwards
 
 
 def _forward_structured_output_events(
-    *, team: Team, run: SignalScoutRun, records: list[StructuredOutputRecord]
+    *, team: Team, run: SignalScoutRun, rows: list[SignalScoutStructuredOutput]
 ) -> None:
     """Mirror the accepted batch into the team's own event stream through the sanctioned
     `capture_batch_internal` path — one batch POST (auto-chunked with bounded concurrency
@@ -469,7 +461,7 @@ def _forward_structured_output_events(
     Person processing is OFF with a synthetic per-scout `distinct_id` — a record is the
     scout's output, not an end-user action. Best-effort: a forward failure must never fail
     the record call (the rows are the durable record either way)."""
-    forwards = _build_forwards(team=team, run=run, records=records)
+    forwards = _build_forwards(team=team, run=run, rows=rows)
     if not forwards:
         return
     try:

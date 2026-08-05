@@ -764,7 +764,9 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         assert rows[0].payload == {"verdict": "good", "reason": "coherent grouping"}
         assert rows[0].skill_name == run.skill_name
         # One batch POST carrying one event per record, person processing off, scalar payload
-        # keys flattened for breakdowns, and distinct deterministic uuids per record.
+        # keys flattened for breakdowns, and each event uuid = its persisted row's id — a
+        # content-derived key would collide (and dedupe at ingestion) when a later call
+        # repeats a record at the same position.
         assert mock_capture.call_count == 1
         kwargs = mock_capture.call_args.kwargs
         events = kwargs["events"]
@@ -774,7 +776,7 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         assert events[0]["properties"]["output_verdict"] == "good"
         assert events[0]["properties"]["subject"] == "report-1"
         assert events[0]["properties"]["run_id"] == str(run.id)
-        assert len({event["event_uuid"] for event in events}) == 3
+        assert {event["event_uuid"] for event in events} == {str(row.id) for row in rows}
 
     def test_record_output_is_all_or_nothing_on_invalid_record(self) -> None:
         run = self._make_run_with_schema()
