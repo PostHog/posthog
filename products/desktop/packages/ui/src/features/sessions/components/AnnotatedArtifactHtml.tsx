@@ -127,13 +127,16 @@ export function AnnotatedArtifactHtml({
   }, [sendLocate]);
 
   const activateThreadRef = useRef(onActivateThread);
-  activateThreadRef.current = onActivateThread;
   const resolutionsChangeRef = useRef(onResolutionsChange);
-  resolutionsChangeRef.current = onResolutionsChange;
   const sendCommentsRef = useRef(sendComments);
-  sendCommentsRef.current = sendComments;
   const sendLocateRef = useRef(sendLocate);
-  sendLocateRef.current = sendLocate;
+
+  useEffect(() => {
+    activateThreadRef.current = onActivateThread;
+    resolutionsChangeRef.current = onResolutionsChange;
+    sendCommentsRef.current = sendComments;
+    sendLocateRef.current = sendLocate;
+  }, [onActivateThread, onResolutionsChange, sendComments, sendLocate]);
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
