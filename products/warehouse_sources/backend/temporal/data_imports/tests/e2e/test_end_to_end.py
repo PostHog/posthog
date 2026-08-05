@@ -2468,7 +2468,10 @@ async def test_in_place_coarsening_merges_hourly_partitions_up(
             "attempts": 0,
         }
     )
-    await _execute_run(str(uuid.uuid4()), inputs, [])
+    # The rollout flag gates the queued rewrite too (a pending repartition is released, not run, when
+    # it's off), so force it on for the staging run that produces the over-split layout.
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
@@ -2551,7 +2554,9 @@ async def test_in_place_coarsening_for_hashed_and_numerical_modes(
             "attempts": 0,
         }
     )
-    await _execute_run(str(uuid.uuid4()), inputs, [])
+    # Same as the datetime test: the rollout flag must be on for the staging rewrite to run at all.
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
