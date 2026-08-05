@@ -203,7 +203,10 @@ export class ToolExecutor {
             // exec-vs-direct comparison silently flatters direct mode, and
             // clients registered individually look error-free when they aren't.
             // Duration is 0: no handler ran (see `trackInnerCall`, same rule).
-            const rejection = new ToolInputValidationError(message, describeValidationError(validation.error, toolArgs))
+            const rejection = new ToolInputValidationError(
+                message,
+                describeValidationError(validation.error, toolArgs, tool.schema)
+            )
             void trackToolCall(
                 tool.name,
                 0,
@@ -363,7 +366,7 @@ export class ToolExecutor {
         // success and failure alike — so the discovery verbs stop collapsing into
         // one opaque `exec` bucket and an `info <tool>` can be linked to the
         // `call <tool>` that follows it.
-        const execShape = execCommandAnalyticsProperties(validation.data)
+        const execShape = execCommandAnalyticsProperties(validation.data, state)
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
@@ -767,14 +770,19 @@ function errorAnalyticsProperties(classification: ToolErrorClassification, error
  * it reads `exec` for every other verb and for a `call` that never resolved — so
  * schema discovery, tool search, and a mistyped verb are indistinguishable, and
  * an `unknown_tool` rejection records nothing about what was attempted. Both
- * values are value-free by construction (see `describeExecCommand`).
+ * values are value-free by construction (see `describeExecCommand`): the verb comes
+ * from the closed grammar and the target from this connection's own catalog, so a
+ * token outside either is recorded as unrecognized rather than echoed.
  */
-function execCommandAnalyticsProperties(execArgs: unknown): Record<string, unknown> {
+function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState): Record<string, unknown> {
     const command = (execArgs as { command?: unknown } | undefined)?.command
     if (typeof command !== 'string') {
         return {}
     }
-    const { verb, targetTool } = describeExecCommand(command)
+    const { verb, targetTool } = describeExecCommand(
+        command,
+        (name) => state.allTools.some((t) => t.name === name) || state.scopeGatedTools.some((t) => t.name === name)
+    )
     return {
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),
         ...(targetTool !== undefined ? { $mcp_exec_target_tool: targetTool } : {}),

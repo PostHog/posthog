@@ -1259,6 +1259,8 @@ describe('exec tool', () => {
     })
 
     describe('describeExecCommand', () => {
+        const isKnownToolName = (name: string): boolean => ['execute-sql', 'query-trends', 'my-tool'].includes(name)
+
         // The verb/target pair is what separates schema discovery from tool search
         // from a mistyped verb in analytics. Flag handling differs per verb, so a
         // parser regression silently collapses the funnel back into one bucket.
@@ -1271,37 +1273,34 @@ describe('exec tool', () => {
             ['call my-tool {"a":1}', 'call', 'my-tool'],
             ['call --json --confirm my-tool {}', 'call', 'my-tool'],
             ['  info   execute-sql  ', 'info', 'execute-sql'],
-            // A `call` that never resolves still records what was attempted — the
-            // only signal there is behind an `unknown_tool` rejection.
-            ['call not-a-real-tool {}', 'call', 'not-a-real-tool'],
+            // A removed tool is still one of our own names, so the redirect it
+            // triggers stays diagnosable.
+            ['call query-run {}', 'call', 'query-run'],
             // Verb present, target absent: nothing to record for the tool, but the
             // verb still is.
             ['info', 'info', undefined],
             ['call', 'call', undefined],
             ['', undefined, undefined],
         ])('describes "%s" as verb=%s target=%s', (command, expectedVerb, expectedTarget) => {
-            expect(describeExecCommand(command)).toEqual({
+            expect(describeExecCommand(command, isKnownToolName)).toEqual({
                 verb: expectedVerb,
                 ...(expectedTarget !== undefined ? { targetTool: expectedTarget } : {}),
             })
         })
 
-        // Both fields reach analytics, so an unrecognized token must never carry
-        // caller text through. Anything outside [a-z0-9._-] is dropped and the
-        // result is capped — the same value-free constraint `describeValidationError`
-        // holds for schema rejections.
+        // Both fields reach analytics, and a token the grammar rejected is caller
+        // text — sanitizing its charset would leave an identifier-shaped secret
+        // intact, so it is replaced outright. Same value-free constraint
+        // `describeValidationError` holds for schema rejections.
         it.each([
-            ['LIST {"secret":"value"}', 'list'],
-            ['<script>alert(1)</script>', 'scriptalert1script'],
-            ['a'.repeat(200), 'a'.repeat(64)],
-        ])('normalizes unrecognized verb in "%s"', (command, expectedVerb) => {
-            const { verb } = describeExecCommand(command)
-            expect(verb).toBe(expectedVerb)
-            expect(verb!.length).toBeLessThanOrEqual(64)
-        })
+            ['an unknown verb', 'sk-live-abc123 {"a":1}', { verb: 'unrecognized' }],
+            ['an unresolvable call target', 'call sk-live-abc123 {}', { verb: 'call', targetTool: 'unrecognized' }],
+            ['an unresolvable info target', 'info sk-live-abc123', { verb: 'info', targetTool: 'unrecognized' }],
+        ])('records a sentinel instead of %s', (_label, command, expected) => {
+            const shape = describeExecCommand(command, isKnownToolName)
 
-        it('normalizes and bounds an unrecognized target tool', () => {
-            expect(describeExecCommand(`call ${'x'.repeat(200)} {}`).targetTool).toBe('x'.repeat(64))
+            expect(shape).toEqual(expected)
+            expect(JSON.stringify(shape)).not.toContain('sk-live-abc123')
         })
     })
 
@@ -1411,7 +1410,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input)
+            const detail = describeValidationError(result.error!, input, schema)
 
             expect(detail.inputKeys).toEqual(['organizationId'])
             // Never record input values — the raw uuid must not appear anywhere.
@@ -1424,7 +1423,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input)
+            const detail = describeValidationError(result.error!, input, schema)
 
             expect(detail.fields).toContain('projectId:invalid_type:string')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
@@ -1441,20 +1440,24 @@ describe('exec tool', () => {
             ['sent as an array', { id: ['x'] }, 'id:invalid_type:array'],
             ['sent as null', { id: null }, 'id:invalid_type:null'],
         ])('distinguishes a required param %s', (_label, input, expected) => {
-            const result = z.object({ id: z.string() }).safeParse(input, { reportInput: true })
+            const schema = z.object({ id: z.string() })
+            const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input as Record<string, unknown>).fields).toEqual([expected])
+            expect(describeValidationError(result.error!, input as Record<string, unknown>, schema).fields).toEqual([
+                expected,
+            ])
         })
 
         // The received type is only meaningful for the type-shaped codes; appending it
         // to every code would bloat the descriptor and say nothing (`too_big:string`).
         it('omits the received type for a code the type does not explain', () => {
+            const schema = z.object({ description: z.string().max(3) })
             const input = { description: 'far too long' }
-            const result = z.object({ description: z.string().max(3) }).safeParse(input, { reportInput: true })
+            const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input).fields).toEqual(['description:too_big'])
+            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['description:too_big'])
         })
 
         // A malformed array produces one issue per element. Collapsing indices keeps
@@ -1473,9 +1476,40 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const { fields } = describeValidationError(result.error!, input as Record<string, unknown>)
+            const { fields } = describeValidationError(result.error!, input as Record<string, unknown>, schema)
 
             expect(fields).toEqual(['series.N.event:invalid_type:number', 'dateRange:invalid_type:number'])
+        })
+
+        // The full issue path is what distinguishes a flattened envelope from a bad
+        // discriminator, but under an open record (`generate-app-url`'s `params`) the
+        // path's own segments are the caller's keys. Masking them keeps the field that
+        // held the bad value visible without recording anything the caller chose.
+        it('masks a path segment the schema never declared', () => {
+            const schema = z.object({
+                url: z.string(),
+                params: z.record(z.string(), z.string()),
+            })
+            const input = { url: '/project/2', params: { 'sk-live-abc123': 42 } }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const detail = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+
+            expect(detail.fields).toEqual(['params.*:invalid_type:number'])
+            expect(JSON.stringify(detail)).not.toContain('sk-live-abc123')
+        })
+
+        // Nested schema fields are ours, so they must survive the mask — otherwise
+        // every descriptor collapses to `*` and the reason the PR widened the path
+        // (telling `query:invalid_union` apart from `query.kind:invalid_type`) is lost.
+        it('keeps a declared nested path intact', () => {
+            const schema = z.object({ query: z.object({ kind: z.literal('TrendsQuery') }) })
+            const input = { query: { kind: 'trends' } }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['query.kind:invalid_value'])
         })
     })
 

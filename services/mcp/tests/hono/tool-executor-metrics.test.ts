@@ -484,9 +484,10 @@ describe('ToolExecutor metrics', () => {
             ['tools', { $mcp_exec_verb: 'tools' }],
             ['info docs-search', { $mcp_exec_verb: 'info', $mcp_exec_target_tool: 'docs-search' }],
             ['schema docs-search query', { $mcp_exec_verb: 'schema', $mcp_exec_target_tool: 'docs-search' }],
-            // Rejected verbs and unresolvable tools still carry their (normalized) token.
-            ['frobnicate whatever', { $mcp_exec_verb: 'frobnicate' }],
-            ['call not-a-real-tool {}', { $mcp_exec_verb: 'call', $mcp_exec_target_tool: 'not-a-real-tool' }],
+            // A verb or tool name we don't recognize is caller text, so the event
+            // records that it was unrecognized rather than the token itself.
+            ['frobnicate whatever', { $mcp_exec_verb: 'unrecognized' }],
+            ['call not-a-real-tool {}', { $mcp_exec_verb: 'call', $mcp_exec_target_tool: 'unrecognized' }],
         ])('stamps the exec verb and target for "%s"', async (command, expected) => {
             await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
 
