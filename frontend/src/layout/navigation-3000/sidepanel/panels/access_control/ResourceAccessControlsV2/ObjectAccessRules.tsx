@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInputSelect,
     LemonLabel,
@@ -22,6 +23,7 @@ import { accessControlsLogic } from './accessControlsLogic'
 import { AccessObjectRule, accessDetailLogic, objectRuleUrl } from './accessDetailLogic'
 import { AccessDetailSection } from './AccessDetailSection'
 import { addObjectOverrideModalLogic } from './addObjectOverrideModalLogic'
+import { humanizeAccessControlLevel } from './helpers'
 import { ScopeIcon } from './ScopeIcon'
 import type { ScopeType } from './types'
 
@@ -151,7 +153,8 @@ function AddObjectRuleModal({
     subjectId: string
 }): JSX.Element {
     const logic = addObjectOverrideModalLogic({ projectId, scopeType, subjectId })
-    const { isOpen, resource, objectId, level, displayObjectOptions, objectOptionsLoading } = useValues(logic)
+    const { isOpen, resource, objectId, level, displayObjectOptions, objectOptionsLoading, existingRule } =
+        useValues(logic)
     const { objectRuleResourceOptions } = useValues(accessControlsLogic({ projectId }))
     const { closeModal, setResource, setSearch, setObjectId, setLevel, submitRule } = useActions(logic)
 
@@ -175,7 +178,7 @@ function AddObjectRuleModal({
                         disabledReason={!objectId ? 'Select an object' : undefined}
                         onClick={submitRule}
                     >
-                        Add rule
+                        {existingRule ? 'Update rule' : 'Add rule'}
                     </LemonButton>
                 </>
             }
@@ -219,6 +222,16 @@ function AddObjectRuleModal({
                         fullWidth
                     />
                 </div>
+                {existingRule ? (
+                    <LemonBanner type="warning">
+                        "{existingRule.name}" already has a rule.{' '}
+                        {existingRule.access_level === level
+                            ? `It's already set to ${humanizeAccessControlLevel(level)}.`
+                            : `Saving updates it from ${humanizeAccessControlLevel(
+                                  existingRule.access_level
+                              )} to ${humanizeAccessControlLevel(level)}.`}
+                    </LemonBanner>
+                ) : null}
             </div>
         </LemonModal>
     )

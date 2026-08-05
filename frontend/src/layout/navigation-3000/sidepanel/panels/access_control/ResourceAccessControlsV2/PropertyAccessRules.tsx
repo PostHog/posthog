@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInputSelect, LemonLabel, LemonModal, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInputSelect,
+    LemonLabel,
+    LemonModal,
+    LemonSelect,
+    LemonTable,
+} from '@posthog/lemon-ui'
 
 import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'scenes/data-management/definition/PropertyAccessControl'
 
@@ -15,6 +23,10 @@ import type { ScopeType } from './types'
 // The same levels and labels as the property definition page, minus read & write — a rule at
 // read & write is the default, expressed here by removing the rule.
 const PROPERTY_LEVEL_OPTIONS = PROPERTY_ACCESS_LEVEL_OPTIONS.filter((o) => o.value !== AccessLevelEnumApi.ReadWrite)
+
+function propertyLevelLabel(level: AccessLevelEnumApi): string | JSX.Element {
+    return PROPERTY_ACCESS_LEVEL_OPTIONS.find((o) => o.value === level)?.label ?? level
+}
 
 export interface PropertyAccessRulesProps {
     projectId: string
@@ -134,7 +146,8 @@ function AddPropertyRuleModal({
     subjectId: string
 }): JSX.Element {
     const logic = addPropertyRestrictionModalLogic({ projectId, scopeType, subjectId })
-    const { isOpen, propertyType, propertyId, level, displayPropertyOptions, propertyOptionsLoading } = useValues(logic)
+    const { isOpen, propertyType, propertyId, level, displayPropertyOptions, propertyOptionsLoading, existingRule } =
+        useValues(logic)
     const { closeModal, setPropertyType, setSearch, setPropertyId, setLevel, submitRule } = useActions(logic)
 
     return (
@@ -157,7 +170,7 @@ function AddPropertyRuleModal({
                         disabledReason={!propertyId ? 'Select a property' : undefined}
                         onClick={submitRule}
                     >
-                        Add rule
+                        {existingRule ? 'Update rule' : 'Add rule'}
                     </LemonButton>
                 </>
             }
@@ -191,6 +204,19 @@ function AddPropertyRuleModal({
                     <LemonLabel>Access</LemonLabel>
                     <LemonSelect value={level} onChange={setLevel} options={PROPERTY_LEVEL_OPTIONS} fullWidth />
                 </div>
+                {existingRule ? (
+                    <LemonBanner type="warning">
+                        "{existingRule.property}" already has a rule.{' '}
+                        {existingRule.access_level === level ? (
+                            <>It's already set to {propertyLevelLabel(level)}.</>
+                        ) : (
+                            <>
+                                Saving updates it from {propertyLevelLabel(existingRule.access_level)} to{' '}
+                                {propertyLevelLabel(level)}.
+                            </>
+                        )}
+                    </LemonBanner>
+                ) : null}
             </div>
         </LemonModal>
     )
