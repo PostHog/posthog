@@ -3,6 +3,7 @@ import './ScannerTriggers.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonCard,
@@ -113,7 +114,7 @@ function ScannerFilterGroup(): JSX.Element {
 // exposure filter in the card below, so users never have to build that filter by hand.
 function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
-    const { setExperimentVariantKeys, detachExperimentContext } = useActions(replayScannerLogic({ id: scannerId }))
+    const { setExperimentVariantKeys, removeExperimentTargeting } = useActions(replayScannerLogic({ id: scannerId }))
 
     if (!experimentContext) {
         return null
@@ -131,18 +132,19 @@ function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element 
                     <LemonLabel>Experiment targeting</LemonLabel>
                     <div className="text-xs text-muted">
                         This scanner watches sessions exposed to{' '}
-                        <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>. Changing variants updates
-                        the exposure filter below. Filters you add yourself are kept.
+                        <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>.
                     </div>
                 </div>
                 <LemonButton
                     size="xsmall"
                     type="secondary"
-                    onClick={() => detachExperimentContext()}
-                    tooltip="Remove the experiment link and edit the recording filters directly."
-                    data-attr="vision-experiment-targeting-detach"
+                    status="danger"
+                    icon={<IconTrash />}
+                    onClick={() => removeExperimentTargeting()}
+                    tooltip="Stop targeting this experiment. Filters you added yourself are kept."
+                    data-attr="vision-experiment-targeting-remove"
                 >
-                    Edit as filters
+                    Remove
                 </LemonButton>
             </div>
             <div className="max-w-160">

@@ -257,6 +257,15 @@ export function reconcileVariantKeys(experiment: Experiment, requestedKeys: stri
     return [...known]
 }
 
+/** The query with the managed exposure filter removed, for removing experiment targeting entirely. */
+export function removeManagedExposureFromQuery(query: RecordingsQuery | null, experiment: Experiment): RecordingsQuery {
+    const universal = recordingsQueryToUniversalFilters(query)
+    return toScannerQuery({
+        ...universal,
+        filter_group: stripManagedExposureFilters(universal.filter_group, experiment),
+    })
+}
+
 /** Scanner name for an experiment-scoped scanner, within the model's 255-char limit. */
 export function experimentScannerName(baseName: string, experimentName: string): string {
     const name = baseName ? `${baseName}: ${experimentName}` : experimentName

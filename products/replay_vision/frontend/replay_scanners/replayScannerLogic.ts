@@ -69,6 +69,7 @@ import {
     parseExperimentScannerParams,
     prefillScannerForExperiment,
     reconcileVariantKeys,
+    removeManagedExposureFromQuery,
     replaceExperimentExposureFilter,
 } from './experimentTargeting'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
@@ -452,6 +453,9 @@ export interface replayScannerLogicActions {
     refreshObservations: () => {
         value: true
     }
+    removeExperimentTargeting: () => {
+        value: true
+    }
     requestScannerEstimate: () => {
         value: true
     }
@@ -701,6 +705,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setExperimentContext: (context: ExperimentScannerContext | null) => ({ context }),
         setExperimentVariantKeys: (variantKeys: string[]) => ({ variantKeys }),
         detachExperimentContext: true,
+        removeExperimentTargeting: true,
         attachExperiment: (experimentId: number) => ({ experimentId }),
         saveAffectedCohort: (tag?: string) => ({ tag }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
@@ -1538,6 +1543,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 } catch (error: any) {
                     lemonToast.error(`Couldn't load the experiment${error?.detail ? `: ${error.detail}` : ''}`)
                 }
+            },
+
+            // Removal is its own action (not a detachExperimentContext reducer case) because the
+            // listener needs the context to find the managed filter, and the reducer would have
+            // already cleared it.
+            removeExperimentTargeting: () => {
+                const context = values.experimentContext
+                if (!context) {
+                    return
+                }
+                actions.setScannerValue(
+                    'query',
+                    removeManagedExposureFromQuery(values.scanner?.query ?? null, context.experiment)
+                )
+                actions.detachExperimentContext()
             },
 
             // The reducer has already stored the new keys; recompile only the managed exposure
