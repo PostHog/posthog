@@ -485,6 +485,9 @@ class IntegrationManager(models.Manager["Integration"]):
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
+        AMAZON_SELLING_PARTNER_EU = "amazon-selling-partner-eu", "Amazon Selling Partner (Europe)"
+        AMAZON_SELLING_PARTNER_FE = "amazon-selling-partner-fe", "Amazon Selling Partner (Far East)"
+        AMAZON_SELLING_PARTNER_NA = "amazon-selling-partner-na", "Amazon Selling Partner (North America)"
         ANTHROPIC = "anthropic"
         APPLE_PUSH = "apns"
         AWS_REDSHIFT = "aws-redshift"
@@ -778,6 +781,21 @@ def posthog_connect_base_url(region: str | None) -> str:
     return base_url
 
 
+# Amazon selling accounts are regional, and a seller can only sign in to the Seller Central for their
+# own region, so the consent host has to be picked before consent rather than discovered afterwards
+# (unlike Salesforce, where the sandbox host is a token-exchange fallback behind one visible kind).
+# That's why each SP-API region is its own integration kind. All three share one Amazon application,
+# so they share one set of credentials; only the consent host differs.
+AMAZON_SELLING_PARTNER_CONSENT_HOSTS: dict[str, str] = {
+    "amazon-selling-partner-na": "https://sellercentral.amazon.com",
+    "amazon-selling-partner-eu": "https://sellercentral-europe.amazon.com",
+    "amazon-selling-partner-fe": "https://sellercentral.amazon.co.jp",
+}
+
+# Login with Amazon issues and refreshes every SP-API token, whichever region the seller is in.
+AMAZON_LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -802,6 +820,7 @@ class OauthIntegration:
         "pinterest-ads",
         "stripe",
         "resend",
+        *AMAZON_SELLING_PARTNER_CONSENT_HOSTS,
     ]
     integration: Integration
 
@@ -1224,6 +1243,30 @@ class OauthIntegration:
                 id_path="resend_account_id",
                 name_path="resend_account_name",
             )
+        elif kind in AMAZON_SELLING_PARTNER_CONSENT_HOSTS:
+            if (
+                not settings.AMAZON_SELLING_PARTNER_APP_ID
+                or not settings.AMAZON_SELLING_PARTNER_APP_CLIENT_ID
+                or not settings.AMAZON_SELLING_PARTNER_APP_CLIENT_SECRET
+            ):
+                raise NotImplementedError("Amazon Selling Partner app not configured")
+
+            # SP-API seller authorization has no OAuth scopes — what an application may read is fixed
+            # by the roles Amazon approved for it, so `scope` stays empty and the consent page is
+            # built from `application_id` instead (see the branch in `authorize_url`). The token
+            # response carries no account identifier either; `selling_partner_id` arrives as a query
+            # parameter on the callback and is written onto the config in
+            # `integration_from_oauth_response`.
+            return OauthConfig(
+                authorize_url=f"{AMAZON_SELLING_PARTNER_CONSENT_HOSTS[kind]}/apps/authorize/consent",
+                token_url=AMAZON_LWA_TOKEN_URL,
+                client_id=settings.AMAZON_SELLING_PARTNER_APP_CLIENT_ID,
+                client_secret=settings.AMAZON_SELLING_PARTNER_APP_CLIENT_SECRET,
+                scope="",
+                additional_authorize_params={"application_id": settings.AMAZON_SELLING_PARTNER_APP_ID},
+                id_path="selling_partner_id",
+                name_path="selling_partner_id",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -1270,6 +1313,19 @@ class OauthIntegration:
                 "redirect_uri": cls.redirect_uri(kind),
                 "state": urlencode(state_payload),
             }
+        elif kind in AMAZON_SELLING_PARTNER_CONSENT_HOSTS:
+            # Amazon's Seller Central consent page is not an OAuth 2.0 authorize endpoint: it takes
+            # the Solution Provider Portal `application_id` rather than the Login with Amazon
+            # `client_id`, has no scope or response_type, and answers with `spapi_oauth_code`.
+            query_params = {
+                **(oauth_config.additional_authorize_params or {}),
+                "redirect_uri": cls.redirect_uri(kind),
+                "state": urlencode(state_payload),
+            }
+            if settings.AMAZON_SELLING_PARTNER_APP_DRAFT:
+                # Amazon refuses consent for an application it has not yet published unless the
+                # request opts into the draft flow.
+                query_params["version"] = "beta"
         else:
             query_params = {
                 "client_id": oauth_config.client_id,
@@ -1357,6 +1413,21 @@ class OauthIntegration:
                 },
                 headers={"Content-Type": "application/json"},
                 timeout=10,
+            )
+        elif kind in AMAZON_SELLING_PARTNER_CONSENT_HOSTS:
+            # Amazon returns the grant as `spapi_oauth_code`, not `code`, and it expires after five
+            # minutes. The exchange itself is a standard Login with Amazon authorization-code grant.
+            res = requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "code": params["spapi_oauth_code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+                timeout=10,
+                allow_redirects=False,
             )
         elif kind == "stripe":
             # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
@@ -1551,6 +1622,24 @@ class OauthIntegration:
                     logger.error("Resend OAuth response missing access_token", config_keys=list(config.keys()))
             except Exception:
                 logger.exception("Failed to decode Resend JWT")
+
+        # Amazon identifies the authorizing seller on the callback rather than in the token response,
+        # so carry `selling_partner_id` across from the query parameters. Without it there is nothing
+        # to key the integration on, and the missing-id guard below turns that into a reconnect error.
+        # Being browser-supplied, it is not trusted to be the seller who actually consented: it only
+        # keys the row. Repointing an *existing* seller connection at a different grant is an edit, and
+        # `IntegrationSerializer.create` rejects (and rolls back) an id that resolves onto an already
+        # stored integration unless the caller has project-admin access.
+        if kind in AMAZON_SELLING_PARTNER_CONSENT_HOSTS and not integration_id:
+            selling_partner_id = params.get("selling_partner_id")
+            if selling_partner_id:
+                config["selling_partner_id"] = selling_partner_id
+                integration_id = selling_partner_id
+            else:
+                logger.error(
+                    "Amazon Selling Partner OAuth callback missing selling_partner_id",
+                    param_keys=sorted(params.keys()),
+                )
 
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors

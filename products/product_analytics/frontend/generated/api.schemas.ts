@@ -3807,6 +3807,9 @@ export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof Integr
 
 export const IntegrationKindApi = {
     Slack: 'slack',
+    AmazonSellingPartnerNa: 'amazon-selling-partner-na',
+    AmazonSellingPartnerEu: 'amazon-selling-partner-eu',
+    AmazonSellingPartnerFe: 'amazon-selling-partner-fe',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',

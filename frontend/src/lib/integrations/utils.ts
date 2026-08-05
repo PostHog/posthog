@@ -2,6 +2,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { IntegrationKind } from '~/types'
 
+import IconAmazonSellingPartner from 'public/services/amazon_selling_partner.png'
 import IconApple from 'public/services/apple_search_ads.png'
 import IconAwsS3 from 'public/services/aws-s3.png'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
@@ -41,6 +42,9 @@ import IconVercel from 'public/services/vercel.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
+    'amazon-selling-partner-na': IconAmazonSellingPartner,
+    'amazon-selling-partner-eu': IconAmazonSellingPartner,
+    'amazon-selling-partner-fe': IconAmazonSellingPartner,
     salesforce: IconSalesforce,
     hubspot: IconHubspot,
     'google-pubsub': IconGoogleCloud,
@@ -87,6 +91,12 @@ export const DARK_MODE_INVERT_ICON_KINDS = new Set<IntegrationKind>(['apns', 'gi
 
 export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
+        case 'amazon-selling-partner-na':
+            return 'Amazon Selling Partner (North America)'
+        case 'amazon-selling-partner-eu':
+            return 'Amazon Selling Partner (Europe)'
+        case 'amazon-selling-partner-fe':
+            return 'Amazon Selling Partner (Far East)'
         case 'google-pubsub':
             return 'Google Cloud Pub/Sub'
         case 'google-cloud-storage':

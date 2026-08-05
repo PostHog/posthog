@@ -1,5 +1,16 @@
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
+# Amazon's Selling Partner API needs two different identifiers: the Solution Provider Portal
+# application id, which keys the Seller Central consent page, and the Login with Amazon client id and
+# secret, which key the token endpoint. Empty defaults keep the app importable and the OAuth path
+# dormant until the application is registered, reviewed and published by Amazon.
+AMAZON_SELLING_PARTNER_APP_ID = get_from_env("AMAZON_SELLING_PARTNER_APP_ID", "")
+AMAZON_SELLING_PARTNER_APP_CLIENT_ID = get_from_env("AMAZON_SELLING_PARTNER_APP_CLIENT_ID", "")
+AMAZON_SELLING_PARTNER_APP_CLIENT_SECRET = get_from_env("AMAZON_SELLING_PARTNER_APP_CLIENT_SECRET", "")
+# Amazon only accepts consent requests for an unpublished (Draft) application when the consent URL
+# carries `version=beta`, so this stays on until the application clears Amazon's review.
+AMAZON_SELLING_PARTNER_APP_DRAFT = get_from_env("AMAZON_SELLING_PARTNER_APP_DRAFT", False, type_cast=str_to_bool)
+
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
 

@@ -2832,6 +2832,9 @@ class InsightThresholdType(StrEnum):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
+    AMAZON_SELLING_PARTNER_NA = "amazon-selling-partner-na"
+    AMAZON_SELLING_PARTNER_EU = "amazon-selling-partner-eu"
+    AMAZON_SELLING_PARTNER_FE = "amazon-selling-partner-fe"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"

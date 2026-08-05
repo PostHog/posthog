@@ -47,6 +47,12 @@ _REDACT_PARAM_NAMES: Final[frozenset[str]] = frozenset(
         "refresh_token",
         "subject_token",
         "actor_token",
+        # AWS SigV4 presigned-URL credentials (e.g. an S3 report-document download).
+        # The signature and credential scope are the load-bearing secret in the query
+        # string; redact them so a logged presigned URL isn't replayable.
+        "x-amz-signature",
+        "x-amz-credential",
+        "x-amz-security-token",
     }
 )
 
