@@ -1292,6 +1292,7 @@ doesn't conflict with concurrent PRs.
 - servicem8
 - servicetitan
 - servicetrade
+- sevalla
 - sevdesk
 - sevenshifts
 - sftp
