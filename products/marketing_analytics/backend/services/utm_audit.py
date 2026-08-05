@@ -17,6 +17,7 @@ from posthog.sync import database_sync_to_async
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
+from products.marketing_analytics.backend.services.campaign_mapping_suggester import suggest_campaign_name_mappings
 from products.marketing_analytics.backend.services.types import (
     AlternativeSource,
     Campaign,
@@ -427,6 +428,42 @@ def _build_issue(
     )
 
 
+def _mapping_candidates(
+    campaigns: list[Campaign],
+    utm_events: dict[tuple[str, str], int],
+    mappings: TeamMappings,
+) -> dict[str, str]:
+    """Target match value -> the orphaned `utm_campaign` the suggester would map onto it.
+
+    Keyed by match value rather than campaign name because that is what a proposal names and what
+    `_compute_campaign_stats` already resolved per campaign — matching on the display name would
+    silently miss every integration that joins on id.
+
+    Only confident proposals: `ambiguous` and `unresolved` are excluded by construction, since the
+    suggester puts a near-tie there precisely because picking one could misattribute spend. A
+    campaign with two plausible typos therefore gets no candidate here, which is the honest answer.
+
+    Contained: this is advisory decoration on an audit that has to keep working, so a failure
+    leaves every issue exactly as it was rather than taking the audit down.
+    """
+    try:
+        proposals = suggest_campaign_name_mappings(campaigns, utm_events, mappings).proposals
+    except Exception:
+        logger.exception("utm_audit.mapping_candidates_failed")
+        return {}
+
+    # Highest event count wins when several orphans point at one campaign: it is the one whose
+    # traffic the user is most likely to recognise, and the mapping is offered one at a time.
+    best: dict[str, str] = {}
+    best_count: dict[str, int] = {}
+    for proposal in proposals:
+        key = proposal.clean_name.lower().strip()
+        if proposal.event_count > best_count.get(key, -1):
+            best[key] = proposal.raw_utm_campaign
+            best_count[key] = proposal.event_count
+    return best
+
+
 def _cross_reference(
     campaigns: list[Campaign],
     utm_events: dict[tuple[str, str], int],
@@ -458,12 +495,28 @@ def _cross_reference(
         if stats.exact_count > 0:
             exact_matches_by_name.setdefault(stats.campaign_name_lower, set()).add(stats.source_name_lower)
 
+    # "No pageviews for this campaign" is where the audit runs out of road: it can see the
+    # campaign is unlinked but not why, so its only advice is "fix your ad URLs". The fuzzy
+    # suggester holds the other half — that a typo'd value with real traffic points at it — so
+    # ask it once here rather than leaving the two facts in separate services.
+    mapping_candidates = _mapping_candidates(campaigns, utm_events, mappings)
+
     results: list[CampaignAuditResult] = []
     for stats in all_stats:
         all_matching_sources = exact_matches_by_name.get(stats.campaign_name_lower, set())
         shared_with = all_matching_sources - {stats.source_name_lower}
 
         issue = _build_issue(stats, shared_with, known_sources)
+        if issue is not None and issue.kind == UtmIssueKind.NOT_LINKED:
+            # Same key the proposals were bucketed under: `get_match_value` is the lowercased form
+            # of the `clean_name` a proposal carries, so name-matching and id-matching integrations
+            # both look up correctly.
+            candidate = mapping_candidates.get(get_match_value(stats.campaign, mappings))
+            if candidate:
+                issue.mapping_candidate = candidate
+                # Appended, not prepended: fixing the URL is still the cure, the mapping is a
+                # band-aid, and the ordering of `suggested_actions` is the recommendation order.
+                issue.suggested_actions.append(SuggestedAction.ADD_CAMPAIGN_NAME_MAPPING)
         issues = [issue] if issue is not None else []
 
         results.append(
