@@ -17,6 +17,8 @@ import posthog from 'posthog-js'
 
 import {
     appendExceptionToMessage,
+    captureSupportTicketFailed,
+    captureSupportWidgetUnavailable,
     supportLogic,
     warnIfMessageTooLong,
     warnSupportWidgetUnavailable,
@@ -405,8 +407,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     // Out of retries. Kept separate from the send-failure event because nothing was
                     // submitted here, and recorded even when we stay quiet so the rate is measurable.
                     cache.conversationsUnavailableWarned = true
-                    posthog.capture('support widget unavailable', {
+                    captureSupportWidgetUnavailable({
                         surface: 'side_panel_tickets',
+                        reason: 'extension_missing',
                         can_create_ticket: values.canCreateTicket,
                     })
                     // Only warn people who could act on it. A free plan has no email fallback, and the
@@ -431,6 +434,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 }
             } catch (e) {
                 console.error('Failed to load tickets:', e)
+                // Reported because a customer who can't see their tickets can't reply to support on
+                // them either, and the toast alone left us blind to how often that happens
+                captureSupportWidgetUnavailable({
+                    surface: 'side_panel_tickets',
+                    reason: 'tickets_load_failed',
+                    error: e,
+                    can_create_ticket: values.canCreateTicket,
+                })
                 lemonToast.error('Failed to load tickets.')
             } finally {
                 actions.setTicketsLoading(false)
@@ -493,6 +504,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setHasMoreMessages(false)
             } catch (e) {
                 console.error('Failed to load messages:', e)
+                // A thread that won't open is a customer who can't continue a conversation they
+                // already started, so it belongs in the same rate signal as a dead panel
+                captureSupportWidgetUnavailable({
+                    surface: 'side_panel_tickets',
+                    reason: 'thread_load_failed',
+                    error: e,
+                })
                 lemonToast.error('Failed to load messages. Please try again.')
             } finally {
                 actions.setMessagesLoading(false)
@@ -505,16 +523,19 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             // Bailing quietly here left the button un-loaded and the typed message sitting in the box
             // with no explanation, which is the worst version of this now conversations is the only channel
             if (!posthog.conversations) {
-                posthog.capture('support ticket send failed', {
-                    channel: 'conversations',
+                captureSupportTicketFailed({
+                    surface: 'side_panel_composer',
                     reason: 'widget_unavailable',
-                    message_length: content.length,
+                    message: content,
                     is_new_ticket: values.view === 'new',
                 })
                 warnSupportWidgetUnavailable()
                 return
             }
-            if (warnIfMessageTooLong(content)) {
+            if (warnIfMessageTooLong(content, {
+                surface: 'side_panel_composer',
+                is_new_ticket: values.view === 'new',
+            })) {
                 return
             }
             actions.setMessageSending(true)
@@ -543,20 +564,26 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     onSuccess()
                 } else {
                     // A null response means nothing was sent, so surface it instead of silently
-                    // resetting. Server-rejected sends are captured server-side (widget endpoint),
-                    // so we only warn the user here rather than emitting a duplicate failure event.
+                    // resetting. The widget endpoint reports its own rejections under the same event
+                    // name, but it can't see a send the extension declined to make — and only the
+                    // client still holds the draft, which is the part a responder needs.
+                    captureSupportTicketFailed({
+                        surface: 'side_panel_composer',
+                        reason: 'widget_declined',
+                        message: content,
+                        is_new_ticket: values.view === 'new',
+                    })
                     lemonToast.error('Failed to send message. Please try again.', {
                         button: EMAIL_SUPPORT_BUTTON,
                     })
                 }
             } catch (e) {
                 console.error('Failed to send message:', e)
-                posthog.capture('support ticket send failed', {
-                    channel: 'conversations',
+                captureSupportTicketFailed({
+                    surface: 'side_panel_composer',
                     reason: 'send_failed',
-                    error: e instanceof Error ? e.message : String(e),
-                    message_length: content.length,
-                    current_url_length: window.location.href.length,
+                    message: content,
+                    error: e,
                     is_new_ticket: values.view === 'new',
                 })
                 lemonToast.error('Failed to send message. Please try again.', { button: EMAIL_SUPPORT_BUTTON })
@@ -593,6 +620,17 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // explains why and points at the community and upgrade options instead. Only ever on a
                 // known-ineligible plan: consuming is irreversible, so while entitlement is still
                 // unknown we open the composer rather than drop someone's message on the floor.
+                //
+                // Recorded before the reset, because this is the one path where someone typed a real
+                // message into a CTA and we discard it by design. The plan makes that correct, but it
+                // is still a customer we never heard, and the draft only exists here.
+                captureSupportTicketFailed({
+                    surface: 'support_form',
+                    reason: 'not_entitled',
+                    message: values.sendSupportRequest?.message,
+                    kind: values.sendSupportRequest?.kind,
+                    can_create_ticket: false,
+                })
                 actions.closeEmailForm()
                 actions.closeSupportForm()
                 actions.resetSendSupportRequest()
@@ -636,6 +674,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!conversations?.requestRestoreLink) {
                 // Returning quietly left the button idle with no explanation. This form already renders
                 // restoreError inline, which beats a toast for something the user has to act on.
+                captureSupportWidgetUnavailable({ surface: 'restore_form', reason: 'extension_missing' })
                 actions.setRestoreError(
                     "We can't load the support chat, which is usually an ad blocker or a network policy. Try turning it off for this site and reloading."
                 )
@@ -647,6 +686,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 await conversations.requestRestoreLink(email)
                 actions.setRestoreState('sent')
             } catch (e: any) {
+                // Someone who lost their tickets and can't get the restore link has no way back to a
+                // conversation they already started, so it's worth the same visibility as a dead panel
+                captureSupportWidgetUnavailable({ surface: 'restore_form', reason: 'restore_link_failed', error: e })
                 const message =
                     e?.status === 429
                         ? 'Too many requests. Please try again later.'

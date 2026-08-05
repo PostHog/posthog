@@ -86,11 +86,131 @@ async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
 // through posthog.conversations.sendMessage (the widget endpoint), so guard against the same cap.
 export const CONVERSATIONS_MESSAGE_MAX_LENGTH = 10000
 
+/**
+ * Where the customer was when support broke for them. Keep in sync with the alert that routes these
+ * to #alerts-support — the surface is what tells a responder whether a message was lost or whether
+ * someone just couldn't open the panel.
+ */
+export type SupportFailureSurface =
+    | 'support_form' // the modal / side-panel support form (every "contact support" CTA)
+    | 'side_panel_composer' // the conversations composer in the support panel
+    | 'side_panel_tickets' // the panel's ticket list and message threads
+    | 'restore_form' // "email me a link to my tickets"
+
+/** Why a submitted message never became a ticket. Every one of these loses customer intent. */
+export type SupportSendFailureReason =
+    | 'widget_unavailable' // extension never loaded (ad blocker, network policy) — no retry will fix it
+    | 'widget_declined' // extension returned no response; nothing left the browser
+    | 'send_failed' // the request threw
+    | 'message_too_long' // rejected by the client-side cap before we tried
+    | 'not_entitled' // plan has no ticket channel, so the draft was dropped on the floor
+
+/** Why a support surface couldn't function. Nothing was submitted, so no message is at risk. */
+export type SupportUnavailableReason =
+    | 'extension_missing' // posthog.conversations never showed up
+    | 'tickets_load_failed' // listing existing tickets threw
+    | 'thread_load_failed' // opening a ticket's messages threw
+    | 'restore_link_failed' // requesting a restore link threw
+
+// The draft is the one thing we can't reconstruct after the fact, so a lost submit records enough for
+// a responder to pick it up straight from the alert. Capped because event properties are not a place
+// to store documents, and because the tail of a long message is rarely what identifies the customer.
+export const SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH = 1000
+
+// Attached to every support-failure event so an alert can carry a responder straight to what
+// happened. `current_url` is explicit rather than relying on the auto-captured `$current_url`: this
+// is the payload an alert template reads, and it should not depend on autocapture staying enabled.
+function supportFailureContext(): Record<string, any> {
+    const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
+    return {
+        session_id: posthog.get_session_id?.() ?? null,
+        // Rewritten to the internal golink for the same reason as the ticket snippet: the recording
+        // lives in PostHog's own project, so this link is for staff triaging the alert, never the user.
+        session_replay_url: replayUrl ? replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/') : null,
+        current_url: window.location.href,
+    }
+}
+
+function messagePreviewProperties(message?: string): Record<string, any> {
+    const draft = message?.trim()
+    if (!draft) {
+        return { had_draft: false, message_length: 0 }
+    }
+    return {
+        had_draft: true,
+        message_length: draft.length,
+        message_truncated: draft.length > SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH,
+        message_preview: draft.slice(0, SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH),
+    }
+}
+
+/**
+ * A customer submitted a support message and it did not become a ticket.
+ *
+ * Shares its event name with the backend widget endpoint (which reports its own rejections), so an
+ * alert on this name catches both client- and server-side losses. Note the backend tags itself with
+ * `channel_source`, not `channel`.
+ */
+export function captureSupportTicketFailed({
+    surface,
+    reason,
+    message,
+    error,
+    ...rest
+}: {
+    surface: SupportFailureSurface
+    reason: SupportSendFailureReason
+    message?: string
+    error?: unknown
+    kind?: SupportTicketKind | null
+    is_new_ticket?: boolean
+    can_create_ticket?: boolean
+}): void {
+    posthog.capture('support ticket send failed', {
+        channel: 'conversations',
+        surface,
+        reason,
+        error: error !== undefined ? (error instanceof Error ? error.message : String(error)) : undefined,
+        ...messagePreviewProperties(message),
+        ...supportFailureContext(),
+        ...rest,
+    })
+}
+
+/**
+ * A support surface couldn't function. Nothing was submitted, so no customer message is at risk —
+ * this is the rate signal for "support is broken for people", not the per-message loss signal.
+ */
+export function captureSupportWidgetUnavailable({
+    surface,
+    reason,
+    error,
+    ...rest
+}: {
+    surface: SupportFailureSurface
+    reason: SupportUnavailableReason
+    error?: unknown
+    can_create_ticket?: boolean
+}): void {
+    posthog.capture('support widget unavailable', {
+        surface,
+        reason,
+        error: error !== undefined ? (error instanceof Error ? error.message : String(error)) : undefined,
+        ...supportFailureContext(),
+        ...rest,
+    })
+}
+
 // Shared over-limit guard for the conversations composer surfaces (support form + side panel). Shows
 // an error toast and returns true when the message exceeds the widget cap, so callers bail before
-// hitting the endpoint and surfacing only a generic send-failure toast.
-export function warnIfMessageTooLong(message: string): boolean {
+// hitting the endpoint and surfacing only a generic send-failure toast. Reports as a lost submit:
+// the customer pressed send and has no ticket, even though we rejected it before the network.
+export function warnIfMessageTooLong(
+    message: string,
+    context: { surface: SupportFailureSurface; kind?: SupportTicketKind | null; is_new_ticket?: boolean }
+): boolean {
     if (message.length > CONVERSATIONS_MESSAGE_MAX_LENGTH) {
+        captureSupportTicketFailed({ ...context, reason: 'message_too_long', message })
         lemonToast.error(
             `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`
         )
@@ -477,18 +597,8 @@ export const supportLogic = kea<supportLogicType>([
             // rerouted. `reason` splits "the widget never loaded" (usually permanent for that browser)
             // from "the send failed" (usually transient), because they need different advice and the
             // volume of each tells us whether the email fallback is carrying real traffic.
-            const sendFailed = (
-                reason: 'widget_unavailable' | 'widget_declined' | 'send_failed',
-                error?: unknown
-            ): void => {
-                posthog.capture('support ticket send failed', {
-                    channel: 'conversations',
-                    reason,
-                    error: error !== undefined ? (error instanceof Error ? error.message : String(error)) : undefined,
-                    kind,
-                    message_length: message?.length,
-                    current_url_length: window.location.href.length,
-                })
+            const sendFailed = (reason: SupportSendFailureReason, error?: unknown): void => {
+                captureSupportTicketFailed({ surface: 'support_form', reason, message, error, kind })
                 if (reason === 'widget_unavailable') {
                     warnSupportWidgetUnavailable()
                     return
@@ -506,7 +616,7 @@ export const supportLogic = kea<supportLogicType>([
             // Measure the full outgoing payload (message plus any appended exception) so the guard
             // matches what the widget endpoint actually receives and rejects
             const outgoingMessage = appendExceptionToMessage(message, exception_event)
-            if (warnIfMessageTooLong(outgoingMessage)) {
+            if (warnIfMessageTooLong(outgoingMessage, { surface: 'support_form', kind })) {
                 return
             }
             try {
