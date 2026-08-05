@@ -1,3 +1,5 @@
+<!-- Length tracks the change: a small diff gets a few bullets, not a full-length body. Keep what a reviewer cannot get from the diff and cut the rest. A section you have nothing for gets one line or "None", and that is a complete answer. -->
+
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
@@ -19,7 +21,7 @@
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
 <!-- Agents: do NOT claim manual testing you haven't done. State what the agent wasn't able to do and list only the automated tests you (the agent) actually ran. -->
 <!-- Added or changed tests? Name the regression each group catches that no existing test did — if you can't name it, it probably shouldn't be in this PR. https://posthog.com/handbook/engineering/conventions/backend-coding#testing -->
-<!-- Don't recite pass counts for suites CI runs; the checks report those. Long transcripts go in a <details> block. -->
+<!-- Don't recite pass counts for suites CI runs; the checks report those with more authority. Link the evidence instead (run, permalink, error tracking issue), and say what you did not check. Long transcripts go in a <details> block. -->
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
@@ -72,5 +74,5 @@
 - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
-- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead with the effect a person sees rather than the code path behind it, put each fact in the form that reads fastest (screenshot, diagram, table, bullet), cut what a reviewer doesn't need, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
+- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead with the effect a person sees rather than the code path behind it, keep only what a reviewer can't get from the diff, size the body to the change, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
 -->

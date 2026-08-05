@@ -15,11 +15,18 @@ Measured over the 66 PR bodies written with this skill on its first day, August 
 | Problem opens with the mechanism rather than the effect                    | about half |
 | Problem opens with a backticked symbol or file path in the first six words | 16 of 66   |
 | Testing and Agent context together longer than Problem and Changes         | 32 of 66   |
+| A test result the reader cannot check ("24 passed", "mypy clean")          | 38 of 66   |
+| No link to any evidence: a run, a permalink, an error tracking issue       | 41 of 66   |
 | A template comment left in place of the Problem section                    | 2 of 66    |
 
 Average section length: Problem 89 words, Changes 110, testing 100, Agent context 119.
 Half of a typical body sat under the half a reviewer reads.
-Every body in the sample was well formed. Pass 1 and the section budget in pass 3 exist because well formed was not enough.
+
+Body length also carried no information about the change: against diff churn it correlates at r=0.17 across the 66.
+A six-line fix drew 327 words, and the median body was 393.
+That is what makes a description read as noise. It looks the same whether the change is a typo or a migration, so the reader stops looking.
+
+Every body in the sample was well formed. Pass 1, the size rule and the claim rules in pass 3 exist because well formed was not enough.
 
 ---
 

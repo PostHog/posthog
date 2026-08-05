@@ -4,6 +4,7 @@ description: >
   Shapes a PR body into something a reviewer understands at a glance.
   Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve an existing description.
   Puts the effect a person sees in the first line and the mechanism under it, routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), cuts everything a reviewer does not need, then holds what survives to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
+  Keeps only what a reviewer cannot get from the diff, sizes the body to the change so a small PR reads as small, and makes every claim either linked to its evidence or labeled as unchecked.
   Ends with a scan test the agent runs over its own draft, reading only the title and the first line of two sections.
   Not for commit messages (see AGENTS.md, "Commit types") or user-facing product copy (see `/writing-user-facing-copy`).
 ---
@@ -11,6 +12,8 @@ description: >
 # Writing PR descriptions
 
 A reviewer scans a description in seconds and decides where to spend attention. The body is a scanning surface, not an essay.
+
+It also has to earn that attention. A body that repeats the diff, or that would fit any PR equally well, teaches its reader to skip the next one.
 
 Order decides whether they understand the change at all.
 Form and length only decide how fast.
@@ -30,6 +33,7 @@ You just spent an hour inside the mechanism, so the mechanism comes out first. P
 - Size the problem in one clause where you know it: how many teams, how often, since when.
 - The mechanism follows, in the order a reviewer has to check it.
 - The first bullet of Changes is the change itself. Renames, regenerated snapshots and comment fixes go last.
+- If one part of the diff is riskier than the rest, name that part and say the rest is mechanical. The reviewer confirms that within a minute, and a body that gets it right is one they read next time.
 
 Most of the time you already wrote the effect and put it third. Move it up rather than writing a new sentence.
 
@@ -87,13 +91,16 @@ Assign by role (`class NodeA,NodeB phBlue;`): `phBlue` agents and primary paths,
 
 ## Pass 3: cut
 
-One fact per bullet makes prose checkable. It does not make it shorter: a dense paragraph exploded into twelve bullets moves the reviewer's cost rather than removing it.
+The reviewer is about to read the diff.
+Anything in the body they could get from the diff is a copy at lower fidelity, and enough of those copies is what taught engineers to skip PR descriptions.
 
-So cut first, and shape only what survives. A fact earns a line when a reviewer needs it to judge the change, approve it, or know what to watch after it ships.
+So keep only what the diff cannot tell them: the intent, the alternative you rejected, the blast radius, what to watch after it ships, where to look first.
+
+One fact per bullet makes prose checkable. It does not make it shorter: a dense paragraph exploded into twelve bullets moves the reviewer's cost rather than removing it. Cut first, and shape only what survives.
 
 Delete:
 
-- Anything reconstructable from the diff. The reviewer can read the code.
+- Anything reconstructable from the diff.
 - Rationale for a choice nobody would question. Keep the reason only where you rejected an obvious alternative.
 - Restatements of the title, and summaries of the sections above.
 - Process narration. "Then I ran X, then Y" is a fact about your session, not about the change.
@@ -101,11 +108,25 @@ Delete:
 - The follow-up sentence in any "here is the reason, and here is why the reason matters" pair.
 - Any bullet whose reader you cannot name.
 
-Budget, as a ceiling and not a target:
+### Size tracks the change
+
+A body that would fit any PR tells a reader nothing about this one, and a reader who meets a few of those learns to skip all of them.
+When the diff is six lines, the body has to read as the body of a six-line change.
 
 - A one-file fix: 3 to 6 bullets across the whole body.
 - A typical PR: Problem and Changes together fit in about 10 bullets.
+- One line or "None" under every heading that does not apply. That is a complete answer, not a gap.
 - Numbers, file paths and identifiers survive cutting. Adjectives and second explanations do not.
+
+### Claims a reader can check
+
+The description is the only artifact in a PR that nothing validates. The code has CI. This has you.
+So make every claim cheap to disprove, and expect the reader to discount anything that is not.
+
+- Link the evidence: the failing run, the error tracking issue, a line-range permalink, the dashboard.
+- Delete the claims CI already makes. "24 passed" and "mypy clean" cost a line, cannot be checked from the body, and the checks carry more authority.
+- State what you did not check. "Not run: the database-backed suites, because this sandbox has no database" is the most credible line in most bodies and the cheapest to write.
+- Never claim testing you did not do. One of those found later costs the reader's trust in every description you write afterwards.
 
 ### The sections under Changes
 
@@ -113,7 +134,7 @@ Problem and Changes carry the review.
 Everything under them is evidence and provenance, and a reviewer reaches it last or never.
 When the lower half outgrows the upper half, cut the lower half.
 
-- Testing: name the regression each new test catches. Do not recite pass counts for suites CI runs, because the checks report them already. Transcripts go in a `<details>` block.
+- Testing: name the regression each new test catches, under the claim rules above. Transcripts go in a `<details>` block.
 - Agent context: autonomy, tools, skills invoked, and what changed across the session.
 - The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the changelog checkbox to find it.
 
@@ -180,18 +201,19 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 ### The line check
 
 1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
-2. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
-3. Read each bullet and name the reader who needs it. Delete the ones you cannot.
-4. Read each bullet alone. Does it state one fact? If it states two, split it.
-5. Count the words in the longest sentence. Over 25, split it.
-6. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
-7. Does the PR change anything a person sees? If yes, is a screenshot in the body?
-8. Does it change a flow or topology? If yes, are the before and after diagrams there?
-9. Is any comparison sitting in prose that belongs in a table?
-10. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
-11. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
-12. Does the body claim manual testing that did not happen? Delete it.
-13. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+2. Does the size of the body track the size of the diff? A six-line change under a full-length body reads as filler, and it costs the next description too.
+3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
+4. Could a reader get this bullet from the diff? Then cut it.
+5. Read each bullet and name the reader who needs it. Delete the ones you cannot.
+6. Read each bullet alone. Does it state one fact? If it states two, split it.
+7. Count the words in the longest sentence. Over 25, split it.
+8. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
+9. Is any fact in the wrong form? A visual change needs a screenshot, a change to a flow needs the before and after diagrams, a comparison across the same dimensions needs a table.
+10. Does every claim link its evidence or say what you did not check?
+11. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
+12. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
+13. Does the body claim manual testing that did not happen? Delete it.
+14. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
 ## Background
 
