@@ -62,6 +62,7 @@ export interface sidepanelTicketsLogicValues {
     billingLoading: boolean // billingLogic
     isCurrentOrganizationNew: boolean // organizationLogic
     sidePanelOpen: boolean // sidePanelStateLogic
+    isBillingIssue: boolean // supportLogic
     isEmailFormOpen: boolean // supportLogic
     pendingViewTicket: {
         created_at: string
@@ -70,7 +71,6 @@ export interface sidepanelTicketsLogicValues {
     } | null // supportLogic
     sendSupportRequest: SupportFormFields // supportLogic
     supportResponseTime: string | null // supportLogic
-    isBillingIssue: boolean // supportLogic
     canCreateTicket: boolean
     currentTicket: ConversationTicket | null
     hasBillingExemption: boolean

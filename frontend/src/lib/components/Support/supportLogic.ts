@@ -171,6 +171,7 @@ export interface supportLogicValues {
     supportPlans: BillingPlanType[] // billingLogic
     sidePanelAvailable: boolean // sidePanelStateLogic
     user: UserType | null // userLogic
+    isBillingIssue: boolean
     isEmailFormOpen: boolean
     isSendSupportRequestSubmitting: boolean
     isSendSupportRequestValid: boolean
@@ -191,7 +192,6 @@ export interface supportLogicValues {
     sendSupportRequestTouches: Record<string, boolean>
     sendSupportRequestValidationErrors: DeepPartialMap<SupportFormFields, ValidationErrorType>
     showSendSupportRequestErrors: boolean
-    isBillingIssue: boolean
     supportResponseTime: string | null
     title: string
 }
