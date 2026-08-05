@@ -100,9 +100,7 @@ def query_workflow_flakiness(
         placeholders={
             "date_from": ast.Constant(value=date_from),
             "min_failed_duration_seconds": ast.Constant(value=min_failed_duration_seconds),
-            "by_design_failure_job_names": ast.Array(
-                exprs=[ast.Constant(value=name) for name in BY_DESIGN_FAILURE_JOB_NAMES]
-            ),
+            "by_design_failure_job_names": ast.Constant(value=list(BY_DESIGN_FAILURE_JOB_NAMES)),
             "by_design_failure_repo_owner": ast.Constant(value=by_design_repo_owner),
             "by_design_failure_repo_name": ast.Constant(value=by_design_repo_name),
             # Same date-only floor for both tables: prunes the runs subquery (run_started_floor) and
