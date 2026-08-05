@@ -1155,7 +1155,7 @@ impl Coordinator {
         handoff: &HandoffState,
     ) -> Result<()> {
         if handoff.phase == HandoffPhase::Complete {
-            // Same guarded-delete discipline as `cleanup_stale_handoffs`:
+            // Same guarded-delete discipline as the dead-new-owner cancellation:
             // the Complete observation may be stale by the time we act on
             // it, and the record at this key may already be a successor
             // handoff.
