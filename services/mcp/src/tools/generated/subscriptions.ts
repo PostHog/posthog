@@ -1,12 +1,7 @@
 // AUTO-GENERATED from products/subscriptions/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { castStringToInt } from '@/tools/cast-helpers'
-
 import {
     SubscriptionsCreateBody,
     SubscriptionsDeliveriesListParams,
@@ -19,6 +14,9 @@ import {
     SubscriptionsRetrieveParams,
     SubscriptionsTestDeliveryCreateParams,
 } from '@/generated/subscriptions/api'
+import { castStringToInt } from '@/tools/cast-helpers'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SubscriptionsCreateSchema = SubscriptionsCreateBody
 
@@ -207,7 +205,16 @@ const subscriptionsList = (): ToolBase<
             ...result,
             results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['invite_message'])),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/subscriptions')
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/subscriptions/${item.id}`))
+                ),
+            },
+            '/subscriptions'
+        )
     },
 })
 

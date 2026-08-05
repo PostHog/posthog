@@ -45,12 +45,19 @@ export type NotebookMoveBlockOperation = {
     afterId: string | null
 }
 
+export type NotebookSetGroupStartOperation = {
+    type: 'set_group_start'
+    nodeId: string
+    startsGroup: boolean
+}
+
 export type NotebookOperation =
     | NotebookTextOperation
     | NotebookInsertBlockOperation
     | NotebookDeleteBlockOperation
     | NotebookReplaceBlockOperation
     | NotebookMoveBlockOperation
+    | NotebookSetGroupStartOperation
 
 export type NotebookOperationApplyResult = {
     document: NotebookDocument
@@ -110,7 +117,19 @@ export function diffNotebookDocuments(
 
     for (const node of toDocument.nodes) {
         const fromNode = fromById.get(node.id)
-        if (!fromNode || getNodeFingerprint(fromNode) === getNodeFingerprint(node)) {
+        if (!fromNode) {
+            continue
+        }
+
+        // A card boundary is outside the node fingerprint (see `startsGroup` in types.ts) and a
+        // text change can't carry it either, so moving one needs an operation of its own. Undo
+        // depends on it: without it, reverting a block inserted from the boundary would leave the
+        // block below stranded in the card the insert gave it.
+        if (!!fromNode.startsGroup !== !!node.startsGroup) {
+            operations.push({ type: 'set_group_start', nodeId: node.id, startsGroup: !!node.startsGroup })
+        }
+
+        if (getNodeFingerprint(fromNode) === getNodeFingerprint(node)) {
             continue
         }
 
@@ -226,6 +245,21 @@ export function applyNotebookOperations(
             continue
         }
 
+        if (operation.type === 'set_group_start') {
+            const index = nodes.findIndex((node) => node.id === operation.nodeId)
+            if (index === -1) {
+                return null
+            }
+            const previous = nodes[index]
+            nodes[index] = { ...previous, startsGroup: operation.startsGroup ? true : undefined }
+            inverted.push({
+                type: 'set_group_start',
+                nodeId: operation.nodeId,
+                startsGroup: !!previous.startsGroup,
+            })
+            continue
+        }
+
         const index = nodes.findIndex((node) => node.id === operation.nodeId)
         if (index === -1) {
             return null
@@ -332,6 +366,12 @@ function transformNotebookOperationPair(a: NotebookOperation, b: NotebookOperati
         }
     }
 
+    if (a.type === 'set_group_start' && b.type === 'set_group_start') {
+        // Both sides moved the same card boundary: matching values make each side a no-op for
+        // the other, while opposite values have no resolution that respects both.
+        return a.startsGroup === b.startsGroup ? { a: null, b: null } : null
+    }
+
     if (a.type === 'delete_block') {
         // After a deletes the node, b has nothing to act on; a survives any change b made.
         return { a: b.type === 'delete_block' ? null : a, b: null }
@@ -352,7 +392,8 @@ function transformNotebookOperationPair(a: NotebookOperation, b: NotebookOperati
         return null
     }
 
-    // move vs text on the same node: independent concerns.
+    // What's left touches independent concerns of the same node: a move, a text edit, or a card
+    // boundary, none of which invalidates the others.
     return { a, b }
 }
 

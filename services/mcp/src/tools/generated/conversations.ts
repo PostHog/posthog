@@ -1,11 +1,7 @@
 // AUTO-GENERATED from products/conversations/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     ConversationsTicketsListQueryParams,
     ConversationsTicketsMessagesListParams,
@@ -17,6 +13,14 @@ import {
     ConversationsTicketsRetrieveParams,
     ConversationsViewsListQueryParams,
 } from '@/generated/conversations/api'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ConversationsTicketsListSchema = ConversationsTicketsListQueryParams
 
@@ -32,22 +36,26 @@ const conversationsTicketsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/`,
             query: {
+                ai_triage_result: params.ai_triage_result,
                 assignee: params.assignee,
                 channel_detail: params.channel_detail,
                 channel_source: params.channel_source,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 distinct_ids: params.distinct_ids,
+                emails: params.emails,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
                 priority: params.priority,
                 search: params.search,
                 sla: params.sla,
+                snoozed: params.snoozed,
                 status: params.status,
                 tags: params.tags,
                 tags_all: params.tags_all,
                 tags_exclude: params.tags_exclude,
+                view: params.view,
             },
         })
         const filtered = {
@@ -68,7 +76,7 @@ const conversationsTicketsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/conversations/tickets')
+        return await withPostHogUrl(context, filtered, '/support/tickets')
     },
 })
 
@@ -131,7 +139,7 @@ const ConversationsTicketsRetrieveSchema = ConversationsTicketsRetrieveParams.om
 
 const conversationsTicketsRetrieve = (): ToolBase<
     typeof ConversationsTicketsRetrieveSchema,
-    WithPostHogUrl<Schemas.Ticket>
+    WithAgentNote<WithPostHogUrl<Schemas.Ticket>>
 > => ({
     name: 'conversations-tickets-retrieve',
     schema: ConversationsTicketsRetrieveSchema,
@@ -165,7 +173,10 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'created_at',
             'updated_at',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/conversations/tickets/${filtered.id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/support/tickets/${filtered.id}`),
+            "The PostHog Assistant may have investigated this ticket and written self-driving reports into the Inbox. To surface them, call inbox-reports-list with source_id set to this ticket's `id` and source_product=conversations (add include_all_statuses=true to include dismissed ones). Those reports hold the investigation and findings; the ticket's own messages do not."
+        )
     },
 })
 
@@ -202,7 +213,7 @@ const conversationsTicketsUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/conversations/tickets/${result.id}`)
+        return await withPostHogUrl(context, result, `/support/tickets/${result.id}`)
     },
 })
 
@@ -228,7 +239,7 @@ const conversationsViewsList = (): ToolBase<
             ...result,
             results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['short_id', 'name'])),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/conversations/tickets')
+        return await withPostHogUrl(context, filtered, '/support/tickets')
     },
 })
 

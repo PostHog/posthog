@@ -206,7 +206,7 @@ export function LlmEvalReportSignalCard({ signal }: SignalCardProps): JSX.Elemen
             )}
 
             <div className="text-xs text-tertiary mt-1">
-                Run · {humanFriendlyDetailedTime(extra.period_start)} – {humanFriendlyDetailedTime(extra.period_end)}
+                Run · {humanFriendlyDetailedTime(extra.period_start)} to {humanFriendlyDetailedTime(extra.period_end)}
             </div>
 
             <div className="mt-2">

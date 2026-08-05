@@ -1,21 +1,19 @@
 // AUTO-GENERATED from products/field_notes/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     FieldNotesListQueryParams,
     FieldNotesPartialUpdateBody,
     FieldNotesPartialUpdateParams,
     FieldNotesRetrieveParams,
 } from '@/generated/field_notes/api'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const FieldNotesGetSchema = FieldNotesRetrieveParams.omit({ project_id: true })
 
-const fieldNotesGet = (): ToolBase<typeof FieldNotesGetSchema, WithPostHogUrl<Schemas.FieldNote>> => ({
+const fieldNotesGet = (): ToolBase<typeof FieldNotesGetSchema, Schemas.FieldNote> => ({
     name: 'field-notes-get',
     schema: FieldNotesGetSchema,
     handler: async (context: Context, params: z.infer<typeof FieldNotesGetSchema>) => {
@@ -24,7 +22,7 @@ const fieldNotesGet = (): ToolBase<typeof FieldNotesGetSchema, WithPostHogUrl<Sc
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/field_notes/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/field_notes/${result.id}`)
+        return result
     },
 })
 
@@ -64,16 +62,7 @@ const fieldNotesList = (): ToolBase<typeof FieldNotesListSchema, WithPostHogUrl<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(
-            context,
-            {
-                ...filtered,
-                results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/field_notes/${item.id}`))
-                ),
-            },
-            '/field_notes'
-        )
+        return await withPostHogUrl(context, filtered, '/')
     },
 })
 
@@ -81,10 +70,7 @@ const FieldNotesPartialUpdateSchema = FieldNotesPartialUpdateParams.omit({ proje
     FieldNotesPartialUpdateBody.shape
 )
 
-const fieldNotesPartialUpdate = (): ToolBase<
-    typeof FieldNotesPartialUpdateSchema,
-    WithPostHogUrl<Schemas.FieldNote>
-> => ({
+const fieldNotesPartialUpdate = (): ToolBase<typeof FieldNotesPartialUpdateSchema, Schemas.FieldNote> => ({
     name: 'field-notes-partial-update',
     schema: FieldNotesPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof FieldNotesPartialUpdateSchema>) => {
@@ -131,7 +117,7 @@ const fieldNotesPartialUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/field_notes/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/field_notes/${result.id}`)
+        return result
     },
 })
 

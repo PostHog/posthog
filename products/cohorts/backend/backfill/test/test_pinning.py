@@ -1,8 +1,15 @@
+from unittest import mock
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cohorts.backend.backfill.pinning import derive_window_days, pin_conditions_for_cohorts
+from products.cohorts.backend.backfill.pinning import (
+    PersonPinningCapExceeded,
+    derive_window_days,
+    pin_conditions_for_cohorts,
+    pin_person_conditions_for_cohorts,
+)
 from products.cohorts.backend.models.cohort import Cohort
 
 
@@ -103,3 +110,88 @@ class TestBackfillPinning(SimpleTestCase):
         action = next(item for item in pinned["conditions"] if item["condition_hash"] == "cccccccccccccccc")
         self.assertTrue(action["is_action"])
         self.assertIsNone(action["event_name"])
+
+    def test_person_conditions_are_sorted_and_preserved_per_cohort(self) -> None:
+        second = Cohort(
+            id=2,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "person", "conditionHash": "bbbbbbbbbbbbbbbb"},
+                        {"type": "person", "conditionHash": "aaaaaaaaaaaaaaaa"},
+                    ],
+                }
+            },
+        )
+        first = Cohort(
+            id=1,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "conditionHash": "aaaaaaaaaaaaaaaa"}],
+                }
+            },
+        )
+
+        pinned = pin_person_conditions_for_cohorts([second, first], max_conditions=3)
+
+        self.assertEqual(
+            pinned,
+            {
+                "schema_version": 1,
+                "conditions": [
+                    {"cohort_id": 1, "condition_hash": "aaaaaaaaaaaaaaaa"},
+                    {"cohort_id": 2, "condition_hash": "aaaaaaaaaaaaaaaa"},
+                    {"cohort_id": 2, "condition_hash": "bbbbbbbbbbbbbbbb"},
+                ],
+            },
+        )
+
+    def test_hashless_person_leaf_is_dropped_with_warning(self) -> None:
+        cohort = Cohort(
+            id=7,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "person", "conditionHash": None},
+                        {"type": "person", "conditionHash": "aaaaaaaaaaaaaaaa"},
+                    ],
+                }
+            },
+        )
+
+        with mock.patch("products.cohorts.backend.backfill.pinning.logger") as logger:
+            pinned = pin_person_conditions_for_cohorts([cohort], max_conditions=1)
+
+        self.assertEqual(
+            pinned["conditions"],
+            [{"cohort_id": 7, "condition_hash": "aaaaaaaaaaaaaaaa"}],
+        )
+        logger.warning.assert_called_once_with(
+            "cohort_person_backfill_hashless_leaves_dropped",
+            cohort_id=7,
+            dropped=1,
+        )
+
+    def test_person_condition_cap_accepts_boundary_and_rejects_next_leaf(self) -> None:
+        cohort = Cohort(
+            id=7,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "person", "conditionHash": "aaaaaaaaaaaaaaaa"},
+                        {"type": "person", "conditionHash": "bbbbbbbbbbbbbbbb"},
+                    ],
+                }
+            },
+        )
+
+        self.assertEqual(
+            len(pin_person_conditions_for_cohorts([cohort], max_conditions=2)["conditions"]),
+            2,
+        )
+        with self.assertRaises(PersonPinningCapExceeded):
+            pin_person_conditions_for_cohorts([cohort], max_conditions=1)

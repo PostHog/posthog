@@ -199,6 +199,17 @@ export interface CurrentBranchHealthApi {
 }
 
 /**
+ * * `pytest` - PYTEST
+ * * `jest` - JEST
+ */
+export type CITestRunnerEnumApi = (typeof CITestRunnerEnumApi)[keyof typeof CITestRunnerEnumApi]
+
+export const CITestRunnerEnumApi = {
+    Pytest: 'pytest',
+    Jest: 'jest',
+} as const
+
+/**
  * * `confirmed_flake` - CONFIRMED_FLAKE
  * * `suspected_regression` - SUSPECTED_REGRESSION
  * * `quarantined` - QUARANTINED
@@ -213,11 +224,16 @@ export const FlakyTestItemClassificationEnumApi = {
 } as const
 
 export interface FlakyTestItemApi {
-    /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
+    /** Test runner that emitted this signal: 'pytest' or 'jest'.
+     *
+     * * `pytest` - PYTEST
+     * * `jest` - JEST */
+    runner: CITestRunnerEnumApi
+    /** Runner-specific stable test identity (the CI span name). This is a grouping key, not necessarily runnable; use `selector` to run or quarantine the test. */
     nodeid: string
-    /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
+    /** Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older pytest spans use a best-effort reconstruction from the nodeid. */
     selector: string
-    /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+    /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: a tolerated failure was recorded while it was masked. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
      *
      * * `confirmed_flake` - CONFIRMED_FLAKE
      * * `suspected_regression` - SUSPECTED_REGRESSION
@@ -231,9 +247,9 @@ export interface FlakyTestItemApi {
     failed_pr_count: number
     /** Failed runs on the default branch (master/main approximation): the 'matters right now' signal that a test is breaking the trunk, not just PR branches. */
     master_failed_run_count: number
-    /** Runs where the test failed while quarantined (xfail): already masked in CI, still failing. */
+    /** Runs where the test recorded a tolerated failure while quarantined: already masked in CI, still failing. */
     quarantined_failed_run_count: number
-    /** Most recent failure, recovery, or xfail run for this test in the window. */
+    /** Most recent failure, recovery, or quarantined-failure run for this test in the window. */
     last_signal_at: string
 }
 
@@ -420,6 +436,8 @@ export interface PullRequestApi {
 
 /**
  * * `opened` - OPENED
+ * * `ready_for_review` - READY_FOR_REVIEW
+ * * `converted_to_draft` - CONVERTED_TO_DRAFT
  * * `ci_started` - CI_STARTED
  * * `ci_finished` - CI_FINISHED
  * * `merged` - MERGED
@@ -429,6 +447,8 @@ export type PRLifecycleEventKindEnumApi = (typeof PRLifecycleEventKindEnumApi)[k
 
 export const PRLifecycleEventKindEnumApi = {
     Opened: 'opened',
+    ReadyForReview: 'ready_for_review',
+    ConvertedToDraft: 'converted_to_draft',
     CiStarted: 'ci_started',
     CiFinished: 'ci_finished',
     Merged: 'merged',
@@ -436,9 +456,11 @@ export const PRLifecycleEventKindEnumApi = {
 } as const
 
 export interface PRLifecycleEventApi {
-    /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+    /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
      *
      * * `opened` - OPENED
+     * * `ready_for_review` - READY_FOR_REVIEW
+     * * `converted_to_draft` - CONVERTED_TO_DRAFT
      * * `ci_started` - CI_STARTED
      * * `ci_finished` - CI_FINISHED
      * * `merged` - MERGED
@@ -447,7 +469,7 @@ export interface PRLifecycleEventApi {
     /** When the event occurred. */
     at: string
     /**
-     * Optional detail, e.g. workflow name and conclusion for CI events.
+     * Optional detail: workflow name and conclusion for CI events, the acting user's login for draft/ready transitions.
      * @nullable
      */
     detail?: string | null
@@ -519,8 +541,13 @@ export interface WorkflowRunDetailApi {
     duration_seconds: number | null
     /** Re-run attempt number; 1 for the first attempt. */
     run_attempt: number
-    /** Attributed pull request number, or 0 when unattributed. */
+    /** Pull request this run ran for, from the run's own-repo PR association; 0 when unattributed (a default-branch push, or a fork PR). */
     pr_number: number
+    /**
+     * Pull request whose merge produced this run's head commit, resolved through the merged pull request's merge commit and falling back to the commit subject's '(#NNNN)' suffix. Null when neither resolves. The only PR attribution a default-branch push has: read pr_number first and fall back to this.
+     * @nullable
+     */
+    commit_pr_number: number | null
 }
 
 export interface CIStatusRollupApi {
@@ -585,6 +612,11 @@ export interface PullRequestListItemApi {
      * @nullable
      */
     open_to_merge_seconds: number | null
+    /**
+     * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
+     * @nullable
+     */
+    ready_to_merge_seconds: number | null
     /** GitHub label names on the pull request. */
     labels: string[]
     /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
@@ -721,6 +753,20 @@ export const OperationEnumApi = {
     Remove: 'remove',
 } as const
 
+/**
+ * * `pytest` - PYTEST
+ * * `jest` - JEST
+ * * `playwright` - PLAYWRIGHT
+ */
+export type QuarantineRequestRunnerEnumApi =
+    (typeof QuarantineRequestRunnerEnumApi)[keyof typeof QuarantineRequestRunnerEnumApi]
+
+export const QuarantineRequestRunnerEnumApi = {
+    Pytest: 'pytest',
+    Jest: 'jest',
+    Playwright: 'playwright',
+} as const
+
 export interface QuarantineRequestApi {
     /** What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.
      *
@@ -730,6 +776,12 @@ export interface QuarantineRequestApi {
     operation: OperationEnumApi
     /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
     selector: string
+    /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
+     *
+     * * `pytest` - PYTEST
+     * * `jest` - JEST
+     * * `playwright` - PLAYWRIGHT */
+    runner?: QuarantineRequestRunnerEnumApi | null
     /**
      * Optional 'owner/name' repository override; defaults to the team's most active repo.
      * @nullable
@@ -870,6 +922,16 @@ export interface RepoOverviewApi {
      * @nullable
      */
     estimated_cost_usd_prev: number | null
+    /**
+     * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
+     * @nullable
+     */
+    merge_queue_billable_minutes: number | null
+    /**
+     * Merge-queue billable minutes over the previous window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    merge_queue_billable_minutes_prev: number | null
     /** Whether the job-level source is synced (cost and queue figures exist). */
     jobs_available: boolean
     /** 'master' or 'main', picked by observed run volume in the window. */
@@ -956,15 +1018,20 @@ export interface GitHubSourceApi {
 }
 
 export interface TeamTestSignalApi {
-    /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
+    /** Test runner that emitted this signal: 'pytest' or 'jest'.
+     *
+     * * `pytest` - PYTEST
+     * * `jest` - JEST */
+    runner: CITestRunnerEnumApi
+    /** Runner-specific test identity (the CI span name), a stable grouping key. */
     nodeid: string
-    /** Runnable pytest selector; exact when the CI reporter emitted it. */
+    /** Runnable pytest or Jest selector; exact for newly emitted spans. */
     selector: string
-    /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
+    /** Runs in the current window where the test failed, errored, or a retry recovered it (quarantined failures excluded). */
     signal_count: number
     /** Same count over the equal-length window before date_from. */
     signal_count_prior: number
-    /** Most recent failure, recovery, or xfail run for this test, either window. */
+    /** Most recent failure, recovery, or quarantined-failure run for this test, either window. */
     last_seen_at: string
 }
 
@@ -996,11 +1063,11 @@ export interface TeamCIHealthItemApi {
     same_commit_recovery_run_count: number
     /** Same count over the prior window. */
     same_commit_recovery_run_count_prior: number
-    /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
+    /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
     quarantined_failed_run_count: number
     /** Same count over the prior window. */
     quarantined_failed_run_count_prior: number
-    /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
+    /** Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. */
     last_seen_at: string
 }
 
@@ -1268,10 +1335,22 @@ export type EngineeringAnalyticsFlakyTestsParams = {
      */
     repo?: string
     /**
+     * Optional test runner to return: 'pytest' or 'jest'.
+     */
+    runner?: EngineeringAnalyticsFlakyTestsRunner
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsFlakyTestsRunner =
+    (typeof EngineeringAnalyticsFlakyTestsRunner)[keyof typeof EngineeringAnalyticsFlakyTestsRunner]
+
+export const EngineeringAnalyticsFlakyTestsRunner = {
+    Jest: 'jest',
+    Pytest: 'pytest',
+} as const
 
 export type EngineeringAnalyticsJobAggregatesParams = {
     /**

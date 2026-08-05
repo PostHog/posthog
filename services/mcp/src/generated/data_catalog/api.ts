@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -19,6 +19,8 @@ export const DataCatalogCertificationsCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
+export const dataCatalogCertificationsCreateBodyProposedStatusDefault = `certified`
+
 export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
     .object({
         table_id: zod.string().optional().describe('Warehouse table id to certify (XOR the other targets).'),
@@ -26,6 +28,13 @@ export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
         table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
         view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
         notes: zod.string().optional().describe('Why this mark exists.'),
+        proposed_status: zod
+            .enum(['certified', 'deprecated'])
+            .describe('\* `certified` - certified\n\* `deprecated` - deprecated')
+            .default(dataCatalogCertificationsCreateBodyProposedStatusDefault)
+            .describe(
+                "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n\* `certified` - certified\n\* `deprecated` - deprecated"
+            ),
     })
     .describe('Input for proposing a certification: address the target by id or (convenience) by name.')
 
@@ -193,6 +202,18 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Bless a metric as canonical. Returns 409 while the metric is drifted from its insight.
  */
 export const DataCatalogMetricsApproveCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Re-snapshot the linked insight's current query into the definition.
+ */
+export const DataCatalogMetricsRefreshFromInsightCreateParams = /* @__PURE__ */ zod.object({
     name: zod.string(),
     project_id: zod
         .string()

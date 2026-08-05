@@ -1,11 +1,7 @@
 // AUTO-GENERATED from products/alerts/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     AlertsCreateBody,
     AlertsDestroyParams,
@@ -16,10 +12,12 @@ import {
     AlertsRetrieveQueryParams,
     AlertsSimulateCreateBody,
 } from '@/generated/alerts/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AlertCreateSchema = AlertsCreateBody
 
-const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
+const alertCreate = (): ToolBase<typeof AlertCreateSchema, WithPostHogUrl<Schemas.Alert>> => ({
     name: 'alert-create',
     schema: AlertCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AlertCreateSchema>) => {
@@ -75,7 +73,7 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/`,
             body,
         })
-        return result
+        return await withPostHogUrl(context, result, `/alerts?alert_type=insights&alert_id=${result.id}`)
     },
 })
 
@@ -96,7 +94,7 @@ const alertDelete = (): ToolBase<typeof AlertDeleteSchema, unknown> => ({
 
 const AlertGetSchema = AlertsRetrieveParams.omit({ project_id: true }).extend(AlertsRetrieveQueryParams.shape)
 
-const alertGet = (): ToolBase<typeof AlertGetSchema, Schemas.Alert> => ({
+const alertGet = (): ToolBase<typeof AlertGetSchema, WithPostHogUrl<Schemas.Alert>> => ({
     name: 'alert-get',
     schema: AlertGetSchema,
     handler: async (context: Context, params: z.infer<typeof AlertGetSchema>) => {
@@ -111,7 +109,7 @@ const alertGet = (): ToolBase<typeof AlertGetSchema, Schemas.Alert> => ({
                 checks_offset: params.checks_offset,
             },
         })
-        return result
+        return await withPostHogUrl(context, result, `/alerts?alert_type=insights&alert_id=${result.id}`)
     },
 })
 
@@ -149,7 +147,7 @@ const alertSimulate = (): ToolBase<typeof AlertSimulateSchema, Schemas.AlertSimu
 
 const AlertUpdateSchema = AlertsPartialUpdateParams.omit({ project_id: true }).extend(AlertsPartialUpdateBody.shape)
 
-const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, Schemas.Alert> => ({
+const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, WithPostHogUrl<Schemas.Alert>> => ({
     name: 'alert-update',
     schema: AlertUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof AlertUpdateSchema>) => {
@@ -205,7 +203,7 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, Schemas.Alert> => ({
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return result
+        return await withPostHogUrl(context, result, `/alerts?alert_type=insights&alert_id=${result.id}`)
     },
 })
 
@@ -227,7 +225,18 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/alerts')
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/alerts?alert_type=insights&alert_id=${item.id}`)
+                    )
+                ),
+            },
+            '/alerts'
+        )
     },
 })
 

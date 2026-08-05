@@ -1,11 +1,7 @@
 // AUTO-GENERATED from products/endpoints/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     EndpointsCreateBody,
     EndpointsDestroyParams,
@@ -28,6 +24,8 @@ import {
     EndpointsVersionsListParams,
     EndpointsVersionsListQueryParams,
 } from '@/generated/endpoints/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const EndpointCreateSchema = EndpointsCreateBody.omit({
     is_active: true,

@@ -10,7 +10,7 @@ import structlog
 import temporalio
 from structlog.contextvars import bind_contextvars
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
@@ -325,6 +325,13 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
+    except CaptureInternalError as e:
+        if e.is_billing_limit_exceeded:
+            increment_emit_event_outcome("dropped_billing_limited")
+            logger.info("Skipping eval event emission; team over billing quota", team_id=event_data["team_id"])
+            return
+        increment_emit_event_outcome("failed")
+        raise
     except Exception:
         increment_emit_event_outcome("failed")
         raise

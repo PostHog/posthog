@@ -18,7 +18,17 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
+from posthog.models import OAuthApplication
 from posthog.models.team.team import Team
+from posthog.models.user_integration import UserIntegration
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    ARRAY_APP_CLIENT_ID_EU,
+    ARRAY_APP_CLIENT_ID_US,
+    create_oauth_access_token_for_user,
+)
 
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
@@ -30,6 +40,23 @@ from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
+
+
+def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
+    for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
+        OAuthApplication.objects.get_or_create(
+            client_id=client_id,
+            defaults={
+                "name": "Array Test App",
+                "client_type": OAuthApplication.CLIENT_PUBLIC,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "redirect_uris": "https://app.posthog.com/callback",
+                "algorithm": "RS256",
+            },
+        )
+    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=["task:read", "task:write"])
+    test.client.logout()
+    test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -2324,3 +2351,225 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "read-only" in response.json()["error"]
+
+
+class TestSignalReportPrEndpoints(APIBaseTest):
+    def _create_report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+            signal_count=1,
+        )
+
+    def _checks_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_checks/"
+
+    def _comments_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_comments/"
+
+    def _review_comment_url(self, report_id: str, comment_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_review_comments/{comment_id}/"
+
+    @parameterized.expand(
+        [
+            ("edit_other_pr", "patch", "", {"body": "edited"}, "8", status.HTTP_404_NOT_FOUND),
+            ("delete_other_pr", "delete", "", None, "8", status.HTTP_404_NOT_FOUND),
+            ("react_other_pr", "post", "reactions/", {"content": "+1"}, "8", status.HTTP_404_NOT_FOUND),
+            ("unreact_other_pr", "delete", "reactions/5/", None, "8", status.HTTP_404_NOT_FOUND),
+            ("delete_own_pr", "delete", "", None, "7", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_review_comment_writes_are_scoped_to_the_reports_pr(
+        self, _name, method, suffix, payload, comment_pr, expected_status
+    ):
+        report = self._create_report()
+        UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
+        user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
+        self.addCleanup(patch.stopall)
+        user_github.return_value.get_pull_request_review_comment.return_value = {
+            "success": True,
+            "comment": {
+                "id": 99,
+                "pull_request_url": f"https://api.github.com/repos/PostHog/posthog/pulls/{comment_pr}",
+            },
+        }
+        user_github.return_value.delete_pull_request_review_comment.return_value = {"success": True}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = getattr(self.client, method)(
+                self._review_comment_url(str(report.id), "99") + suffix, data=payload, format="json"
+            )
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", {"body": "hi", "in_reply_to": "1"}),
+            ("edit", "patch", "99/", {"body": "edited"}),
+            ("delete", "delete", "99/", None),
+            ("react", "post", "99/reactions/", {"content": "+1"}),
+            ("unreact", "delete", "99/reactions/5/", None),
+        ]
+    )
+    def test_sandbox_oauth_token_cannot_write_review_comments_as_the_user(self, _name, method, suffix, payload):
+        # These writes reach GitHub under the requesting human's personal connection. A sandbox/agent
+        # token is minted as the task actor and carries task:write, so without the guard a prompt-injected
+        # run could comment, edit, delete, or react as the person who started it.
+        report = self._create_report()
+        UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
+        user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
+        self.addCleanup(patch.stopall)
+        authenticate_as_sandbox_token(self)
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_review_comments/{suffix}",
+                data=payload,
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        user_github.assert_not_called()
+
+    def test_personal_api_key_cannot_write_review_comments_as_the_user(self):
+        # A personal API key is issued to automate against the API, not to act as its owner on
+        # GitHub. Only a browser session is admitted, so holding task:write must not be enough to
+        # reach the user's linked GitHub account. One endpoint is enough: every write resolves the
+        # caller through the same guard.
+        report = self._create_report()
+        UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
+        user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
+        self.addCleanup(patch.stopall)
+        key_value = self.create_personal_api_key_with_scopes(["task:read", "task:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_review_comments/",
+                data={"body": "hi", "in_reply_to": "1"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        user_github.assert_not_called()
+
+    def test_pr_checks_404_when_report_has_no_implementation_pr(self):
+        report = self._create_report()
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_pr_checks_404_when_no_integration_can_access_repo(self):
+        report = self._create_report()
+        with (
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+                return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+            ),
+            patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None),
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_pr_checks_503_when_egress_budget_sheds_request(self):
+        report = self._create_report()
+        with (
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+                return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+            ),
+            patch(
+                "products.signals.backend.views.GitHubIntegration.first_for_team_repository",
+                side_effect=GitHubEgressBudgetExhausted("shed"),
+            ),
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    def test_pr_checks_503_when_egress_budget_sheds_fetch(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        github.return_value.get_pull_request_checks.side_effect = GitHubEgressBudgetExhausted("shed")
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    def test_pr_checks_success_returns_checks(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        checks = [{"name": "unit", "status": "completed", "conclusion": "success", "url": "https://gh/1"}]
+        github.return_value.get_pull_request_checks.return_value = {"success": True, "checks": checks}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+            cached_response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"checks": checks}
+        assert cached_response.status_code == status.HTTP_200_OK
+        assert cached_response.json() == {"checks": checks}
+        # The PR number is parsed off the stored URL and passed through to the integration.
+        assert github.return_value.get_pull_request_checks.call_args.args == ("PostHog/posthog", 7)
+        github.return_value.get_pull_request_checks.assert_called_once()
+        github.assert_called_once_with(
+            self.team.id,
+            "PostHog/posthog",
+            source="signals_pr_detail",
+            priority=Priority.NORMAL,
+        )
+
+    def test_pr_checks_maps_upstream_failure_to_502(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        github.return_value.get_pull_request_checks.return_value = {"success": False, "error": "boom"}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
+    def test_pr_comments_success_returns_comments(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        comments = [
+            {
+                "id": "1",
+                "author": "alice",
+                "author_avatar_url": None,
+                "body": "lgtm",
+                "created_at": "2026-07-06T09:00:00Z",
+                "url": "https://gh/c/1",
+                "comment_type": "conversation",
+                "path": None,
+            }
+        ]
+        github.return_value.get_pull_request_comments.return_value = {"success": True, "comments": comments}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._comments_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"comments": comments}

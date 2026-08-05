@@ -8,6 +8,7 @@ from products.signals.backend.scout_harness.views import (
     SignalScoutMetadataViewSet,
     SignalScoutNoteViewSet,
     SignalScoutRunViewSet,
+    SignalScoutViewSet,
     SignalScratchpadViewSet,
 )
 from products.signals.backend.views import SignalViewSet
@@ -66,3 +67,4 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_signals_scout_members",
         ["team_id"],
     )
+    routers.projects.register(r"signals/scout", SignalScoutViewSet, "project_signals_scout", ["team_id"])

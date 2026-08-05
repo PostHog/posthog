@@ -10,7 +10,6 @@ use personhog_proto::personhog::types::v1::{
     UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
-use sqlx::postgres::PgPool;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -18,12 +17,13 @@ use uuid::Uuid;
 use personhog_common::partitioning::partition_for_person;
 
 use crate::cache::{
-    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
+    approx_person_bytes, CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache,
+    PersonCacheKey,
 };
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
-use crate::pg::load_person_from_pg;
+use crate::pg::{load_person_from_pg, PgFallback};
 use crate::recovery::ChangelogRecovery;
 use crate::warnings::{SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
@@ -67,8 +67,8 @@ pub struct PersonHogLeaderService {
     locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
     producer: FutureProducer<KafkaContext>,
     changelog_topic: String,
-    /// Read-only pool for PG fallback on cache miss.
-    fallback_pool: Option<PgPool>,
+    /// Read-only PG fallback (pool + the table it reads) for cache miss.
+    fallback: Option<PgFallback>,
     /// Per-partition inflight counter used to drive the handoff drain phase.
     inflight: Arc<InflightTracker>,
     /// Total changelog partition count, read from etcd at startup (the same
@@ -90,7 +90,7 @@ impl PersonHogLeaderService {
         cache: Arc<PartitionedCache>,
         producer: FutureProducer<KafkaContext>,
         changelog_topic: String,
-        fallback_pool: Option<PgPool>,
+        fallback: Option<PgFallback>,
         locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
         inflight: Arc<InflightTracker>,
         num_partitions: u32,
@@ -104,7 +104,7 @@ impl PersonHogLeaderService {
             locks,
             producer,
             changelog_topic,
-            fallback_pool,
+            fallback,
             inflight,
             num_partitions,
             dirty_index,
@@ -227,7 +227,7 @@ impl PersonHogLeaderService {
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<Arc<CachedPerson>, Status> {
-        let Some(pool) = &self.fallback_pool else {
+        let Some(fallback) = &self.fallback else {
             return Err(Status::not_found(format!(
                 "person not found: team_id={}, person_id={}",
                 key.team_id, key.person_id
@@ -235,7 +235,7 @@ impl PersonHogLeaderService {
         };
 
         let started = Instant::now();
-        let result = load_person_from_pg(pool, key).await;
+        let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
         histogram!("personhog_leader_person_load_duration_ms", "source" => "pg")
             .record(started.elapsed().as_secs_f64() * 1000.0);
         match result {
@@ -503,14 +503,22 @@ impl PersonHogLeader for PersonHogLeaderService {
             .map(|k| k.replace('\u{0000}', "\u{FFFD}"))
             .collect();
 
-        // Per-key lock serializes concurrent updates for the same person
+        // Per-key lock serializes concurrent updates for the same person.
+        // The wait is measured because it is the queueing component of
+        // handler latency: with every acked write holding the lock
+        // through its acks=all produce, per-person throughput is capped
+        // near 1/produce-latency, and contending updates spend their
+        // time here — invisible in the produce histogram.
         let mutex = self
             .locks
             .entry(cache_key.clone())
             .or_default()
             .value()
             .clone();
+        let lock_wait = std::time::Instant::now();
         let _guard = mutex.lock().await;
+        histogram!("personhog_leader_person_lock_wait_ms")
+            .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
 
         // Admission check before any work: if the dirty index is at
         // capacity and this person is not already marked, acking the write
@@ -657,6 +665,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             }
         }
 
+        let approx_bytes = approx_person_bytes(jsonb_column_size(&new_properties));
         let updated_person = CachedPerson {
             id: person.id,
             uuid: person.uuid.clone(),
@@ -665,6 +674,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             created_at: person.created_at,
             version: person.version + 1,
             is_identified: person.is_identified,
+            approx_bytes,
         };
 
         // Final applyability assertions on the identity fields, which

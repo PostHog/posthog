@@ -1,11 +1,7 @@
 // AUTO-GENERATED from products/data_warehouse/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     InsightVariablesCreateBody,
     InsightVariablesDestroyParams,
@@ -32,6 +28,8 @@ import {
     WarehouseSavedQueriesRunHistoryRetrieveParams,
     WarehouseTablesRefreshSchemaCreateParams,
 } from '@/generated/data_warehouse/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SavedQueryColumnAnnotationsCreateSchema = SavedQueryColumnAnnotationsCreateBody.extend({
     column_name: SavedQueryColumnAnnotationsCreateBody.shape['column_name'].describe(
@@ -202,7 +200,7 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -233,7 +231,7 @@ const viewGet = (): ToolBase<typeof ViewGetSchema, WithPostHogUrl<Schemas.DataWa
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -260,7 +258,7 @@ const viewList = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql/?open_view=${item.id}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql?open_view=${item.id}`))
                 ),
             },
             '/sql'
@@ -316,7 +314,7 @@ const viewMaterialize = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/materialize/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -365,7 +363,7 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWa
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -380,7 +378,7 @@ const viewRunHistory = (): ToolBase<typeof ViewRunHistorySchema, WithPostHogUrl<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run_history/`,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -432,7 +430,7 @@ const viewUnmaterialize = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/revert_materialization/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -482,7 +480,7 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 

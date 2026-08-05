@@ -1299,7 +1299,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `notify` - Notify\n\* `suppress` - Suppress')
         .optional()
         .describe(
-            "How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.\n\n\* `notify` - Notify\n\* `suppress` - Suppress"
+            "How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.\n\n\* `notify` - Notify\n\* `suppress` - Suppress"
         ),
 })
 
@@ -2628,7 +2628,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `notify` - Notify\n\* `suppress` - Suppress')
         .optional()
         .describe(
-            "How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.\n\n\* `notify` - Notify\n\* `suppress` - Suppress"
+            "How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.\n\n\* `notify` - Notify\n\* `suppress` - Suppress"
         ),
 })
 

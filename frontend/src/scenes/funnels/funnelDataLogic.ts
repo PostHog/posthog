@@ -5,6 +5,7 @@ import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils/numbers'
+import { findBreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
@@ -1247,18 +1248,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return (
                     dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
                 ): [DataColorTheme | null, DataColorToken | null] => {
-                    // stringified breakdown value
-                    const key = getFunnelDatasetKey(dataset)
-                    let breakdownValue = JSON.parse(key)['breakdown_value']
-                    breakdownValue = Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
+                    const breakdownValue = JSON.parse(getFunnelDatasetKey(dataset))['breakdown_value']
 
                     // dashboard color overrides
                     const logic = dashboardLogic.findMounted({ id: props.dashboardId })
-                    const dashboardBreakdownColors = logic?.values.temporaryBreakdownColors
-                    const colorOverride = dashboardBreakdownColors?.find(
-                        (config) =>
-                            config.breakdownValue === breakdownValue &&
-                            config.breakdownType === (breakdownFilter?.breakdown_type ?? 'event')
+                    const colorOverride = findBreakdownColorConfig(
+                        logic?.values.effectiveBreakdownColors,
+                        breakdownValue,
+                        breakdownFilter?.breakdown_type
                     )
 
                     if (colorOverride?.colorToken) {

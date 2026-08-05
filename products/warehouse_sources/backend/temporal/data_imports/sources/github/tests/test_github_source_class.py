@@ -196,7 +196,22 @@ class TestGithubSource:
 
         assert schemas["workflow_runs"].supports_webhooks is True
         assert schemas["workflow_jobs"].supports_webhooks is True
-        assert all(s.should_sync_default for s in schemas.values() if s.name not in ("teams", "team_members"))
+        # The originally shipped repo-scoped tables must stay selected by default. Tables added
+        # since may legitimately default off (they need grants beyond the repo scope validated at
+        # source-create, or they fan out per commit).
+        assert all(
+            schemas[endpoint].should_sync_default
+            for endpoint in (
+                "issues",
+                "pull_requests",
+                "reviews",
+                "commits",
+                "stargazers",
+                "releases",
+                "workflow_runs",
+                "workflow_jobs",
+            )
+        )
 
     def test_reviews_schema_is_webhook_only_and_default_on(self):
         # reviews does no poll backfill (zero lookback floor), so it must be offered webhook-only;
@@ -217,6 +232,23 @@ class TestGithubSource:
         assert reviews.supports_append is False
         assert reviews.should_sync_default is True
         assert [f["field"] for f in reviews.incremental_fields] == ["submitted_at"]
+
+    @pytest.mark.parametrize("endpoint", ["deployments", "deployment_statuses"])
+    def test_deployment_schemas_are_webhook_only_and_default_on(self, endpoint):
+        # Both deploy endpoints do no poll backfill (zero lookback floor), so they must be offered
+        # webhook-only and stay selected by default (they need only the repo grant). If the webhook
+        # map entry or the zero floor regressed, the picker would offer a poll mode that syncs an
+        # empty table forever.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
+            repository="acme/widgets",
+        )
+        schema = {s.name: s for s in self.source.get_schemas(config, self.team_id)}[endpoint]
+
+        assert schema.supports_webhooks is True
+        assert schema.webhook_only is True
+        assert schema.supports_incremental is False
+        assert schema.should_sync_default is True
 
     def test_get_access_token_returns_pat(self):
         config = GithubSourceConfig(
@@ -256,6 +288,24 @@ class TestGithubSource:
                 self.source._get_access_token(config, self.team_id)
 
         assert "GitHub access token not found" in self.source.get_non_retryable_errors()
+
+    def test_delete_webhook_skips_gracefully_when_integration_deleted(self):
+        # Webhook cleanup runs on source deletion, after the OAuth integration may already be gone;
+        # get_oauth_integration then raises "Integration not found". delete_webhook must report the
+        # skip rather than let it escape and be captured as error-tracking noise, and its message
+        # must not echo the integration id back to the caller (it surfaces in the API response).
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=42, selection="oauth", personal_access_token=""),
+            repository="owner/repo",
+        )
+
+        with mock.patch.object(
+            self.source, "get_oauth_integration", side_effect=ValueError("Integration not found: 42")
+        ):
+            result = self.source.delete_webhook(config, "https://ph.example/webhook", self.team_id)
+
+        assert result.success is False
+        assert "42" not in (result.error or "")
 
     @pytest.mark.parametrize(
         "selection,expected_message",
@@ -319,6 +369,10 @@ class TestGithubSource:
             # Repo names can contain dots — a naive rpartition('.') would split `next.js` wrong.
             ("posthog/next.js.issues", ("posthog/next.js", "issues")),
             ("posthog/next.js.pull_requests", ("posthog/next.js", "pull_requests")),
+            # deployment_statuses must win over deployments (longest suffix first) — a plain
+            # endswith('deployments') would strip 'deployment_statuses' to '_statuses' and misroute.
+            ("posthog/posthog.deployments", ("posthog/posthog", "deployments")),
+            ("posthog/posthog.deployment_statuses", ("posthog/posthog", "deployment_statuses")),
             # Unrecognized suffixes stay whole so unknown rows don't get misrouted.
             ("posthog/posthog.not_an_endpoint", (None, "posthog/posthog.not_an_endpoint")),
         ],
@@ -374,6 +428,8 @@ class TestGithubSource:
             ("workflow_runs", "workflow_run"),
             ("workflow_jobs", "workflow_job"),
             ("reviews", "pull_request_review"),
+            ("deployments", "deployment"),
+            ("deployment_statuses", "deployment_status"),
             # Qualified rows get repo-qualified keys — two repos' workflow_runs would otherwise
             # collide on one "workflow_run" key and route all events to a single schema.
             ("acme/Widgets.workflow_runs", "acme/widgets.workflow_run"),

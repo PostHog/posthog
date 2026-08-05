@@ -454,6 +454,29 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual("$pageview", response.results[0]["label"])
 
+    @parameterized.expand(
+        [
+            ("custom_name set via rename modal", EventsNode(event="$pageview", custom_name="Renamed"), "Renamed"),
+            ("name set via query editor / API", EventsNode(event="$pageview", name="Renamed"), "Renamed"),
+            ("custom_name wins over name", EventsNode(event="$pageview", name="A", custom_name="B"), "B"),
+            ("name echoing the event is not a rename", EventsNode(event="$pageview", name="$pageview"), None),
+            ("no override", EventsNode(event="$pageview"), None),
+        ]
+    )
+    def test_trends_series_custom_name(self, _name, series, expected_custom_name):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.DAY,
+            [series],
+            None,
+            None,
+        )
+
+        self.assertEqual(expected_custom_name, response.results[0]["action"]["custom_name"])
+
     def test_trends_count(self):
         self._create_test_events()
 
@@ -7511,6 +7534,32 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(16, response.results[0]["count"])
         # Label should show combined events
         self.assertEqual("$pageview, $pageleave", response.results[0]["label"])
+
+    @parameterized.expand(
+        [
+            # Zero / one effective filters previously bypassed the operator check via early returns.
+            ("zero_nodes", []),
+            ("one_node", [EventsNode(event="$pageview")]),
+            ("two_nodes", [EventsNode(event="$pageview"), EventsNode(event="$pageleave")]),
+        ]
+    )
+    def test_group_node_and_operator_is_rejected(self, _name, nodes):
+        # AND groups aren't supported yet. Must fail validation rather than silently drop the
+        # event filter (which would match every event and return wrong counts).
+        group_node = GroupNode(operator=FilterLogicalOperator.AND_, nodes=nodes)
+
+        with self.assertRaises(DRFValidationError):
+            TrendsQueryRunner(
+                query=TrendsQuery(
+                    dateRange=DateRange(
+                        date_from=self.default_date_from,
+                        date_to=self.default_date_to,
+                    ),
+                    interval=IntervalType.DAY,
+                    series=[group_node],
+                ),
+                team=self.team,
+            ).calculate()
 
     def test_group_node_with_actions(self):
         """Test that GroupNode works with ActionsNode"""

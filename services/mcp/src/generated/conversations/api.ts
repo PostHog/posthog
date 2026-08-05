@@ -20,11 +20,17 @@ export const ConversationsTicketsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
+    ai_triage_result: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.'
+        ),
     assignee: zod
         .string()
         .optional()
         .describe(
-            'Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.'
+            'Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.'
         ),
     channel_detail: zod
         .enum([
@@ -57,6 +63,12 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Comma-separated list of person `distinct_id`s to filter by (max 100).'),
+    emails: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
@@ -73,7 +85,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Free-text search. A numeric value matches a ticket number exactly; otherwise matches against the customer's name or email (case-insensitive, partial match)."
+            "Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number exactly; otherwise matches against the customer's name or email, the email subject, or message content (case-insensitive, partial match)."
         ),
     sla: zod
         .enum(['at-risk', 'breached', 'on-track'])
@@ -81,6 +93,10 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Filter by SLA state. `breached` = past `sla_due_at`, `at-risk` = due within the next hour, `on-track` = more than an hour remaining.'
         ),
+    snoozed: zod
+        .boolean()
+        .optional()
+        .describe('Filter by snooze state: `true` returns only snoozed tickets, `false` only non-snoozed.'),
     status: zod
         .string()
         .optional()
@@ -104,6 +120,12 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `[\"escalated\"]`.'
+        ),
+    view: zod
+        .string()
+        .optional()
+        .describe(
+            "Apply a saved ticket view's filters by its `short_id` (list views via the `conversations\/views` endpoint). Any filter param passed explicitly overrides the view's saved value for that dimension. Returns 400 if no view matches."
         ),
 })
 
@@ -158,7 +180,7 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
         snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
-    .describe('Serializer mixin that handles tags for objects.')
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Return the message thread for a ticket, ordered chronologically (paginated).

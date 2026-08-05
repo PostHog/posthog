@@ -6,8 +6,12 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
 ## Connection
 
 - **Host:** single global host `https://api.factorialhr.com` (no per-account subdomains).
-- **Version:** dated path segment, pinned to `2025-04-01` → base `https://api.factorialhr.com/api/2025-04-01`.
-  Resources occasionally move between groups across versions, so the version is pinned in `factorial.py`.
+- **Version:** dated path segment → base `https://api.factorialhr.com/api/<version>`. Supported labels
+  `2025-04-01` and `2026-04-01` (default); the source's resolved pin is threaded into the base URL in
+  `factorial.py`. Resources occasionally move between groups across versions, but the resource paths and
+  the `{"meta": ..., "data": [...]}` envelope our reads use are identical across both supported labels
+  (`2026-04-01` only adds/removes response fields, which the auto-inferred schema absorbs). The id→string
+  identifier migration lands in the later `2026-07-01` version, so ids stay integers on both.
 - **Auth:** `x-api-key: <key>` header (API key). OAuth2 is also supported by Factorial but not implemented
   here — API key auth is fully supported for company/internal integrations and grants total account access.
 - **Resource path shape:** `/resources/<group>/<resource>` (e.g. `/resources/employees/employees`).

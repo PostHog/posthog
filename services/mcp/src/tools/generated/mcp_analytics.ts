@@ -1,14 +1,10 @@
 // AUTO-GENERATED from products/mcp_analytics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { createQueryWrapper } from '@/tools/query-wrapper-factory'
-
 import {
     McpAnalyticsFeedbackCreateBody,
+    McpAnalyticsIntentClustersRetrieveQueryParams,
     McpAnalyticsMissingCapabilitiesCreateBody,
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
@@ -16,6 +12,9 @@ import {
     McpAnalyticsSessionsToolCallsParams,
     McpAnalyticsSessionsToolCallsQueryParams,
 } from '@/generated/mcp_analytics/api'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const McpAnalyticsIntentClustersRecomputeSchema = z.object({})
 
@@ -36,7 +35,7 @@ const mcpAnalyticsIntentClustersRecompute = (): ToolBase<
     },
 })
 
-const McpAnalyticsIntentClustersRetrieveSchema = z.object({})
+const McpAnalyticsIntentClustersRetrieveSchema = McpAnalyticsIntentClustersRetrieveQueryParams
 
 const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
     typeof McpAnalyticsIntentClustersRetrieveSchema,
@@ -44,12 +43,14 @@ const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
 > => ({
     name: 'mcp-analytics-intent-clusters-retrieve',
     schema: McpAnalyticsIntentClustersRetrieveSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof McpAnalyticsIntentClustersRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPIntentClusterSnapshot[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/intent_clusters/`,
+            query: {
+                tool: params.tool,
+            },
         })
         return result
     },
@@ -261,6 +262,10 @@ const PropertyOperator = z.enum([
     'is_not',
     'icontains',
     'not_icontains',
+    'starts_with',
+    'not_starts_with',
+    'ends_with',
+    'not_ends_with',
     'regex',
     'not_regex',
     'gt',

@@ -282,6 +282,15 @@ class TestRemoteConfig(_RemoteConfigBase):
 
         list_limited_team_attributes.clear_cache()
 
+    def test_site_functions_query_failure_degrades_to_empty_list(self):
+        with patch(
+            "products.cdp.backend.models.hog_functions.hog_function.HogFunction.objects.select_related",
+            side_effect=Exception("column posthog_hogfunction.version does not exist"),
+        ):
+            result = self.remote_config._build_site_apps_js()
+
+        assert result == []
+
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
     # Largely copied from TestSurveysAPIList
@@ -290,7 +299,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
 
         self.team.save()
 
-    def test_includes_survey_config(self):
+    def test_excludes_survey_config(self):
         survey_appearance = {
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "We'll use it to make notebooks better",
@@ -309,12 +318,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         self.team.save()
 
         self.sync_remote_config()
-        assert self.remote_config.config["survey_config"] == {
-            "appearance": {
-                "thankYouMessageHeader": "Thanks for your feedback!",
-                "thankYouMessageDescription": "We'll use it to make notebooks better",
-            }
-        }
+        assert "survey_config" not in self.remote_config.config
 
     def test_includes_range_of_survey_types(self):
         survey_basic = Survey.objects.create(
@@ -390,7 +394,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
-                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_flags.id),
@@ -418,7 +421,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
-                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_actions.id),
@@ -467,7 +469,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
-                    "base_language": "en",
                 },
             ],
             key=lambda s: str(s["id"]),  # type: ignore
@@ -516,7 +517,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         mock_get_client.return_value = mock_redis
 
         # Force a content change so sync() takes the change path.
-        self.remote_config.config["token"] = "FORCE_CHANGE"
+        self.remote_config.config["surveys"] = True
 
         with (
             patch("posthog.storage.object_storage.write") as mock_s3_write,
@@ -594,7 +595,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
             REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.posthog.com", "https://cdn2.posthog.com"],
         ):
             # Force a change to the config
-            self.remote_config.config["token"] = "NOT"
+            self.remote_config.config["surveys"] = True
             self.remote_config.sync()
             mock_post.assert_called_once_with(
                 "https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",

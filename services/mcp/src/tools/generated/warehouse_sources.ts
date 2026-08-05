@@ -1,12 +1,7 @@
 // AUTO-GENERATED from products/warehouse_sources/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
-
 import {
     ExternalDataSchemasCancelCreateParams,
     ExternalDataSchemasDeleteDataDestroyParams,
@@ -43,6 +38,9 @@ import {
     ExternalDataSourcesWebhookInfoRetrieveParams,
     ExternalDataSourcesWizardRetrieveQueryParams,
 } from '@/generated/warehouse_sources/api'
+import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
     source_type: ExternalDataSourceTypeSchema,
@@ -647,7 +645,23 @@ const externalDataSourcesList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, ['schemas.*.table.columns', 'schemas.*.available_columns'])
+                omitResponseFields(item, [
+                    'schemas.*.table.columns',
+                    'schemas.*.available_columns',
+                    'schemas.*.label',
+                    'schemas.*.description',
+                    'schemas.*.incremental_field',
+                    'schemas.*.incremental_field_type',
+                    'schemas.*.incremental_field_lookback_seconds',
+                    'schemas.*.sync_time_of_day',
+                    'schemas.*.primary_key_columns',
+                    'schemas.*.cdc_table_mode',
+                    'schemas.*.enabled_columns',
+                    'schemas.*.row_filters',
+                    'schemas.*.source',
+                    'schemas.*.api_version',
+                    'schemas.*.api_version_deprecation',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/data-management/sources')
@@ -794,7 +808,11 @@ const externalDataSourcesRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/`,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'schemas.*.table.columns',
+            'schemas.*.available_columns',
+        ]) as typeof result
+        return filtered
     },
 })
 
@@ -867,7 +885,15 @@ const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesWizardSchema = ExternalDataSourcesWizardRetrieveQueryParams
+const ExternalDataSourcesWizardSchema = ExternalDataSourcesWizardRetrieveQueryParams.extend({
+    fields: z
+        .array(z.enum(['*.name', '*.caption', '*.docsUrl', '*.featured', '*.unreleasedSource', '*.fields']))
+        .min(1)
+        .optional()
+        .describe(
+            'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+        ),
+})
 
 const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardSchema, unknown> => ({
     name: 'external-data-sources-wizard',
@@ -881,14 +907,12 @@ const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardS
                 source_type: params.source_type,
             },
         })
-        const filtered = pickResponseFields(result, [
-            '*.name',
-            '*.caption',
-            '*.docsUrl',
-            '*.featured',
-            '*.unreleasedSource',
-            '*.fields',
-        ]) as typeof result
+        const filtered = pickResponseFields(
+            result,
+            params.fields?.length
+                ? params.fields
+                : ['*.name', '*.caption', '*.docsUrl', '*.featured', '*.unreleasedSource', '*.fields']
+        ) as typeof result
         return filtered
     },
 })

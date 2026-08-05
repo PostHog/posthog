@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
@@ -35,6 +36,16 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
      * Always uses primary database
      */
     fetchForUpdate(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null>
+
+    /**
+     * Batched fetchForUpdate for folded merges: resolves and row-locks all
+     * persons behind the given distinct_ids in one statement.
+     */
+    fetchPersonsForUpdateByDistinctIds(
+        teamId: number,
+        distinctIds: string[],
+        batchId: number
+    ): Promise<InternalPersonWithDistinctId[]>
 
     /**
      * Creates a new person
@@ -108,11 +119,52 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     ): Promise<MoveDistinctIdsResult>
 
     /**
+     * Batched unlimited moveDistinctIds for folded merges
+     */
+    moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        distinctId: string,
+        tx: PersonRepositoryTransaction,
+        batchId: number
+    ): Promise<MoveDistinctIdsResult>
+
+    /**
+     * Batched deletePerson for folded merges; all persons must belong to one team
+     */
+    deletePersons(
+        persons: InternalPerson[],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<PersonMessage[]>
+
+    /**
+     * Distinct-id counts per person id, for the folded-merge limit pre-check
+     */
+    countDistinctIdsForPersons(
+        teamId: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<Map<string, number>>
+
+    /**
      * Updates cohorts and feature flags for merged persons
      */
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id'],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void>
+
+    /**
+     * Batched updateCohortsAndFeatureFlagsForMerge for folded merges
+     */
+    updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
         targetPersonID: InternalPerson['id'],
         distinctId: string,
         tx?: PersonRepositoryTransaction

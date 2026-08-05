@@ -3,11 +3,11 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
+import { ExecCommandError, findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
-import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
+import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
@@ -49,92 +49,26 @@ export interface ExecInnerCallProperties {
     input_tokens?: number
     output_tokens?: number
     input?: Record<string, unknown>
+    /**
+     * The payload returned to the client, exactly as serialized. Consumed by the
+     * `$ai_span` capture for data-catalog-relevant calls, which needs the tool's
+     * result (e.g. which metrics a catalog lookup returned), not just its size.
+     */
+    output?: unknown
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
-/**
- * Session-scoped skill-usage markers backing the skills-first gate. Product
- * `call`s in a session that ran no `learn` load are rejected with a retryable
- * instruction — interaction-time enforcement of the SKILLS FIRST prompt section,
- * which agents demonstrably rationalize their way past when it is advisory only.
- * `call --no-skills` acknowledges that no skill applies and opens the gate for
- * the rest of the session.
- */
-export interface SkillsSessionState {
-    hasLearned(): Promise<boolean>
-    markLearned(): Promise<void>
-    hasAcknowledgedNoSkills(): Promise<boolean>
-    markAcknowledgedNoSkills(): Promise<void>
-}
-
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
-    learnCatalog?: ExecLearnCatalog
+    helpCatalog?: ExecHelpCatalog
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
-     * PostHog Code consumer: structuredContent suppressed toward the model, app data
+     * PostHog Desktop consumer: structuredContent suppressed toward the model, app data
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
-    /** Present only when skill distribution is enabled and the client has a session. */
-    skillsSession?: SkillsSessionState
-}
-
-const SKILLS_GATE_MESSAGE =
-    'No skills loaded this session. Run `learn -s "<task keywords>"` and load the matching skills first — they carry the thresholds, schemas, and query patterns this task needs. If no skill applies, re-run this exact command as `call --no-skills ...`.'
-
-/**
- * True when a `learn` input loads skill content (a qualified `source:skill` read,
- * including file reads within a skill). Generic guide reads, listings, searches,
- * and describes don't count — a guide is not a skill, and opening the gate on
- * `learn analytics` would restore exactly the bypass the gate exists to catch.
- *
- * Uses the dispatcher's quote-aware tokenizer so a quoted flag (`learn '-s' ...`)
- * or quoted identifier (`learn 'posthog:x'`) resolves the same way it dispatches —
- * a naive whitespace split disagrees on both. An unterminated quote can't be a
- * skill load (and `execute` would have thrown first), so it returns false.
- */
-function isSkillLoad(rest: string): boolean {
-    let tokens: string[]
-    try {
-        tokens = tokenizeLearnInput(rest)
-    } catch {
-        return false
-    }
-    if (tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0] === '-d') {
-        return false
-    }
-    return tokens.some((token) => QUALIFIED_IDENTIFIER.test(token))
-}
-
-/**
- * Returns the gate rejection message, or undefined when the call may proceed.
- * A session-store hiccup opens the gate — enforcement must never break tools.
- */
-async function resolveSkillsGate(
-    session: SkillsSessionState | undefined,
-    noSkillsFlag: boolean
-): Promise<string | undefined> {
-    if (!session) {
-        return undefined
-    }
-    try {
-        if (noSkillsFlag) {
-            await session.markAcknowledgedNoSkills()
-            return undefined
-        }
-        if (await session.hasLearned()) {
-            return undefined
-        }
-        if (await session.hasAcknowledgedNoSkills()) {
-            return undefined
-        }
-        return SKILLS_GATE_MESSAGE
-    } catch {
-        return undefined
-    }
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -152,11 +86,10 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
-function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; noSkills: boolean; rest: string } {
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
     let rest = input.trim()
     let forceJson = false
     let confirmed = false
-    let noSkills = false
 
     while (rest) {
         const parsed = parseCommand(rest)
@@ -170,15 +103,10 @@ function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean
             rest = parsed.rest
             continue
         }
-        if (parsed.verb === '--no-skills') {
-            noSkills = true
-            rest = parsed.rest
-            continue
-        }
         break
     }
 
-    return { forceJson, confirmed, noSkills, rest }
+    return { forceJson, confirmed, rest }
 }
 
 // Extracts the inner tool name from an exec `call` command, e.g.
@@ -363,16 +291,18 @@ function findTool(tools: Tool<ZodObjectAny>[], scopeGatedTools: ScopeGatedTool[]
     if (!tool) {
         const redirect = DEPRECATED_TOOL_REDIRECTS[name]
         if (redirect) {
-            throw new Error(redirect(tools))
+            throw new ExecCommandError(redirect(tools), 'deprecated_tool')
         }
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
-            throw new Error(
-                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. Reconnect or reauthorize the PostHog MCP connection and approve these scopes. Logging in to PostHog in a browser does not update MCP permissions.`
+            throw new ExecCommandError(
+                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. Reconnect or reauthorize the PostHog MCP connection and approve these scopes. Logging in to PostHog in a browser does not update MCP permissions.`,
+                'missing_scope'
             )
         }
-        throw new Error(
-            `Unknown tool: "${name}". Run "search ${name}" to find the current tool name before claiming the capability is unavailable.`
+        throw new ExecCommandError(
+            `Unknown tool: "${name}". Run "search ${name}" to find the current tool name before claiming the capability is unavailable.`,
+            'unknown_tool'
         )
     }
     return tool
@@ -407,17 +337,37 @@ export function createExecTool(
 
             switch (verb) {
                 case 'learn': {
-                    const learnCatalog = options.learnCatalog
-                    if (!learnCatalog) {
-                        throw new Error('The learn command is not available for this client.')
+                    const helpCatalog = options.helpCatalog
+                    if (!helpCatalog) {
+                        // `learn` is only advertised when a catalog exists, so without one
+                        // it's an unsupported verb rather than a misuse of a real command.
+                        throw new ExecCommandError(
+                            'The learning catalog is not available for this client.',
+                            'unknown_command'
+                        )
                     }
-                    const learnResult = await learnCatalog.execute(rest)
-                    // Only skill loads count as "learned" — a search whose results are
-                    // then ignored is exactly the bypass the gate exists to catch.
-                    if (options.skillsSession && isSkillLoad(rest)) {
-                        await options.skillsSession.markLearned().catch(() => undefined)
+                    if (!rest) {
+                        return JSON.stringify(helpCatalog.list())
                     }
-                    return learnResult
+                    const topicIds = [...new Set(rest.split(/\s+/))]
+                    const entries = topicIds.map((topicId) => helpCatalog.get(topicId))
+                    const unknownTopicIds = topicIds.filter((_, index) => entries[index] === undefined)
+                    if (unknownTopicIds.length > 0) {
+                        const available = helpCatalog
+                            .list()
+                            .map((item) => item.id)
+                            .join(', ')
+                        const unknownTopics = unknownTopicIds.map((topicId) => `"${topicId}"`).join(', ')
+                        throw new ExecCommandError(
+                            `Unknown learning topic${unknownTopicIds.length === 1 ? '' : 's'}: ${unknownTopics}. Available: ${available}`,
+                            'unknown_learn_topic'
+                        )
+                    }
+                    const resolvedEntries = entries.filter((entry) => entry !== undefined)
+                    if (resolvedEntries.length === 1) {
+                        return resolvedEntries[0]!.content
+                    }
+                    return resolvedEntries.map((entry) => `## ${entry.title}\n\n${entry.content}`).join('\n\n')
                 }
 
                 case 'tools': {
@@ -426,13 +376,14 @@ export function createExecTool(
 
                 case 'search': {
                     if (!rest) {
-                        throw new Error('Usage: search <words or regex_pattern>')
+                        throw new ExecCommandError('Usage: search <words or regex_pattern>', 'usage')
                     }
                     // Bound the user-supplied pattern length to limit the blast
                     // radius of a pathological (catastrophic-backtracking) regex.
                     if (rest.length > MAX_SEARCH_PATTERN_LENGTH) {
-                        throw new Error(
-                            `Search pattern too long (${rest.length} chars, max ${MAX_SEARCH_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`
+                        throw new ExecCommandError(
+                            `Search pattern too long (${rest.length} chars, max ${MAX_SEARCH_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`,
+                            'usage'
                         )
                     }
 
@@ -448,7 +399,7 @@ export function createExecTool(
                             matches = searchToolsRegex(allTools, rest).map((t) => t.name)
                             gatedMatches = searchToolsRegex(scopeGatedTools, rest)
                         } catch {
-                            throw new Error(`Invalid regex pattern: "${rest}"`)
+                            throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
                         }
                     } else {
                         const ranked = searchToolsRanked(allTools, rest)
@@ -493,12 +444,12 @@ export function createExecTool(
 
                 case 'info': {
                     if (!rest) {
-                        throw new Error('Usage: info [--json] <tool_name>')
+                        throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
                     const forceJson = rest.startsWith('--json ') || rest === '--json'
                     const infoArgs = forceJson ? rest.slice('--json'.length).trim() : rest
                     if (!infoArgs) {
-                        throw new Error('Usage: info [--json] <tool_name>')
+                        throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
                     const tool = findTool(allTools, scopeGatedTools, infoArgs)
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
@@ -540,7 +491,7 @@ export function createExecTool(
 
                 case 'schema': {
                     if (!rest) {
-                        throw new Error('Usage: schema <tool_name> [field_path]')
+                        throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
                     const schemaTool = findTool(allTools, scopeGatedTools, schemaToolName)
@@ -560,7 +511,10 @@ export function createExecTool(
                     const resolved = resolveSchemaPath(fullJsonSchema, fieldPath)
                     if (!resolved) {
                         const available = listAvailablePaths(fullJsonSchema)
-                        throw new Error(`Unknown path "${fieldPath}". Available: ${available.join(', ')}`)
+                        throw new ExecCommandError(
+                            `Unknown path "${fieldPath}". Available: ${available.join(', ')}`,
+                            'usage'
+                        )
                     }
 
                     const serialized = JSON.stringify({
@@ -583,24 +537,23 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new Error('Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>')
+                        throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
                     }
                     if (!context) {
+                        // Deliberately untyped: a wiring fault, not an agent mistake, so it
+                        // belongs in the `internal` bucket its siblings are kept out of.
                         throw new Error('Cannot call PostHog tools without an API context')
                     }
-                    const { forceJson, confirmed, noSkills, rest: callArgs } = parseCallFlags(rest)
+                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
-                        throw new Error('Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>')
+                        throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, scopeGatedTools, toolName)
-                    const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
-                    if (gateMessage) {
-                        throw new Error(gateMessage)
-                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
-                        throw new Error(
-                            `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`
+                        throw new ExecCommandError(
+                            `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
+                            'needs_confirmation'
                         )
                     }
                     let input: Record<string, unknown>
@@ -611,7 +564,7 @@ export function createExecTool(
                             input = JSON.parse(jsonBody) as Record<string, unknown>
                         } catch (err) {
                             const detail = err instanceof Error ? err.message : String(err)
-                            throw new Error(`Invalid JSON input: ${detail}`)
+                            throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
                         }
                     }
 
@@ -695,12 +648,13 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateTokens(outputText),
                             input,
+                            output: outputText,
                         })
                         return outputText
                     }
 
                     // If the inner tool has a UI app attached AND the caller self-identifies as
-                    // PostHog Code (the UI-apps host), emit a full `CallToolResult` payload
+                    // PostHog Desktop (the UI-apps host), emit a full `CallToolResult` payload
                     // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
                     // the `exec` tool registered in single-exec mode, so the UI metadata has to
                     // ride on the per-call response. Gated on the consumer because other
@@ -716,12 +670,15 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork)
+                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork)
                                 // surface `structuredContent` to the model in preference to the
-                                // text content, which would bury the compact formatted table
-                                // under the raw JSON. Always re-home the UI app's data onto
-                                // `_meta` (see APP_DATA_META_KEY) so the model reads the optimized
-                                // table (or the TOON text when unformatted) and the chart still renders.
+                                // text content, which would bury a compact formatted table under
+                                // the raw JSON. When such a table exists, re-home the UI app's data
+                                // onto `_meta` (see APP_DATA_META_KEY) so the model reads the compact
+                                // table and the chart still renders. When there is no formatted table,
+                                // the payload stays in the standard `structuredContent` field — which
+                                // both the model and the app read — and the text channel carries a
+                                // pointer rather than a second copy of the same rows.
                                 forceUiDataToMeta: true,
                                 distinctId,
                                 includeUiResponseMeta: true,
@@ -734,6 +691,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
                             input,
+                            output: payload,
                         })
                         return payload
                     }
@@ -758,13 +716,15 @@ export function createExecTool(
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
                         input,
+                        output: outputText,
                     })
                     return outputText
                 }
 
                 default:
-                    throw new Error(
-                        `Unknown command: "${verb}". Supported commands: ${options.learnCatalog ? 'learn, ' : ''}tools, search, info, schema, call`
+                    throw new ExecCommandError(
+                        `Unknown command: "${verb}". Supported commands: ${options.helpCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
+                        'unknown_command'
                     )
             }
         },

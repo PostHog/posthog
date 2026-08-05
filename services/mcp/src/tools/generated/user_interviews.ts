@@ -1,12 +1,7 @@
 // AUTO-GENERATED from products/user_interviews/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { withUiApp } from '@/resources/ui-apps'
-
 import {
     UserInterviewTopicsAddIntervieweeCreateBody,
     UserInterviewTopicsAddIntervieweeCreateParams,
@@ -38,6 +33,9 @@ import {
     UserInterviewsRetrieveParams,
     UserInterviewsSearchCreateBody,
 } from '@/generated/user_interviews/api'
+import { withUiApp } from '@/resources/ui-apps'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const UserInterviewTopicsAddIntervieweeSchema = UserInterviewTopicsAddIntervieweeCreateParams.omit({
     project_id: true,

@@ -5,14 +5,25 @@ from typing import Any
 
 from parameterized import parameterized
 
+from products.data_catalog.evals.constants import DEPRECATION_CANONICAL_SOURCE_NAME, DEPRECATION_STALE_SOURCE_NAME
 from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
+    DeprecationProposed,
     MetricsCatalogBeforeDataDiscovery,
     SemanticMetadataQueried,
 )
 
 CATALOG_QUERY = "SELECT name, status, is_drifted FROM system.information_schema.metrics"
 METRIC_NAME = "top_customers_mrr_by_business_model"
+PROPOSE_TOOL = "data-catalog-certification-propose"
+DEPRECATION_SEED = {
+    "deprecation_candidate": {
+        "stale_table_name": DEPRECATION_STALE_SOURCE_NAME,
+        "stale_table_id": "stale-uuid",
+        "canonical_table_name": DEPRECATION_CANONICAL_SOURCE_NAME,
+        "canonical_table_id": "canonical-uuid",
+    }
+}
 
 
 def _session_update(sequence: int, update: dict) -> str:
@@ -304,8 +315,95 @@ def test_canonical_metric_run(
 
 @parameterized.expand(
     [
+        (
+            "deprecates_stale_by_name",
+            [
+                (
+                    PROPOSE_TOOL,
+                    {"table_name": DEPRECATION_STALE_SOURCE_NAME, "proposed_status": "deprecated"},
+                    "completed",
+                )
+            ],
+            1.0,
+        ),
+        (
+            "deprecates_stale_by_id",
+            [(PROPOSE_TOOL, {"table_id": "stale-uuid", "proposed_status": "deprecated"}, "completed")],
+            1.0,
+        ),
+        (
+            "certifying_the_stale_source_is_not_a_deprecation",
+            [
+                (
+                    PROPOSE_TOOL,
+                    {"table_name": DEPRECATION_STALE_SOURCE_NAME, "proposed_status": "certified"},
+                    "completed",
+                )
+            ],
+            0.0,
+        ),
+        (
+            "omitting_proposed_status_is_not_a_deprecation",
+            [(PROPOSE_TOOL, {"table_name": DEPRECATION_STALE_SOURCE_NAME}, "completed")],
+            0.0,
+        ),
+        (
+            "deprecating_the_canonical_source_fails",
+            [
+                (
+                    PROPOSE_TOOL,
+                    {"table_name": DEPRECATION_CANONICAL_SOURCE_NAME, "proposed_status": "deprecated"},
+                    "completed",
+                )
+            ],
+            0.0,
+        ),
+        (
+            "deprecating_canonical_dominates_a_correct_stale_call",
+            [
+                (
+                    PROPOSE_TOOL,
+                    {"table_name": DEPRECATION_STALE_SOURCE_NAME, "proposed_status": "deprecated"},
+                    "completed",
+                ),
+                (
+                    PROPOSE_TOOL,
+                    {"table_name": DEPRECATION_CANONICAL_SOURCE_NAME, "proposed_status": "deprecated"},
+                    "completed",
+                ),
+            ],
+            0.0,
+        ),
+        (
+            "no_propose_call",
+            [("execute-sql", {"query": CATALOG_QUERY}, "completed")],
+            0.0,
+        ),
+        (
+            "failed_propose_does_not_count",
+            [(PROPOSE_TOOL, {"table_name": DEPRECATION_STALE_SOURCE_NAME, "proposed_status": "deprecated"}, "failed")],
+            0.0,
+        ),
+    ]
+)
+def test_deprecation_proposed(
+    _name: str,
+    calls: list[tuple[str, dict[str, Any], str]],
+    expected_score: float,
+) -> None:
+    score = DeprecationProposed()._run_eval_sync(
+        {"raw_log": _tool_log(calls), "seed": DEPRECATION_SEED},
+        {"deprecation_proposed": {}},
+    )
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
         (MetricsCatalogBeforeDataDiscovery(), "metrics_catalog_before_data_discovery"),
         (CanonicalMetricRun(), "canonical_metric_run"),
+        (DeprecationProposed(), "deprecation_proposed"),
     ]
 )
 def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_name: str) -> None:

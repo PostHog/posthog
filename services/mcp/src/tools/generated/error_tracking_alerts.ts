@@ -1,11 +1,7 @@
 // AUTO-GENERATED from products/error_tracking/mcp/error_tracking_alerts.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     HogFunctionsCreateBody,
     HogFunctionsDestroyParams,
@@ -13,6 +9,8 @@ import {
     HogFunctionsPartialUpdateBody,
     HogFunctionsPartialUpdateParams,
 } from '@/generated/error_tracking_alerts/api'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingAlertsCreateSchema = HogFunctionsCreateBody.extend({
     type: HogFunctionsCreateBody.shape['type'].describe(
@@ -196,6 +194,9 @@ const errorTrackingAlertsPartialUpdate = (): ToolBase<
         }
         if (params.execution_order !== undefined) {
             body['execution_order'] = params.execution_order
+        }
+        if (params.base_updated_at !== undefined) {
+            body['base_updated_at'] = params.base_updated_at
         }
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',

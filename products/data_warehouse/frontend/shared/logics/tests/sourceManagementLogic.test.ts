@@ -68,6 +68,31 @@ describe('sourceManagementLogic', () => {
         })
     })
 
+    it('lists direct connect sources separately from managed ones', async () => {
+        logic.mount()
+
+        sourceManagementLogic.actions.loadSourcesSuccess({
+            results: [
+                { id: 's1', source_type: 'Stripe', access_method: 'warehouse', schemas: [] },
+                { id: 's2', source_type: 'Postgres', prefix: 'prod', access_method: 'direct', schemas: [] },
+                { id: 's3', source_type: 'Snowflake', prefix: 'analytics', access_method: 'direct', schemas: [] },
+            ],
+            count: 3,
+            next: null,
+            previous: null,
+        } as any)
+
+        await expectLogic(logic).toMatchValues({
+            managedSources: [expect.objectContaining({ id: 's1' })],
+            directSources: [expect.objectContaining({ id: 's2' }), expect.objectContaining({ id: 's3' })],
+        })
+
+        logic.actions.setDirectSearchTerm('analytics')
+        await expectLogic(logic).toMatchValues({
+            filteredDirectSources: [expect.objectContaining({ id: 's3' })],
+        })
+    })
+
     it('only includes tables with no source in selfManagedTables', async () => {
         databaseLogic.mount()
         logic.mount()

@@ -1,12 +1,7 @@
 // AUTO-GENERATED from products/customer_analytics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
-
 import {
     AccountRelationshipDefinitionsCreateBody,
     AccountRelationshipDefinitionsDestroyParams,
@@ -34,6 +29,11 @@ import {
     AccountsRelationshipsListParams,
     AccountsRelationshipsListQueryParams,
     AccountsRetrieveParams,
+    AccountsSummariesListParams,
+    AccountsSummariesListQueryParams,
+    AnnouncementsCreateBody,
+    AnnouncementsListQueryParams,
+    AnnouncementsRetrieveParams,
     CustomPropertyDefinitionsCreateBody,
     CustomPropertyDefinitionsDestroyParams,
     CustomPropertyDefinitionsListQueryParams,
@@ -50,6 +50,15 @@ import {
     CustomPropertySourcesRunsListParams,
     CustomPropertySourcesRunsListQueryParams,
     CustomPropertySourcesSyncParams,
+    EventStreamsAddAccountCreateBody,
+    EventStreamsAddAccountCreateParams,
+    EventStreamsCreateBody,
+    EventStreamsDestroyParams,
+    EventStreamsPartialUpdateBody,
+    EventStreamsPartialUpdateParams,
+    EventStreamsRemoveAccountCreateBody,
+    EventStreamsRemoveAccountCreateParams,
+    EventStreamsSendTestMessageCreateParams,
     GroupsTypesMetricsCreateBody,
     GroupsTypesMetricsCreateParams,
     GroupsTypesMetricsDestroyParams,
@@ -59,6 +68,15 @@ import {
     GroupsTypesMetricsPartialUpdateParams,
     GroupsTypesMetricsRetrieveParams,
 } from '@/generated/customer_analytics/api'
+import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AccountRelationshipDefinitionsCreateSchema = AccountRelationshipDefinitionsCreateBody
 
@@ -127,7 +145,7 @@ const accountRelationshipDefinitionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -184,7 +202,7 @@ const accountRelationshipDefinitionsRetrieve = (): ToolBase<
 
 const AccountsCreateSchema = AccountsCreateBody.extend({
     properties: AccountsCreateBody.shape['properties'].describe(
-        'Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'
+        'Typed account properties. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'
     ),
     tags: AccountsCreateBody.shape['tags'].describe(
         'Tag names to attach to the account. Tags are created on demand if they do not already exist for the team.'
@@ -208,6 +226,9 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
+        }
+        if (params.slack_summary_cadence !== undefined) {
+            body['slack_summary_cadence'] = params.slack_summary_cadence
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
@@ -260,7 +281,7 @@ const accountsCustomPropertyValuesList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/custom_property_values/`,
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -294,10 +315,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
-                account_executive: params.account_executive,
-                account_owner: params.account_owner,
                 all_roles_unassigned: params.all_roles_unassigned,
-                csm: params.csm,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -305,7 +323,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -374,7 +392,7 @@ const accountsNotebooksList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -397,7 +415,7 @@ const AccountsPartialUpdateSchema = AccountsPartialUpdateParams.omit({ project_i
     .extend(AccountsPartialUpdateBody.shape)
     .extend({
         properties: AccountsPartialUpdateBody.shape['properties'].describe(
-            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner` (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).'
+            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems). To assign users (CSM, account executive, ...), use `accounts-relationships-create` instead.'
         ),
         tags: AccountsPartialUpdateBody.shape['tags'].describe(
             'Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.'
@@ -421,6 +439,9 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
+        }
+        if (params.slack_summary_cadence !== undefined) {
+            body['slack_summary_cadence'] = params.slack_summary_cadence
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',
@@ -496,7 +517,7 @@ const accountsRelationshipsList = (): ToolBase<
                 include_history: params.include_history,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -510,6 +531,153 @@ const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Acc
         const result = await context.api.request<Schemas.Account>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const AccountsSummariesListSchema = AccountsSummariesListParams.omit({ project_id: true }).extend(
+    AccountsSummariesListQueryParams.shape
+)
+
+const accountsSummariesList = (): ToolBase<
+    typeof AccountsSummariesListSchema,
+    WithPostHogUrl<Schemas.PaginatedAccountChannelSummaryList>
+> => ({
+    name: 'accounts-summaries-list',
+    schema: AccountsSummariesListSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsSummariesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountChannelSummaryList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/summaries/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
+const AnnouncementsChannelsListSchema = z.object({})
+
+const announcementsChannelsList = (): ToolBase<
+    typeof AnnouncementsChannelsListSchema,
+    Schemas.AnnouncementChannel[]
+> => ({
+    name: 'announcements-channels-list',
+    schema: AnnouncementsChannelsListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof AnnouncementsChannelsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AnnouncementChannel[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/channels/`,
+        })
+        return result
+    },
+})
+
+const AnnouncementsCreateSchema = AnnouncementsCreateBody
+
+const AnnouncementsCreateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const announcementsCreatePrepare = (): ToolBase<typeof AnnouncementsCreateSchema, PrepareConfirmedActionResult> => ({
+    name: 'announcements-create-prepare',
+    schema: AnnouncementsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AnnouncementsCreateSchema>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'announcements-create',
+            actionLabel: 'send announcement',
+            messageTemplate:
+                "About to send this announcement as the SupportHog bot — a real, outward-facing Slack message to customers that cannot be recalled once posted. The message body is: {message}. The destination channel list was signed at prepare time and cannot be changed afterwards — review the channels you asked to target before confirming. Reply 'confirm' to send.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchemaExecute, Schemas.Announcement> => ({
+    name: 'announcements-create-execute',
+    schema: AnnouncementsCreateSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof AnnouncementsCreateSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<typeof AnnouncementsCreateSchema>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'announcements-create',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            stash: __runtime.stash,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.channels !== undefined) {
+            body['channels'] = params.channels
+        }
+        const result = await context.api.request<Schemas.Announcement>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AnnouncementsListSchema = AnnouncementsListQueryParams
+
+const announcementsList = (): ToolBase<
+    typeof AnnouncementsListSchema,
+    WithPostHogUrl<Schemas.PaginatedAnnouncementList>
+> => ({
+    name: 'announcements-list',
+    schema: AnnouncementsListSchema,
+    handler: async (context: Context, params: z.infer<typeof AnnouncementsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAnnouncementList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['deliveries'])),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/customer_analytics')
+    },
+})
+
+const AnnouncementsRetrieveSchema = AnnouncementsRetrieveParams.omit({ project_id: true })
+
+const announcementsRetrieve = (): ToolBase<typeof AnnouncementsRetrieveSchema, Schemas.Announcement> => ({
+    name: 'announcements-retrieve',
+    schema: AnnouncementsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof AnnouncementsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Announcement>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/${encodeURIComponent(String(params.short_id))}/`,
         })
         return result
     },
@@ -589,7 +757,7 @@ const customPropertyDefinitionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -695,6 +863,9 @@ const customPropertySourcesCreate = (): ToolBase<
         if (params.column_property_map !== undefined) {
             body['column_property_map'] = params.column_property_map
         }
+        if (params.column_descriptions !== undefined) {
+            body['column_descriptions'] = params.column_descriptions
+        }
         if (params.key_column !== undefined) {
             body['key_column'] = params.key_column
         }
@@ -743,7 +914,7 @@ const customPropertySourcesList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -816,7 +987,7 @@ const customPropertySourcesRunsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -830,6 +1001,165 @@ const customPropertySourcesSync = (): ToolBase<typeof CustomPropertySourcesSyncS
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/sync/`,
+        })
+        return result
+    },
+})
+
+const EventStreamsAddAccountSchema = EventStreamsAddAccountCreateParams.omit({ project_id: true }).extend(
+    EventStreamsAddAccountCreateBody.shape
+)
+
+const eventStreamsAddAccount = (): ToolBase<typeof EventStreamsAddAccountSchema, Schemas.EventStream> => ({
+    name: 'event-streams-add-account',
+    schema: EventStreamsAddAccountSchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsAddAccountSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.account_id !== undefined) {
+            body['account_id'] = params.account_id
+        }
+        const result = await context.api.request<Schemas.EventStream>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/${encodeURIComponent(String(params.id))}/add_account/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EventStreamsCreateSchema = EventStreamsCreateBody
+
+const eventStreamsCreate = (): ToolBase<typeof EventStreamsCreateSchema, Schemas.EventStream> => ({
+    name: 'event-streams-create',
+    schema: EventStreamsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.event_names !== undefined) {
+            body['event_names'] = params.event_names
+        }
+        if (params.slack_integration !== undefined) {
+            body['slack_integration'] = params.slack_integration
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_channel_name !== undefined) {
+            body['slack_channel_name'] = params.slack_channel_name
+        }
+        const result = await context.api.request<Schemas.EventStream>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EventStreamsDestroySchema = EventStreamsDestroyParams.omit({ project_id: true })
+
+const eventStreamsDestroy = (): ToolBase<typeof EventStreamsDestroySchema, unknown> => ({
+    name: 'event-streams-destroy',
+    schema: EventStreamsDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const EventStreamsListSchema = z.object({})
+
+const eventStreamsList = (): ToolBase<typeof EventStreamsListSchema, Schemas.EventStream[]> => ({
+    name: 'event-streams-list',
+    schema: EventStreamsListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof EventStreamsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EventStream[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/`,
+        })
+        return result
+    },
+})
+
+const EventStreamsPartialUpdateSchema = EventStreamsPartialUpdateParams.omit({ project_id: true }).extend(
+    EventStreamsPartialUpdateBody.shape
+)
+
+const eventStreamsPartialUpdate = (): ToolBase<typeof EventStreamsPartialUpdateSchema, Schemas.EventStream> => ({
+    name: 'event-streams-partial-update',
+    schema: EventStreamsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.event_names !== undefined) {
+            body['event_names'] = params.event_names
+        }
+        if (params.slack_integration !== undefined) {
+            body['slack_integration'] = params.slack_integration
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_channel_name !== undefined) {
+            body['slack_channel_name'] = params.slack_channel_name
+        }
+        const result = await context.api.request<Schemas.EventStream>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EventStreamsRemoveAccountSchema = EventStreamsRemoveAccountCreateParams.omit({ project_id: true }).extend(
+    EventStreamsRemoveAccountCreateBody.shape
+)
+
+const eventStreamsRemoveAccount = (): ToolBase<typeof EventStreamsRemoveAccountSchema, Schemas.EventStream> => ({
+    name: 'event-streams-remove-account',
+    schema: EventStreamsRemoveAccountSchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsRemoveAccountSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.account_id !== undefined) {
+            body['account_id'] = params.account_id
+        }
+        const result = await context.api.request<Schemas.EventStream>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/${encodeURIComponent(String(params.id))}/remove_account/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EventStreamsSendTestMessageSchema = EventStreamsSendTestMessageCreateParams.omit({ project_id: true })
+
+const eventStreamsSendTestMessage = (): ToolBase<
+    typeof EventStreamsSendTestMessageSchema,
+    Schemas.EventStreamTestMessage
+> => ({
+    name: 'event-streams-send-test-message',
+    schema: EventStreamsSendTestMessageSchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsSendTestMessageSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EventStreamTestMessage>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/${encodeURIComponent(String(params.id))}/send_test_message/`,
         })
         return result
     },
@@ -926,7 +1256,7 @@ const usageMetricsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer-analytics')
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -1017,6 +1347,12 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-relationships-end-create': accountsRelationshipsEndCreate,
     'accounts-relationships-list': accountsRelationshipsList,
     'accounts-retrieve': accountsRetrieve,
+    'accounts-summaries-list': accountsSummariesList,
+    'announcements-channels-list': announcementsChannelsList,
+    'announcements-create-prepare': announcementsCreatePrepare,
+    'announcements-create-execute': announcementsCreateExecute,
+    'announcements-list': announcementsList,
+    'announcements-retrieve': announcementsRetrieve,
     'custom-property-definitions-create': customPropertyDefinitionsCreate,
     'custom-property-definitions-destroy': customPropertyDefinitionsDestroy,
     'custom-property-definitions-list': customPropertyDefinitionsList,
@@ -1030,6 +1366,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'custom-property-sources-retrieve': customPropertySourcesRetrieve,
     'custom-property-sources-runs-list': customPropertySourcesRunsList,
     'custom-property-sources-sync': customPropertySourcesSync,
+    'event-streams-add-account': eventStreamsAddAccount,
+    'event-streams-create': eventStreamsCreate,
+    'event-streams-destroy': eventStreamsDestroy,
+    'event-streams-list': eventStreamsList,
+    'event-streams-partial-update': eventStreamsPartialUpdate,
+    'event-streams-remove-account': eventStreamsRemoveAccount,
+    'event-streams-send-test-message': eventStreamsSendTestMessage,
     'usage-metrics-create': usageMetricsCreate,
     'usage-metrics-destroy': usageMetricsDestroy,
     'usage-metrics-list': usageMetricsList,

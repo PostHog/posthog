@@ -34,7 +34,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
-import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
+import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -76,16 +76,12 @@ import type {
     SharingConfigurationSettings,
     TileFilters,
     UserProductListItem,
+    UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import type {
-    LLMPromptApi,
-    LLMPromptListApi,
-    LLMPromptResolveResponseApi,
-    LLMPromptVersionSummaryApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
+import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -117,6 +113,7 @@ export enum AvailableFeature {
     DATA_PIPELINES = 'data_pipelines',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     SESSION_REPLAY_DATA_RETENTION = 'session_replay_data_retention',
+    LOGS_RETENTION_30D = 'logs_retention_30d',
     CONSOLE_LOGS = 'console_logs',
     RECORDINGS_PERFORMANCE = 'recordings_performance',
     SESSION_REPLAY_NETWORK_PAYLOADS = 'session_replay_network_payloads',
@@ -288,18 +285,23 @@ export enum AccessControlResourceType {
     Action = 'action',
     CustomerAnalytics = 'customer_analytics',
     FeatureFlag = 'feature_flag',
+    Heatmap = 'heatmap',
     Insight = 'insight',
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    Tagger = 'tagger',
     LlmSkill = 'llm_skill',
+    LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
+    Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    McpAnalytics = 'mcp_analytics',
     Metrics = 'metrics',
     Endpoint = 'endpoint',
     Workflow = 'hog_flow',
@@ -383,6 +385,8 @@ export interface UserType extends UserBaseType {
     shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
     hide_mcp_hints?: boolean
+    /** Per-user UI customization. Null means no customization: every element is shown. */
+    ui_configuration?: UserUIConfiguration | null
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: HedgehogConfig
@@ -569,6 +573,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
+    enforce_verified_domains: boolean | null
     is_ai_data_processing_approved?: boolean
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
@@ -768,6 +773,8 @@ export interface ConversationsSettings {
     slack_notify_on_leave?: boolean
     slack_alert_channel_id?: string | null
     slack_nudge_enabled?: boolean
+    /** Bot scopes Slack granted at install. Absent for installs authorized before we recorded them. */
+    slack_scopes?: string[] | null
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
@@ -894,6 +901,8 @@ export interface TeamType extends TeamBasicType {
 
 export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
+    // Optional so cached team objects from before this field shipped still typecheck.
+    email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
 }
 
 export interface ProductIntentType {
@@ -1035,6 +1044,10 @@ export enum PropertyOperator {
     IsNot = 'is_not',
     IContains = 'icontains',
     NotIContains = 'not_icontains',
+    StartsWith = 'starts_with',
+    NotStartsWith = 'not_starts_with',
+    EndsWith = 'ends_with',
+    NotEndsWith = 'not_ends_with',
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',
@@ -1440,6 +1453,7 @@ export enum SessionRecordingSidebarTab {
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
+    SESSIONS = 'sessions',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -1816,6 +1830,8 @@ export interface CohortType {
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
     filters: {
         properties: CohortCriteriaGroupFilter
+        /** Exclude internal and test users (person-scoped team filters) at calculation time */
+        filterTestAccounts?: boolean
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
@@ -1857,6 +1873,7 @@ export enum PersonsTabType {
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
     EMAILS = 'emails',
+    PUSH_NOTIFICATIONS = 'pushNotifications',
 }
 
 export enum GroupsTabType {
@@ -4430,6 +4447,14 @@ export enum EarlyAccessFeatureTabs {
     OptedOut = 'opted-out',
 }
 
+export type EarlyAccessFeatureAssigneeType = 'user' | 'role'
+
+/** Person or role an early access feature is assigned to. Defaults to the creator. */
+export interface EarlyAccessFeatureAssignee {
+    type: EarlyAccessFeatureAssigneeType
+    id: number | string
+}
+
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
@@ -4442,6 +4467,9 @@ export interface EarlyAccessFeatureType {
     /** Custom JSON payload for the early access feature */
     payload?: Record<string, any>
     created_at: string
+    /** The user who created this feature. Null for features created before creator tracking was added. */
+    created_by?: UserBasicType | null
+    assignee?: EarlyAccessFeatureAssignee | null
     _create_in_folder?: string | null
     /** The effective access level the user has for this early access feature. */
     user_access_level?: AccessControlLevel
@@ -4902,6 +4930,8 @@ export interface Experiment {
     status?: ExperimentStatus | null
     /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
     is_legacy?: boolean
+    /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
+    resolved_exposure_event?: string
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -4930,9 +4960,12 @@ export interface Experiment {
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
-    /** Code task opened to remove the experiment's flag code, when requested on end/ship. */
+    /** Desktop task opened to remove the experiment's flag code, when requested on end/ship. */
     flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
+    /** Optimistic-concurrency token, bumped by the server on every update. Send the last-read
+     * value with updates so concurrent edits are detected (409) or merged instead of clobbered. */
+    version?: number | null
 }
 
 export interface ExperimentVelocityStats {
@@ -5151,14 +5184,6 @@ export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
     onRename?: never
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
-
-export enum GraphType {
-    Bar = 'bar',
-    HorizontalBar = 'horizontalBar',
-    Line = 'line',
-    Histogram = 'histogram',
-    Pie = 'doughnut',
-}
 
 export type GraphDataset = ChartDataset<ChartType> &
     Partial<
@@ -5452,6 +5477,7 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'pardot',
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
@@ -5502,8 +5528,10 @@ export enum SlackIntegrationScopeInReview {
     CANVASES_WRITE = 'canvases:write',
     CHANNELS_MANAGE = 'channels:manage',
     COMMANDS = 'commands',
+    FILES_READ = 'files:read',
     FILES_WRITE = 'files:write',
     IM_HISTORY = 'im:history',
+    MPIM_HISTORY = 'mpim:history',
     MPIM_READ = 'mpim:read',
 }
 
@@ -5695,8 +5723,6 @@ export const API_SCOPE_OBJECTS = [
     'access_control',
     'account',
     'activity_log',
-    'agents',
-    'agent_approvals',
     'alert',
     'annotation',
     'approvals',
@@ -5704,6 +5730,7 @@ export const API_SCOPE_OBJECTS = [
     'batch_import',
     'batch_import_support',
     'business_knowledge',
+    'canvas',
     'clickhouse_test_cluster_perf',
     'cohort',
     'comment',
@@ -5749,12 +5776,14 @@ export const API_SCOPE_OBJECTS = [
     'llm_analytics',
     'ai_observability_clusters',
     'llm_gateway',
+    'llm_playground',
     'llm_prompt',
     'llm_provider_key',
     'llm_skill',
     'logs',
     'loop',
     'marketing_analytics',
+    'mcp_builtin_agent',
     'mcp_analytics',
     'metrics',
     'notebook',
@@ -5770,6 +5799,7 @@ export const API_SCOPE_OBJECTS = [
     'query',
     'query_performance',
     'replay_scanner',
+    'review_hog',
     'revenue_analytics',
     'session_recording',
     'session_recording_playlist',
@@ -5869,6 +5899,11 @@ export type AccessControlResponseType = {
     default_access_level: AccessControlLevel
     minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
+    /** Resource whose project-wide rules apply while the object carries no override of its own. */
+    inherited_resource?: APIScopeObject | null
+    /** The level that applies while the object carries no override: the project-wide rule for
+     * `inherited_resource`, or its built-in default when no rule is set. */
+    inherited_access_level?: AccessControlLevel | null
 }
 
 export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
@@ -5990,6 +6025,7 @@ export enum ActivityScope {
     ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_PROMPT = 'LLMPrompt',
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
@@ -6100,6 +6136,8 @@ export interface DataModelingDAG {
     name: string
     description: string
     sync_frequency: DataModelingSyncInterval | null
+    /** True when per-model freshness targets drive scheduling, making the DAG-level frequency read-only */
+    frequency_managed_by_nodes?: boolean
     node_count: number
     created_at: string
     updated_at: string
@@ -6114,6 +6152,8 @@ export interface DataWarehouseSavedQuery {
     columns: DatabaseSchemaField[]
     last_run_at?: string
     sync_frequency?: string
+    /** True when the DAG's single schedule owns the cadence, so `sync_frequency` is not editable per view */
+    sync_frequency_managed_by_dag?: boolean
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null
@@ -6121,6 +6161,8 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
+    suspended?: DataWarehouseSavedQueryApiSuspended
     upstream_dependency_count?: number
     downstream_dependency_count?: number
     created_at?: string
@@ -6164,7 +6206,11 @@ export interface DataWarehouseViewLinkValidation {
     is_valid: boolean
     msg: string | null
     hogql: string | null
+    columns: string[]
     results: any[]
+    total_rows: number | null
+    matched_rows: number | null
+    match_rate: number | null
 }
 
 export interface QueryTabState {
@@ -6287,8 +6333,10 @@ export interface DataModelingJob {
     error: string | null
     created_at: string
     last_run_at: string
+    /** When the job row last changed; for finished jobs this approximates when the run ended. */
+    updated_at?: string
     workflow_id: string
-    workflow_run_id: string
+    workflow_run_id: string | null
 }
 
 export interface SimpleExternalDataSourceSchema {
@@ -6424,12 +6472,15 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor */
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+    /** The requesting user's effective access level for this table (inherits the source). */
+    user_access_level?: AccessControlLevel
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
 export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
+    access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     user_access_level: AccessControlLevel | null
@@ -6884,6 +6935,7 @@ export enum SDKKey {
     DOTNET = 'dotnet',
     DSPY = 'dspy',
     ELIXIR = 'elixir',
+    EVE = 'eve',
     FRAMER = 'framer',
     FIREWORKS_AI = 'fireworks_ai',
     FLUTTER = 'flutter',
@@ -6898,6 +6950,7 @@ export enum SDKKey {
     IOS = 'ios',
     JAVA = 'java',
     JS_WEB = 'javascript_web',
+    KMP = 'kmp',
     LARAVEL = 'laravel',
     LANGCHAIN = 'langchain',
     LANGGRAPH = 'langgraph',
@@ -6929,6 +6982,7 @@ export enum SDKKey {
     REACT_ROUTER = 'react_router',
     REMIX = 'remix',
     RETOOL = 'retool',
+    ROBLOX = 'roblox',
     RUBY = 'ruby',
     RUBY_ON_RAILS = 'ruby_on_rails',
     RUDDERSTACK = 'rudderstack',
@@ -6942,6 +6996,7 @@ export enum SDKKey {
     TRACELOOP = 'traceloop',
     TANSTACK_START = 'tanstack_start',
     TOGETHER_AI = 'together_ai',
+    UNITY = 'unity',
     VERCEL_AI = 'vercel_ai',
     VERCEL_AI_GATEWAY = 'vercel_ai_gateway',
     VITE = 'vite',
@@ -6967,6 +7022,7 @@ export enum SDKTag {
 }
 
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ComponentType>>
+export type SDKDocsLinkOverrides = Partial<Record<SDKKey, string>>
 export type SDKTagOverrides = Partial<Record<SDKKey, SDKTag[]>>
 
 export enum SidePanelTab {
@@ -7022,6 +7078,7 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS
+    | ProductKey.METRICS
     | ProductKey.MCP_ANALYTICS
     | ProductKey.CONVERSATIONS,
     OnboardingProduct
@@ -7156,6 +7213,7 @@ export type HogFunctionTypeType =
     | 'site_destination'
     | 'site_app'
     | 'transformation'
+    | 'transformation_log'
 
 export type HogFunctionType = {
     id: string
@@ -7198,6 +7256,7 @@ export type HogFunctionConfigurationContextId =
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
+    | 'mcp-tool-error'
     | 'activity-log'
     | 'feature-flag-change'
     | 'error-tracking-issue-created'
@@ -7316,6 +7375,21 @@ export type CyclotronJobInvocationGlobals = {
         body: Record<string, any>
         headers: Record<string, string>
         ip?: string
+    }
+    // Only applies to log transformations (see buildLogRecordGlobals)
+    record?: {
+        body: string | null
+        attributes: Record<string, string>
+        resource_attributes: Record<string, string>
+        severity_text: string | null
+        severity_number: number | null
+        service_name: string | null
+        instrumentation_scope: string | null
+        event_name: string | null
+        timestamp: number | null
+        observed_timestamp: number | null
+        trace_id: string | null
+        span_id: string | null
     }
     // For HogFlows, workflow-level variables
     variables?: Record<string, any>
@@ -7525,6 +7599,7 @@ export enum UserRole {
     Leadership = 'leadership',
     Marketing = 'marketing',
     Sales = 'sales',
+    Student = 'student',
     Other = 'other',
 }
 
@@ -7554,6 +7629,12 @@ export interface FeaturePreviewGateConfig {
     title: string
     description: string
     docsURL?: string
+    /**
+     * Support ticket target area for the "Request access" action. Set this for betas that aren't
+     * self-serve early-access features, so the gated state offers a way to request access instead
+     * of dead-ending on the feature previews page.
+     */
+    supportTargetArea?: string
 }
 
 export interface ProductManifest {
@@ -7569,8 +7650,8 @@ export interface ProductManifest {
     treeItemsMetadata?: FileSystemImport[]
     /**
      * Boot-time setup-status probe for this product's empty state. Aggregated across
-     * manifests into `productSetupProbes` and answered by one combined event-count
-     * query at app boot (see `productSetupPreloadLogic`).
+     * manifests into `productSetupProbes` and answered by one property-definition
+     * request at app boot (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
 }
@@ -7604,6 +7685,11 @@ export type OAuthApplicationPublicMetadata = {
     required_scopes?: string[]
     /** Server-computed read-only form of a `*` grant; the consent page must not derive this client-side. */
     wildcard_read_scopes?: string[]
+    /**
+     * The app's resolved scope ceiling. `/authorize` clamps the request to this set, so a requested
+     * scope missing from it is dropped rather than granted and must not be rendered as a consent row.
+     */
+    grantable_scopes?: string[]
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
@@ -7690,6 +7776,7 @@ export interface HeatmapScreenshotType {
     exception?: string
     error?: string // Added for error responses from content endpoint
     created_by?: UserBasicType | null
+    user_access_level?: AccessControlLevel
 }
 
 export type HeatmapScreenshotContentResponse =
@@ -7757,85 +7844,7 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
-}
-
-export interface Dataset {
-    id: string
-    name: string
-    description: string | null
-    metadata: Record<string, any> | null
-    team: number
-    created_at: string
-    updated_at: string
-    created_by: UserBasicType
-    deleted: boolean
-}
-
-export interface DatasetItem {
-    id: string
-    dataset: string
-    team: number
-    input: Record<string, any> | null
-    output: Record<string, any> | null
-    metadata: Record<string, any> | null
-    ref_trace_id: string | null
-    ref_timestamp: string | null
-    ref_source_id: string | null
-    created_by: UserBasicType
-    updated_at: string
-    created_at: string
-    deleted: boolean
-}
-
-export interface LLMPrompt {
-    id: string
-    name: string
-    prompt: string
-    version: number
-    version_description?: string | null
-    created_by: UserBasicType
-    created_at: string
-    updated_at: string
-    deleted: boolean
-    is_latest: boolean
-    latest_version: number
-    version_count: number
-    first_version_created_at: string
-    /** Key for this prompt's rows in the activity log (History tab). */
-    activity_item_id: LLMPromptApi['activity_item_id']
-    /** All labels on the prompt with the version each points to. Only present on list responses. */
-    all_labels?: LLMPromptListApi['all_labels']
-}
-
-export interface LLMPromptPublic {
-    id: string
-    name: string
-    prompt: string
-    version: number
-    created_at: string
-    updated_at: string
-    deleted: boolean
-    is_latest: boolean
-    latest_version: number
-    version_count: number
-    first_version_created_at: string
-}
-
-export interface LLMPromptVersionSummary {
-    id: string
-    version: number
-    version_description?: string | null
-    created_by: UserBasicType
-    created_at: string
-    is_latest: boolean
-    labels?: LLMPromptVersionSummaryApi['labels']
-}
-
-export interface LLMPromptResolveResponse {
-    prompt: LLMPrompt
-    versions: LLMPromptVersionSummary[]
-    has_more: boolean
-    labels: LLMPromptResolveResponseApi['labels']
+    PATH_CLEANING = 'path_cleaning',
 }
 
 // Managed viewset

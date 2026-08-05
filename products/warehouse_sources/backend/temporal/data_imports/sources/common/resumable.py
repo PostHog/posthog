@@ -10,10 +10,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.redis import get_client
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    ResumableData,
-    SourceInputs,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ResumableData, SourceInputs
 
 
 class ResumableSourceManager(Generic[ResumableData]):

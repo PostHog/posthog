@@ -1,13 +1,7 @@
 // AUTO-GENERATED from products/workflows/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { withUiApp } from '@/resources/ui-apps'
-import { WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-
 import {
     HogFlowsBatchJobsListParams,
     HogFlowsCreateBody,
@@ -36,6 +30,10 @@ import {
     HogFlowsSchedulesPartialUpdateBody,
     HogFlowsSchedulesPartialUpdateParams,
 } from '@/generated/workflows/api'
+import { withUiApp } from '@/resources/ui-apps'
+import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateSchema = HogFlowsCreateBody
 
@@ -186,6 +184,7 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,
+                    search: params.search,
                     status: params.status,
                     updated_at: params.updated_at,
                 },
@@ -283,6 +282,24 @@ const workflowsLogs = (): ToolBase<typeof WorkflowsLogsSchema, unknown> => ({
                 limit: params.limit,
                 search: params.search,
             },
+        })
+        return result
+    },
+})
+
+const WorkflowsPatchActionEmailSchema = WorkflowActionEmailPatchSchema
+
+const workflowsPatchActionEmail = (): ToolBase<typeof WorkflowsPatchActionEmailSchema, Schemas.HogFlow> => ({
+    name: 'workflows-patch-action-email',
+    schema: WorkflowsPatchActionEmailSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsPatchActionEmailSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = WorkflowsPatchActionEmailSchema.parse(params)
+        const { id, action_id, ...body } = parsedParams
+        const result = await context.api.request<Schemas.HogFlow>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(id))}/actions/${encodeURIComponent(String(action_id))}/email/`,
+            body,
         })
         return result
     },
@@ -436,12 +453,6 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             if (params.exit_condition !== undefined) {
                 body['exit_condition'] = params.exit_condition
             }
-            if (params.edges !== undefined) {
-                body['edges'] = params.edges
-            }
-            if (params.actions !== undefined) {
-                body['actions'] = params.actions
-            }
             if (params.variables !== undefined) {
                 body['variables'] = params.variables
             }
@@ -497,6 +508,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-list-invocations': workflowsListInvocations,
     'workflows-list-revisions': workflowsListRevisions,
     'workflows-logs': workflowsLogs,
+    'workflows-patch-action-email': workflowsPatchActionEmail,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
     'workflows-restore-revision': workflowsRestoreRevision,
