@@ -28,6 +28,8 @@ import { MentionText } from "@posthog/ui/features/canvas/components/MentionText"
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
@@ -41,6 +43,7 @@ import {
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
 import {
+  navigateToChannelDashboard,
   navigateToChannelTask,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
@@ -156,9 +159,17 @@ export function ActivityRow({
         .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
     }
     onNavigate?.();
+    if (channelId && item.commentTarget?.scope === "desktop_canvas") {
+      useCanvasChatPanelStore.getState().openComments();
+      navigateToChannelDashboard(channelId, item.commentTarget.itemId);
+      return;
+    }
     // The channel thread route is the deep-link target; unfiled tasks fall
     // back to the plain task view.
     if (channelId) {
+      if (item.commentId) {
+        useThreadPanelStore.getState().setCollapsed(false);
+      }
       navigateToChannelTask(channelId, item.taskId);
     } else {
       navigateToTaskDetail(item.taskId);

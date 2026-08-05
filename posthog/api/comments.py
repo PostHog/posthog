@@ -95,6 +95,19 @@ def _record_task_comment_activity(comment: Comment, mentions: list[int], *, acti
     )
 
 
+def _mentions_allowed_for_comment_target(
+    *, team_id: int, user_id: int | None, scope: str, item_id: str | None, item_context: dict | None
+) -> bool:
+    if scope not in {"task", "task_artifact", "desktop_canvas"}:
+        return True
+    task_id = item_id if scope == "task" else (item_context or {}).get("taskId")
+    if not task_id:
+        return False
+    from products.tasks.backend.facade.api import task_comment_mentions_allowed  # noqa: PLC0415
+
+    return task_comment_mentions_allowed(team_id=team_id, user_id=user_id, task_id=task_id)
+
+
 def _task_comment_target_is_accessible(
     *, team_id: int, user_id: int | None, task_id: str, scope: str, item_id: str | None
 ) -> bool:
@@ -307,6 +320,14 @@ class CommentSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
 
         mentions = self._filter_mentions_to_organization(mentions, self.context["get_organization"]().id)
+        if not _mentions_allowed_for_comment_target(
+            team_id=self.context["team_id"],
+            user_id=self.context["request"].user.id,
+            scope=validated_data["scope"],
+            item_id=validated_data.get("item_id"),
+            item_context=validated_data.get("item_context"),
+        ):
+            mentions = []
 
         comment = super().create(validated_data)
 
@@ -328,6 +349,14 @@ class CommentSerializer(serializers.ModelSerializer):
         request = self.context["request"]
 
         mentions = self._filter_mentions_to_organization(mentions, self.context["get_organization"]().id)
+        if not _mentions_allowed_for_comment_target(
+            team_id=instance.team_id,
+            user_id=request.user.id,
+            scope=validated_data.get("scope", instance.scope),
+            item_id=validated_data.get("item_id", instance.item_id),
+            item_context=validated_data.get("item_context", instance.item_context),
+        ):
+            mentions = []
 
         with transaction.atomic():
             locked_instance = Comment.objects.select_for_update().get(pk=instance.pk)

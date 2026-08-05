@@ -127,6 +127,29 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         payload["item_context"]["taskId"] = str(other_task.id)
         assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
 
+    @mock.patch("posthog.api.comments.send_mention_notifications")
+    def test_personal_channel_comments_ignore_mentions(self, send_notifications: mock.Mock) -> None:
+        task = self._task_artifact_target()
+        task.channel.channel_type = "personal"
+        task.channel.save(update_fields=["channel_type"])
+        mentioned = User.objects.create_and_join(self.organization, "private-mentioned@posthog.com", "password")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "This stays private @[Mentioned](private-mentioned@posthog.com)",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+                "mentions": [mentioned.id],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        send_notifications.assert_not_called()
+        task_activity_model = apps.get_model("tasks", "TaskActivity")
+        assert not task_activity_model.objects.filter(team=self.team, user=mentioned, task=task).exists()
+
     @mock.patch("posthog.api.comments._record_task_comment_activity")
     def test_edit_mentions_use_the_edit_time_for_activity(self, record_activity: mock.Mock) -> None:
         task = self._task_artifact_target()

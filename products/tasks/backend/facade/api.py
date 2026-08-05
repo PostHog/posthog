@@ -232,6 +232,7 @@ __all__ = [
     "task_run_is_terminal",
     "task_runtime",
     "task_visible",
+    "task_comment_mentions_allowed",
     "update_sandbox_environment",
     "update_task",
     "update_task_automation",
@@ -3882,14 +3883,7 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     control predicate when ``for_control`` (mutations, runs, agent commands)."""
     qs = Task.objects.filter(team_id=team_id, deleted=False)
     if not bypass_visibility:
-        visibility = task_control_q(user_id) if for_control else task_visibility_q(user_id)
-        if user_id is not None and not for_control:
-            # Activity rows are server-created participation grants. In particular, a
-            # comment mention must let its recipient open a task from somebody else's
-            # personal channel without exposing that channel or allowing task control.
-            visible_from_activity = TaskActivity.objects.for_team(team_id).filter(user_id=user_id).values("task_id")
-            visibility |= Q(id__in=visible_from_activity)
-        qs = qs.filter(visibility)
+        qs = qs.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
     return qs
 
 
@@ -6085,6 +6079,22 @@ def task_comment_target_is_accessible(
     return False
 
 
+def task_comment_mentions_allowed(*, team_id: int, user_id: int | None, task_id: str | UUID) -> bool:
+    """Mentions are collaboration, so they are unavailable in personal channels."""
+    try:
+        parsed_task_id = UUID(str(task_id))
+    except ValueError:
+        return False
+    return (
+        _visible_task_qs(team_id, user_id)
+        .filter(
+            id=parsed_task_id,
+            channel__channel_type=Channel.ChannelType.PUBLIC,
+        )
+        .exists()
+    )
+
+
 def _comment_task_id(scope: str, item_id: str | None, item_context: dict[str, Any] | None) -> UUID | None:
     """The task a comment was written against, or None if it isn't one of ours.
 
@@ -6134,6 +6144,8 @@ def record_comment_mention_activity(
 
     task_id = _comment_task_id(scope, item_id, item_context)
     if task_id is None:
+        return
+    if not task_comment_mentions_allowed(team_id=team_id, user_id=author_id, task_id=task_id):
         return
 
     try:
@@ -6304,24 +6316,14 @@ def list_task_activity(
     rows = rows[:limit]
     next_row = rows[-1] if has_more else None
 
-    def visible_channel(row: TaskActivity) -> Channel | None:
-        channel = row.task.channel
-        if channel is None:
-            return None
-        if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:
-            return None
-        return channel
-
-    visible_channels = {row.id: visible_channel(row) for row in rows}
-
     return contracts.TaskActivityPageDTO(
         results=[
             contracts.TaskActivityDTO(
                 id=row.id,
                 task_id=row.task_id,
                 task_title=row.task.title,
-                channel_id=visible_channels[row.id].id if visible_channels[row.id] else None,
-                channel_name=visible_channels[row.id].name if visible_channels[row.id] else None,
+                channel_id=row.task.channel_id,
+                channel_name=row.task.channel.name if row.task.channel else None,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
                 snippet=_activity_snippet(row),

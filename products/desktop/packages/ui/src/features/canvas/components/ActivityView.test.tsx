@@ -3,11 +3,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigation = vi.hoisted(() => ({
+  toChannelDashboard: vi.fn(),
   toChannelTask: vi.fn(),
   toTaskDetail: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
+  navigateToChannelDashboard: navigation.toChannelDashboard,
   navigateToChannelTask: navigation.toChannelTask,
   navigateToTaskDetail: navigation.toTaskDetail,
 }));
@@ -36,6 +38,7 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
 describe("activityHeadline", () => {
   beforeEach(() => {
     navigation.toChannelTask.mockReset();
+    navigation.toChannelDashboard.mockReset();
     navigation.toTaskDetail.mockReset();
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -107,10 +110,11 @@ describe("activityHeadline", () => {
     if (!activityButton) throw new Error("Expected activity row button");
     fireEvent.click(activityButton);
 
-    expect(navigation.toChannelTask).toHaveBeenCalledWith(
+    expect(navigation.toChannelDashboard).toHaveBeenCalledWith(
       "channel-1",
-      "task-1",
+      "canvas-1",
     );
+    expect(navigation.toChannelTask).not.toHaveBeenCalled();
     expect(useCommentNavigationStore.getState().focusByTask["task-1"]).toEqual({
       target: { scope: "desktop_canvas", itemId: "canvas-1" },
       threadId: "comment-1",

@@ -2,6 +2,7 @@ import { PaperPlaneRightIcon, XIcon } from "@phosphor-icons/react";
 import { InputGroupAddon, InputGroupButton } from "@posthog/quill";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { MentionComposer } from "@posthog/ui/features/canvas/components/MentionComposer";
+import { useMentionsDisabledReason } from "@posthog/ui/features/sessions/mentionAvailability";
 import { mentionIdsFromContent } from "./commentMentions";
 
 export function CommentComposer({
@@ -28,10 +29,13 @@ export function CommentComposer({
   /** For a composer the user just opened, so they can type straight away. */
   autoFocus?: boolean;
 }) {
+  const mentionsDisabledReason = useMentionsDisabledReason();
+  const mentionMembers = mentionsDisabledReason ? [] : members;
+  const showMentionsDisabled = !!mentionsDisabledReason && value.includes("@");
   const submit = () => {
     const content = value.trim();
     if (!content || disabled) return;
-    onSubmit(content, mentionIdsFromContent(content, members));
+    onSubmit(content, mentionIdsFromContent(content, mentionMembers));
   };
 
   return (
@@ -39,13 +43,18 @@ export function CommentComposer({
       value={value}
       onValueChange={onValueChange}
       onSubmit={submit}
-      members={members}
+      members={mentionMembers}
       autoFocus={autoFocus}
       placeholder={placeholder}
       rows={rows}
       inputClassName="max-h-40 text-[13px]"
     >
       <InputGroupAddon align="block-end" className="p-1">
+        {showMentionsDisabled && (
+          <output className="px-1 text-muted-foreground text-xs">
+            {mentionsDisabledReason}
+          </output>
+        )}
         {onCancel && (
           <InputGroupButton
             size="icon-sm"
