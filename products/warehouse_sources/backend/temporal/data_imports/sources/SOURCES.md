@@ -266,6 +266,7 @@ the row lists both.
 | flexmail                         | HTTP                        | requests                                                        | ✅                          |
 | float_app                        | HTTP                        | requests                                                        | ✅                          |
 | flowlu                           | HTTP                        | requests                                                        | ✅                          |
+| flutterwave                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fly_io                           | HTTP                        | requests                                                        | ✅                          |
 | formbricks                       | HTTP                        | requests                                                        | ✅                          |
 | fred                             | HTTP                        | requests                                                        | ✅                          |
@@ -954,7 +955,6 @@ doesn't conflict with concurrent PRs.
 - flexmail
 - flexport
 - flowlu
-- flutterwave
 - fly_io
 - formbricks
 - fortnox
