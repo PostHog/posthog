@@ -29,6 +29,24 @@ class DataWarehouseExpression(ModelActivityMixin, TeamScopedRootMixin, UUIDTMode
     # database; null scopes it to the default warehouse database.
     connection_id = models.UUIDField(null=True, blank=True)
 
+    class Meta:
+        # Backstop for the serializer's check-then-act duplicate validation. Two constraints
+        # because Postgres treats NULLs as distinct, so a null connection_id needs its own guard.
+        # `deleted` is nullable and null counts as active, hence the isnull clause.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "table_name", "field_name", "connection_id"],
+                condition=models.Q(deleted=False) | models.Q(deleted__isnull=True),
+                name="uniq_dw_expression_active_connection",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "table_name", "field_name"],
+                condition=(models.Q(deleted=False) | models.Q(deleted__isnull=True))
+                & models.Q(connection_id__isnull=True),
+                name="uniq_dw_expression_active_default",
+            ),
+        ]
+
     def soft_delete(self) -> None:
         self.deleted = True
         self.deleted_at = timezone.now()
