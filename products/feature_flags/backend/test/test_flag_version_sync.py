@@ -190,12 +190,25 @@ class TestFlagVersionSync(BaseTest):
         for flag in (flag_using_cohort, dependent, transitive):
             flag.refresh_from_db()
             assert flag.version == 2
+
+        # Each flag's history names the source it actually reaches: only the flag with the
+        # cohort condition names the cohort, and a flag further down the chain names the
+        # flag it depends on rather than a cohort it has no reference to.
+        (cohort_entry,) = _updated_entries(flag_using_cohort)
+        assert cohort_entry.detail is not None
+        assert cohort_entry.detail["trigger"] == {
+            "job_type": "cohort_conditions_updated",
+            "job_id": str(cohort.pk),
+            "payload": {"cohort_id": cohort.pk, "cohort_name": "cohort"},
+        }
+        for flag in (dependent, transitive):
             (entry,) = _updated_entries(flag)
             assert entry.detail is not None
-            # Cascaded dependents keep the cohort trigger: the change originates there,
-            # and the frontend already describes indirectly linked cohorts this way.
-            assert entry.detail["trigger"]["job_type"] == "cohort_conditions_updated"
-            assert entry.detail["trigger"]["job_id"] == str(cohort.pk)
+            assert entry.detail["trigger"] == {
+                "job_type": "flag_dependency_updated",
+                "job_id": str(flag_using_cohort.pk),
+                "payload": {"flag_id": flag_using_cohort.pk, "flag_key": flag_using_cohort.key},
+            }
 
     def test_malformed_sibling_flag_does_not_block_save_or_bump(self):
         cohort = self._create_cohort("cohort", _person_filters("a@a.com"))

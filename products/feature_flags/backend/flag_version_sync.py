@@ -27,6 +27,7 @@ this module is wired in ``apps.ready()``, so its own ``on_commit`` callback runs
 and would rebuild the flag cache with the pre-bump versions.
 """
 
+from collections import defaultdict
 from typing import Any
 
 from django.db import models, transaction
@@ -146,15 +147,18 @@ def bump_flag_versions_on_cohort_definition_change(
         return
 
     project_id = instance.team.project_id
-    flags = _flags_referencing_cohort(instance)
-    if not flags:
+    referencing_flags = _flags_referencing_cohort(instance)
+    if not referencing_flags:
         return
     # Flags depending on a flag whose cohort conditions moved are downstream of the same
     # change. The bump below is a bulk update, which fires no signals, so the flag
     # receiver can never pick these up — this path has to expand them itself.
-    seed_ids = {flag.pk for flag in flags}
-    flags += _dependent_flags_transitively(seed_ids, project_id, exclude=seed_ids)
-    _bump_flag_versions(flags, project_id, _cohort_conditions_trigger(instance))
+    dependents = _dependent_flags(referencing_flags, project_id)
+    # Only the flags that actually reference the cohort name it in their history; a flag
+    # further down the chain doesn't reference it, so it names the flag it depends on.
+    triggers: dict[int, Trigger] = {flag.pk: _cohort_conditions_trigger(instance) for flag in referencing_flags}
+    triggers.update({dependent.pk: _flag_dependency_trigger(origin) for dependent, origin in dependents})
+    _bump_flag_versions(referencing_flags + [dependent for dependent, _ in dependents], project_id, triggers)
 
 
 @receiver(post_save, sender=FeatureFlag)
@@ -179,11 +183,15 @@ def bump_dependent_flag_versions_on_flag_definition_change(
 
     project_id = instance.team.project_id
     # The saved flag is excluded: whoever edited it already bumped and logged its version.
-    dependents = _dependent_flags_transitively({instance.pk}, project_id, exclude={instance.pk})
-    _bump_flag_versions(dependents, project_id, _flag_dependency_trigger(instance))
+    dependents = _dependent_flags([instance], project_id)
+    _bump_flag_versions(
+        [dependent for dependent, _ in dependents],
+        project_id,
+        {dependent.pk: _flag_dependency_trigger(origin) for dependent, origin in dependents},
+    )
 
 
-def _bump_flag_versions(flags: list[FeatureFlag], project_id: int, trigger: Trigger) -> None:
+def _bump_flag_versions(flags: list[FeatureFlag], project_id: int, triggers: dict[int, Trigger]) -> None:
     if not flags:
         return
     with transaction.atomic():
@@ -210,7 +218,7 @@ def _bump_flag_versions(flags: list[FeatureFlag], project_id: int, trigger: Trig
         )
         bulk_log_activity(
             [
-                _flag_version_bump_entry(flag, old_version=old_versions[flag.pk], trigger=trigger)
+                _flag_version_bump_entry(flag, old_version=old_versions[flag.pk], trigger=triggers[flag.pk])
                 for flag in flags
                 if flag.pk in old_versions
             ]
@@ -264,16 +272,48 @@ def _flag_version_bump_entry(flag: FeatureFlag, old_version: int | None, trigger
     )
 
 
-def _dependent_flags_transitively(seed_flag_ids: set[int], project_id: int, exclude: set[int]) -> list[FeatureFlag]:
-    """Non-deleted flags in the project that depend on any seed flag, directly or through
-    another dependent flag.
+def _direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
+    """Flag ids this flag has a ``flag_evaluates_to`` release condition on.
+
+    Same parse as ``flags_cache._extract_direct_dependency_ids`` (a dependency is keyed by
+    the referenced flag's id in ``key``), minus its inactive/deleted short-circuit: a
+    disabled flag still ships in the local-evaluation payload so dependencies can resolve
+    it, so its dependents still need the bump. Tolerant of malformed values so one bad
+    sibling flag can't break the save that triggered this.
+    """
+    dependency_ids: set[int] = set()
+    try:
+        conditions = flag.conditions
+    except Exception:
+        # A sibling flag with malformed filters must neither break the save nor suppress
+        # the bump for healthy flags.
+        logger.exception("flag_version_sync_dependency_parse_failed", flag_id=flag.pk, team_id=flag.team_id)
+        capture_exception()
+        return dependency_ids
+    for condition in conditions:
+        for prop in condition.get("properties") or []:
+            if prop.get("type") != "flag":
+                continue
+            try:
+                dependency_ids.add(int(prop["key"]))
+            except (ValueError, KeyError, TypeError):
+                continue
+    return dependency_ids
+
+
+def _dependent_flags(sources: list[FeatureFlag], project_id: int) -> list[tuple[FeatureFlag, FeatureFlag]]:
+    """Non-deleted flags in the project that transitively depend on any source flag.
+
+    Returns ``(dependent, origin)`` pairs, where origin is the source flag the chain
+    started from — that's what the dependent's history entry names. Sources are never
+    returned: their own versions are bumped by whatever changed them, and skipping them
+    is also what makes a dependency cycle terminate here.
 
     Matches the payload semantics of local evaluation (all non-deleted flags, active or
-    not — a dependency may reference a disabled flag). Deliberately not the
-    ``find_dependent_flags`` lookup in the flag API, which is scoped to one team's active
-    flags for the disable/delete guards, and lives in a module too heavy to import at app
-    startup. One query builds the whole reverse graph so the walk below needs no further
-    round trips.
+    not). Deliberately not the ``find_dependent_flags`` lookup in the flag API, which is
+    scoped to one team's active flags for the disable/delete guards, and lives in a module
+    too heavy to import at app startup. One query builds the whole reverse graph so the
+    walk below needs no further round trips.
     """
     candidate_flags = list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
@@ -282,38 +322,28 @@ def _dependent_flags_transitively(seed_flag_ids: set[int], project_id: int, excl
         # select_related: the activity entry per bumped flag reads flag.team.organization_id.
         .select_related("team")
     )
-    dependents_by_dependency: dict[int, list[FeatureFlag]] = {}
-    for flag in candidate_flags:
-        try:
-            for condition in flag.conditions:
-                for prop in condition.get("properties", []):
-                    # Dependency keys are the referenced flag's id as a string — the flag
-                    # serializer coerces them on write.
-                    if prop.get("type") == "flag" and str(prop.get("key", "")).isdigit():
-                        dependents_by_dependency.setdefault(int(prop["key"]), []).append(flag)
-        except Exception:
-            # A sibling flag with malformed filters must neither break the save nor
-            # suppress the bump for healthy flags.
-            logger.exception(
-                "flag_version_sync_dependency_parse_failed",
-                flag_id=flag.pk,
-                team_id=flag.team_id,
-            )
-            capture_exception()
+    if not candidate_flags:
+        return []
 
-    found: dict[int, FeatureFlag] = {}
-    queue = list(seed_flag_ids)
-    seen = set(seed_flag_ids)
-    while queue:
-        for dependent in dependents_by_dependency.get(queue.pop(), []):
-            # Guards diamonds, and cycles that validation rejects but a direct DB write
-            # could still leave behind.
-            if dependent.pk in seen:
-                continue
-            seen.add(dependent.pk)
-            found[dependent.pk] = dependent
-            queue.append(dependent.pk)
-    return [flag for pk, flag in found.items() if pk not in exclude]
+    dependents_of: dict[int, list[FeatureFlag]] = defaultdict(list)
+    for flag in candidate_flags:
+        for dependency_id in _direct_flag_dependency_ids(flag):
+            dependents_of[dependency_id].append(flag)
+
+    dependents: list[tuple[FeatureFlag, FeatureFlag]] = []
+    seen = {flag.pk for flag in sources}
+    frontier = [(flag.pk, flag) for flag in sources]
+    while frontier:
+        next_frontier: list[tuple[int, FeatureFlag]] = []
+        for flag_id, origin in frontier:
+            for dependent in dependents_of.get(flag_id, []):
+                if dependent.pk in seen:
+                    continue
+                seen.add(dependent.pk)
+                dependents.append((dependent, origin))
+                next_frontier.append((dependent.pk, origin))
+        frontier = next_frontier
+    return dependents
 
 
 def _flags_referencing_cohort(cohort: Cohort) -> list[FeatureFlag]:
