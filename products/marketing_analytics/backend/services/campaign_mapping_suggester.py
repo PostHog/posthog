@@ -69,6 +69,13 @@ UNSCOPED_SCORE_CUTOFF = 93.0
 BATCH_SCORE = 95.0
 BATCH_MARGIN = 15.0
 
+# Ranking floor used while *measuring* the margin, distinct from the acceptance cutoffs above.
+# A runner-up only makes the top candidate ambiguous if it is within MIN_MARGIN (or BATCH_MARGIN)
+# of it, so anything further below the lowest cutoff than the widest margin can never change a
+# verdict — but everything above that has to stay visible, or the near-tie it proves gets discarded
+# before it can be counted.
+MARGIN_FLOOR = SCORE_CUTOFF - BATCH_MARGIN
+
 # How many candidates to keep per orphan. 3 is enough to measure the margin.
 TOP_N_CANDIDATES = 3
 
@@ -165,9 +172,16 @@ def suggest_campaign_name_mappings(
     # Campaigns whose match value already shows up in the catalogue are linked and
     # working. Mapping an orphan onto one would pile a second campaign's traffic onto
     # a row that's already attributing correctly, so they're not valid targets.
-    # Lowercased because the lookup below compares a lowercased candidate: leaving the
-    # original casing here let any campaign tagged with capitals slip past the guard.
-    seen_utm_campaigns = {utm_campaign.lower() for utm_campaign, _ in utm_events if utm_campaign}
+    #
+    # Keyed by resolved source, because "already receiving traffic" is per-platform: candidates are
+    # scoped to one integration, so a global set let Meta's `brand` traffic disqualify Google's own
+    # `brand` campaign — and cross-platform name reuse (brand / retargeting / prospecting) is the
+    # norm for anyone running both. Lowercased because the lookup compares a lowercased candidate.
+    seen_by_source: dict[str, set[str]] = {}
+    for utm_campaign, utm_source in utm_events:
+        if not utm_campaign:
+            continue
+        seen_by_source.setdefault(resolve_source(utm_source.lower().strip(), mappings), set()).add(utm_campaign.lower())
 
     orphans = _orphans(utm_events, already_matched | already_mapped)
     considered = [o for o in orphans if o.event_count >= min_event_count][:max_unmatched_values]
@@ -194,7 +208,7 @@ def suggest_campaign_name_mappings(
             campaigns_by_source=campaigns_by_source,
             mappings=mappings,
             all_match_values=all_match_values,
-            seen_utm_campaigns=seen_utm_campaigns,
+            seen_by_source=seen_by_source,
             claimed_clean_names=claimed_clean_names,
             result=result,
         )
@@ -293,7 +307,7 @@ def _classify(
     campaigns_by_source: dict[str, list[Campaign]],
     mappings: TeamMappings,
     all_match_values: set[str],
-    seen_utm_campaigns: set[str],
+    seen_by_source: dict[str, set[str]],
     claimed_clean_names: dict[str, str],
     result: CampaignMappingSuggestions,
 ) -> None:
@@ -316,29 +330,47 @@ def _classify(
     if not candidates:
         return
 
+    # Unscoped search spans every platform, so no single source's catalogue describes "already
+    # attributing" — fall back to the union there rather than picking one arbitrarily.
+    seen = (
+        seen_by_source.get(scoped_source, set())
+        if scoped_group
+        else {value for values in seen_by_source.values() for value in values}
+    )
+
     by_value: dict[str, Campaign] = {}
     for campaign in candidates:
         value = _match_value(campaign, mappings)
-        if not value or value.lower() in seen_utm_campaigns:
+        if not value or value.lower() in seen:
             # Empty, or already receiving traffic under its own name — not an orphan.
             continue
         # Keep the highest-spend campaign when several share a match value.
         if value not in by_value or campaign.spend > by_value[value].spend:
             by_value[value] = campaign
 
-    # Ranked with headroom, then truncated *after* the period filter. Taking the top N first
-    # would let a quarterly family — which scores ~96 across every sibling — fill all N slots
-    # and bury a genuine typo match below them, reporting the orphan as unresolvable.
+    # Ranked WITHOUT the acceptance cutoff, because the cutoff and the margin answer different
+    # questions. The cutoff decides whether the top candidate is close enough to propose at all;
+    # the margin decides whether a *second* candidate makes that proposal a guess. Filtering by
+    # cutoff first discards exactly the runner-ups that prove ambiguity — a 90.9 top next to an
+    # 85.5 runner-up looked like a lone match with margin 100 when the real margin is 5.4.
+    #
+    # Headroom, and truncation only after the period filter: taking the top N first would let a
+    # quarterly family — which scores ~96 across every sibling — fill all N slots and bury a
+    # genuine typo match below them, reporting the orphan as unresolvable.
     ranked = fuzzy_rank(
         orphan.raw_utm_campaign,
         list(by_value),
-        score_cutoff=cutoff,
+        score_cutoff=MARGIN_FLOOR,
         limit=TOP_N_CANDIDATES * CANDIDATE_HEADROOM,
     )
     # Drop period-siblings before measuring the margin: otherwise `brand_q2` sitting
     # at 96 next to `brand_q1` at 96 reads as "ambiguous" when it's simply not a match.
     ranked = [(value, score) for value, score in ranked if not differs_only_by_period(orphan.raw_utm_campaign, value)]
     ranked = ranked[:TOP_N_CANDIDATES]
+
+    # The cutoff is applied here instead: a top candidate below it is no match, whatever trails it.
+    if ranked and ranked[0][1] < cutoff:
+        ranked = []
 
     if not ranked:
         result.unresolved.append(

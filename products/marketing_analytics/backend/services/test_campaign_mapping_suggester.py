@@ -136,6 +136,42 @@ class TestProposals:
 
         assert [p.clean_name for p in result.proposals] == ["wintr_prom_q1"]
 
+    def test_another_platform_traffic_does_not_veto_a_starved_candidate(self):
+        # `seen_utm_campaigns` pooled every platform, so Meta traffic on "brand" made the Google
+        # campaign of the same name look like it was already attributing and disqualified it as a
+        # target. Cross-platform name reuse (brand / retargeting / prospecting) is the norm, so the
+        # typo mapping the module exists to find was silently skipped.
+        campaigns = [
+            _campaign("brand", campaign_id="1", spend=9000.0, source="google"),
+            _campaign("brand", campaign_id="2", spend=4000.0, source="meta"),
+        ]
+        utm_events = _events(
+            ("brand", "facebook", 1200),  # Meta's own traffic, correctly attributed
+            ("brnd", "google", 800),  # the Google orphan that should map onto Google's "brand"
+        )
+
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+
+        assert [(p.raw_utm_campaign, p.clean_name, p.integration) for p in result.proposals] == [
+            ("brnd", "brand", "GoogleAds")
+        ]
+
+    def test_a_runner_up_below_the_cutoff_still_counts_as_ambiguity(self):
+        # The acceptance cutoff and the ambiguity margin answer different questions. Ranking with
+        # score_cutoff applied dropped every sub-cutoff candidate before the margin was measured,
+        # so a genuine near-tie looked like a lone match: reported margin 100 against a real 5.4.
+        # `uk_uss` at 90.9 with `email_uk` at 85.5 is a real pair from the scorer, not a contrivance.
+        campaigns = [
+            _campaign("uk_uss", campaign_id="1", spend=5000.0),
+            _campaign("email_uk", campaign_id="2", spend=4000.0),
+        ]
+        utm_events = _events(("uk_us", "google", 900))
+
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+
+        assert result.proposals == []
+        assert [a.raw_utm_campaign for a in result.ambiguous] == ["uk_us"]
+
     def test_purely_numeric_id_near_miss_is_refused(self):
         # `1234` vs `12345` is indistinguishable from one real id next to another
         # real id. Fuzzy-matching numeric ids is how you attribute one campaign's
