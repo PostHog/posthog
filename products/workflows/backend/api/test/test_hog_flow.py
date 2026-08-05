@@ -406,16 +406,25 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("webhook", "template-source-webhook"),
-            ("manual", "template-source-webhook"),
-            ("tracking_pixel", "template-source-webhook-pixel"),
+            ("webhook", "template-source-webhook", "{request.body.event}", "{request.body.distinct_id}"),
+            ("manual", "template-source-webhook", "$workflow_triggered", "{request.body.user_id}"),
+            (
+                "tracking_pixel",
+                "template-source-webhook-pixel",
+                "{request.query.ph_event}",
+                "{request.query.ph_distinct_id}",
+            ),
         ]
     )
-    def test_unknown_trigger_template_id_names_the_source_template(self, trigger_type, expected_literal):
+    def test_unknown_trigger_template_id_names_the_source_template(
+        self, trigger_type, expected_literal, expected_event, expected_distinct_id
+    ):
         # webhook/manual/tracking_pixel triggers are each backed by a fixed built-in source template that
         # isn't in the destination catalog agents search, so a wrong/guessed template_id left them looping
         # on a bare "Template not found". The error must name the exact source literal and say it isn't in
-        # the destination catalog.
+        # the destination catalog. The event/distinct_id hints have to be per-type too: the request that
+        # reaches the template differs, so a webhook-shaped mapping saves fine and then 400s on every
+        # manual run, or silently drops every pixel hit.
         hog_flow = {
             "name": "Test Flow",
             "actions": [
@@ -436,6 +445,8 @@ class TestHogFlowAPI(APIBaseTest):
         detail = response.json()["detail"]
         assert expected_literal in detail, detail
         assert "destination template catalog" in detail, detail
+        assert expected_event in detail, detail
+        assert expected_distinct_id in detail, detail
 
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
