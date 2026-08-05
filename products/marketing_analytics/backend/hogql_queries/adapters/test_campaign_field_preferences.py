@@ -372,15 +372,18 @@ class TestCampaignFieldPreferences(BaseTest):
         )
         adapter = BingAdsAdapter(config, self.context)
 
-        # Bing reads campaign columns off the performance report, so no campaigns join
+        # Bing reads the campaign id off the performance report, which anchors the FROM
         match_field_expr = adapter.get_campaign_match_field()
         match_hogql = match_field_expr.to_hogql()
         assert ".campaign_id" in match_hogql
 
-        # But name should still be available for display
+        # But name should still be available for display — the campaigns table's current name
+        # is preferred, with the report's latest name only as a fallback for ids it no longer has.
         name_field_expr = adapter._get_campaign_name_field()
         name_hogql = name_field_expr.to_hogql()
-        assert ".campaign_name" in name_hogql
+        assert "any(bing_ads_campaigns.name)" in name_hogql
+        assert "argMax(bing_ads_campaign_performance_report.campaign_name" in name_hogql
+        assert name_hogql.startswith("coalesce(nullIf(")
 
     def test_bingads_always_returns_both_fields(self):
         """Test that BingAds adapter always returns both name and id"""
@@ -415,8 +418,13 @@ class TestCampaignFieldPreferences(BaseTest):
 
         campaign_name_expr = adapter._get_campaign_name_field()
         name_hogql = campaign_name_expr.to_hogql()
-        assert ".campaign_name" in name_hogql
+        assert "any(bing_ads_campaigns_both.name)" in name_hogql
+        assert "argMax(bing_ads_campaign_performance_report_both.campaign_name" in name_hogql
+        assert name_hogql.startswith("coalesce(nullIf(")
 
         campaign_id_expr = adapter._get_campaign_id_field()
         id_hogql = campaign_id_expr.to_hogql()
         assert ".campaign_id" in id_hogql
+        # The id must come off the anchor table — on the LEFT JOINed side an unmatched row
+        # would silently resolve to ''.
+        assert "bing_ads_campaigns_both" not in id_hogql

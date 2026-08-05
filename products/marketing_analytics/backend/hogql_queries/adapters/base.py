@@ -257,8 +257,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     def _get_campaign_name_field(self) -> ast.Expr:
         """Default: at AD_GROUP / AD, return the parent campaign name from the LEFT JOIN
         (with orphan fallback). At CAMPAIGN, the entity name from the FROM table directly.
-        In unified mode (Bing reports), read the embedded `_unified_campaign_name_column`
-        from the entity table since there's no separate campaigns join.
+        In unified campaign mode (Bing reports), the report is the anchor and the campaigns
+        table is only additively joined, so prefer its current name and fall back to the
+        report's embedded `_unified_campaign_name_column` for campaigns it no longer has.
         Hierarchical adapters get this for free; non-hierarchical ones must override."""
         if not self._has_hierarchical_config():
             raise NotImplementedError(
@@ -279,12 +280,38 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             )
         tables = self._level_tables()
         if self._campaign_stats_are_unified():
-            # A performance report is a per-day fact table, so `campaign_name` differs across
-            # rows once a campaign is renamed — the entity join used to hide that by supplying
-            # one current name per id. Take the latest name instead of grouping by it, or a
-            # renamed campaign splits into one row per name with its cost divided between them.
-            # `_get_group_by` drops the name accordingly.
-            return ast.Call(
+            # The report is the FROM anchor — that's what stops spend for campaigns the entity
+            # table no longer has from being dropped — but a performance report is a per-day fact
+            # table, so `campaign_name` differs across a campaign's rows once it's renamed. Two
+            # things go wrong if we resolve the name from the report alone:
+            #   * `match_key` defaults to this expression and is JOINed against
+            #     `unified_conversion_goals`, so it has to keep matching `campaigns.name` — the
+            #     value it had before the anchor flip. Otherwise any drift (trailing whitespace,
+            #     casing, encoding, a rename the historical report rows don't carry) silently
+            #     moves UTM attribution for *every* campaign, not just the deleted ones.
+            #   * `build_materialization_query` groups by (campaign_id, cost_date), so the name
+            #     would resolve *within each day*: a campaign renamed mid-period gets old-name
+            #     rows on old days and new-name rows after, and the read side
+            #     (`_build_campaign_cost_select`, which groups by campaign_name) then splits its
+            #     spend across two dashboard rows.
+            # So keep the campaigns table as a purely additive LEFT JOIN (see `_get_from`) and
+            # prefer its one current name, falling back to the report's latest name only for ids
+            # the entity table doesn't have. `campaigns.name` isn't a grouping key — the GROUP BY
+            # is the id alone, see `_get_group_by` — so it has to be wrapped in an aggregate;
+            # `any` is exact because the name is functionally dependent on the id.
+            # Known residual: a campaign renamed *and then* deleted inside the queried window has
+            # no entity row, so the fallback still yields per-day names on the materialized path.
+            # Rare enough to accept — the alternative is a second pass over the report.
+            entity_name = ast.Call(
+                name="toString",
+                args=[
+                    ast.Call(
+                        name="any",
+                        args=[ast.Field(chain=[config.campaign_table.name, self._campaign_name_column])],
+                    )
+                ],
+            )
+            report_latest_name = ast.Call(
                 name="toString",
                 args=[
                     ast.Call(
@@ -296,6 +323,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                     )
                 ],
             )
+            return self._coalesce_nonempty(entity_name, report_latest_name)
         return ast.Call(name="toString", args=[ast.Field(chain=[tables.entity_table.name, tables.entity_name_column])])
 
     def _get_campaign_id_field(self) -> ast.Expr:
@@ -456,6 +484,23 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             ],
         )
 
+    @staticmethod
+    def _coalesce_nonempty(primary: ast.Expr, fallback: ast.Expr) -> ast.Expr:
+        """`coalesce(nullIf(primary, ''), fallback)` — take `primary` unless it's missing.
+
+        Sibling of `_string_field_with_orphan_fallback`, which coalesces against a string
+        constant and needs no `nullIf` because its callers read a column that is either matched
+        or NULL. Here `primary` comes off a LEFT JOINed *warehouse* table, where a miss surfaces
+        two different ways: HogQL runs ClickHouse with `join_use_nulls = 0` (see the note at
+        posthog/hogql/database/database.py:2158), so an unmatched row on a non-Nullable String
+        column yields '' rather than NULL, while a Nullable column yields NULL. `nullIf(…, '')`
+        normalizes both into NULL so `coalesce` reaches the fallback either way.
+        """
+        return ast.Call(
+            name="coalesce",
+            args=[ast.Call(name="nullIf", args=[primary, ast.Constant(value="")]), fallback],
+        )
+
     # Hierarchy infrastructure: native adapters override the column-name attributes
     # below so the shared FROM/GROUP BY/WHERE builders know how to join across levels.
     # Same shape per source, different column names; defaults match `id` / `name`.
@@ -469,7 +514,8 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     # read campaign columns off the report via `_unified_campaign_*_column`.
     _uses_unified_entity_stats: bool = False
     # Same idea at CAMPAIGN level: when True, the campaign performance report embeds
-    # `_unified_campaign_*_column`, so the campaigns entity table isn't joined at all.
+    # `_unified_campaign_*_column`, so the campaigns entity table stops being the FROM
+    # anchor and becomes an additive LEFT JOIN read only for the display name.
     # That matters for correctness, not just cost: anchoring on the entity table and
     # LEFT JOINing the report drops spend for any campaign the report knows about but
     # the entity table doesn't — deleted campaigns are never returned by the platform's
@@ -622,7 +668,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Default FROM clause for hierarchical native ads adapters.
 
         Builds: entity LEFT JOIN stats [LEFT JOIN parent adset (at AD)] [LEFT JOIN campaigns
-        (at AD_GROUP/AD)]. Non-hierarchical adapters override this entirely.
+        (at AD_GROUP/AD)]. In unified mode the report is the anchor and there are no joins,
+        except at unified CAMPAIGN grain where campaigns is joined additively for its name.
+        Non-hierarchical adapters override this entirely.
         """
         if not self._has_hierarchical_config():
             raise NotImplementedError(
@@ -637,7 +685,8 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         is_entity_level = level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
         # Every other level (campaign, channel, source, medium, content, term) reads the
         # campaign bundle, so they all go through the campaign-grain unified check.
-        is_unified = (self._uses_unified_entity_stats and is_entity_level) or self._campaign_stats_are_unified()
+        campaign_stats_unified = self._campaign_stats_are_unified()
+        is_unified = (self._uses_unified_entity_stats and is_entity_level) or campaign_stats_unified
 
         # Entity and report/stats tables can store the same id with different types
         # (e.g. Reddit's ad_groups.id vs ad_group_report.ad_group_id), so cast both
@@ -667,7 +716,34 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         # columns, so skip parent joins entirely. `_get_campaign_*` / `_get_ad_group_*`
         # below read those directly from the entity table.
         if is_unified:
-            return ast.JoinExpr(table=ast.Field(chain=[entity_table_name]))
+            anchor = ast.JoinExpr(table=ast.Field(chain=[entity_table_name]))
+            if campaign_stats_unified:
+                # ...with one exception. Anchoring on the report is what keeps spend for campaigns
+                # the entity table no longer has, but the report's per-day `campaign_name` drifts
+                # after a rename. So bring the campaigns table back as a purely ADDITIVE LEFT JOIN,
+                # letting `_get_campaign_name_field` prefer its one current name. Additive matters:
+                # nothing here touches the WHERE, so this join cannot drop a single report row —
+                # unlike the entity-anchored shape it replaced. (An entity table holding duplicate
+                # ids would multiply rows and inflate SUM(spend), but that exposure is unchanged
+                # from the pre-flip shape where campaigns was the anchor. If it ever bites, join
+                # `(SELECT id, any(name) AS name FROM campaigns GROUP BY id)` instead.)
+                # `join_key` casts both sides because Bing's campaigns.id is Int64 in the warehouse
+                # while the report's campaign_id arrives as a String — without the casts the join
+                # silently matches zero rows.
+                campaign_table_name = config.campaign_table.name
+                anchor.next_join = ast.JoinExpr(
+                    table=ast.Field(chain=[campaign_table_name]),
+                    join_type="LEFT JOIN",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=join_key(entity_table_name, self._unified_campaign_pk_column),
+                            op=ast.CompareOperationOp.Eq,
+                            right=join_key(campaign_table_name, self._campaign_pk_column),
+                        ),
+                        constraint_type="ON",
+                    ),
+                )
+            return anchor
         # At AD level with adsets synced, chain ads → adsets → campaigns. Going through
         # adsets matters: not every source carries `campaign_id` directly on the ads table
         # (or ships it consistently), but adsets always have `campaign_id` since adsets
@@ -736,7 +812,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         plus ad-group columns at AD_GROUP/AD, plus ad columns at AD."""
         level = self.context.drill_down_level
         group_by: list[ast.Expr] = []
-        # In unified campaign mode the name is an argMax over the report, not a grouping key.
+        # In unified campaign mode the name is an aggregate (`any` over the additively joined
+        # campaigns table, falling back to `argMax` over the report), so it can't be a grouping
+        # key — the id alone is the grain. See `_get_campaign_name_field` for why.
         if not self._campaign_stats_are_unified():
             group_by.append(self._get_campaign_name_field())
         group_by.append(self._get_campaign_id_field())

@@ -16,7 +16,9 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
     """
     Adapter for Bing Ads native marketing data.
     Expects config with:
-    - campaign_table: campaigns entity table (only used for validation / discovery)
+    - campaign_table: campaigns entity table — no longer the FROM anchor at campaign grain,
+      but still additively LEFT JOINed for the current campaign name (see below), and used
+      by `validate()` and source discovery
     - stats_table: campaign_performance_report
     - adset_table / adset_stats_table: ad_group_performance_report (same table — Bing
       reports embed entity columns directly, see `_uses_unified_entity_stats` below)
@@ -24,10 +26,16 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
 
     Bing's performance reports embed `ad_group_id` / `ad_group_name` /
     `campaign_id` / `campaign_name` (and at ad level, also `ad_id` / `ad_title`)
-    directly as columns, so there's no separate entity table to join at any level —
-    the report is both. `_uses_unified_entity_stats` /
-    `_uses_unified_campaign_stats` flip the base FROM/GROUP BY builders into the
-    no-join code path.
+    directly as columns, so the report is the FROM anchor at every level.
+    `_uses_unified_entity_stats` / `_uses_unified_campaign_stats` flip the base
+    FROM/GROUP BY builders onto that path. At AD_GROUP / AD it's genuinely join-free; at
+    CAMPAIGN the campaigns table is still LEFT JOINed, but additively — it supplies the
+    display name and `match_key` without being able to drop a report row, which is what
+    the entity-anchored shape used to do to deleted campaigns' spend.
+
+    `_campaign_pk_column` / `_campaign_name_column` stay unset because the base defaults
+    (`id` / `name`) already match Bing's `campaigns` schema — and they're load-bearing for
+    that additive join, not dead config.
     """
 
     _source_type = NativeMarketingSource.BING_ADS

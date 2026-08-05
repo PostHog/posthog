@@ -1639,15 +1639,27 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         )
         adapter = BingAdsAdapter(config=config, context=self.context)
 
+        assert not adapter._campaign_stats_are_unified(), "no campaign_name column → not unified"
+
+        # Both paths now carry a join, so assert the anchor and the joined table, not just that
+        # *a* join exists — otherwise this passes on the unified path too and tests nothing.
         from_expr = adapter._get_from()
         assert isinstance(from_expr.table, ast.Field)
         assert from_expr.table.chain == ["bingads_campaigns"], "should anchor on the entity table"
         assert from_expr.next_join is not None, "should still join the performance report"
+        assert isinstance(from_expr.next_join.table, ast.Field)
+        assert from_expr.next_join.table.chain == ["bingads_campaign_performance_report"]
+        assert from_expr.next_join.next_join is None
+
+        assert "argMax" not in adapter._get_campaign_name_field().to_hogql(), "no report name to read"
+        assert len(adapter._get_group_by()) == 2, "fallback path groups by name + id"
         assert adapter.build_query() is not None, "should build a query without the campaign_name column"
 
-    def test_bing_ads_campaign_grain_groups_by_id_and_takes_latest_name(self):
+    def test_bing_ads_campaign_grain_prefers_entity_name_and_groups_by_id(self):
         """The report is a per-day fact table, so a renamed campaign carries the old name on old
-        rows. Grouping by the name would split one campaign into a row per name."""
+        rows. Grouping by the name would split one campaign into a row per name — and resolving
+        the name from the report alone would move `match_key` off `campaigns.name`, changing UTM
+        attribution for campaigns that were never deleted."""
         campaign_table = self._create_mock_table("bingads_campaigns", "BingAds")
         stats_table = self._create_mock_table("bingads_campaign_performance_report", "BingAds")
         stats_table.columns = {col: {"valid": True} for col in ("campaign_id", "campaign_name", "spend")}
@@ -1663,7 +1675,58 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         group_by = adapter._get_group_by()
         assert len(group_by) == 1, "campaign name must not be a grouping key"
         assert ".campaign_id" in group_by[0].to_hogql()
-        assert "argMax" in adapter._get_campaign_name_field().to_hogql(), "latest name should win"
+
+        # The report anchors the FROM (that's what keeps deleted campaigns' spend), and campaigns
+        # is joined additively — it can't drop a report row.
+        from_expr = adapter._get_from()
+        assert isinstance(from_expr.table, ast.Field)
+        assert from_expr.table.chain == ["bingads_campaign_performance_report"], "report is the anchor"
+        join = from_expr.next_join
+        assert join is not None and join.join_type == "LEFT JOIN"
+        assert isinstance(join.table, ast.Field) and join.table.chain == ["bingads_campaigns"]
+        assert join.next_join is None, "the campaigns join is the only one — purely additive"
+
+        name_hogql = adapter._get_campaign_name_field().to_hogql()
+        assert "any(bingads_campaigns.name)" in name_hogql, "entity name is preferred"
+        assert "argMax" in name_hogql, "report's latest name is the fallback for deleted campaigns"
+        assert name_hogql.startswith("coalesce(nullIf("), "'' (join_use_nulls=0) and NULL both fall back"
+        assert name_hogql == adapter.get_campaign_match_field().to_hogql(), (
+            "match_key must keep resolving to the entity name, not the report's, or UTM attribution "
+            "shifts for campaigns that still exist"
+        )
+
+    def test_bing_ads_materialization_name_is_stable_across_days(self):
+        """`build_materialization_query` groups by (campaign_id, cost_date), so a name taken from
+        the report alone resolves within each day: a campaign renamed mid-period would get old-name
+        rows on old days and new-name rows after. `_build_campaign_cost_select` then groups by
+        campaign_name at CAMPAIGN level and the spend splits into two dashboard rows. Preferring
+        the campaigns entity table's single current name keeps every day in agreement."""
+        campaign_table = self._create_mock_table("bingads_campaigns", "BingAds")
+        stats_table = self._create_mock_table("bingads_campaign_performance_report", "BingAds")
+        stats_table.columns = {col: {"valid": True} for col in ("campaign_id", "campaign_name", "spend")}
+
+        config = BingAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="BingAds",
+            source_id="test_materialization",
+        )
+        adapter = BingAdsAdapter(config=config, context=self.context)
+        assert self.context.drill_down_level == MarketingAnalyticsDrillDownLevel.CAMPAIGN
+
+        mat = adapter.build_materialization_query("test_materialization")
+        assert mat is not None
+        by_alias = {col.alias: col.expr.to_hogql() for col in mat.select if isinstance(col, ast.Alias)}
+        for alias in ("campaign_name", "match_key"):
+            assert "any(bingads_campaigns.name)" in by_alias[alias], f"{alias} must prefer the entity name"
+            assert by_alias[alias].startswith("coalesce(nullIf("), alias
+        assert by_alias["campaign_id"] == "toString(bingads_campaign_performance_report.campaign_id)"
+
+        assert mat.group_by is not None
+        assert [expr.to_hogql() for expr in mat.group_by] == [
+            "toString(bingads_campaign_performance_report.campaign_id)",
+            "toDate(bingads_campaign_performance_report.time_period)",
+        ], "campaign_name must not be a grouping key at the per-day grain"
 
     @parameterized.expand(
         [
@@ -2139,6 +2202,70 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         sources = [row[3] for row in results]
         assert all(source == "google" for source in sources), "All sources should be 'google'"
+
+    def test_bing_ads_adapter_with_real_data(self):
+        """End-to-end against ClickHouse — the mock-based tests only lock the SQL shape, and the
+        two things this asserts can't be checked without a real join:
+
+        * `999999` is in the performance report but not in `campaigns.csv` (a campaign deleted on
+          the platform: "get campaigns" stops returning it, the report keeps its spend forever).
+          Anchoring on the report is what keeps its spend, and its name has to come from the
+          argMax fallback. `campaigns.name` is a non-Nullable String, so the unmatched LEFT JOIN
+          yields '' rather than NULL under `join_use_nulls = 0` — this is what the `nullIf` in
+          `_coalesce_nonempty` is for, and without it the campaign would render as blank.
+        * `123460`'s latest report row says `BrandAwareness-Renamed` while `campaigns.csv` still
+          says `BrandAwareness`. Preferring the entity name is what keeps `match_key` (and so UTM
+          attribution) stable for a campaign that was never deleted; a plain argMax would return
+          the report's name here. Its two rows must also collapse into one, not split the spend.
+
+        It also covers the Int64/String join: `campaigns.id` is Int64 while the report's
+        `campaign_id` is a String, so without the `toString` casts the join matches zero rows.
+        """
+        campaign_info = self._setup_csv_table("bing_campaigns")
+        stats_info = self._setup_csv_table("bing_campaign_performance_report")
+
+        config = BingAdsConfig(
+            campaign_table=campaign_info.table,
+            stats_table=stats_info.table,
+            source_type="BingAds",
+            source_id="bing_ads",
+        )
+
+        adapter = BingAdsAdapter(config=config, context=self.context)
+
+        validation_result = adapter.validate()
+        assert validation_result.is_valid, f"Validation failed: {validation_result.errors}"
+
+        query = adapter.build_query()
+        assert query is not None, "BingAdsAdapter should generate a query"
+        results = self._execute_query_and_validate(query)
+
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
+        by_id = {row[2]: row for row in results}
+        assert len(results) == 9, f"Expected 9 campaigns (8 live + 1 deleted), got {len(results)}"
+        assert len(by_id) == 9, "campaign_id must be the grain — no campaign split across rows"
+
+        # Spend for a campaign the entity table no longer has: the bug this fixes.
+        assert "999999" in by_id, "spend for a deleted campaign must not be dropped"
+        assert by_id["999999"][1] == "DeletedCampaign", "name falls back to the report's latest"
+        assert by_id["999999"][0] == "DeletedCampaign", "match_key falls back with it"
+        assert int(by_id["999999"][4]) == 2000
+        assert float(by_id["999999"][6]) > 0, "the whole point is that this spend is counted"
+
+        # A renamed campaign: one row, and the entity table's current name wins over the report's.
+        renamed = by_id["123460"]
+        assert renamed[1] == "BrandAwareness", f"entity name should win, got {renamed[1]!r}"
+        assert renamed[0] == "BrandAwareness", "match_key must stay on the entity name"
+        assert int(renamed[4]) == 20000, "both report rows must aggregate into this one campaign"
+        assert int(renamed[5]) == 1000
+
+        assert all(row[1] for row in results), "no campaign should render with a blank name"
+        assert sum(int(row[4] or 0) for row in results) == 412000
+        assert sum(int(row[5] or 0) for row in results) == 20600
+
+        sources = [row[3] for row in results]
+        assert all(source == "bing" for source in sources), "All sources should be 'bing'"
 
     def test_linkedin_ads_adapter_with_real_data(self):
         campaign_info = self._setup_csv_table("linkedin_campaigns")

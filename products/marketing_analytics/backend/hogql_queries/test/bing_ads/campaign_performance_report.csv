@@ -11,3 +11,5 @@ campaign_id,campaign_name,clicks,impressions,spend,conversions,currency_code,tim
 123461,LeadGeneration,1350,27000,1750.90,135,USD,2024-02-18,1.30,5.00,10.00
 123462,ProductLaunch,3000,60000,4200.00,300,USD,2024-04-25,1.40,5.00,10.00
 123463,RetargetingCampaign,1100,22000,1450.25,110,USD,2024-05-08,1.32,5.00,10.00
+123460,BrandAwareness-Renamed,50,1000,25.00,5,USD,2024-01-13,0.50,5.00,10.00
+999999,DeletedCampaign,100,2000,111.00,10,USD,2024-07-01,1.11,5.00,10.00
