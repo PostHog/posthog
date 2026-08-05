@@ -1,6 +1,5 @@
 import os
 import json
-import uuid
 import asyncio
 from collections import defaultdict
 from dataclasses import asdict, dataclass
@@ -74,6 +73,7 @@ from products.signals.backend.temporal.types import (
     SignalTypeExample,
     SpecificityMetadata,
     TeamSignalGroupingInput,
+    signal_document_id,
 )
 
 logger = structlog.get_logger(__name__)
@@ -1234,7 +1234,7 @@ async def _process_signal_batch(
         emitted_signals = _par.emitted_signals
 
     for i, signal in enumerate(batch if not _use_parallel_sequential else []):
-        signal_id = str(uuid.uuid4())
+        signal_id = signal_document_id(signal)
         try:
             # Augment CH candidates with earlier-in-batch signals
             augmented_results = _augment_candidates_with_batch(
