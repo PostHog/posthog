@@ -5609,6 +5609,7 @@ export enum ExporterFormat {
     GIF = 'image/gif',
     HCL = 'text/hcl',
     MARKDOWN = 'text/markdown',
+    JSONL = 'application/x-ndjson',
 }
 
 /** Exporting directly from the browser to a file */
@@ -7845,6 +7846,7 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
+    AI_REPORTS = 'ai_reports',
 }
 
 // Managed viewset

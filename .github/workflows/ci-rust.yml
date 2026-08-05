@@ -221,11 +221,13 @@ jobs:
                       f.write(f"matrix={json.dumps(matrix)}\n")
 
     build:
-        name: Build Rust services (depot-ubuntu-22.04-4)
+        name: Build Rust (${{ matrix.packages }})
+        strategy:
+            matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-22.04-4
-        timeout-minutes: 15
+        timeout-minutes: 20
         permissions:
             contents: read
 
@@ -279,16 +281,13 @@ jobs:
               env:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
                   OPENSSL_NO_VENDOR: '1'
-                  AFFECTED_CRATES: ${{ needs.affected.outputs.affected_crates }}
+                  SHARD_PACKAGES: ${{ matrix.packages }}
               run: |
-                  crates=$(echo "$AFFECTED_CRATES" | python3 -c "import json,sys; print(' '.join(f'-p {c}' for c in json.load(sys.stdin)))")
-                  if [ -z "$crates" ]; then
-                      echo "No affected crates — skipping build"
-                  else
-                      echo "Building affected crates: $crates"
-                      cargo build $crates --locked --release
-                      find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
-                  fi
+                  crates=()
+                  for c in $SHARD_PACKAGES; do crates+=(-p "$c"); done
+                  echo "Building shard crates: ${crates[*]}"
+                  cargo build "${crates[@]}" --locked --release
+                  find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
 
     test:
         name: Test Rust (${{ matrix.packages }})
