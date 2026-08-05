@@ -473,6 +473,9 @@ def _forward_structured_output_events(
     if not forwards:
         return
     try:
+        # `raise_for_status` matters: capture can accept the POST yet drop or exhaust
+        # retries on individual events, returning a result instead of raising — without it
+        # a partial forward failure would be silent.
         capture_batch_internal(
             events=[
                 {
@@ -486,7 +489,7 @@ def _forward_structured_output_events(
             token=team.api_token,
             event_source=_STRUCTURED_OUTPUT_EVENT_SOURCE,
             process_person_profile=False,
-        )
+        ).raise_for_status()
     except Exception:
         logger.warning(
             "signals_scout: failed to forward structured-output events to team project",
