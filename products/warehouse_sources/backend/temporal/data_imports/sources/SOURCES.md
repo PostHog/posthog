@@ -12,6 +12,8 @@ new source / vendor-SDK / migration PR.
 This file tracks _whether_ a source is implemented. For endpoints a source is missing relative to its
 vendor's API, see [COVERAGE_GAPS.md](COVERAGE_GAPS.md), refreshed by the
 [auditing-warehouse-source-coverage skill](/.agents/skills/auditing-warehouse-source-coverage/SKILL.md).
+For how this catalog compares to third-party integration platforms, and which vendors they carry that we
+don't, see [PLATFORM_COMPARISON.md](PLATFORM_COMPARISON.md).
 
 ## Status legend
 
