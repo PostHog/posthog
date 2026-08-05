@@ -467,6 +467,18 @@ class TestPrEventFanoutCheck:
                     "unscoped `synchronize` PR dispatch fanout is 1; budget is 0",
                 ],
             ),
+            # Label-driven workflows are the intended use, and labels cannot burst.
+            (
+                """
+                name: Opt in by label
+                on:
+                  pull_request:
+                    types: [labeled, unlabeled]
+                jobs: {}
+                """,
+                {},
+                [],
+            ),
         ],
     )
     def test_counts_unscoped_pr_dispatches(

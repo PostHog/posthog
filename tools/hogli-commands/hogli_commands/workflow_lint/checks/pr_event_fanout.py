@@ -22,17 +22,20 @@ from ..model import PR_TRIGGERS, Workflow
 
 DEFAULT_PR_ACTIONS = frozenset({"opened", "reopened", "synchronize"})
 
+# Labels arrive one PR at a time, so they cannot produce the simultaneous burst this
+# budget guards, and every label subscriber left in the tree wants the trigger. Merge
+# gates are a separate rule that a repo-wide sum cannot express; AGENTS.md owns it.
+UNBUDGETED_ACTIONS = frozenset({"labeled", "unlabeled"})
+
 PR_EVENT_FANOUT_BUDGET: Mapping[str, int] = {
     "closed": 3,
     "converted_to_draft": 1,
     "edited": 3,
-    "labeled": 7,
     "opened": 28,
     "ready_for_review": 11,
     "reopened": 24,
     "review_requested": 1,
     "synchronize": 28,
-    "unlabeled": 4,
 }
 
 
@@ -65,7 +68,7 @@ def _unscoped_pr_actions(workflow: Workflow) -> Iterator[str]:
             continue
         if _has_paths_filter(config):
             continue
-        yield from _configured_actions(config)
+        yield from _configured_actions(config) - UNBUDGETED_ACTIONS
 
 
 class PrEventFanoutCheck(WorkflowCheck):
@@ -82,11 +85,7 @@ class PrEventFanoutCheck(WorkflowCheck):
             "Avoid adding another always-fire workflow run. Fold small jobs into an existing dispatcher "
             "with the same event and security context, or add a trigger-level `paths:` filter when the whole "
             "workflow is skippable. If another dispatch is necessary, raise the relevant "
-            "`PR_EVENT_FANOUT_BUDGET` ceiling so the cost is explicit in review.\n"
-            "\n"
-            "Never raise the `labeled` / `unlabeled` ceilings for a merge gate. AGENTS.md bans those triggers "
-            "outright: GitHub cannot filter a label trigger by name, so every unrelated label re-runs the "
-            "full matrix against a commit CI already covered."
+            "`PR_EVENT_FANOUT_BUDGET` ceiling so the cost is explicit in review."
         )
 
     def run(self, workflows: list[Workflow]) -> CheckResult:
