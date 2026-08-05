@@ -7,14 +7,16 @@ from unittest.mock import patch
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase
 
+from drf_spectacular.plumbing import get_override
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
 from posthog.models import Organization, Project, Team, User
 
-from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer
+from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer, _TargetConfigField
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
+from products.ai_observability.backend.models.evaluation_configs import validate_target_config
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
@@ -63,6 +65,30 @@ class TestModelConfigurationSerializer(SimpleTestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertEqual(serializer.errors[missing_field][0].code, "required")
+
+
+class TestTargetConfigFieldSchema(SimpleTestCase):
+    def test_every_oneof_branch_requires_the_discriminator(self) -> None:
+        """Orval only emits a discriminated zod union (one that picks a branch by `strategy` alone,
+        without matching optional fields against it) when every `oneOf` branch requires `strategy`.
+        A branch missing it lets Orval fall through to a plain `zod.union`, which previously let a
+        session payload sending only `{"strategy": "inactivity"}` match the fixed_window branch and
+        silently drop the inactivity fields.
+        """
+        schema = get_override(_TargetConfigField(), "field")
+        for branch in schema["oneOf"]:
+            self.assertIn("strategy", branch.get("required", []), branch["title"])
+
+    def test_no_branch_declares_a_default_for_a_shared_field(self) -> None:
+        """window_seconds/quiet_period_seconds/max_age_seconds have no single correct default: it
+        depends on `target`, which lives outside this schema. A `default` here would regenerate as
+        a zod `.default(...)` that materializes the wrong target's value before the request ever
+        reaches `validate_target_config`, which is exactly how session evals got trace timings.
+        """
+        schema = get_override(_TargetConfigField(), "field")
+        for branch in schema["oneOf"]:
+            for field_name, field_schema in branch["properties"].items():
+                self.assertNotIn("default", field_schema, f"{branch['title']}.{field_name}")
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
@@ -178,6 +204,60 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation.target, "trace")
         self.assertEqual(evaluation.target_config, {"strategy": "fixed_window", "window_seconds": 30 * 60})
         self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 1)
+
+    @parameterized.expand(
+        [
+            ("trace", "session", {"strategy": "inactivity", "quiet_period_seconds": 3600, "max_age_seconds": 86400}),
+            ("session", "trace", {"strategy": "fixed_window", "window_seconds": 1800}),
+        ]
+    )
+    def test_changing_target_reseeds_the_settle_config(self, from_target, to_target, expected):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name=f"switch {from_target} to {to_target}",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+            conditions=[],
+            target=from_target,
+            target_config=validate_target_config(from_target, {}),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/", {"target": to_target}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["target_config"], expected)
+
+    def test_changing_target_still_honors_an_explicit_settle_config(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="switch with explicit config",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+            conditions=[],
+            target="trace",
+            target_config=validate_target_config("trace", {}),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {
+                "target": "session",
+                "target_config": {"strategy": "inactivity", "quiet_period_seconds": 120, "max_age_seconds": 3600},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["target_config"],
+            {"strategy": "inactivity", "quiet_period_seconds": 120, "max_age_seconds": 3600},
+        )
 
     def test_trace_target_accepts_custom_window(self):
         response = self.client.post(
@@ -324,7 +404,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "output_type": "boolean",
                 "output_config": {},
                 "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-                "target": "session",
+                "target": "bogus",
             },
         )
 
@@ -395,6 +475,84 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "target")
         self.assertEqual(Evaluation.objects.count(), 0)
+
+    def test_rejects_sentiment_evaluation_with_session_target(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Session sentiment",
+                "evaluation_type": "sentiment",
+                "output_type": "sentiment",
+                "evaluation_config": {"source": "user_messages"},
+                "target": "session",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(response.json()["attr"], "target")
+
+    def test_accepts_session_target_with_session_sized_settle_config(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Session goal",
+                "evaluation_type": "hog",
+                "output_type": "boolean",
+                "evaluation_config": {"source": "return true"},
+                "target": "session",
+                "target_config": {
+                    "strategy": "inactivity",
+                    "quiet_period_seconds": 86400,
+                    "max_age_seconds": 604800,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertEqual(
+            response.json()["target_config"],
+            {"strategy": "inactivity", "quiet_period_seconds": 86400, "max_age_seconds": 604800},
+        )
+
+    def test_rejects_session_sized_settle_config_on_trace_target(self):
+        """The documented OpenAPI range is the union of both targets, so the server is the gate."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Trace goal",
+                "evaluation_type": "hog",
+                "output_type": "boolean",
+                "evaluation_config": {"source": "return true"},
+                "target": "trace",
+                "target_config": {"strategy": "inactivity", "quiet_period_seconds": 86400},
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(response.json()["attr"], "target_config")
+
+    @parameterized.expand(["generation", "trace", "session"])
+    def test_test_hog_previews_every_target(self, target: str):
+        """Every target an evaluation can run on must also be previewable, or the editor can only
+        check the code for some of them."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true", "target": target},
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertIn("results", response.json())
+
+    def test_session_preview_says_why_a_sample_is_empty(self):
+        """An empty session sample is a real answer at a long quiet period, so the caller has to be
+        able to tell it apart from a broken preview."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true", "target": "session", "target_config": {"quiet_period_seconds": 86400}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        body = response.json()
+        self.assertEqual(body["results"], [])
+        # `message` is the key the trace and generation previews already use, so the editor
+        # renders every target's empty sample through one path.
+        self.assertIn("24 hours", body["message"])
 
     def test_sentiment_evaluation_rejects_model_configuration(self):
         response = self.client.post(
