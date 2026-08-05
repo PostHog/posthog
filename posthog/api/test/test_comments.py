@@ -168,6 +168,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
                 "id": str(root.id),
                 "target": {"id": "artifact-1", "type": "artifact", "name": "latest-report.md"},
                 "content": "Please tighten this section",
+                "content_truncated": False,
                 "selected_text": "important output",
                 "created_at": root.created_at.isoformat().replace("+00:00", "Z"),
                 "reply_count": 2,
@@ -182,12 +183,44 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "Done",
             "Malformed state is still a reply",
         ]
+        assert all(not comment["content_truncated"] for comment in detail.json()["comments"])
+        assert all(comment["content_next_offset"] is None for comment in detail.json()["comments"])
         assert detail.json()["comments"][0]["anchor"] == {
             "kind": "text",
             "quote": "important output",
         }
         assert detail.json()["comments"][0]["canvas_version_id"] == "version-2"
         assert detail.json()["next"] is None
+
+    def test_task_comment_bodies_are_byte_bounded_and_continuable(self) -> None:
+        task = self._task_artifact_target()
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id), "anchor": {"kind": "document"}},
+            content="é" * 40_000,
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        listed = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/").json()["comments"][0]
+        assert len(listed["content"].encode("utf-8")) <= 1024
+        assert listed["content_truncated"] is True
+
+        detail = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/").json()
+        first_chunk = detail["comments"][0]
+        assert len(first_chunk["content"].encode("utf-8")) <= 64 * 1024
+        assert first_chunk["content_truncated"] is True
+        assert first_chunk["content_next_offset"] is not None
+
+        continuation = client.get(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/",
+            {"comment_id": str(root.id), "content_offset": first_chunk["content_next_offset"]},
+        ).json()["comments"][0]
+        assert continuation["content"]
+        assert continuation["content_truncated"] is False
+        assert continuation["content_next_offset"] is None
 
     def test_task_comments_use_an_opaque_cursor(self) -> None:
         task = self._task_artifact_target()

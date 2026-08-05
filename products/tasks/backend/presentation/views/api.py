@@ -389,6 +389,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 include_resolved=params.validated_data["include_resolved"],
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),
+                content_comment_id=params.validated_data.get("comment_id"),
+                content_offset=params.validated_data["content_offset"],
             )
         except ValueError:
             raise ValidationError({"cursor": "Invalid cursor."}) from None

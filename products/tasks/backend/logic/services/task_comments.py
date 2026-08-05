@@ -14,10 +14,32 @@ COMMENT_STATES = frozenset({"open", "resolved"})
 LEGACY_TASK_RUN_LIMIT = 100
 TASK_ARTIFACT_LIMIT = 500
 CANVAS_EVENT_LIMIT = 500
+LIST_CONTENT_BYTES = 1024
+SELECTED_TEXT_BYTES = 1024
+DETAIL_CONTENT_BUDGET_BYTES = 64 * 1024
+ANCHOR_QUOTE_BYTES = 4096
 
 
 class InvalidTaskCommentCursor(ValueError):
     pass
+
+
+def _content_chunk(content: str, *, limit: int, offset: int = 0) -> tuple[str, int | None]:
+    encoded = content.encode("utf-8")
+    end = min(len(encoded), offset + limit)
+    chunk = encoded[offset:end].decode("utf-8", errors="ignore")
+    return chunk, end if end < len(encoded) else None
+
+
+def _bounded_anchor(comment: Comment) -> dict | None:
+    anchor = (comment.item_context or {}).get("anchor")
+    if not isinstance(anchor, dict):
+        return None
+    bounded = {"kind": anchor.get("kind")}
+    quote = anchor.get("quote")
+    if isinstance(quote, str):
+        bounded["quote"] = _content_chunk(quote, limit=ANCHOR_QUOTE_BYTES)[0]
+    return bounded
 
 
 def _artifact_names(*, team_id: int, task_id: UUID, artifact_ids: Sequence[str]) -> dict[str, str]:
@@ -236,12 +258,19 @@ def list_comments(
             resolved = _resolved(root, latest_states.get(root.id))
             if resolved and not include_resolved:
                 continue
+            content, content_next_offset = _content_chunk(root.content or "", limit=LIST_CONTENT_BYTES)
+            selected_text = ((root.item_context or {}).get("anchor") or {}).get("quote")
+            if isinstance(selected_text, str):
+                selected_text = _content_chunk(selected_text, limit=SELECTED_TEXT_BYTES)[0]
+            else:
+                selected_text = None
             result.append(
                 contracts.TaskCommentSummaryDTO(
                     id=root.id,
                     target=_target(root, target_names),
-                    content=root.content or "",
-                    selected_text=((root.item_context or {}).get("anchor") or {}).get("quote"),
+                    content=content,
+                    content_truncated=content_next_offset is not None,
+                    selected_text=selected_text,
                     created_at=root.created_at,
                     reply_count=reply_counts.get(root.id, 0),
                     resolved=resolved,
@@ -256,21 +285,31 @@ def list_comments(
     return contracts.TaskCommentPageDTO(comments=result, next=next_cursor)
 
 
-def _entry(comment: Comment) -> contracts.TaskCommentEntryDTO:
+def _entry(comment: Comment, *, content_budget: int, content_offset: int = 0) -> contracts.TaskCommentEntryDTO:
     creator = comment.created_by
     author = " ".join(filter(None, [creator.first_name, creator.last_name])) or None if creator is not None else None
+    content, content_next_offset = _content_chunk(comment.content or "", limit=content_budget, offset=content_offset)
     return contracts.TaskCommentEntryDTO(
         id=comment.id,
-        content=comment.content or "",
+        content=content,
+        content_truncated=content_next_offset is not None,
+        content_next_offset=content_next_offset,
         author=author,
         created_at=comment.created_at,
-        anchor=(comment.item_context or {}).get("anchor"),
+        anchor=_bounded_anchor(comment),
         canvas_version_id=(comment.item_context or {}).get("canvasVersionId"),
     )
 
 
 def retrieve_comment(
-    *, team_id: int, task_id: UUID, comment_id: UUID, limit: int, cursor: str | None
+    *,
+    team_id: int,
+    task_id: UUID,
+    comment_id: UUID,
+    limit: int,
+    cursor: str | None,
+    content_comment_id: UUID | None,
+    content_offset: int,
 ) -> contracts.TaskCommentDetailDTO | None:
     root = (
         _comments(team_id, task_id)
@@ -286,7 +325,7 @@ def retrieve_comment(
         .order_by("-created_at", "-id")
         .first()
     )
-    comments_qs = (
+    thread_comments_qs = (
         _comments(team_id, task_id)
         .filter(Q(id=root.id) | Q(source_comment_id=root.id))
         .filter(
@@ -296,12 +335,37 @@ def retrieve_comment(
             | ~Q(item_context__threadState__in=COMMENT_STATES)
         )
     )
-    if cursor:
-        after, after_id = _decode_cursor(cursor)
-        comments_qs = comments_qs.filter(Q(created_at__gt=after) | Q(created_at=after, id__gt=after_id))
-    comments = list(comments_qs.select_related("created_by").order_by("created_at", "id")[: limit + 1])
-    has_more = len(comments) > limit
-    comments = comments[:limit]
+    if content_comment_id is not None:
+        content_comment = thread_comments_qs.select_related("created_by").filter(id=content_comment_id).first()
+        if content_comment is None:
+            return None
+        comments = [
+            _entry(
+                content_comment,
+                content_budget=DETAIL_CONTENT_BUDGET_BYTES,
+                content_offset=content_offset,
+            )
+        ]
+        next_cursor = None
+    else:
+        comments_qs = thread_comments_qs
+        if cursor:
+            after, after_id = _decode_cursor(cursor)
+            comments_qs = comments_qs.filter(Q(created_at__gt=after) | Q(created_at=after, id__gt=after_id))
+        comment_models = list(comments_qs.select_related("created_by").order_by("created_at", "id")[: limit + 1])
+        has_more = len(comment_models) > limit
+        comment_models = comment_models[:limit]
+        remaining_content_bytes = DETAIL_CONTENT_BUDGET_BYTES
+        comments = []
+        for comment in comment_models:
+            entry = _entry(comment, content_budget=remaining_content_bytes)
+            remaining_content_bytes -= len(entry.content.encode("utf-8"))
+            comments.append(entry)
+        next_cursor = (
+            _encode_cursor(comment_models[-1].created_at, comment_models[-1].id)
+            if has_more and comment_models
+            else None
+        )
     target_names = _target_names_for_roots(team_id=team_id, task_id=task_id, roots=[root])
     return contracts.TaskCommentDetailDTO(
         id=root.id,
@@ -310,6 +374,6 @@ def retrieve_comment(
             root,
             (latest_state_reply.item_context or {}).get("threadState") if latest_state_reply else None,
         ),
-        comments=[_entry(comment) for comment in comments],
-        next=_encode_cursor(comments[-1].created_at, comments[-1].id) if has_more and comments else None,
+        comments=comments,
+        next=next_cursor,
     )

@@ -36,6 +36,13 @@ const commentsRetrieveSchema = z.object({
     root_comment_id: z.string().uuid().describe('Root comment id returned by tasks-comments-list.'),
     limit: z.number().int().min(1).max(100).default(50).describe('Maximum comments to return. Defaults to 50.'),
     cursor: z.string().min(1).max(256).optional().describe('Opaque cursor returned by a previous call.'),
+    comment_id: z.string().uuid().optional().describe('Comment id whose truncated body should continue.'),
+    content_offset: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe('Byte offset returned in content_next_offset for the selected comment.'),
 })
 
 export const tasksArtifactsList = (): ToolBase<typeof artifactsSchema, Schemas.TaskArtifactsResponse> => ({
@@ -63,5 +70,7 @@ export const tasksCommentsRetrieve = (): ToolBase<typeof commentsRetrieveSchema,
         await requestTaskResource(context, `comments/${params.root_comment_id}/`, {
             limit: params.limit,
             cursor: params.cursor,
+            comment_id: params.comment_id,
+            content_offset: params.content_offset,
         }),
 })

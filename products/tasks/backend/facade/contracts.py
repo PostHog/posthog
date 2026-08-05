@@ -294,6 +294,7 @@ class TaskCommentSummaryDTO:
     id: UUID
     target: TaskCommentTargetDTO
     content: str
+    content_truncated: bool
     selected_text: str | None
     created_at: datetime
     reply_count: int
@@ -310,6 +311,8 @@ class TaskCommentPageDTO:
 class TaskCommentEntryDTO:
     id: UUID
     content: str
+    content_truncated: bool
+    content_next_offset: int | None
     author: str | None
     created_at: datetime
     anchor: dict | None

@@ -6103,7 +6103,14 @@ def list_task_comments(
 
 
 def retrieve_task_comment(
-    *, team_id: int, task_id: UUID, comment_id: UUID, limit: int, cursor: str | None
+    *,
+    team_id: int,
+    task_id: UUID,
+    comment_id: UUID,
+    limit: int,
+    cursor: str | None,
+    content_comment_id: UUID | None,
+    content_offset: int,
 ) -> contracts.TaskCommentDetailDTO | None:
     from products.tasks.backend.logic.services.task_comments import InvalidTaskCommentCursor, retrieve_comment
 
@@ -6114,6 +6121,8 @@ def retrieve_task_comment(
             comment_id=comment_id,
             limit=limit,
             cursor=cursor,
+            content_comment_id=content_comment_id,
+            content_offset=content_offset,
         )
     except InvalidTaskCommentCursor:
         raise ValueError("Invalid task comment cursor") from None

@@ -687,7 +687,7 @@ class TaskWriteSerializer(serializers.Serializer):
             )
         return normalized
 
-    def validate(self, attrs: dict) -> dict:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if "repository" in attrs and "repositories" in attrs:
             legacy = attrs["repository"] or None
             repositories = attrs["repositories"]
@@ -1864,6 +1864,23 @@ class TaskCommentDetailQuerySerializer(serializers.Serializer):
     cursor = serializers.CharField(
         required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
     )
+    comment_id = serializers.UUIDField(
+        required=False,
+        help_text="Comment id whose truncated body should continue. Use with content_offset.",
+    )
+    content_offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Byte offset returned as content_next_offset for the selected comment.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("content_offset") and not attrs.get("comment_id"):
+            raise serializers.ValidationError({"comment_id": "This field is required with content_offset."})
+        if attrs.get("comment_id") and attrs.get("cursor"):
+            raise serializers.ValidationError({"cursor": "Do not combine cursor with comment_id."})
+        return attrs
 
 
 class TaskCommentTargetSerializer(serializers.Serializer):
@@ -1875,7 +1892,8 @@ class TaskCommentTargetSerializer(serializers.Serializer):
 class TaskCommentSummarySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Root comment id.")
     target = TaskCommentTargetSerializer(help_text="Task, artifact, or canvas receiving the comment.")
-    content = serializers.CharField(help_text="Root comment body.")
+    content = serializers.CharField(help_text="Bounded excerpt of the root comment body.")
+    content_truncated = serializers.BooleanField(help_text="Whether the root comment body has more content.")
     selected_text = serializers.CharField(allow_null=True, help_text="Text selected when the comment was created.")
     created_at = serializers.DateTimeField(help_text="When the root comment was created.")
     reply_count = serializers.IntegerField(help_text="Number of human replies.")
@@ -1894,7 +1912,12 @@ class TaskCommentAnchorSerializer(serializers.Serializer):
 
 class TaskCommentEntrySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Comment id.")
-    content = serializers.CharField(help_text="Comment body.")
+    content = serializers.CharField(help_text="Byte-bounded comment body chunk.")
+    content_truncated = serializers.BooleanField(help_text="Whether this comment body has more content.")
+    content_next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text="Byte offset for the next body chunk, or null when complete.",
+    )
     author = serializers.CharField(allow_null=True, help_text="Comment author's display name.")
     created_at = serializers.DateTimeField(help_text="When the comment was created.")
     anchor = TaskCommentAnchorSerializer(allow_null=True, help_text="Normalized text or document anchor.")

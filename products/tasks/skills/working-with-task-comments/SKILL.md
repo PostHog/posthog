@@ -89,17 +89,23 @@ Example continuation:
 {"command":"call tasks-comments-list {\"cursor\":\"<next>\"}"}
 ```
 
-When the user asks about all comments, paginate the root list fully. Before acting on a root,
-retrieve its complete thread so an older message is not mistaken for the latest request. The list
-returns open roots by default; pass `"include_resolved":true` only when resolved history matters.
+Start with the root inventory and retrieve only threads relevant to the user's request. Before
+acting on a root, retrieve its thread so an older message is not mistaken for the latest request.
+The list returns open roots by default; pass `"include_resolved":true` only when resolved history
+matters.
+
+List bodies are bounded excerpts. Detail responses cap total comment-body bytes. When a detail entry
+has `content_truncated: true`, call `tasks-comments-retrieve` again with that entry's `id` as
+`comment_id` and its `content_next_offset` as `content_offset`. Continue until
+`content_next_offset` is null. Do this only for comments needed for the task.
 
 ## Choose the smallest workflow
 
 ### Read comments across the task
 
 1. Discover the tools through `exec search` if they have not been confirmed in this run.
-2. Call `tasks-comments-list` through `exec` and follow every page.
-3. Retrieve and paginate each relevant root through `exec`.
+2. Call `tasks-comments-list` through `exec` and continue until the relevant roots are found.
+3. Retrieve and paginate relevant roots through `exec`.
 4. Group or summarize by the returned target only when useful.
 
 ### Read comments for one artifact or canvas

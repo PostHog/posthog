@@ -2041,8 +2041,10 @@ export interface TaskCommentSummaryApi {
     id: string
     /** Task, artifact, or canvas receiving the comment. */
     target: TaskCommentTargetApi
-    /** Root comment body. */
+    /** Bounded excerpt of the root comment body. */
     content: string
+    /** Whether the root comment body has more content. */
+    content_truncated: boolean
     /**
      * Text selected when the comment was created.
      * @nullable
@@ -2076,8 +2078,15 @@ export interface TaskCommentAnchorApi {
 export interface TaskCommentEntryApi {
     /** Comment id. */
     id: string
-    /** Comment body. */
+    /** Byte-bounded comment body chunk. */
     content: string
+    /** Whether this comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Byte offset for the next body chunk, or null when complete.
+     * @nullable
+     */
+    content_next_offset: number | null
     /**
      * Comment author's display name.
      * @nullable
@@ -4202,6 +4211,15 @@ export type TasksCommentsListParams = {
 }
 
 export type TasksCommentsRetrieveParams = {
+    /**
+     * Comment id whose truncated body should continue. Use with content_offset.
+     */
+    comment_id?: string
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number
     /**
      * Opaque cursor returned by the previous page.
      * @minLength 1
