@@ -955,15 +955,17 @@ class TestWidgetEmailThreading(BaseTest):
             item_context={"author_type": "customer", "is_private": False},
         )
 
-    def _inbound_reply(self, thread_header: str, message_id: str) -> None:
+    def _inbound_reply(self, in_reply_to: str, references: str) -> None:
+        """Post the webhook a mail client's reply produces: In-Reply-To names the one message
+        being replied to, References carries the chain."""
         response = self.client.post(
             "/api/conversations/v1/email/inbound",
             {
                 "recipient": "team-acc0ffee00001111@mg.posthog.com",
                 "from": "customer@test.com",
-                "Message-Id": message_id,
-                **({"In-Reply-To": thread_header} if thread_header.startswith("<") else {}),
-                "References": thread_header,
+                "Message-Id": "<customer-reply@test.com>",
+                "In-Reply-To": in_reply_to,
+                "References": references,
                 "subject": "Re: Dashboards are broken",
                 "stripped-text": "It's still happening on Safari",
                 "X-Mailgun-Spf": "pass",
@@ -992,7 +994,7 @@ class TestWidgetEmailThreading(BaseTest):
         mock_send_mime.assert_called_once()
         sent_message_id = EmailMessageMapping.objects.get(ticket=self.ticket).message_id
 
-        self._inbound_reply(sent_message_id, "<customer-reply@test.com>")
+        self._inbound_reply(in_reply_to=sent_message_id, references=sent_message_id)
 
         assert Ticket.objects.filter(team=self.team).count() == 1
         reply = Comment.objects.get(
@@ -1009,7 +1011,10 @@ class TestWidgetEmailThreading(BaseTest):
         anchor = get_or_create_email_thread_anchor(self.ticket)
         assert anchor is not None
 
-        self._inbound_reply(f"<unrelated-workflow-send@ses.amazonaws.com> {anchor}", "<customer-reply@test.com>")
+        # In-Reply-To names the workflow's own send, which we never recorded, so only the
+        # anchor further up the References chain can match. That is the whole mechanism.
+        workflow_send = "<unrelated-workflow-send@ses.amazonaws.com>"
+        self._inbound_reply(in_reply_to=workflow_send, references=f"{anchor} {workflow_send}")
 
         assert Ticket.objects.filter(team=self.team).count() == 1
         assert Comment.objects.filter(

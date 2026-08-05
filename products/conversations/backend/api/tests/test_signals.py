@@ -645,11 +645,11 @@ class TestEmailThreadAnchor(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_verified_channel", "channel", None),
-            ("no_customer_message", "comments", None),
+            ("no_verified_channel", "channel"),
+            ("no_customer_message", "comments"),
         ]
     )
-    def test_no_anchor_without(self, _name, missing, _unused):
+    def test_no_anchor_without(self, _name, missing):
         if missing == "channel":
             self.config.domain_verified = False
             self.config.save(update_fields=["domain_verified"])
