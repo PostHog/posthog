@@ -42,7 +42,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Table name prefix in HogQL."
+            "description": "Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported."
         },
         "source_type": {
             "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",

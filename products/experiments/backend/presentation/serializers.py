@@ -9,6 +9,8 @@ ViewSet remains in experiments.py.
 from copy import deepcopy
 from typing import Any, TypeGuard
 
+from django.utils import timezone
+
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from pydantic import RootModel as PydanticRootModel
@@ -32,6 +34,7 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -375,6 +378,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "conditions)."
         ),
     )
+    resolved_exposure_event = serializers.SerializerMethodField(
+        help_text=(
+            "The event exposures are actually counted on when the experiment doesn't configure a "
+            "custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the "
+            "rollout and the experiment started at or after the cutoff. Resolved server-side so "
+            "clients display the same event the results queries read. For a draft, this is what the "
+            "experiment would resolve to if launched now."
+        ),
+    )
     version = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -467,6 +479,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "status",
             "is_legacy",
             "can_freeze_exposure",
+            "resolved_exposure_event",
             "user_access_level",
         ]
         read_only_fields = [
@@ -480,6 +493,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "saved_metrics",
             "status",
             "can_freeze_exposure",
+            "resolved_exposure_event",
             "user_access_level",
         ]
 
@@ -495,6 +509,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_can_freeze_exposure(self, obj: Experiment) -> bool:
         return obj.can_freeze_exposure
+
+    @extend_schema_field(serializers.CharField())
+    def get_resolved_exposure_event(self, obj: Experiment) -> str:
+        # A draft has no start_date yet, so resolve against now: that's the event it would get if
+        # launched today, which is what the setup UI needs to show.
+        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -1725,9 +1745,10 @@ class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
         help_text=(
             "Which question the returned session set answers. 'fired_any': the session fired at least one event "
             "of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the "
-            "session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and "
-            "never reached its last one. All three are session-scoped and goal-free: they say what happened in "
-            "the session, not whether it helped or hurt the metric."
+            "session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the "
+            "funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the "
+            "experiment analysis. All three are session-scoped and goal-free: they say what happened in the "
+            "session, not whether it helped or hurt the metric."
         ),
     )
     metric_uuids = serializers.ListField(

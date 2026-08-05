@@ -11,6 +11,7 @@ import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboar
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -845,6 +846,72 @@ describe('dashboardLogic', () => {
                 restoreSpy.mockRestore()
             })
 
+            it('discarding after a previewed filter change reloads tiles', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-14d', null)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        // anchor at the discard dispatch, so the refresh matched below is the
+                        // discard-triggered one and not an earlier (initial load / preview) one
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                        'refreshDashboardItems',
+                    ])
+                    .toFinishAllListeners()
+            })
+
+            it('discarding without a previewed filter change does not reload tiles', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        // anchor at the discard dispatch, so only actions after it are considered
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['refreshDashboardItems'])
+            })
+
+            it('discarding an unapplied filter edit above the auto-preview limit does not reload tiles', async () => {
+                // The skip-reload check relies on unpreviewed edits never reaching the URL:
+                // when the dashboard is over the auto-preview limit, filter edits stay
+                // intermittent (no URL write, no refresh) until "Apply filters" is clicked.
+                const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
+
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.canAutoPreview).toBe(false)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-14d', null)
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['refreshDashboardItems'])
+
+                payloadSpy.mockRestore()
+            })
+
             it('filter edit source clears layout edit mode', async () => {
                 await expectLogic(logic).toFinishAllListeners()
 
@@ -1369,6 +1436,31 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
                 expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
+            })
+
+            it('persisting the last refresh keeps refreshed results instead of an earlier snapshot', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const snapshot = logic.values.dashboard!
+                dashboardsModel.actions.updateDashboardSuccess(snapshot)
+
+                const insight = snapshot.tiles.find((tile) => !!tile.insight)!.insight!
+                const freshResult = [{ count: 42 }]
+
+                await expectLogic(logic, () => {
+                    dashboardsModel.actions.updateDashboardInsight(
+                        { ...insight, result: freshResult, query: insight.query ?? null },
+                        undefined,
+                        5
+                    )
+                }).toFinishAllListeners()
+
+                await expectLogic(dashboardsModel, () => {
+                    logic.actions.updateDashboardLastRefresh(now())
+                }).toDispatchActions(['updateDashboard', 'updateDashboardSuccess'])
+
+                const refreshedTile = logic.values.tiles.find((tile) => tile.insight?.short_id === insight.short_id)
+                expect(refreshedTile?.insight?.result).toEqual(freshResult)
             })
         })
 

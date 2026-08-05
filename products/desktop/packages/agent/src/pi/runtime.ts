@@ -11,6 +11,7 @@ import {
 } from "./conversation/translatePiConversation";
 import { getPiRpcClientProcess, type PiRpcClient } from "./rpc-client";
 import { sendPiRpcCommand } from "./rpc-transport";
+import type { PiExtensionEvent } from "./types";
 
 export class PiRuntime {
   readonly client: PiRpcClient;
@@ -21,6 +22,9 @@ export class PiRuntime {
   >();
   private readonly conversationListeners = new Set<
     (event: AgentConversationEvent) => void
+  >();
+  private readonly extensionListeners = new Set<
+    (event: PiExtensionEvent) => void
   >();
   private readonly pendingUserMessages: Array<{
     id: string;
@@ -49,6 +53,11 @@ export class PiRuntime {
   ): () => void {
     this.conversationListeners.add(listener);
     return () => this.conversationListeners.delete(listener);
+  }
+
+  onExtensionEvent(listener: (event: PiExtensionEvent) => void): () => void {
+    this.extensionListeners.add(listener);
+    return () => this.extensionListeners.delete(listener);
   }
 
   async sendCommand(command: RpcCommand): Promise<RpcResponse> {
@@ -113,7 +122,17 @@ export class PiRuntime {
     }
   }
 
-  private handleEvent(event: AgentSessionEvent): void {
+  private handleEvent(event: AgentSessionEvent | PiExtensionEvent): void {
+    if (
+      event.type === "extension_ui_request" ||
+      event.type === "extension_error"
+    ) {
+      for (const listener of this.extensionListeners) {
+        listener(event);
+      }
+      return;
+    }
+
     for (const listener of this.runtimeListeners) {
       listener(event);
     }
