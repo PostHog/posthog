@@ -26,8 +26,8 @@ import type {
 import type { CommonFilters } from '../../../lib/components/heatmaps/types'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
+import type { ReplayIframeData } from '../replayIframeData'
 import { heatmapsBrowserLogic, isUrlPattern } from './heatmapsBrowserLogic'
-import type { ReplayIframeData } from './heatmapsBrowserLogic'
 
 export interface ClickmapBox {
     top: number

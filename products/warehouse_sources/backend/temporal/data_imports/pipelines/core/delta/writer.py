@@ -14,6 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MissingPrimaryKeysException,
     align_incoming_decimals_to_delta,
     first_per_pk_table,
     normalize_column_name,
@@ -320,7 +321,7 @@ class DeltaWriter:
 
         if write_type == "incremental" and delta_table is not None and not is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
-                raise Exception("Primary key required for incremental syncs")
+                raise MissingPrimaryKeysException()
 
             # The merge casts every source column to its stored column type; a scale-heavy decimal
             # column (e.g. decimal128(38, 32)) overflows that cast on larger values. Align to the
