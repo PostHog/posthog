@@ -36,10 +36,10 @@ role "ops" {
 # composes a self-contained roles/logs/local (extracted from the live node) rather
 # than the shared cloud layers.
 role "logs" {
-  env "local-multi"   { layers = ["roles/logs/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/shared", "roles/logs/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
+  env "local-multi"   { layers = ["roles/shared/qla.hcl", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/shared", "roles/logs/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
 }
 
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
