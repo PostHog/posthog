@@ -300,6 +300,55 @@ class TestReportChartsSection(SimpleTestCase):
         assert sql_chart["chartSettings"]["yAxis"][0]["column"]
 
 
+class TestPromptCrossReferences(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("signal_canonical", [], "canonical", False),
+            ("signal_custom", [], "custom", False),
+            ("report_both", ["emit_report", "edit_report"], "custom", False),
+            ("report_both_github", ["emit_report", "edit_report"], "canonical", True),
+            ("report_emit_only", ["emit_report"], "custom", False),
+            ("report_emit_only_github", ["emit_report"], "custom", True),
+            ("report_edit_only", ["edit_report"], "custom", False),
+            # The `gh` section is the one that references an author-time section, so the edit-only
+            # persona (which renders no author-time sections) only dangles with the token granted.
+            ("report_edit_only_github", ["edit_report"], "custom", True),
+        ]
+    )
+    def test_every_referenced_section_renders_in_the_same_prompt(
+        self, _name: str, allowed_tools: list[str], origin: str, github_read_access: bool
+    ) -> None:
+        # Shared rules (the untrusted-input boundary, the front-load writing rule, the side-channel
+        # etiquette) are stated once and pointed at by name from the sections that used to restate
+        # them. Each tail is assembled by its own code path, so dropping a section from one list, or
+        # renaming its heading, leaves the other sections telling the scout to consult guidance that
+        # is not in its prompt — a silently missing rule no per-string assertion catches.
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-errors",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin=origin,  # type: ignore[arg-type]
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            github_read_access=github_read_access,
+        )
+        headings = {line.removeprefix("# ") for line in prompt.splitlines() if line.startswith("# ")}
+        # `*Emphasized*` spans naming another section, e.g. "see *Ground rules*". Single asterisks
+        # only, so `**bold**` labels don't register, and title-cased so the lowercase *what* / *why*
+        # stress marks scattered through the prose aren't read as cross-references.
+        referenced = set(re.findall(r"(?<![\w*])\*([A-Z][^*\n]{3,60})\*(?!\*)", prompt))
+        assert referenced, "no cross-references found — the extraction pattern has drifted"
+        assert referenced <= headings, f"dangling cross-references: {sorted(referenced - headings)}"
+
+
 class TestPromptBuilder(BaseTest):
     def test_renders_identity_bootstrap_and_universal_sections(self) -> None:
         skill = LLMSkill.objects.create(

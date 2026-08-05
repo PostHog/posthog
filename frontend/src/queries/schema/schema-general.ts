@@ -8350,6 +8350,9 @@ export const externalDataSources = [
     'Odoo',
     'Airbridge',
     'Snovio',
+    'Raisely',
+    'WindsorAi',
+    'Wix',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8886,10 +8889,16 @@ export interface SidebarItemsConfiguration {
     help?: UIVisibilityConfig
 }
 
-/** Customization of the main navigation sidebar. */
+/** How densely the sidebar renders its rows. An absent value means "comfortable". */
+export type SidebarDensity = 'comfortable' | 'compact'
+
+/** Customization of the main navigation sidebar. Extra keys are tolerated so older servers accept configs written by newer clients. */
 export interface SidebarConfiguration {
     sections?: SidebarSectionsConfiguration
     items?: SidebarItemsConfiguration
+    /** Row density of the sidebar. */
+    density?: SidebarDensity
+    [key: string]: unknown
 }
 
 /**
@@ -8905,6 +8914,7 @@ export interface UserUIConfiguration {
      */
     version: number
     sidebar?: SidebarConfiguration
+    [key: string]: unknown
 }
 
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity

@@ -2465,6 +2465,9 @@ class ExternalDataSourceType(StrEnum):
     ODOO = "Odoo"
     AIRBRIDGE = "Airbridge"
     SNOVIO = "Snovio"
+    RAISELY = "Raisely"
+    WINDSOR_AI = "WindsorAi"
+    WIX = "Wix"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3696,6 +3699,11 @@ class Theme(StrEnum):
     LIGHT = "light"
     DARK = "dark"
     SYSTEM = "system"
+
+
+class SidebarDensity(StrEnum):
+    COMFORTABLE = "comfortable"
+    COMPACT = "compact"
 
 
 class SlackIntegrationScope(StrEnum):

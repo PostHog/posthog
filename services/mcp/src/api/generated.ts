@@ -9271,6 +9271,11 @@ export namespace Schemas {
       Agents: 'agents',
     } as const;
 
+    export interface ApplyPathCleaningSuggestionResponse {
+      /** Number of rules merged into the team's path_cleaning_filters. */
+      applied: number;
+    }
+
     /**
      * * `members` - members
      * * `agents` - agents
@@ -9502,13 +9507,13 @@ export namespace Schemas {
     }
 
     export interface AuditCounts {
-      /** Every audited tool call. */
+      /** Every audited tool call visible to the requesting user. */
       all: number;
-      /** Calls made by service accounts. */
+      /** Visible calls made by service accounts. */
       agents: number;
-      /** Calls that were approved or are awaiting approval. */
+      /** Visible calls that were approved or are awaiting approval. */
       approvals: number;
-      /** Calls the gateway blocked. */
+      /** Visible calls the gateway blocked. */
       blocked: number;
     }
 
@@ -19528,6 +19533,9 @@ export namespace Schemas {
      * * `Airbridge` - Airbridge
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
+     * * `Raisely` - Raisely
+     * * `WindsorAi` - WindsorAi
+     * * `Wix` - Wix
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -20810,6 +20818,9 @@ export namespace Schemas {
       Airbridge: 'Airbridge',
       Snovio: 'Snovio',
       GoogleMerchantCenter: 'GoogleMerchantCenter',
+      Raisely: 'Raisely',
+      WindsorAi: 'WindsorAi',
+      Wix: 'Wix',
     } as const;
 
     /**
@@ -22105,7 +22116,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -24014,7 +24028,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -29377,7 +29394,7 @@ export namespace Schemas {
      * Request body for the session-bucket endpoint.
      */
     export interface ExperimentSessionBucketRequest {
-      /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and never reached its last one. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.
+      /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the experiment analysis. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.
        *
        * * `fired_any` - fired_any
        * * `no_metric_activity` - no_metric_activity
@@ -31425,7 +31442,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -32739,7 +32759,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -34033,6 +34056,42 @@ export namespace Schemas {
       config_id?: string | null;
       /** Period the brief should cover. Defaults to the last 7 days. */
       period?: Period;
+    }
+
+    export interface SuggestedRule {
+      /** re2 pattern matching the dynamic path segment. */
+      regex: string;
+      /** Replacement with angle-bracket placeholders, e.g. /users/<id>. */
+      alias: string;
+      /** Apply order; rules run sequentially, output feeds the next. */
+      order: number;
+      /** How many of the sampled paths this rule rewrites — evidence the rule was validated on real traffic. */
+      match_count: number;
+    }
+
+    /**
+     * A path-cleaning suggestion, stored as a `path_cleaning_suggestions` health issue.
+     */
+    export interface PathCleaningSuggestionIssue {
+      /** Health-issue id; pass it to the apply endpoint or the health-issues API. */
+      id: string;
+      /** When the suggestion was generated (ISO 8601). */
+      created_at: string;
+      /** Validated path-cleaning rules proposed for this team, most specific first. */
+      rules: SuggestedRule[];
+      /** LLM that generated the rules. */
+      model: string;
+      /** How many real paths were sampled for generation. */
+      sampled_path_count: number;
+      /** Distinct pathnames seen in the sampling window. */
+      distinct_path_count: number;
+    }
+
+    export interface GeneratePathCleaningSuggestionResponse {
+      /** generated, skipped_low_cardinality, skipped_no_paths, skipped_configured, or error. */
+      status: string;
+      /** The stored suggestion when status is generated, else null. */
+      suggestion?: PathCleaningSuggestionIssue | null;
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };
@@ -46620,6 +46679,8 @@ export namespace Schemas {
       description: string;
       /** JSON Schema describing the tool's input arguments. */
       input_schema: ResolvedToolPolicyInputSchema;
+      /** Whether the canonical gateway heuristic treats this tool as destructive. */
+      is_destructive: boolean;
       /** Effective state for the scope.
        *
        * * `approved` - Approved
@@ -58114,6 +58175,15 @@ export namespace Schemas {
       variants?: unknown;
     }
 
+    export interface PathCleaningPreviewExample {
+      /** A real sampled path before the suggested rules are applied. */
+      before: string;
+      /** The same path after all suggested rules run in order. */
+      after: string;
+      /** Pageviews this path received in the sampling window. */
+      views: number;
+    }
+
     export interface PauseResponse {
       /** Always 'paused'. */
       status: string;
@@ -58536,6 +58606,15 @@ export namespace Schemas {
       emailable: boolean;
       /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
       is_preview_link: boolean;
+    }
+
+    export interface PreviewPathCleaningSuggestionResponse {
+      /** Up to 20 before/after pairs for sampled paths the suggested rules would rewrite. */
+      examples: PathCleaningPreviewExample[];
+      /** How many of the sampled paths the suggested rules rewrite in total. */
+      changed_path_count: number;
+      /** How many top paths were sampled for this preview. */
+      sampled_path_count: number;
     }
 
     /**
@@ -65978,6 +66057,8 @@ export namespace Schemas {
       credited_credits: number;
       /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
       period_billable_credits: number;
+      /** Whether autonomous PR generation is currently paused for this project because the organization is over its self-driving credits quota. Read from the quota limiter, so it reflects the same state the pipeline gates enforce. */
+      quota_limited: boolean;
     }
 
     export interface SignalReportStateRequest {
@@ -68012,7 +68093,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -69334,7 +69418,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -70648,7 +70735,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -73594,6 +73684,8 @@ export namespace Schemas {
        * * `ask` - Ask for destructive
        * * `block` - Block destructive */
       agent_default_preset?: typeof TeamMCPGatewayConfigAgentDefaultPreset[keyof typeof TeamMCPGatewayConfigAgentDefaultPreset];
+      /** Catalog template ids that already have a gateway registration, including registrations hidden from the requesting member. Clients use this list to avoid presenting disabled or revoked templates as new. */
+      readonly registered_template_ids: readonly string[];
       /** Whether the requesting user can administer the gateway (org admin or explicit project admin). */
       readonly is_admin: boolean;
     }
@@ -83364,6 +83456,13 @@ export namespace Schemas {
       Approvals: 'approvals',
       Blocked: 'blocked',
     } as const;
+
+    export type McpGatewayAuditCountsRetrieveParams = {
+    /**
+     * Only count calls made by this service account.
+     */
+    actor_service_account_id?: string;
+    };
 
     export type McpGatewayMembersListParams = {
     /**
