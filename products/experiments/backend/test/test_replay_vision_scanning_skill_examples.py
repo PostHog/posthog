@@ -2,7 +2,7 @@ import re
 import json
 from pathlib import Path
 
-import pytest
+from parameterized import parameterized
 
 from posthog.schema import RecordingsQuery
 
@@ -17,22 +17,21 @@ _JSON_BLOCKS = [(i, body) for i, (lang, body) in enumerate(_BLOCKS) if lang == "
 _SQL_BLOCKS = [(i, body) for i, (lang, body) in enumerate(_BLOCKS) if lang == "sql"]
 
 
-def test_extraction_still_finds_the_examples():
-    # Exact counts, not floors: a new example whose fence the regex can't parse (```JSON,
-    # a trailing space) would ship unvalidated while the old blocks kept a floor green.
-    assert len(_JSON_BLOCKS) == 3
-    assert len(_SQL_BLOCKS) == 2
+class TestReplayVisionScanningSkillExamples:
+    def test_extraction_still_finds_the_examples(self):
+        # Exact counts, not floors: a new example whose fence the regex can't parse (```JSON,
+        # a trailing space) would ship unvalidated while the old blocks kept a floor green.
+        assert len(_JSON_BLOCKS) == 3
+        assert len(_SQL_BLOCKS) == 2
 
+    @parameterized.expand(_JSON_BLOCKS)
+    def test_json_examples_stay_valid(self, index, body):
+        data = json.loads(body)
+        # Full query examples must satisfy the real pydantic model (extra="forbid" rejects
+        # renamed or invented top-level fields); fragments only need to be valid JSON.
+        if isinstance(data, dict) and data.get("kind") == "RecordingsQuery":
+            RecordingsQuery.model_validate(data)
 
-@pytest.mark.parametrize("index,body", _JSON_BLOCKS, ids=[f"json-block-{i}" for i, _ in _JSON_BLOCKS])
-def test_json_examples_stay_valid(index, body):
-    data = json.loads(body)
-    # Full query examples must satisfy the real pydantic model (extra="forbid" rejects
-    # renamed or invented top-level fields); fragments only need to be valid JSON.
-    if isinstance(data, dict) and data.get("kind") == "RecordingsQuery":
-        RecordingsQuery.model_validate(data)
-
-
-@pytest.mark.parametrize("index,body", _SQL_BLOCKS, ids=[f"sql-block-{i}" for i, _ in _SQL_BLOCKS])
-def test_sql_examples_parse_as_hogql(index, body):
-    parse_select(body)
+    @parameterized.expand(_SQL_BLOCKS)
+    def test_sql_examples_parse_as_hogql(self, index, body):
+        parse_select(body)

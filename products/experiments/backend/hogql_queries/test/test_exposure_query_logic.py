@@ -117,7 +117,7 @@ class TestNormalizeToExposureCriteria:
 class TestGetTestAccountsFilter:
     _team_filter = {"key": "$host", "type": "event", "value": "localhost", "operator": "not_icontains"}
 
-    @pytest.mark.parametrize("exposure_criteria", [None, {}, {"filterTestAccounts": False}])
+    @parameterized.expand([(None,), ({},), ({"filterTestAccounts": False},)])
     def test_does_not_filter_unless_opted_in(self, exposure_criteria):
         # filterTestAccounts defaults to False: absent criteria must not pick up the team's filters.
         team = Team(id=1, project_id=1, test_account_filters=[self._team_filter])
@@ -129,13 +129,12 @@ class TestGetTestAccountsFilter:
 
 
 class TestGetMultipleVariantHandling:
-    @pytest.mark.parametrize(
-        "exposure_criteria,expected",
+    @parameterized.expand(
         [
             (None, MultipleVariantHandling.EXCLUDE),
             ({}, MultipleVariantHandling.EXCLUDE),
             ({"multiple_variant_handling": "first_seen"}, MultipleVariantHandling.FIRST_SEEN),
-        ],
+        ]
     )
     def test_defaults_to_exclude(self, exposure_criteria, expected):
         assert get_multiple_variant_handling_from_experiment(exposure_criteria) == expected
