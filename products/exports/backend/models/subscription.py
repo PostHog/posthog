@@ -74,7 +74,7 @@ def _free_tier_subscription_limit() -> int:
 # Max length of the prompt snippet used as an AI subscription's display name when it has no title.
 AI_PROMPT_DISPLAY_MAX_LEN = 60
 
-DATEUTIL_WEEKDAY_BY_NAME = {
+DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME = {
     "monday": MO,
     "tuesday": TU,
     "wednesday": WE,
@@ -85,7 +85,7 @@ DATEUTIL_WEEKDAY_BY_NAME = {
 }
 
 WEEKDAY_SET = {"monday", "tuesday", "wednesday", "thursday", "friday"}
-ALL_WEEKDAY_NAMES = set(DATEUTIL_WEEKDAY_BY_NAME)
+ALL_WEEKDAY_NAMES = set(DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME)
 
 
 @dataclass
@@ -558,7 +558,7 @@ def log_subscription_activity(
 
 
 def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):
-    return {DATEUTIL_WEEKDAY_BY_NAME.get(x) for x in weekday}
+    return {DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME.get(x) for x in weekday}
 
 
 def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
