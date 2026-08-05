@@ -146,19 +146,30 @@ const REPOSITORIES_PAGE_SIZE = 50;
 export function useGithubRepositories(
   search?: string,
   enabled: boolean = true,
+  integrationId?: number | null,
 ) {
   const client = useOptionalAuthenticatedClient();
   const { githubIntegrations } = useIntegrationSelectors();
+  const matchingGithubIntegrations = useMemo(
+    () =>
+      integrationId == null
+        ? githubIntegrations
+        : githubIntegrations.filter(
+            (integration) => integration.id === integrationId,
+          ),
+    [githubIntegrations, integrationId],
+  );
   const deferredSearch = useDeferredValue(search?.trim() ?? "");
   const [requestedLimit, setRequestedLimit] = useState(REPOSITORIES_PAGE_SIZE);
-  const queryEnabled = enabled && !!client && githubIntegrations.length > 0;
+  const queryEnabled =
+    enabled && !!client && matchingGithubIntegrations.length > 0;
 
   useEffect(() => {
     setRequestedLimit(REPOSITORIES_PAGE_SIZE);
   }, []);
 
   const { repositoryMap, isPending, isRefreshing, hasMore } = useQueries({
-    queries: githubIntegrations.map((integration) => ({
+    queries: matchingGithubIntegrations.map((integration) => ({
       queryKey: integrationKeys.repositoryPicker(
         integration.id,
         deferredSearch,
@@ -188,8 +199,14 @@ export function useGithubRepositories(
     setRequestedLimit((currentLimit) => currentLimit + REPOSITORIES_PAGE_SIZE);
   }, []);
 
+  const getIntegrationIdForRepository = useCallback(
+    (repoKey: string) => getIntegrationIdForRepo(repositoryMap, repoKey),
+    [repositoryMap],
+  );
+
   return {
     repositories: Object.keys(repositoryMap),
+    getIntegrationIdForRepo: getIntegrationIdForRepository,
     isPending: queryEnabled ? isPending : false,
     isRefreshing: queryEnabled ? isRefreshing : false,
     hasMore,
