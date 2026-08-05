@@ -24,6 +24,7 @@ import type {
     MCPServerInstallationToolApi,
     MCPServiceAccountApi,
     MCPServiceAccountUpdateApi,
+    McpGatewayAuditCountsRetrieveParams,
     McpGatewayAuditListParams,
     McpGatewayMembersListParams,
     McpGatewayRulesListParams,
@@ -89,8 +90,9 @@ export const getMcpGatewayAuditListUrl = (projectId: string, params?: McpGateway
 }
 
 /**
- * Read-only trail of proxied tool calls. Admin-only — it exposes what
- * every member and agent has been doing.
+ * Read-only trail of proxied tool calls. Project admins see all calls.
+ * Members see calls made through their connections, including calls made by
+ * agents using connections they shared.
  */
 export const mcpGatewayAuditList = async (
     projectId: string,
@@ -108,8 +110,9 @@ export const getMcpGatewayAuditRetrieveUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Read-only trail of proxied tool calls. Admin-only — it exposes what
- * every member and agent has been doing.
+ * Read-only trail of proxied tool calls. Project admins see all calls.
+ * Members see calls made through their connections, including calls made by
+ * agents using connections they shared.
  */
 export const mcpGatewayAuditRetrieve = async (
     projectId: string,
@@ -122,8 +125,23 @@ export const mcpGatewayAuditRetrieve = async (
     })
 }
 
-export const getMcpGatewayAuditCountsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_gateway/audit/counts/`
+export const getMcpGatewayAuditCountsRetrieveUrl = (
+    projectId: string,
+    params?: McpGatewayAuditCountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_gateway/audit/counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_gateway/audit/counts/`
 }
 
 /**
@@ -131,9 +149,10 @@ export const getMcpGatewayAuditCountsRetrieveUrl = (projectId: string) => {
  */
 export const mcpGatewayAuditCountsRetrieve = async (
     projectId: string,
+    params?: McpGatewayAuditCountsRetrieveParams,
     options?: RequestInit
 ): Promise<AuditCountsApi> => {
-    return apiMutator<AuditCountsApi>(getMcpGatewayAuditCountsRetrieveUrl(projectId), {
+    return apiMutator<AuditCountsApi>(getMcpGatewayAuditCountsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

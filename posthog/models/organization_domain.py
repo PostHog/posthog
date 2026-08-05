@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any, Optional
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
@@ -379,3 +381,15 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         self.last_verification_retry = timezone.now()
         self.save()
         return (self, False)
+
+
+@receiver(post_delete, sender=OrganizationDomain)
+def delete_orphaned_identity_provider_config(
+    sender: type[OrganizationDomain], instance: OrganizationDomain, **kwargs: Any
+) -> None:
+    """
+    Note: This is temporary. In the future IDP configs will be explicitly managed in the UI. However, they are currently implicitly
+    managed by their relationship to the org domains so we need to make sure they get cleaned up when all linked org domains are deleted
+    """
+    if instance.identity_provider_config_id is not None:
+        IdentityProviderConfig.objects.filter(pk=instance.identity_provider_config_id, domains__isnull=True).delete()

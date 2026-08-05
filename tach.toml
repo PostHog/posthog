@@ -215,6 +215,11 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.core_events"
+depends_on = []
+layer = "modules"
+
+[[modules]]
 path = "products.dashboards"
 depends_on = [
     "ee",
@@ -246,6 +251,56 @@ layer = "modules"
 [[modules]]
 path = "products.data_tools"
 depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
+path = "products.games"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.groups"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.ingestion"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.integrations"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.persons"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.session_replay"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.session_summaries"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.subscriptions"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.support"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.toolbar"
+depends_on = []
 layer = "modules"
 
 [[modules]]
@@ -1164,4 +1219,18 @@ expose = [
 ]
 from = [
     "products.data_catalog",
+]
+
+[[modules]]
+path = "products.apm"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.apm",
 ]
