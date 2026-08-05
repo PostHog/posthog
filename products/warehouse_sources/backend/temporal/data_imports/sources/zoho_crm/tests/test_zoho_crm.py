@@ -19,9 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.z
     ZohoCRMClient,
     ZohoCRMResumeConfig,
     chunk_fields,
+    discover_columns,
+    field_projection,
     format_modified_since,
     get_rows,
     readable_field_names,
+    readable_fields,
     resolve_hosts,
     validate_credentials,
     zoho_crm_source,
@@ -210,7 +213,7 @@ class TestZohoCRMClient:
         assert make_session.call_args.kwargs == {"redact_values": ("secret-value", "refresh-value"), "capture": False}
 
 
-class TestReadableFieldNames:
+class TestReadableFields:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_skips_fields_the_api_never_returns(self, make_session: mock.MagicMock) -> None:
         make_session.return_value = _session(
@@ -236,6 +239,84 @@ class TestReadableFieldNames:
         make_session.return_value = _session([_response(204)])
 
         assert readable_field_names(_client(), "v8", "Leads") == []
+
+    @pytest.mark.parametrize(
+        "field, expected_data_type, expected_nullable",
+        [
+            ({"api_name": "Email", "data_type": "email"}, "email", True),
+            ({"api_name": "Last_Name", "data_type": "text", "system_mandatory": True}, "text", False),
+            ({"api_name": "Amount", "data_type": "currency", "required": True}, "currency", False),
+            ({"api_name": "Extra", "json_type": "jsonobject"}, "jsonobject", True),
+            ({"api_name": "Untyped"}, "text", True),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_types_each_field_for_the_column_picker(
+        self,
+        make_session: mock.MagicMock,
+        field: dict[str, Any],
+        expected_data_type: str,
+        expected_nullable: bool,
+    ) -> None:
+        make_session.return_value = _session([_response(200, {"fields": [field]})])
+
+        [discovered] = readable_fields(_client(), "v8", "Leads")
+
+        assert (discovered.data_type, discovered.nullable) == (expected_data_type, expected_nullable)
+
+
+class TestDiscoverColumns:
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_lists_typed_columns_before_any_sync_has_run(self, make_session: mock.MagicMock) -> None:
+        make_session.return_value = _session(
+            [_response(200, {"fields": [{"api_name": "Last_Name", "data_type": "text", "required": True}]})]
+        )
+
+        columns = discover_columns(_client(), "v8", [ZOHO_CRM_ENDPOINTS["Leads"]])
+
+        # `id` is always returned by Zoho even when the fields metadata leaves it out.
+        assert columns == {"Leads": [("id", "bigint", False), ("Last_Name", "text", False)]}
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_module_the_edition_never_enabled_does_not_cost_the_rest(self, make_session: mock.MagicMock) -> None:
+        invalid_module = _response(400)
+        invalid_module.raise_for_status.side_effect = requests.HTTPError(
+            "400 Client Error: INVALID_MODULE", response=mock.MagicMock()
+        )
+        make_session.return_value = _session([invalid_module, _response(200, {"fields": [{"api_name": "Deal_Name"}]})])
+
+        columns = discover_columns(
+            _client(), "v8", [ZOHO_CRM_ENDPOINTS["Invoices"], ZOHO_CRM_ENDPOINTS["Deals"]], mock.MagicMock()
+        )
+
+        assert set(columns) == {"Deals"}
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_revoked_token_fails_once_instead_of_per_module(self, make_session: mock.MagicMock) -> None:
+        session = _session([], post_responses=[_response(200, {"error": "invalid_client"})])
+        make_session.return_value = session
+
+        with pytest.raises(ZohoCRMAuthError):
+            discover_columns(_client(), "v8", list(ZOHO_CRM_ENDPOINTS.values()))
+
+        assert session.post.call_count == 1
+
+
+class TestFieldProjection:
+    @pytest.mark.parametrize(
+        "endpoint, enabled_columns, expected",
+        [
+            ("Leads", None, None),
+            # The merge key, the cursor and the partition key are always kept.
+            ("Leads", [], {"id", "modified_time", "created_time"}),
+            ("Leads", ["Last_Name"], {"id", "last_name", "modified_time", "created_time"}),
+            ("Users", ["email"], {"id", "email", "created_time"}),
+        ],
+    )
+    def test_always_retains_the_columns_the_pipeline_needs(
+        self, endpoint: str, enabled_columns: Optional[list[str]], expected: Optional[set[str]]
+    ) -> None:
+        assert field_projection(ZOHO_CRM_ENDPOINTS[endpoint], enabled_columns, None) == expected
 
 
 class TestGetRows:
@@ -419,6 +500,85 @@ class TestGetRows:
         assert _get_params(session, 0)["type"] == "AllUsers"
         assert "sort_by" not in _get_params(session, 0)
         assert "fields" not in _get_params(session, 0)
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_column_selection_never_leaves_zoho_unrequested(self, make_session: mock.MagicMock) -> None:
+        # The whole point of pushing the selection into `fields`: a field whose values break the
+        # import is never fetched, so the import that it broke can run.
+        session = _session(
+            [
+                _response(200, {"fields": [{"api_name": "Last_Name"}, {"api_name": "Broken_Field"}]}),
+                _records_response([{"id": "1", "Last_Name": "Ada", "$approved": True}]),
+            ]
+        )
+        make_session.return_value = session
+
+        batches = list(
+            get_rows(
+                _client(),
+                "v8",
+                "Leads",
+                FakeResumeManager(),
+                mock.MagicMock(),
+                enabled_columns=["Last_Name"],
+            )
+        )
+
+        assert _get_params(session, 1)["fields"] == "Last_Name"
+        # `$approved` is a system field the metadata API never lists, so Zoho returns it regardless.
+        assert batches == [[{"id": "1", "Last_Name": "Ada"}]]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_selection_is_enforced_on_endpoints_that_take_no_fields_param(self, make_session: mock.MagicMock) -> None:
+        session = _session([_records_response([{"id": "u1", "email": "a@b.c", "phone": "123"}], data_key="users")])
+        make_session.return_value = session
+
+        batches = list(
+            get_rows(_client(), "v8", "Users", FakeResumeManager(), mock.MagicMock(), enabled_columns=["email"])
+        )
+
+        assert batches == [[{"id": "u1", "email": "a@b.c"}]]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_the_cursor_and_partition_key_survive_a_selection_that_omits_them(
+        self, make_session: mock.MagicMock
+    ) -> None:
+        session = _session(
+            [
+                _response(
+                    200,
+                    {
+                        "fields": [
+                            {"api_name": "Last_Name"},
+                            {"api_name": "Modified_Time"},
+                            {"api_name": "Created_Time"},
+                        ]
+                    },
+                ),
+                _records_response([{"id": "1", "Last_Name": "Ada", "Modified_Time": "t1", "Created_Time": "t0"}]),
+            ]
+        )
+        make_session.return_value = session
+
+        batches = list(
+            get_rows(
+                _client(),
+                "v8",
+                "Leads",
+                FakeResumeManager(),
+                mock.MagicMock(),
+                should_use_incremental_field=True,
+                incremental_field="Modified_Time",
+                enabled_columns=["Last_Name"],
+            )
+        )
+
+        assert sorted(_get_params(session, 1)["fields"].split(",")) == [
+            "Created_Time",
+            "Last_Name",
+            "Modified_Time",
+        ]
+        assert batches == [[{"id": "1", "Last_Name": "Ada", "Modified_Time": "t1", "Created_Time": "t0"}]]
 
 
 class TestValidateCredentials:

@@ -37,6 +37,16 @@ class ZohoCRMEndpointConfig:
             return []
         return [incremental_field(MODIFIED_TIME_FIELD, IncrementalFieldType.DateTime)]
 
+    @property
+    def metadata_module(self) -> str:
+        """Module API name to ask the fields metadata API about.
+
+        Record modules use their own path. Non-module endpoints fall back to their display name,
+        which is the module name Zoho knows them by for metadata even though their records come
+        from a dedicated path.
+        """
+        return self.path if self.is_module else self.name
+
 
 def _module(name: str, should_sync_default: bool = True) -> ZohoCRMEndpointConfig:
     return ZohoCRMEndpointConfig(name=name, path=name, should_sync_default=should_sync_default)

@@ -350,9 +350,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     )
     available_columns = serializers.SerializerMethodField(
         read_only=True,
-        help_text="Column metadata (name, data type, nullable) for this schema. For SQL sources this is the "
-        "source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back "
-        "to the synced table's columns. Empty only before the first successful sync/refresh.",
+        help_text="Column metadata (name, data type, nullable) for this schema. For sources that list typed "
+        "columns at discovery this is the source-side schema, refreshed via `refresh_schemas`; for the rest "
+        "it falls back to the synced table's columns. Empty only before the first successful sync/refresh.",
     )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
@@ -439,10 +439,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if sql_columns:
                 return sql_columns
         # `schema_metadata` is only written on source creation and explicit schema reload
-        # (`refresh_schemas`) — never by background schema discovery or the data sync, and never for
-        # non-SQL sources. So it's empty for non-SQL sources and for SQL schemas discovered/added later
-        # or not yet reloaded. Fall back to the synced table's universal column store so the Descriptions
-        # UI can still list columns (and surface their existing annotations) and let users edit them.
+        # (`refresh_schemas`) — never by background schema discovery — and only for sources that list
+        # typed columns at discovery. So it's empty for the rest, and for schemas discovered/added
+        # later or not yet reloaded. Fall back to the synced table's universal column store so the
+        # Descriptions UI can still list columns (and surface their existing annotations) and let
+        # users edit them.
         table = schema.table
         return table.get_user_facing_columns() if table is not None else []
 

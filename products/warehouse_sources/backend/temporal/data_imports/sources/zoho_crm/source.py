@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -21,6 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
+    reconcile_source_schema_metadata,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zohocrm import (
     ZohoCRMSourceConfig,
@@ -29,19 +32,41 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SHOULD_SYNC_DEFAULT,
+    ZOHO_CRM_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
+    ID_FIELD,
     REFRESH_TOKEN_REJECTED_MESSAGE,
+    ZohoCRMClient,
     ZohoCRMResumeConfig,
+    discover_columns,
     validate_credentials as validate_zoho_crm_credentials,
     zoho_crm_source,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+
+def _has_credentials(config: ZohoCRMSourceConfig) -> bool:
+    """Whether the config carries real OAuth credentials.
+
+    `_placeholder_config` (the credential-free public-docs catalog) fills them with empty
+    strings, and that path has to stay network-free.
+    """
+    return bool(config.client_id and config.client_secret and config.refresh_token)
+
 
 @SourceRegistry.register
 class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
-    lists_tables_without_credentials = True  # static module catalog — safe for public docs
+    # The module catalog itself needs no credentials, so it's safe for public docs; the per-module
+    # column lists that `get_schemas` adds on top are skipped when credentials are absent.
+    lists_tables_without_credentials = True
+    # Zoho's fields metadata API types a module's columns at discovery time, and Get Records takes
+    # a `fields` projection, so the selection is applied at the source instead of by the generic
+    # pre-write drop — which is too late to save an import that a field's values break.
+    supports_column_selection = True
     supported_versions = ("v8",)
     default_version = "v8"
     api_docs_url = "https://www.zoho.com/crm/developer/docs/api/v8/"
@@ -137,12 +162,41 @@ In the [Zoho API console](https://api-console.zoho.com), create a **Self Client*
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(
+        schemas = build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
             should_sync_default=SHOULD_SYNC_DEFAULT,
         )
+        for schema in schemas:
+            schema.detected_primary_keys = [ID_FIELD]
+
+        if not schemas or not _has_credentials(config):
+            return schemas
+
+        columns_by_endpoint = discover_columns(
+            ZohoCRMClient(
+                region=config.region,
+                client_id=config.client_id,
+                client_secret=config.client_secret,
+                refresh_token=config.refresh_token,
+            ),
+            self.resolve_api_version(api_version),
+            [ZOHO_CRM_ENDPOINTS[schema.name] for schema in schemas],
+        )
+        for schema in schemas:
+            schema.columns = columns_by_endpoint.get(schema.name, [])
+        return schemas
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        # Skip endpoints that discovered nothing (a module the org's edition never enabled, or a
+        # transient metadata failure) so a refresh can't blank a catalog we already have.
+        return reconcile_source_schema_metadata(source, [s for s in source_schemas if s.columns], team_id)
 
     def validate_credentials(
         self,
@@ -189,4 +243,5 @@ In the [Zoho API console](https://api-console.zoho.com), create a **Self Client*
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            enabled_columns=inputs.enabled_columns,
         )

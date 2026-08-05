@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -6,6 +7,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zohocrm import (
     ZohoCRMSourceConfig,
 )
@@ -42,6 +44,7 @@ def _inputs(schema_name: str = "Leads", **overrides: Any) -> mock.MagicMock:
         "logger": mock.MagicMock(),
         "reset_pipeline": False,
         "api_version": None,
+        "enabled_columns": None,
     }
     defaults.update(overrides)
     return mock.MagicMock(**defaults)
@@ -52,6 +55,12 @@ class TestZohoCRMSource:
         self.source = ZohoCRMSource()
         self.team_id = 123
         self.config = ZohoCRMSourceConfig(region="eu", client_id="cid", client_secret="secret", refresh_token="refresh")
+
+    @pytest.fixture(autouse=True)
+    def discovered_columns(self) -> Iterator[mock.MagicMock]:
+        """Column discovery reaches Zoho's fields metadata API; tests that care stub real fields."""
+        with mock.patch(f"{_SOURCE_MODULE}.discover_columns", return_value={}) as discover:
+            yield discover
 
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.ZOHOCRM
@@ -149,6 +158,45 @@ class TestZohoCRMSource:
     def test_table_catalog_is_publishable_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
 
+    def test_column_catalog_is_available_before_the_first_sync(self, discovered_columns: mock.MagicMock) -> None:
+        # Without discovery the column picker only fills in after a successful sync — which leaves
+        # no way out of a sync that a bad column breaks.
+        discovered_columns.return_value = {"Leads": [("id", "bigint", False), ("Last_Name", "text", True)]}
+
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        assert self.source.supports_column_selection is True
+        assert schemas["Leads"].columns == [("id", "bigint", False), ("Last_Name", "text", True)]
+        assert schemas["Deals"].columns == []
+
+    def test_every_schema_declares_the_record_id_as_its_key(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert all(schema.detected_primary_keys == ["id"] for schema in schemas)
+
+    def test_the_credential_free_catalog_makes_no_metadata_request(self, discovered_columns: mock.MagicMock) -> None:
+        self.source.get_schemas(
+            ZohoCRMSourceConfig(region="us", client_id="", client_secret="", refresh_token=""), self.team_id
+        )
+
+        discovered_columns.assert_not_called()
+
+    def test_only_the_requested_endpoints_are_probed(self, discovered_columns: mock.MagicMock) -> None:
+        self.source.get_schemas(self.config, self.team_id, names=["Deals"])
+
+        assert [config.name for config in discovered_columns.call_args.args[2]] == ["Deals"]
+
+    @mock.patch(f"{_SOURCE_MODULE}.reconcile_source_schema_metadata", return_value=[])
+    def test_a_refresh_never_blanks_a_catalog_it_could_not_rediscover(self, reconcile: mock.MagicMock) -> None:
+        with_columns = SourceSchema(
+            name="Leads", supports_incremental=True, supports_append=True, columns=[("id", "bigint", False)]
+        )
+        without_columns = SourceSchema(name="Invoices", supports_incremental=True, supports_append=True)
+
+        self.source.reconcile_schema_metadata(mock.MagicMock(), [with_columns, without_columns], self.team_id)
+
+        assert reconcile.call_args.args[1] == [with_columns]
+
     def test_canonical_descriptions_cover_the_published_tables(self) -> None:
         descriptions = self.source.get_canonical_descriptions()
 
@@ -226,3 +274,11 @@ class TestZohoCRMSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), _inputs("Leads", api_version="v7"))
 
         assert mock_source.call_args.kwargs["api_version"] == "v7"
+
+    @mock.patch(f"{_SOURCE_MODULE}.zoho_crm_source")
+    def test_source_for_pipeline_pushes_the_column_selection_down(self, mock_source: mock.MagicMock) -> None:
+        inputs = _inputs("Leads", enabled_columns=["Last_Name"])
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_source.call_args.kwargs["enabled_columns"] == ["Last_Name"]

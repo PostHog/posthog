@@ -1422,6 +1422,9 @@ def test_merge_observed_columns_unions_and_refreshes():
     [
         # SQL sources project enabled_columns in their SELECT — no Delta-write drop.
         ("Postgres", False),
+        # Zoho CRM is an API source that still projects at the source (Get Records `fields`), so a
+        # field whose values break the import is never fetched — a pre-write drop is too late.
+        ("ZohoCRM", False),
         # Managed-schema sources must never drop columns (canonical HogQL schema needs them all),
         # even if a stale enabled_columns is still persisted.
         ("Stripe", False),

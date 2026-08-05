@@ -1,8 +1,9 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any, Optional
 
 import requests
+import structlog
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
@@ -16,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.s
     ZOHO_CRM_ENDPOINTS,
     ZohoCRMEndpointConfig,
 )
+
+_logger = structlog.get_logger(__name__)
 
 DEFAULT_API_VERSION = "v8"
 
@@ -48,6 +51,8 @@ MAX_PAGE = 2000 // PAGE_SIZE
 # several field slices walked in lockstep and merged per page.
 MAX_FIELDS_PER_REQUEST = 50
 REQUEST_TIMEOUT_SECONDS = 60
+# Every Zoho record carries an id, whether or not the fields metadata lists it.
+ID_FIELD = "id"
 
 # Shown when the refresh-token exchange is rejected. The raw Zoho `error` code (e.g. `invalid_code`)
 # is kept on the exception for logs but never surfaced to users, who can't act on it.
@@ -58,6 +63,15 @@ REFRESH_TOKEN_REJECTED_MESSAGE = (
 
 class ZohoCRMAuthError(Exception):
     pass
+
+
+@dataclasses.dataclass(frozen=True)
+class ZohoField:
+    """One entry of a module's fields metadata, as the column picker needs it."""
+
+    api_name: str
+    data_type: str
+    nullable: bool
 
 
 @dataclasses.dataclass
@@ -182,13 +196,13 @@ class ZohoCRMClient:
         return response
 
 
-def readable_field_names(client: ZohoCRMClient, api_version: str, module: str) -> list[str]:
-    """Field API names Get Records can project for `module`, from the fields metadata API."""
+def readable_fields(client: ZohoCRMClient, api_version: str, module: str) -> list[ZohoField]:
+    """Fields Get Records can project for `module`, from the fields metadata API."""
     response = client.get(f"/crm/{api_version}/settings/fields", params={"module": module})
     if response.status_code == 204:
         return []
 
-    names: list[str] = []
+    fields: list[ZohoField] = []
     for field in response.json().get("fields") or []:
         api_name = field.get("api_name")
         if not api_name:
@@ -197,8 +211,78 @@ def readable_field_names(client: ZohoCRMClient, api_version: str, module: str) -
         # `view_type.view` marks the fields Zoho will actually return on a read.
         if isinstance(view_type, dict) and view_type.get("view") is False:
             continue
-        names.append(str(api_name))
-    return names
+        fields.append(
+            ZohoField(
+                api_name=str(api_name),
+                # `data_type` is Zoho's own label (picklist, datetime, currency, lookup) — more
+                # useful in the column picker than the coarser `json_type`, which is the fallback.
+                data_type=str(field.get("data_type") or field.get("json_type") or "text"),
+                nullable=not (field.get("required") or field.get("system_mandatory")),
+            )
+        )
+    return fields
+
+
+def readable_field_names(client: ZohoCRMClient, api_version: str, module: str) -> list[str]:
+    """Field API names Get Records can project for `module`. An empty list means "no projection"."""
+    return [field.api_name for field in readable_fields(client, api_version, module)]
+
+
+def discover_columns(
+    client: ZohoCRMClient,
+    api_version: str,
+    endpoints: Iterable[ZohoCRMEndpointConfig],
+    logger: FilteringBoundLogger = _logger,
+) -> dict[str, list[tuple[str, str, bool]]]:
+    """Typed `SourceSchema.columns` per endpoint name, from the fields metadata API.
+
+    Lets the column picker list a module's fields before the first sync ever runs, so a sync that
+    a single incompatible field breaks can still be narrowed down to the fields the user wants.
+
+    Auth failures propagate — a revoked refresh token is the user's to fix, and every caller
+    either validates credentials first or already handles a failed discovery. Per-endpoint
+    failures don't: a module the org's edition never enabled answers with INVALID_MODULE, and
+    losing its columns must not cost the rest of the catalog.
+    """
+    # Mint up front so a revoked token surfaces once instead of being swallowed per endpoint.
+    client.mint_access_token()
+
+    columns: dict[str, list[tuple[str, str, bool]]] = {}
+    for config in endpoints:
+        try:
+            fields = readable_fields(client, api_version, config.metadata_module)
+        except Exception as e:
+            logger.warning("Could not read Zoho CRM field metadata", endpoint=config.name, error=str(e))
+            continue
+        if not fields:
+            continue
+        discovered = [(field.api_name, field.data_type, field.nullable) for field in fields]
+        if all(name != ID_FIELD for name, _, _ in discovered):
+            discovered.insert(0, (ID_FIELD, "bigint", False))
+        columns[config.name] = discovered
+    return columns
+
+
+def field_projection(
+    config: ZohoCRMEndpointConfig,
+    enabled_columns: Optional[list[str]],
+    incremental_field: Optional[str],
+) -> Optional[set[str]]:
+    """Case-folded field names to sync, or `None` to sync every field.
+
+    The record id, the incremental cursor and the partition key are always retained: the pipeline
+    merges, watermarks and partitions on them, so a selection that dropped them would break the
+    write rather than narrow it. Folded because API callers send whatever casing they like, while
+    Zoho's field API names are mixed-case.
+    """
+    if enabled_columns is None:
+        return None
+    retained = {ID_FIELD, *enabled_columns}
+    if config.incremental:
+        retained.add(incremental_field or MODIFIED_TIME_FIELD)
+    if config.partition_key:
+        retained.add(config.partition_key)
+    return {name.casefold() for name in retained}
 
 
 def _fetch_page(
@@ -250,8 +334,10 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: Optional[str] = None,
+    enabled_columns: Optional[list[str]] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = ZOHO_CRM_ENDPOINTS[endpoint]
+    projection = field_projection(config, enabled_columns, incremental_field)
 
     headers: dict[str, str] = {}
     if config.incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
@@ -263,7 +349,12 @@ def get_rows(
 
     field_slices: list[list[str]] = [[]]
     if config.is_module:
-        field_slices = chunk_fields(readable_field_names(client, api_version, config.path))
+        names = readable_field_names(client, api_version, config.path)
+        if projection is not None:
+            # Push the selection into Get Records so a deselected field never leaves Zoho — the
+            # only way to get past a field whose values break the import.
+            names = [name for name in names if name.casefold() in projection]
+        field_slices = chunk_fields(names)
 
     page = 1
     page_tokens: list[str] = []
@@ -301,6 +392,12 @@ def get_rows(
             next_tokens.append(str(slice_info.get("next_page_token") or ""))
 
         page_rows = [rows[key] for key in order]
+        if projection is not None:
+            # Zoho answers with system fields the metadata API never lists (and the endpoints that
+            # take no `fields` param with everything), so the selection is also enforced here.
+            page_rows = [
+                {key: value for key, value in row.items() if key.casefold() in projection} for row in page_rows
+            ]
         if page_rows:
             yield page_rows
 
@@ -357,6 +454,7 @@ def zoho_crm_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: Optional[str] = None,
+    enabled_columns: Optional[list[str]] = None,
 ) -> SourceResponse:
     config = ZOHO_CRM_ENDPOINTS[endpoint]
 
@@ -370,6 +468,7 @@ def zoho_crm_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
+            enabled_columns=enabled_columns,
         )
 
     return SourceResponse(

@@ -120,7 +120,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCRepairError,
     CDCRepairInProgress,
     CDCSourceAdapter,
-    ClickHouseSource,
     Config,
     CustomSource,
     CustomSourceConfig,
@@ -134,7 +133,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     RowFilterValidationError,
     SourceRegistry,
     SourceSchema,
-    SQLSource,
     SSLRequiredError,
     WebhookSource,
     build_default_schemas,
@@ -3027,9 +3025,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
-                # ClickHouse isn't a SQLSource but exposes the same column-selection
-                # capability and reconcile hook, so it reuses this path.
+            elif source.supports_column_selection:
+                # Every source that lists typed columns at discovery owns its column catalog and
+                # refreshes it here — SQL sources, plus non-SQL ones (ClickHouse, Zoho CRM) that
+                # expose the same capability. Sources without it no-op: their catalog comes from
+                # the rows a sync returned, which a reconcile would overwrite with nothing.
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
 
         # Outside the atomic block: schedule creation talks to Temporal, which must not run under

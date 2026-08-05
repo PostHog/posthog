@@ -378,6 +378,22 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
         return None
 
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Persist freshly discovered `schema_metadata` onto each schema row after a schema reload.
+
+        Only called for sources with `supports_column_selection`, whose discovery is the source of
+        truth for the column catalog. Returns schema names this hook soft-deleted (none by
+        default; overridden by the direct-query paths). No-op for everything else — sources whose
+        catalog is captured from the rows a sync actually returned must not have it overwritten
+        with the empty column list their discovery reports.
+        """
+        return []
+
 
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources with standard pipeline creation."""
