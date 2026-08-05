@@ -3,10 +3,15 @@ from typing import cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    FullRefreshRowCountDroppedException,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportJobModels,
 )
+
+_PIPELINE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
 
 
 def _make_logger() -> MagicMock:
@@ -189,3 +194,45 @@ class TestExtractionFailureDoesNotCleanupS3:
                 await pipeline.run()
 
         s3_writer.cleanup.assert_not_called()
+
+
+class TestFullRefreshCompletenessGuard:
+    async def _run_with_previous_row_count(self, previous_row_count: int | None) -> None:
+        pipeline = _make_pipeline()
+        pipeline._attempt = 1
+
+        with (
+            patch(f"{_PIPELINE_MODULE}.reset_rows_synced_if_needed", new_callable=AsyncMock),
+            patch(f"{_PIPELINE_MODULE}.validate_incremental_sync"),
+            patch(f"{_PIPELINE_MODULE}.setup_row_tracking_with_billing_check", new_callable=AsyncMock),
+            patch(f"{_PIPELINE_MODULE}.handle_corrupted_delta_log", new_callable=AsyncMock),
+            patch(
+                f"{_PIPELINE_MODULE}.handle_reset_or_full_refresh",
+                new_callable=AsyncMock,
+                return_value=previous_row_count,
+            ),
+            patch(f"{_PIPELINE_MODULE}.activity") as mock_activity,
+        ):
+            mock_activity.in_activity.return_value = False
+            pipeline._resource.items = MagicMock(return_value=iter([]))
+            pipeline._batcher.should_yield.return_value = False
+
+            await pipeline.run()
+
+    @pytest.mark.asyncio
+    async def test_truncated_full_refresh_raises_instead_of_finalizing(self) -> None:
+        # The data-loss regression: a full-refresh sync that comes back with far fewer rows than
+        # the table it just wiped used to finalize as a successful, silently truncated sync.
+        with pytest.raises(FullRefreshRowCountDroppedException):
+            await self._run_with_previous_row_count(1000)
+
+    @pytest.mark.asyncio
+    async def test_small_previous_table_is_not_guarded(self) -> None:
+        # Below the minimum-rows floor, a legitimate shrink of a small table must not fail the run.
+        await self._run_with_previous_row_count(10)
+
+    @pytest.mark.asyncio
+    async def test_no_previous_table_is_not_guarded(self) -> None:
+        # A first-ever sync (or a sync that skipped the wipe, e.g. a retry) has no baseline to
+        # compare against, so the guard must be a no-op.
+        await self._run_with_previous_row_count(None)

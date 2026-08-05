@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     validate_incremental_sync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    FullRefreshRowCountDroppedException,
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
@@ -86,6 +87,13 @@ if TYPE_CHECKING:
     )
 
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
+
+# A full-refresh sync that extracts fewer than this fraction of the table it just replaced is
+# treated as a truncated/malformed source response, not a genuine shrink, and fails the run
+# instead of committing the truncated result. Skipped below FULL_REFRESH_ROW_COUNT_GUARD_MIN_ROWS
+# so small tables that legitimately drop most of their rows don't trip it.
+FULL_REFRESH_ROW_COUNT_GUARD_THRESHOLD = 0.5
+FULL_REFRESH_ROW_COUNT_GUARD_MIN_ROWS = 50
 
 
 class PipelineV3(Generic[ResumableData]):
@@ -284,6 +292,7 @@ class PipelineV3(Generic[ResumableData]):
             py_table = None
             row_count = 0
             chunk_index = 0
+            previous_row_count: int | None = None
 
             # On retry (attempt > 1) skip reset_table() - the consumer-side batch-0
             # overwrite handles it. Wiping the delta table mid-retry while the consumer
@@ -293,7 +302,7 @@ class PipelineV3(Generic[ResumableData]):
                 # instead of looping forever (an interrupted repartition swap or OOM-crashed merge).
                 await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_ref, self._logger)
 
-                await handle_reset_or_full_refresh(
+                previous_row_count = await handle_reset_or_full_refresh(
                     self._reset_pipeline,
                     should_resume,
                     self._schema,
@@ -364,6 +373,17 @@ class PipelineV3(Generic[ResumableData]):
                     get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                 chunk_index += 1
+
+            if (
+                previous_row_count is not None
+                and previous_row_count >= FULL_REFRESH_ROW_COUNT_GUARD_MIN_ROWS
+                and row_count < previous_row_count * FULL_REFRESH_ROW_COUNT_GUARD_THRESHOLD
+            ):
+                raise FullRefreshRowCountDroppedException(
+                    f"Full-refresh sync of schema {self._schema.id} extracted {row_count} rows, "
+                    f"far fewer than the {previous_row_count} rows in the table it just replaced. "
+                    "Failing instead of committing a truncated table."
+                )
 
             await self._finalize(row_count=row_count)
 

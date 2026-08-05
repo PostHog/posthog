@@ -229,6 +229,16 @@ class DeltaTableRef:
 
         return None
 
+    async def get_row_count(self) -> int | None:
+        """Row count of the current table from Delta metadata (no full data scan).
+
+        Returns None if the table doesn't exist yet.
+        """
+        delta_table = await self.get_delta_table()
+        if delta_table is None:
+            return None
+        return await asyncio.to_thread(lambda: delta_table.to_pyarrow_dataset().count_rows())
+
     async def is_table_corrupted(self) -> bool:
         """True when the Delta log exists but the table can't be opened (DeltaError / FileNotFoundError).
 

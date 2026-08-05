@@ -436,3 +436,39 @@ class TestHandleResetOrFullRefresh:
         helper.reset_table.assert_awaited_once()
         schema.refresh_from_db()
         assert "reset_pipeline" not in schema.sync_type_config
+
+    def _full_refresh_schema(self, team) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Recharge"
+        )
+        return ExternalDataSchema.objects.create(
+            name="customers",
+            team=team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+    def test_full_refresh_wipe_returns_previous_row_count(self, team):
+        # The caller (PipelineV3) uses this count as the baseline for the post-extraction
+        # completeness guard — it must be read before the table is wiped, since reset_table
+        # deletes the files the count would otherwise come from.
+        schema = self._full_refresh_schema(team)
+        helper = MagicMock(reset_table=AsyncMock(), get_row_count=AsyncMock(return_value=109_885))
+
+        result = async_to_sync(handle_reset_or_full_refresh)(
+            False, False, schema, helper, MagicMock(adebug=AsyncMock())
+        )
+
+        assert result == 109_885
+        helper.reset_table.assert_awaited_once()
+
+    def test_reset_pipeline_flag_does_not_return_previous_row_count(self, team):
+        # An explicit user-triggered reset (not the automatic full-refresh wipe) isn't guarded —
+        # the caller shouldn't second-guess a reset the user asked for.
+        schema = self._full_refresh_schema(team)
+        helper = MagicMock(reset_table=AsyncMock(), get_row_count=AsyncMock(return_value=109_885))
+
+        result = async_to_sync(handle_reset_or_full_refresh)(True, False, schema, helper, MagicMock(adebug=AsyncMock()))
+
+        assert result is None
+        helper.get_row_count.assert_not_awaited()

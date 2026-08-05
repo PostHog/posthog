@@ -2,11 +2,13 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.recharge import (
     RechargeResumeConfig,
     _build_initial_params,
@@ -211,15 +213,32 @@ class TestPagination:
         assert rows == [{"id": 7}, {"id": 8}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_resource_key_yields_no_rows(self, MockSession) -> None:
-        # A body without the resource key (and only cursor keys) is a zero-row page,
-        # not an error — the old client returned [] here rather than raising.
+    def test_missing_resource_key_raises_instead_of_yielding_no_rows(self, MockSession) -> None:
+        # Regression: a body without the resource key used to read as a valid zero-row page,
+        # which is indistinguishable from a truncated/malformed response and silently ended
+        # pagination early. `data_selector_required` now fails loud instead.
         session = MockSession.return_value
         _wire(session, [_response({"next_cursor": None})])
 
-        rows = _rows(recharge_source("t", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert rows == []
-        assert session.send.call_count == 1
+        with pytest.raises(ValueError):
+            _rows(recharge_source("t", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_malformed_body_is_retried_then_fails(self, MockSession) -> None:
+        # Regression: the paginator used to swallow a bad 200 body in a bare `except Exception`
+        # and treat it as "no more pages" (a successful, truncated sync). It must now be
+        # retried and eventually raise rather than end pagination cleanly.
+        session = MockSession.return_value
+        bad_response = Response()
+        bad_response.status_code = 200
+        bad_response._content = b"not json"
+        _wire(session, [bad_response] * 5)
+
+        with mock.patch.object(rest_client.RESTClient._send_request.retry, "sleep", lambda *a, **k: None):  # type: ignore[attr-defined]
+            with pytest.raises(rest_client.RESTClientRetryableError):
+                _rows(
+                    recharge_source("t", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+                )
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_token_is_redacted_from_captured_samples(self, MockSession) -> None:

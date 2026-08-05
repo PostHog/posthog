@@ -30,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -84,9 +87,14 @@ class RechargeCursorPaginator(BasePaginator):
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
-            next_cursor = response.json().get("next_cursor")
-        except Exception:
-            next_cursor = None
+            body = response.json()
+        except Exception as e:
+            # A 200 that isn't valid JSON is a malformed/transient response, not the end of
+            # pagination — treating it as "no more pages" would silently truncate the sync.
+            raise RESTClientRetryableError(f"Recharge response body is not valid JSON: {e}") from e
+        if not isinstance(body, dict):
+            raise RESTClientRetryableError("Unexpected Recharge response body shape (expected a JSON object)")
+        next_cursor = body.get("next_cursor")
         if next_cursor:
             self._cursor = next_cursor
             self._has_next_page = True
@@ -223,6 +231,9 @@ def recharge_source(
                     # Recharge wraps records under a key matching the resource
                     # (e.g. `{"customers": [...], "next_cursor": "..."}`).
                     "data_selector": endpoint,
+                    # A body without the endpoint key means the shape changed; syncing 0 rows
+                    # silently would look like an empty collection instead of an API error.
+                    "data_selector_required": True,
                     "paginator": RechargeCursorPaginator(limit=config.page_size),
                 },
             }

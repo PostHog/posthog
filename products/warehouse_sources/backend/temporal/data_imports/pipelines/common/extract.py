@@ -335,7 +335,14 @@ async def handle_reset_or_full_refresh(
     delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
     webhook_only: bool = False,
-) -> None:
+) -> int | None:
+    """Wipes the table for a reset/full-refresh sync; returns the row count it just deleted.
+
+    The caller uses that count as a baseline to catch a full-refresh sync that comes back with
+    far fewer rows than the table it replaced (see FullRefreshRowCountDroppedException) — the
+    reset itself can't be deferred until extraction succeeds without a bigger rearchitecture, so
+    this is a detect-and-fail-loud guard rather than a true keep-old-data-on-failure one.
+    """
     from products.warehouse_sources.backend.models.external_data_schema import (
         ExternalDataSchema,
         update_sync_type_config_keys,
@@ -364,8 +371,12 @@ async def handle_reset_or_full_refresh(
     elif schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
         # Avoid schema mismatches from existing data about to be overwritten
         await logger.adebug("Deleting existing table due to sync being full refresh")
+        previous_row_count = await delta_table_ref.get_row_count()
         await delta_table_ref.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
+        return previous_row_count
+
+    return None
 
 
 def _capture_delta_revived(

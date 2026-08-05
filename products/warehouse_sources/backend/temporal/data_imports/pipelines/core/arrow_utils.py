@@ -67,6 +67,13 @@ class DuplicatePrimaryKeysException(Exception):
     pass
 
 
+class FullRefreshRowCountDroppedException(Exception):
+    """A full-refresh sync extracted far fewer rows than the table it just replaced.
+
+    Raised instead of finalizing so the truncated result isn't committed as a successful sync —
+    see handle_reset_or_full_refresh for why the table can't simply be left untouched instead."""
+
+
 class QueryTimeoutException(Exception):
     pass
 
