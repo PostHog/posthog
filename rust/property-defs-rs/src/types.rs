@@ -560,11 +560,20 @@ pub const DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 3600;
 /// the boundary, on a table that already struggles to keep autovacuum ahead of its dead tuples.
 ///
 /// The result always falls in `(now - period, now]`, matching un-jittered flooring, so it can
-/// never produce a future timestamp. A non-positive period disables flooring entirely.
+/// never produce a future timestamp.
+///
+/// A non-positive period is treated as `DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS` rather than
+/// disabling flooring. With flooring off, every event's `last_seen_at` is unique, the dedup
+/// cache filters nothing, and the full event stream reaches `posthog_eventdefinition` as row
+/// updates, so "disabled" must not be expressible here at all. Config validation at startup
+/// rejects non-positive values loudly; this clamp is the backstop for any caller that does
+/// not go through `Config`.
 pub fn floor_last_seen(now: DateTime<Utc>, period_secs: i64, jitter_seed: u64) -> DateTime<Utc> {
-    if period_secs <= 0 {
-        return now;
-    }
+    let period_secs = if period_secs > 0 {
+        period_secs
+    } else {
+        DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS
+    };
 
     let offset = (jitter_seed % period_secs as u64) as i64;
     let shifted = now.timestamp() + offset;
