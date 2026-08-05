@@ -17,7 +17,7 @@ Data sources: `$mcp_tool_call` events (tool names, ordering per `$session_id`) a
 
 ## 2. Online evaluations (AI evals, `/ai-evals` in project 2)
 
-**Live today:** `MCP: catalog checked before KPI derivation` (Hog, trace target, inactivity settle 5 min, 100% rollout, N/A allowed). Fails a session with KPI intent and data-bearing SQL but no prior successful catalog lookup and no `data-catalog-metric-run` span. Deterministic, no LLM cost. Its Hog source mirrors the tile classification above; results land as `$ai_evaluation` events.
+**Live today:** `MCP: catalog checked before KPI derivation` (Hog, trace target, inactivity settle 5 min, N/A allowed), scoped to sessions where `mcp_data_catalog_enabled` is true. Fails a session with KPI intent and data-bearing SQL but no prior successful catalog lookup and no `data-catalog-metric-run` span. Deterministic, no LLM cost. Its Hog source mirrors the tile classification above; results land as `$ai_evaluation` events.
 
 ### Writing Hog that survives real traces
 
@@ -26,10 +26,12 @@ A trace evaluation runs against traces of up to 500 events under a 10 second bud
 - **`and` does not short-circuit.** `Operation.AND` pops every operand, so `e.event == '$ai_span' and e.properties.$ai_span_name == '...'` does the property lookups on every event regardless of type. Nest `if` blocks instead of chaining conditions.
 - **Regexes are compiled per call.** `=~*` with an alternation, evaluated once per event, dominated the budget. Use `lower()` once and then `like`.
 - **Stop scanning once the verdict is latched.** Guard the expensive string work behind the state that makes it irrelevant, and `return` from inside the loop when no later event can change the answer.
+- **Never iterate `evaluation_events` directly.** Now that every tool call carries args and a result, `for (let e in evaluation_events)` pushes each whole event onto the stack and the VM walks the entire value to cost it, so iteration becomes proportional to total trace payload. This is what disabled the evaluation a second time, the day tool-span capture shipped. Index instead: `GET_GLOBAL` resolves the chain and then copies only the leaf, so `evaluation_events[i].event` reads one small field. Take the loop bound from `trace.event_count`, not `length(evaluation_events)`, which would materialize the array anyway. Hog arrays are 1-indexed.
+- **Scope the conditions to the population you actually mean.** This evaluation only runs where `mcp_data_catalog_enabled` is true. That is both fairer, since an agent that never received the catalog steering is not evidence about whether the steering works, and about 95% less traffic, so the chance of meeting a pathological trace falls with it.
 
 Memory is a separate, rarer failure: reading a global does `deepcopy(...)` onto the 64 MB stack, so an oversized trace can exceed it before any of your code runs. Traces above 500 events are skipped upstream (`trace_too_large`), which catches the worst runaways, but a trace that passes that check with large payloads can still fail, and there is no Hog-side mitigation. Validate with `llma-evaluation-test-hog` against real traces before enabling, and check the evaluation's `status_reason_detail` if it goes quiet.
 
-**Pending `trackToolSpan` deployment** (`services/mcp/src/hono/analytics.ts`): three LLM-judge trace evaluations, sampled low (5-10%) via `rollout_percentage`:
+**Still to create**, now that `trackToolSpan` is deployed: three LLM-judge trace evaluations, sampled low (5-10%) via `rollout_percentage`, and scoped to `mcp_data_catalog_enabled` for the same reasons as the Hog one:
 
 1. **Metric bypass**: the `$ai_span` for a catalog lookup carries the results (`$ai_output_state`), so the judge sees which metrics the lookup returned. Verdict: given an approved, non-drifted metric matching the session's intent, did the client run it via `data-catalog-metric-run`, or hand-write SQL for the same number?
 2. **Proposal appropriateness**: given the session's intents, SQL, and tool spans, did the agent derive a reusable business metric with no canonical definition, and if so did it propose or offer to catalog it (landing `proposed`, disclosed as such)? One-off exploration must not trigger speculative proposals.
