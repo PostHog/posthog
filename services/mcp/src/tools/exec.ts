@@ -175,9 +175,21 @@ export function describeExecCommand(command: string, isKnownToolName: (name: str
     if (!TOOL_TARGETING_VERBS.has(rawVerb) || !rest) {
         return { verb }
     }
-    // `call` and `info` carry flags before the tool name; `schema` takes none.
-    const args = rawVerb === 'call' ? parseCallFlags(rest).rest : rest.replace(/^--json(\s+|$)/, '')
-    const target = args ? parseCommand(args).verb : ''
+    // The target must be parsed exactly as the dispatcher looks it up, or a
+    // rejected command gets attributed to a valid tool. `call` strips its flags
+    // then takes the first token; `schema` takes the first token. `info` is the
+    // exception: it hands the entire remaining argument to `findTool` as an exact
+    // name (after an optional `--json`), so `info execute-sql extra` looks up
+    // "execute-sql extra", resolves to nothing, and records `unrecognized` — not
+    // the `execute-sql` its first token would suggest.
+    let target: string
+    if (rawVerb === 'call') {
+        target = parseCommand(parseCallFlags(rest).rest).verb
+    } else if (rawVerb === 'info') {
+        target = rest.replace(/^--json(\s+|$)/, '').trim()
+    } else {
+        target = parseCommand(rest).verb
+    }
     if (!target) {
         return { verb }
     }

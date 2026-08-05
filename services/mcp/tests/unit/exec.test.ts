@@ -1270,6 +1270,10 @@ describe('exec tool', () => {
             ['info execute-sql', 'info', 'execute-sql'],
             ['info --json execute-sql', 'info', 'execute-sql'],
             ['schema query-trends series', 'schema', 'query-trends'],
+            // `info` matches the whole remainder as an exact tool name, so a
+            // trailing token makes the lookup fail — telemetry must mirror the
+            // dispatcher's rejection, not credit the valid first token.
+            ['info execute-sql extra', 'info', 'unrecognized'],
             ['call my-tool {"a":1}', 'call', 'my-tool'],
             ['call --json --confirm my-tool {}', 'call', 'my-tool'],
             ['  info   execute-sql  ', 'info', 'execute-sql'],
