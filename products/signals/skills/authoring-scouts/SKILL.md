@@ -124,6 +124,12 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Prefer a tag that already exists on the fleet (`-config-list` shows every scout's tags) over minting a near-duplicate — `revenue` and `revenue-analytics` fragment the same group.
   A write **replaces** the set, so send the full desired list, not just the additions.
   Filter the roster with `-config-list`'s `tags` parameter (comma-separated, matches a scout carrying **any** of them).
+- `structured_output_schema` — defaults to null (channel off).
+  Set a JSON Schema (draft 2020-12, root `"type": "object"`) describing **one** structured record and the scout gains a third output channel next to reports: each run is shown the schema and told to submit conforming records via `scout-record-output` (one per run, or one per judged entity — the skill body decides the cardinality and when to record).
+  Records are validated server-side against the schema (all-or-nothing per call) and recorded in the project as `$scout_structured_output` events with scalar payload keys flattened to `output_<key>` properties — so a judging/scoring scout's series is chartable in insights directly, and past records are queryable like any events (filter on `subject` or `run_id`, break down on `output_<key>`).
+  The channel also requires `emit`: a dry-run scout has nowhere to record to, so `scout-record-output` fails closed for it.
+  Reach for this when the scout's job is a recurring **measurement** (judge each sampled report good/bad/unsure with a reason, score accounts, classify sessions) rather than surfacing anomalies; keep enums small and add a free-text reason field so the series is breakdown-friendly _and_ auditable.
+  The skill body should say what to sample, how to judge, and what `subject` to stamp on each record; the schema owns the record shape.
 
 ## Steering with notes (no authoring needed)
 

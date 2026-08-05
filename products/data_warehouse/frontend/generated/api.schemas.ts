@@ -33,6 +33,8 @@ export interface DataModelingJobApi {
     readonly error: string | null
     readonly created_at: string
     readonly last_run_at: string
+    /** When the job row last changed. For finished jobs this is when the run reached its terminal status. */
+    readonly updated_at: string
     /** @nullable */
     readonly workflow_id: string | null
     /** @nullable */
@@ -1199,6 +1201,47 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
+}
+
+/**
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type SavedQueryMaterializeSyncFrequencyEnumApi =
+    (typeof SavedQueryMaterializeSyncFrequencyEnumApi)[keyof typeof SavedQueryMaterializeSyncFrequencyEnumApi]
+
+export const SavedQueryMaterializeSyncFrequencyEnumApi = {
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
+/**
+ * Body of the `materialize` action: which cadence to enable materialization at.
+ */
+export interface SavedQueryMaterializeApi {
+    /** How often to refresh the materialized table, defaulting to daily. Rejected with a 400 when it falls outside what the query's lineage allows: no more often than its sources deliver new data, and no less often than a downstream view or endpoint needs.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    sync_frequency?: SavedQueryMaterializeSyncFrequencyEnumApi
 }
 
 export interface SavedQueryResumeApi {
@@ -2600,6 +2643,10 @@ export interface CredentialApi {
  * * `Airbridge` - Airbridge
  * * `Snovio` - Snovio
  * * `GoogleMerchantCenter` - GoogleMerchantCenter
+ * * `Raisely` - Raisely
+ * * `WindsorAi` - WindsorAi
+ * * `Wix` - Wix
+ * * `Sevalla` - Sevalla
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3882,6 +3929,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Airbridge: 'Airbridge',
     Snovio: 'Snovio',
     GoogleMerchantCenter: 'GoogleMerchantCenter',
+    Raisely: 'Raisely',
+    WindsorAi: 'WindsorAi',
+    Wix: 'Wix',
+    Sevalla: 'Sevalla',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

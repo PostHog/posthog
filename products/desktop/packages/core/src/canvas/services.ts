@@ -61,11 +61,6 @@ export interface IDashboardsService {
   getBuilds(id: string): Promise<CanvasBuildLifecycle>;
   actOnBuild(input: CanvasBuildActionInput): Promise<CanvasBuildRecord>;
   rename(input: { id: string; name: string }): Promise<DashboardRecord>;
-  // Idempotently create + seed a channel's home canvas, returning it.
-  ensureHomeCanvas(channelId: string): Promise<DashboardRecord>;
-  // Publish a fresh template version to the home canvas (non-destructive; the
-  // prior version stays in history so the edit can be restored via revert).
-  resetHomeCanvas(channelId: string): Promise<DashboardRecord>;
   delete(id: string): Promise<void>;
 }
 

@@ -1,4 +1,5 @@
 import uuid
+import socket
 import asyncio
 import datetime as dt
 import dataclasses
@@ -62,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -110,6 +112,21 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
     await asyncio.to_thread(report_heartbeat_timeout, inputs, logger)
 
+    # Async variant: teardown joins the sampler thread and talks to Redis, which must not block
+    # this activity's event loop (or its heartbeats).
+    async with aworkload_reporting(
+        team_id=inputs.team_id,
+        schema_id=str(inputs.schema_id),
+        run_id=str(inputs.run_id),
+        host=socket.gethostname(),
+        # Retries share the run_id; the attempt lets the newest reporter own the run key while a
+        # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
+        attempt=current_activity_attempt(),
+    ):
+        return await _import_data_with_reporting(inputs, logger)
+
+
+async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
     async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -123,6 +140,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     status=model.status,
                     attempt=attempt,
                 )
+                # The consumer already finalized this run (that's how it became terminal), so the
+                # workflow must not overwrite the status or release the lock — see PipelineResult.
                 return PipelineResult(
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
@@ -279,6 +298,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 except Exception:
                     await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
 
+                # This activity finalized the job itself just above, so the workflow must not
+                # write a second terminal status — see PipelineResult for the ownership contract.
                 return PipelineResult(
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
@@ -463,7 +484,7 @@ async def _run(
         if use_v3:
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
-            logger.info("Running V3 pipeline (feature flag enabled)")
+            logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
             pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
                 source_response,
                 logger,

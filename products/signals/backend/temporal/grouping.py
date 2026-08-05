@@ -33,6 +33,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import RelatedTo
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -55,6 +56,7 @@ from products.signals.backend.temporal.signal_queries import (
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
     RERESEARCH_MAX_SIGNALS,
+    RESEARCH_DEBOUNCE_SECONDS,
     EmitSignalInputs,
     ExistingReportMatch,
     MatchedMetadata,
@@ -678,6 +680,7 @@ class AssignAndEmitSignalOutput:
     promoted: bool
     timestamp: datetime
     run_count: int
+    research_debounce_seconds: int = 0
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -690,6 +693,7 @@ class AssignAndEmitDbResult:
     reresearch_capped: bool
     report_status: str
     report_signal_count: int
+    promotion_suppressed: bool
 
 
 @temporalio.activity.defn
@@ -698,9 +702,10 @@ class AssignAndEmitDbResult:
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit() -> AssignAndEmitDbResult:
+    def do_assign_and_emit(suppress_promotion: bool) -> AssignAndEmitDbResult:
         with transaction.atomic():
             promoted = False
+            promotion_suppressed = False
 
             if isinstance(match_result, ExistingReportMatch):
                 report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
@@ -748,6 +753,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         reresearch_capped=False,
                         report_status=report.status,
                         report_signal_count=report.signal_count,
+                        promotion_suppressed=False,
                     )
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
@@ -813,12 +819,20 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     and report.signal_count >= report.signals_at_run
                 )
             ):
+                if suppress_promotion:
+                    # The team's org is over its self-driving credits quota with enforcement on: the signal is still
+                    # assigned, weighted, and emitted, but no summary run spawns. The status is left
+                    # untouched, so the first matching signal after the quota lifts re-evaluates
+                    # promotion under the same rules.
+                    promotion_suppressed = True
                 # If candidate got here - it usually means CH issue down the way
                 # (e.g. CH wait raised before start_child_workflow)
-                if report.status != SignalReport.Status.CANDIDATE:
+                elif report.status != SignalReport.Status.CANDIDATE:
                     updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                     report.save(update_fields=updated_fields)
-                promoted = True
+                    promoted = True
+                else:
+                    promoted = True
 
             report_id = str(report.id)
 
@@ -856,12 +870,16 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 reresearch_capped=reresearch_capped,
                 report_status=report.status,
                 report_signal_count=report.signal_count,
+                promotion_suppressed=promotion_suppressed,
             )
 
     try:
-        db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
-
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        # Resolved before the assign transaction: the quota gate is Redis + flag network I/O that
+        # must not run while holding the report row lock.
+        quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
+
+        db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(quota_gate.enforced)
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
@@ -949,6 +967,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         team_id=input.team_id,
                         source_id=input.source_id,
                     )
+            # Emitted only when the signal would have promoted the report, so the event volume
+            # measures withheld summary runs rather than every assignment on a limited team.
+            if quota_gate.limited and (db_result.promoted or db_result.promotion_suppressed):
+                capture_signal_report_quota_paused(
+                    team, report_id=db_result.report_id, stage="promotion", enforced=quota_gate.enforced
+                )
 
         if not db_result.matched_deleted_report:
             metrics.increment_funnel(metrics.FUNNEL_STAGE_GROUPED, input.source_product)
@@ -968,6 +992,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted=db_result.promoted,
             timestamp=db_result.timestamp,
             run_count=db_result.run_count,
+            research_debounce_seconds=RESEARCH_DEBOUNCE_SECONDS,
         )
     except Exception as e:
         logger.exception(
@@ -1330,7 +1355,11 @@ async def _process_signal_batch(
 
             if assign_result.promoted:
                 promoted_reports[assign_result.report_id] = (
-                    SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=assign_result.report_id),
+                    SignalReportSummaryWorkflowInputs(
+                        team_id=signal.team_id,
+                        report_id=assign_result.report_id,
+                        debounce_seconds=assign_result.research_debounce_seconds,
+                    ),
                     assign_result.run_count,
                 )
 
@@ -1374,11 +1403,10 @@ async def _process_signal_batch(
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=timedelta(hours=1),
+                execution_timeout=timedelta(hours=1, seconds=report_input.debounce_seconds),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
-            # Expected when CANDIDATE re-promotion fires against an in-flight workflow; no-op.
-            pass
+            metrics.increment_research_run_collapsed()
         except Exception:
             # Log and continue: raising here would reprocess the whole batch and double-count
             # signals. The report stays CANDIDATE and re-promotes on the next matching signal.

@@ -5,6 +5,7 @@ from slack_sdk.errors import SlackApiError
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.email import EmailDeliveryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
@@ -26,6 +27,11 @@ from ee.tasks.subscriptions.auto_disable import (
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult, get_slack_integration_for_team
 
 LOGGER = get_logger(__name__)
+
+# Cap recipient_results echoed into an ApplicationError's details — Temporal serializes error
+# details into history events capped at the gRPC payload limit, and an oversized non-retryable
+# error can't be recorded, leaving the workflow unable to complete its failing task.
+_MAX_ERROR_DETAIL_RESULTS = 50
 
 
 def strip_null_bytes(value: Any) -> Any:
@@ -95,7 +101,7 @@ async def deliver_email(
     )
 
     success_count = 0
-    last_error: Exception | None = None
+    failures: list[tuple[str, Exception]] = []
     for email in emails:
         try:
             await send_one(email)
@@ -117,7 +123,7 @@ async def deliver_email(
                     recipient=email, status="failed", error={"message": str(exc), "type": type(exc).__name__}
                 )
             )
-            last_error = exc
+            failures.append((email, exc))
 
     await LOGGER.ainfo(
         "deliver_subscription.email_complete",
@@ -126,8 +132,33 @@ async def deliver_email(
         total_count=len(emails),
     )
 
-    if last_error is not None and success_count == 0:
-        raise last_error
+    if failures and success_count == 0:
+        # Whole batch failed. Retryability is decided per recipient, not by which error
+        # happened to be last: any transient failure means a retry must run so those
+        # recipients get another attempt (dedupe skips the already-delivered ones). Only
+        # when every recipient hit a permanent rejection (EmailDeliveryError) is the batch
+        # non-retryable — retrying then could never succeed.
+        # Bound the error details: a huge recipient list with a domain-wide bounce would
+        # otherwise exceed Temporal's gRPC payload cap and wedge the workflow mid-failure.
+        details: list[dict[str, Any]] = [
+            {
+                "recipient": result.recipient,
+                "status": result.status,
+                **({"error": result.error} if result.error else {}),
+            }
+            for result in recipient_results[:_MAX_ERROR_DETAIL_RESULTS]
+        ]
+        if len(recipient_results) > _MAX_ERROR_DETAIL_RESULTS:
+            details.append({"truncated_count": len(recipient_results) - _MAX_ERROR_DETAIL_RESULTS})
+        permanent = [err for _, err in failures if isinstance(err, EmailDeliveryError)]
+        if permanent and len(permanent) == len(failures):
+            raise ApplicationError(
+                f"all {len(failures)} recipients permanently rejected delivery",
+                {"recipient_results": details},
+                non_retryable=True,
+            ) from permanent[0]
+        # Mixed or all-transient: re-raise a retryable error so Temporal retries the batch.
+        raise next(err for _, err in failures if not isinstance(err, EmailDeliveryError))
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 
