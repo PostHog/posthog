@@ -85,7 +85,6 @@ DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME = {
 }
 
 WEEKDAY_SET = {"monday", "tuesday", "wednesday", "thursday", "friday"}
-ALL_WEEKDAY_NAMES = set(DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME)
 
 
 @dataclass
@@ -470,7 +469,8 @@ class Subscription(ModelActivityMixin, models.Model):
                     day_label = "day"
                 summary += f" on the {human_bysetpos} {day_label}"
             elif self.byweekday and (
-                self.frequency != self.SubscriptionFrequency.DAILY or set(self.byweekday) != ALL_WEEKDAY_NAMES
+                self.frequency != self.SubscriptionFrequency.DAILY
+                or set(self.byweekday) != set(DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME)
             ):
                 if set(self.byweekday) == WEEKDAY_SET:
                     summary += " on weekdays"
