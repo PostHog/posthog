@@ -17,8 +17,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-// Headline providers the wizard's ai-observability program instruments. The full list (the
-// context-mill ai-observability skill group) has ~40 variants; the trailing chip covers the rest.
+// Headline picks from the ~40 variants of the context-mill ai-observability skill group.
 const AIO_WIZARD_SUPPORTS: WizardBadgeItem[] = [
     { name: 'OpenAI', icon: OpenAILogo },
     { name: 'Anthropic', icon: AnthropicLogo },

@@ -29,8 +29,7 @@ function LegacyInstallOptions({ wizardOverrides }: { wizardOverrides?: WizardOve
     return (
         <WizardInstallOptions
             onModeSelected={reportSelfDrivingOnboardingInstallModeSelected}
-            // The cloud runner only executes the base integration program, so any dedicated
-            // subcommand (e.g. ai-observability) hides the cloud arm until it supports programs.
+            // The cloud runner only executes the base integration program, not dedicated subcommands.
             offerCloudRun={!wizardOverrides}
             badges={wizardOverrides?.supports ? <WizardFrameworkBadges items={wizardOverrides.supports} /> : undefined}
             localBlock={

@@ -70,8 +70,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     // the dedup-survivor product would mislead users installing several at once.
     const isSdkInstallStep = currentFlowStep?.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS
     const installTitle = isSdkInstallStep ? 'Install' : productName ? `Install ${productName}` : 'Install your SDK'
-    // With two install steps in the flow (e.g. AI observability + product analytics), say what the
-    // shared SDK step is for — a bare second "Install" reads as a duplicate.
+    // With several install steps in one flow, a bare second "Install" reads as a duplicate.
     const installStepCount = flow.filter((step) => step.stepKey === OnboardingStepKey.INSTALL).length
     const installSubtitle =
         isSdkInstallStep && installStepCount > 1 && productName

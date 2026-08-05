@@ -27,9 +27,7 @@ const FreeTierItem = ({ limit }: { limit: FreeTierLimit }): JSX.Element => {
                 {getProductIcon(limit.icon, {
                     iconColor: limit.color,
                     className: 'w-6 h-6',
-                    // Billing icon_keys (e.g. AI observability, Logs) aren't all in the onboarding
-                    // icon map; the productType mapping wins so unknown keys don't fall back to the
-                    // logomark.
+                    // The productType mapping wins over billing icon_keys that ICON_MAP lacks.
                     productType: limit.productType,
                 })}
             </div>

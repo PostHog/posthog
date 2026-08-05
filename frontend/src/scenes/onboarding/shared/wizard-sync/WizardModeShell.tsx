@@ -21,7 +21,7 @@ import { ReactRouterLogo } from '../logos/ReactRouterLogo'
 import svelteImage from '../logos/svelte.svg'
 import vueImage from '../logos/vue.svg'
 
-/** One "Supports:" chip. Icon-less items render as a plain text chip (e.g. "+ 30 more"). */
+/** One "Supports:" chip; icon-less items (e.g. "+ 30 more") render as text only. */
 export interface WizardBadgeItem {
     name: string
     icon?: string | ComponentType

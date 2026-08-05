@@ -52,9 +52,8 @@ let seenAiEventsTeamId: number | null = null
 let inFlightAiEventsCheck: Promise<boolean> | null = null
 
 /**
- * Interval-friendly wrapper around `hasRecentAIEvents` for the onboarding install check:
- * remembers a positive result per team and shares one in-flight request between callers,
- * so several components polling at once don't each re-run the ClickHouse fallback.
+ * Shares one in-flight check and caches a hit per team, so the several install-step
+ * components polling at once run at most one ClickHouse probe per tick.
  */
 export function pollRecentAIEvents(teamId: number): Promise<boolean> {
     if (seenAiEventsTeamId === teamId) {

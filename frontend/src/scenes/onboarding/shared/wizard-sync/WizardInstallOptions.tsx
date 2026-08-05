@@ -28,7 +28,7 @@ export interface WizardInstallOptionsProps {
      * so offering it there would queue a run that can never succeed.
      */
     offerCloudRun?: boolean
-    /** Replaces the default framework badge row (e.g. LLM providers for a dedicated wizard program). */
+    /** Replaces the default framework badge row. */
     badges?: React.ReactNode
 }
 

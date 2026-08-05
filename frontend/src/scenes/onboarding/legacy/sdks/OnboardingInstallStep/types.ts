@@ -18,15 +18,14 @@ export interface SDKGridProps {
     showTopSkipButton: boolean
 }
 
-/** Points the wizard block at a dedicated program (e.g. `ai-observability`) instead of the plain SDK install. */
+/** Points the wizard install step at a dedicated program (e.g. `ai-observability`) instead of the plain SDK install. */
 export interface WizardOverrides {
-    /** Wizard subcommand, e.g. `ai-observability`. */
     subcommand: string
-    /** Replaces the default "what this does" line under the command. */
+    /** Replaces the "what this does" line under the command. */
     description: React.ReactNode
     /** Replaces the intro paragraph above the command block. */
     intro?: string
-    /** Replaces the framework "Supports:" badges (e.g. LLM providers). */
+    /** Replaces the framework "Supports:" badges. */
     supports?: WizardBadgeItem[]
 }
 
@@ -40,8 +39,7 @@ export interface VariantProps {
     selectedSDK: SDK | null
     header?: React.ReactNode
     wizardOverrides?: WizardOverrides
-    /** Step heading, e.g. "Install AI observability"; the deduped posthog-js step stays "Install". */
+    /** Step heading; the deduped posthog-js step deliberately stays a generic "Install". */
     installTitle: string
-    /** Explains the shared SDK step when the flow has several install steps. */
     installSubtitle?: string
 }
