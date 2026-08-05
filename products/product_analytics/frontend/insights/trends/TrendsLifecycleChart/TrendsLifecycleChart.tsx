@@ -28,6 +28,7 @@ import {
     LIFECYCLE_PERSONS_MODAL_OPTIONS,
     type TrendsChartClickDeps,
 } from '../shared/handleTrendsChartClick'
+import { hasTrendsChartData } from '../shared/hasTrendsChartData'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
@@ -80,10 +81,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
-    const hasData =
-        !!indexedResults?.[0] &&
-        !!indexedResults[0].data &&
-        indexedResults.some((r: IndexedTrendResult) => r.count !== 0)
+    const hasData = hasTrendsChartData(indexedResults)
 
     const formatValue = useCallback(
         (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),

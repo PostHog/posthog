@@ -38,6 +38,7 @@ import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
 import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
+import { hasTrendsChartData } from '../shared/hasTrendsChartData'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
@@ -129,13 +130,7 @@ export function TrendsBarChart({
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel, context?.groupTypeLabel)
 
-    const hasData =
-        !!indexedResults?.[0] &&
-        (isAggregated
-            ? indexedResults.some(
-                  (r: IndexedTrendResult) => Number.isFinite(r.aggregated_value) && r.aggregated_value !== 0
-              )
-            : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
+    const hasData = hasTrendsChartData(indexedResults)
 
     const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
 
