@@ -3,10 +3,10 @@ import { useCallback, useMemo } from 'react'
 
 import { DefaultTooltip, type TooltipContext } from '@posthog/quill-charts'
 
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { toOpaqueHex } from 'lib/utils/colors'
+import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { parseDateInTimezone } from 'lib/utils/datetime'
 import { percentage } from 'lib/utils/numbers'
+import { alphabet } from 'lib/utils/strings'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
     getDatumTitle,
@@ -130,12 +130,16 @@ export function SeriesLabel({
 
     const seriesLetter =
         seriesIdentification === 'letter-and-name' ? (
-            <SeriesLetter
+            <SeriesGlyph
                 className="mr-1 shrink-0"
-                hasBreakdown={hasBreakdown}
-                seriesIndex={datum.action?.order ?? datum.order}
-                seriesColor={datum.color ? toOpaqueHex(datum.color) : undefined}
-            />
+                // The tooltip surface sets its own text color and stays light even in dark
+                // mode, so theme vars like --text-3000 can end up invisible on it — inherit
+                // the surface's ink instead.
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ color: 'currentColor', borderColor: 'currentColor' }}
+            >
+                {alphabet[datum.action?.order ?? datum.order]}
+            </SeriesGlyph>
         ) : null
 
     if (!hasBreakdown && !datum.compare_label) {
