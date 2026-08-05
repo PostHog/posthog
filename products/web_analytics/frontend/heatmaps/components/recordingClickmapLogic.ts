@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 import { RefObject } from 'react'
 
-import api from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import type { CommonFilters } from 'lib/components/heatmaps/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -20,7 +19,7 @@ import { ElementsEventType } from '~/toolbar/types'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 import type { TeamPublicType, TeamType } from '~/types'
 
-import { getElementsStatsRetrieveUrl } from 'products/product_analytics/frontend/generated/api'
+import { elementsStatsRetrieve } from 'products/product_analytics/frontend/generated/api'
 import type {
     ElementStatsResponseApi,
     ElementsStatsRetrieveParams,
@@ -365,9 +364,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                         values.commonFilters,
                         values.wantedDataAttributes
                     )
-                    const response = await api.get<ElementStatsResponseApi>(
-                        getElementsStatsRetrieveUrl(String(values.currentProjectId), params)
-                    )
+                    const response = await elementsStatsRetrieve(String(values.currentProjectId), params)
                     breakpoint()
                     return response
                 },
