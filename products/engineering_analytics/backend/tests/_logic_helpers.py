@@ -211,5 +211,19 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                 _run_row(
                     2003, "Deploy", "sha10b", "completed", "success", _ago(1), _ago(1), pr_number=10, run_attempt=2
                 ),
+                # PR 10 queued to merge: the gate run is credited to PR 10 (its branch names it) but
+                # its head SHA is a rebase the queue made, so it must not read as a third push.
+                _run_row(
+                    2004,
+                    "Deploy",
+                    "sha10queue",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=9001,
+                    head_branch="trunk-merge/pr-10/cabec75e-5181-4429-aea5-0501a52d0688",
+                    actor="trunk-io[bot]",
+                ),
             ],
         )

@@ -559,6 +559,29 @@ describe('experimentLogic', () => {
             )
         })
 
+        it.each([
+            ['variant notes', (): void => logic.actions.updateExperimentVariantNotes({ control: 'a note' })],
+            ['variant images', (): void => logic.actions.updateExperimentVariantImages({ control: ['media-id-1'] })],
+        ])('includes the concurrency payload on the raw %s write path', async (_name, dispatch) => {
+            const snapshot = { ...experiment, version: 6 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue({ ...snapshot, version: 7 })
+
+            await expectLogic(logic, dispatch).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    version: 6,
+                    original_experiment: expect.objectContaining({ metrics: snapshot.metrics }),
+                })
+            )
+            // The write bumped the version server-side; the snapshot must absorb the response,
+            // or every later save from this tab is stale and can 409.
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(7)
+        })
+
         it('reloads fresh state but keeps the rejected scalar edit on a version conflict', async () => {
             const snapshot = { ...experiment, version: 1 } as Experiment
             logic.actions.setUnmodifiedExperiment(snapshot)
@@ -1854,7 +1877,7 @@ describe('experimentLogic', () => {
             api.update.mockClear()
         })
 
-        it('sends variant split and holdout via experiment update with update_feature_flag_params', async () => {
+        it('sends variant split via experiment update without resending an unchanged holdout', async () => {
             const updatedExperiment = {
                 ...experiment,
                 parameters: {
@@ -1867,6 +1890,7 @@ describe('experimentLogic', () => {
             }
             api.update.mockResolvedValue(updatedExperiment)
 
+            logic.actions.setUnmodifiedExperiment(experiment)
             logic.actions.setExperiment(experiment)
 
             await expectLogic(logic, () => {
@@ -1889,14 +1913,35 @@ describe('experimentLogic', () => {
                             },
                         },
                     },
-                    holdout_id: experiment.holdout_id,
                     update_feature_flag_params: true,
                 })
             )
+            // An unchanged holdout must not ride along: resending it makes every stale
+            // distribution save read as a holdout edit and conflict server-side.
+            expect(api.update.mock.calls[0][1]).not.toHaveProperty('holdout_id')
             // No rollout group when the caller omits rolloutPercentage (the modal itself always
             // passes one; this covers the omit branch)
             const sentFlagFilters = (api.update.mock.calls[0][1] as Record<string, any>).feature_flag.filters
             expect(sentFlagFilters).not.toHaveProperty('groups')
+        })
+
+        it('sends holdout_id when the user changed it since the last save', async () => {
+            api.update.mockResolvedValue(experiment)
+
+            logic.actions.setUnmodifiedExperiment({ ...experiment, holdout_id: null } as Experiment)
+            logic.actions.setExperiment({ ...experiment, holdout_id: 42 } as Experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateDistribution([
+                    { key: 'control', rollout_percentage: 60 },
+                    { key: 'test', rollout_percentage: 40 },
+                ])
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ holdout_id: 42 })
+            )
         })
 
         it('does not call feature flag API directly', async () => {

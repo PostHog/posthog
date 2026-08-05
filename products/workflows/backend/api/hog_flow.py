@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -80,6 +81,7 @@ from products.feature_flags.backend.user_blast_radius import (
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
+from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.api.action_redirects import compute_action_redirects
@@ -466,6 +468,135 @@ def _looks_like_uuid(value: str) -> bool:
         return True
     except (ValueError, AttributeError, TypeError):
         return False
+
+
+def _parse_uuid_or_none(value: Any) -> Optional[uuid_mod.UUID]:
+    try:
+        return uuid_mod.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: str) -> str:
+    """template_id on fixed-template steps is fully determined by the step type, so infer it when
+    omitted instead of rejecting for leaving out a constant, and move a UUID-shaped value (a saved
+    library template reference, the dominant authoring mistake) into config.template_uuid where it
+    belongs. Returns the template_id the step should resolve."""
+    if not template_id:
+        config["template_id"] = fixed_template_id
+        return fixed_template_id
+    if template_id == fixed_template_id:
+        return template_id
+    library_uuid = _parse_uuid_or_none(template_id)
+    if library_uuid is None:
+        return template_id
+    if config.get("template_uuid") and _parse_uuid_or_none(config["template_uuid"]) != library_uuid:
+        raise serializers.ValidationError(
+            {
+                "template_id": (
+                    f"Ambiguous template reference: template_id holds UUID '{template_id}' but "
+                    f"config.template_uuid is already '{config['template_uuid']}'. Set template_id "
+                    f"to the literal '{fixed_template_id}' and keep the saved template's UUID in "
+                    "config.template_uuid."
+                )
+            }
+        )
+    # Persist the canonical hyphenated form: uuid.UUID also accepts 32-hex, braced, and URN
+    # forms, but the CDP worker validates function_push's template_uuid with a strict UUID
+    # schema, so a non-canonical form would save fine and then fail the worker's parse.
+    config["template_uuid"] = str(library_uuid)
+    config["template_id"] = fixed_template_id
+    return fixed_template_id
+
+
+# Email-body keys a saved library template can supply. `from`/`to` are deliberately absent:
+# sender identity and the recipient expression are step-level decisions, so they always come
+# from the caller.
+_TEMPLATE_EMAIL_BODY_KEYS = ("subject", "text", "html", "design")
+
+# Materialization must not persist more content than the request-body ceiling lets a caller
+# send inline: many tiny steps referencing one large template would otherwise amplify a small
+# request into an oversized write. Cumulative across all steps in one save.
+MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+
+
+def _apply_email_template_content(config: dict, team: Team, strict: bool, context: dict) -> None:
+    """Materialize a referenced saved template's email body into the step's inputs at save,
+    mirroring what the web editor does when a template is picked (snapshot semantics: later
+    template edits don't propagate). Only fires when the caller supplied no body at all — a
+    caller-authored body always wins, and then template_uuid is provenance only. Under strict
+    (programmatic) validation an unresolvable reference is a 400; lenient web/internal saves
+    skip it so re-saves of already-accepted drafts can't start failing."""
+    template_uuid = config.get("template_uuid")
+    if not template_uuid:
+        return
+    inputs = config.get("inputs")
+    email_input = inputs.get("email") if isinstance(inputs, dict) else None
+    value = email_input.get("value") if isinstance(email_input, dict) else None
+    if isinstance(value, dict) and any(value.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
+        return
+
+    try:
+        parsed_uuid = uuid_mod.UUID(str(template_uuid))
+    except (ValueError, AttributeError, TypeError):
+        parsed_uuid = None
+    # Memoized per request: a drip sequence reuses one template across steps, and the actions
+    # list validates one action at a time, so without this each step re-queries the same row.
+    # The context dict is shared across the many=True action list, so the memo (and the
+    # materialized-bytes counter below) span all steps in one request.
+    template_cache: dict[str, Optional[MessageTemplate]] = context.setdefault("_message_template_cache", {})
+    cache_key = str(parsed_uuid)
+    if parsed_uuid is None:
+        template = None
+    elif cache_key in template_cache:
+        template = template_cache[cache_key]
+    else:
+        template = MessageTemplate.objects.filter(team_id=team.id, id=parsed_uuid, deleted=False).first()
+        template_cache[cache_key] = template
+    email_content = (template.content or {}).get("email") if template else None
+    if not isinstance(email_content, dict) or not any(email_content.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
+        if strict:
+            raise serializers.ValidationError(
+                {
+                    "template_uuid": (
+                        f"template_uuid '{str(template_uuid)[:100]}' doesn't match a saved email template in "
+                        "this project. List templates with workflows-list-email-templates, or author the email "
+                        "inline in config.inputs.email.value."
+                    )
+                }
+            )
+        return
+
+    body = {key: email_content[key] for key in _TEMPLATE_EMAIL_BODY_KEYS if email_content.get(key)}
+    # Applies on lenient saves too: the lenient path is caller-selectable (a request header),
+    # so a strict-only cap would leave the amplification open.
+    materialized_bytes = context.get("_materialized_template_bytes", 0) + len(json.dumps(body))
+    if materialized_bytes > MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES:
+        raise serializers.ValidationError(
+            {
+                "template_uuid": (
+                    "Referenced templates expand into too much email content for one workflow save. "
+                    "Use fewer or smaller templates, or author the email bodies inline."
+                )
+            }
+        )
+    context["_materialized_template_bytes"] = materialized_bytes
+    # Body keys are template-sourced once materialization is decided: a falsy placeholder the
+    # detection above just ignored (subject: null) must not clobber the template's content.
+    carried_over = (
+        {key: item for key, item in value.items() if key not in _TEMPLATE_EMAIL_BODY_KEYS}
+        if isinstance(value, dict)
+        else {}
+    )
+    merged_value = {**body, **carried_over}
+    merged_input = dict(email_input) if isinstance(email_input, dict) else {}
+    merged_input["value"] = merged_value
+    # Library template content is always Liquid; only default it, never override the caller.
+    merged_input.setdefault("templating", "liquid")
+    if not isinstance(inputs, dict):
+        inputs = {}
+        config["inputs"] = inputs
+    inputs["email"] = merged_input
 
 
 def _describe_unknown_template(action: dict, template_id: str) -> str:
@@ -990,7 +1121,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
 
         if "function" in data.get("type", "") or trigger_is_function:
-            template_id = data.get("config", {}).get("template_id", "")
+            config = data.setdefault("config", {})
+            template_id = config.get("template_id", "")
+            fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
+            if fixed_template_id:
+                template_id = _apply_fixed_template_id(config, template_id, fixed_template_id)
+            # After the fixed-id coercion, so a library UUID sent as template_id (the dominant
+            # authoring mistake) lands in template_uuid first and still gets materialized.
+            if data.get("type") == "function_email" and config.get("template_uuid"):
+                # get_team is absent when the serializer runs outside a request (internal
+                # re-saves, direct construction) - no team to resolve against, so skip.
+                get_team = self.context.get("get_team")
+                if get_team is not None:
+                    _apply_email_template_content(config, get_team(), strict, self.context)
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 if strict:
