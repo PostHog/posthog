@@ -1,6 +1,7 @@
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
+<!-- First line: what breaks, or what nobody can do, and for whom. The code path that causes it goes underneath. -->
 
 <!-- Does this fix an issue? Uncomment the line below with the issue ID to automatically close it when merged -->
 <!-- Closes #ISSUE_ID -->
@@ -18,6 +19,7 @@
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
 <!-- Agents: do NOT claim manual testing you haven't done. State what the agent wasn't able to do and list only the automated tests you (the agent) actually ran. -->
 <!-- Added or changed tests? Name the regression each group catches that no existing test did — if you can't name it, it probably shouldn't be in this PR. https://posthog.com/handbook/engineering/conventions/backend-coding#testing -->
+<!-- Don't recite pass counts for suites CI runs; the checks report those. Long transcripts go in a <details> block. -->
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
@@ -46,7 +48,7 @@
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
      - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.
      - skills invoked: always explicitly call out any repo-provided or public skills (e.g. /django-migrations, /improving-drf-endpoints) that were invoked while producing this PR. This helps reviewers judge where and how the code was shaped by an agent.
-     - decisions made along the way (what was tried, rejected, chosen, and why)
+     - decisions made along the way: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes instead, where a reviewer will actually see it.
      - anything else that helps reviewers
      Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
      This is the ONLY section that should contain descriptions of what this PR might have looked like before its present final state.
@@ -70,5 +72,5 @@
 - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
-- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: put each fact in the form that reads fastest (screenshot, diagram, table, bullet), cut what a reviewer doesn't need, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
+- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead with the effect a person sees rather than the code path behind it, put each fact in the form that reads fastest (screenshot, diagram, table, bullet), cut what a reviewer doesn't need, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
 -->
