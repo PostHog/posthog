@@ -1,4 +1,7 @@
-import { InitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
+    InitialPermissionModeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 /** The permission modes exposed by the PostHog AI composer. */
 export type PermissionMode =
@@ -38,6 +41,19 @@ export const MODE_OPTIONS: ComposerModeOption[] = [
 // selections and runs started before the retirement keep resolving to a real option.
 const LEGACY_MODE_ALIASES: Record<string, PermissionMode> = {
     [InitialPermissionModeEnumApi.AcceptEdits]: InitialPermissionModeEnumApi.Auto,
+}
+
+// The composer offers one set of permission concepts, but each runtime names them differently and validates
+// against its own vocabulary. Codex shares `auto` and `plan`; its equivalent of Claude's `bypassPermissions` is
+// `full-access`. Translating at send time is what lets the picker stay runtime-agnostic.
+const CODEX_MODE_BY_COMPOSER_MODE: Record<PermissionMode, CodexTaskRunCreateSchemaInitialPermissionModeEnumApi> = {
+    [InitialPermissionModeEnumApi.Auto]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Auto,
+    [InitialPermissionModeEnumApi.Plan]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Plan,
+    [InitialPermissionModeEnumApi.BypassPermissions]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess,
+}
+
+export function toCodexPermissionMode(mode: PermissionMode): CodexTaskRunCreateSchemaInitialPermissionModeEnumApi {
+    return CODEX_MODE_BY_COMPOSER_MODE[mode]
 }
 
 export function getModeOption(mode: string | null | undefined): ComposerModeOption | undefined {

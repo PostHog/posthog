@@ -9,6 +9,7 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // surface is its primary content, so a second `lazy()` would only add a redundant chunk fetch + Suspense
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
+import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
@@ -54,6 +55,7 @@ export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunC
         currentModel: selectedRun?.state?.model,
         currentEffort: selectedRun?.state?.reasoning_effort,
         currentMode: selectedRun?.state?.initial_permission_mode,
+        currentRuntimeAdapter: selectedRun?.runtime_adapter,
         onRunStarted: (newRunId) => {
             setSelectedRunId(newRunId, taskId)
             loadTaskRuns()
@@ -119,6 +121,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
         consentBlocked,
         selectedMode,
     } = useValues(runInteractionLogic(logicProps))
+    const { catalogue } = useValues(modelCatalogueLogic)
     const {
         setComposerFormValues,
         submitComposerForm,
@@ -170,10 +173,14 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                         or used to seed the next run once terminal. */}
                         <ComposerModePicker selectedMode={selectedMode} onModeChange={setMode} />
                         <ComposerModelEffortPickers
+                            models={catalogue}
                             selectedModel={selectedModel}
                             selectedEffort={selectedEffort}
                             onModelChange={setModel}
                             onEffortChange={setEffort}
+                            // While the run is live its harness is fixed to whatever the sandbox booted; once
+                            // terminal the next send starts a fresh run, which may pick any harness.
+                            lockedRuntimeAdapter={isTerminal ? null : logicProps.currentRuntimeAdapter}
                         />
                     </Composer.Footer>
                 </Composer.Frame>
