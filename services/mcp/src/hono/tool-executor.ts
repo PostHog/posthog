@@ -536,6 +536,10 @@ interface ToolErrorClassification {
     validationFields?: string[]
     /** Top-level keys the caller sent — surfaces unaccepted aliases on a union rejection. */
     validationInputKeys?: string[]
+    /** Machine-readable leaf failure code: the API's validation error code or the exec rejection reason. */
+    errorCode?: string
+    /** Field path the API's validation error pointed at, array indexes normalized to `N`. */
+    errorField?: string
 }
 
 /**
@@ -566,7 +570,10 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     // ops alerts on. `missing_scope` is the exception: no input the agent sends
     // fixes it, the connection has to be reauthorized.
     if (error instanceof ExecCommandError) {
-        return { errorType: error.reason === 'missing_scope' ? 'permission' : 'validation' }
+        return {
+            errorType: error.reason === 'missing_scope' ? 'permission' : 'validation',
+            errorCode: error.reason,
+        }
     }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
@@ -577,7 +584,13 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
 
     const apiError = findRecoverableApiError(error)
     if (apiError instanceof PostHogValidationError) {
-        return { errorType: 'validation' }
+        const errorCode = apiError.code ? sanitizeErrorToken(apiError.code) : undefined
+        const errorField = apiError.attr ? normalizeErrorField(apiError.attr) : undefined
+        return {
+            errorType: 'validation',
+            ...(errorCode ? { errorCode } : {}),
+            ...(errorField ? { errorField } : {}),
+        }
     }
     if (apiError instanceof PostHogApiError && apiError.status === 429) {
         return { errorType: 'rate_limited', status: apiError.status }
@@ -594,6 +607,31 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
 // Mirrors the SDK's MAX_ERROR_MESSAGE_LENGTH so `$mcp_error_message` stays within
 // the bound external servers get when they pass `error` to the SDK.
 const MAX_ERROR_MESSAGE_LENGTH = 2048
+
+// Matches the truncation the MCP analytics queries apply to `$mcp_error_type`.
+const MAX_ERROR_TOKEN_LENGTH = 200
+
+/**
+ * DRF error codes and attrs are server-generated (field names and error codes,
+ * never caller values), but they cross a network boundary — strip control
+ * characters and cap length so a malformed body can't pollute the property.
+ */
+function sanitizeErrorToken(token: string): string | undefined {
+    const sanitized = token
+        .replace(/[\x00-\x1f\x7f]/g, '')
+        .trim()
+        .slice(0, MAX_ERROR_TOKEN_LENGTH)
+    return sanitized || undefined
+}
+
+/**
+ * Collapses array indexes in a DRF attr path (`actions__2__inputs__email`) to
+ * `N` so one leaf failure mode groups to one value regardless of where in the
+ * payload it occurred.
+ */
+function normalizeErrorField(attr: string): string | undefined {
+    return sanitizeErrorToken(attr.replace(/(^|__)\d+(?=__|$)/g, '$1N'))
+}
 
 /**
  * Extracts a capturable message from a thrown value, restricted to an allowlist
@@ -665,6 +703,9 @@ function safeUrlPath(url: string): string {
  * explicit value here overrides it. `$mcp_error_message` carries a sanitized,
  * allowlisted summary of the failure (see `extractErrorMessage`) so tool-quality
  * drill-downs can show what went wrong without persisting caller-derived text.
+ * `$mcp_error_code` / `$mcp_error_field` carry the machine-readable leaf failure
+ * mode (error code + normalized field path, never values) so validation failures
+ * are measurable per field instead of one undifferentiated `validation` bucket.
  */
 function errorAnalyticsProperties(classification: ToolErrorClassification, error: unknown): Record<string, unknown> {
     const message = extractErrorMessage(error)
@@ -675,6 +716,8 @@ function errorAnalyticsProperties(classification: ToolErrorClassification, error
         ...(classification.validationInputKeys?.length
             ? { $mcp_validation_input_keys: classification.validationInputKeys }
             : {}),
+        ...(classification.errorCode ? { $mcp_error_code: classification.errorCode } : {}),
+        ...(classification.errorField ? { $mcp_error_field: classification.errorField } : {}),
         ...(message !== undefined ? { $mcp_error_message: message } : {}),
     }
 }

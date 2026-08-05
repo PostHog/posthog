@@ -10,9 +10,10 @@ from django.test import TestCase
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
+from social_django.models import UserSocialAuth
 
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -122,6 +123,65 @@ class TestGitHubPRWebhook(TestCase):
         self.task_run.refresh_from_db()
         assert self.task_run.output is not None
         self.assertIs(self.task_run.output.get("pr_merged"), True)
+
+    @parameterized.expand(
+        [
+            ("resolvable_login", "Octocat", "merger-456", "merger-456"),
+            ("unresolvable_login", "stranger", None, "user-123"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_attributes_to_merger(
+        self, _name, merged_by_login, expected_property, expected_distinct_id, mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        merger = User.objects.create(email="merger@example.com", distinct_id="merger-456")
+        OrganizationMembership.objects.create(organization=self.organization, user=merger)
+        UserSocialAuth.objects.create(user=merger, provider="github", uid="583231", extra_data={"login": "octocat"})
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+                "merged_by": {"login": merged_by_login, "id": 583231},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["distinct_id"], expected_distinct_id)
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], merged_by_login)
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_id"], 583231)
+        self.assertEqual(call_kwargs["properties"].get("pr_merged_by_distinct_id"), expected_property)
+
+    @patch("products.tasks.backend.webhooks.resolve_org_github_login_to_users", side_effect=RuntimeError("boom"))
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_by_resolution_failure_keeps_webhook_successful(
+        self, mock_capture, mock_get_secret, _mock_resolve
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+                "merged_by": {"login": "octocat", "id": 583231},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["distinct_id"], "user-123")
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], "octocat")
+        self.assertNotIn("pr_merged_by_distinct_id", call_kwargs["properties"])
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")

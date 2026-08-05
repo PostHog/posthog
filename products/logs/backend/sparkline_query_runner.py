@@ -1,6 +1,6 @@
 from zoneinfo import ZoneInfo
 
-from posthog.schema import LogsSparklineBreakdownBy
+from posthog.schema import LogsSparklineBreakdownBy, LogsSparklineRankBy
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -8,6 +8,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.filters.mixins.utils import cached_property
 
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunner
@@ -19,6 +20,19 @@ BREAKDOWN_DB_FIELD: dict[LogsSparklineBreakdownBy, str] = {
 }
 
 DEFAULT_BREAKDOWN = LogsSparklineBreakdownBy.SEVERITY
+
+# Column each rank metric orders breakdown values by. Ranking by bytes matters when the caller
+# charts bytes: the top talkers by volume are not necessarily the top talkers by size.
+RANK_BY_FIELD: dict[LogsSparklineRankBy, str] = {
+    LogsSparklineRankBy.COUNT: "event_count",
+    LogsSparklineRankBy.BYTES: "bytes_uncompressed",
+}
+
+DEFAULT_RANK_BY = LogsSparklineRankBy.COUNT
+
+# How many breakdown values keep their own series before the tail is folded into one "other" row.
+# Matches what the sparkline UI charts, so collapsing here discards nothing that would be drawn.
+SPARKLINE_TOP_BREAKDOWN_VALUES = 10
 
 # The volume preview must return quickly or fail clearly. Its bytes breakdown sums
 # `_bytes_uncompressed`, which the minute-aggregate projection doesn't cover, so a
@@ -67,11 +81,14 @@ class SparklineQueryRunner(LogsQueryRunner):
         return LogsQueryResponse(results=results)
 
     def to_query(self) -> ast.SelectQuery:
+        # The row count is bounded by construction: the rollup in the joined subquery leaves at most
+        # SPARKLINE_TOP_BREAKDOWN_VALUES + 1 breakdown values, and BUCKET_TARGET holds the spine near
+        # 50 buckets, so ~550 rows is the ceiling for any range. The LIMIT below is a backstop.
         query = parse_select(
             """
                 SELECT
                     am.time_bucket AS time,
-                    {breakdown_field},
+                    ac.breakdown_value AS breakdown_value,
                     ifNull(ac.event_count, 0) AS count,
                     ifNull(ac.bytes_uncompressed, 0) AS bytes_uncompressed
                 FROM (
@@ -93,15 +110,40 @@ class SparklineQueryRunner(LogsQueryRunner):
                 ) AS am
                 LEFT JOIN (
                     SELECT
-                        toStartOfInterval({time_field}, {one_interval_period}) AS time,
-                        {breakdown_field},
-                        count() AS event_count,
-                        sum(_bytes_uncompressed) AS bytes_uncompressed
-                    FROM logs
-                    WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
-                    GROUP BY {breakdown_field}, time
+                        time,
+                        if(breakdown_rank <= {top_n}, breakdown_value, {other_label}) AS breakdown_value,
+                        sum(event_count) AS event_count,
+                        sum(bytes_uncompressed) AS bytes_uncompressed
+                    FROM (
+                        SELECT
+                            time,
+                            breakdown_value,
+                            event_count,
+                            bytes_uncompressed,
+                            dense_rank() OVER (ORDER BY breakdown_total DESC, breakdown_value ASC)
+                                AS breakdown_rank
+                        FROM (
+                            SELECT
+                                time,
+                                breakdown_value,
+                                event_count,
+                                bytes_uncompressed,
+                                sum({rank_field}) OVER (PARTITION BY breakdown_value) AS breakdown_total
+                            FROM (
+                                SELECT
+                                    toStartOfInterval({time_field}, {one_interval_period}) AS time,
+                                    {breakdown_field} AS breakdown_value,
+                                    count() AS event_count,
+                                    sum(_bytes_uncompressed) AS bytes_uncompressed
+                                FROM logs
+                                WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
+                                GROUP BY breakdown_value, time
+                            )
+                        )
+                    )
+                    GROUP BY time, breakdown_value
                 ) AS ac ON am.time_bucket = ac.time
-                ORDER BY time asc, {breakdown_field} asc
+                ORDER BY time asc, breakdown_value asc
                 LIMIT 1000
         """,
             placeholders={
@@ -116,6 +158,9 @@ class SparklineQueryRunner(LogsQueryRunner):
                 "breakdown_field": ast.Field(
                     chain=[BREAKDOWN_DB_FIELD[self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN]]
                 ),
+                "rank_field": ast.Field(chain=[RANK_BY_FIELD[self.query.sparklineRankBy or DEFAULT_RANK_BY]]),
+                "top_n": ast.Constant(value=SPARKLINE_TOP_BREAKDOWN_VALUES),
+                "other_label": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
             },
         )
         if not isinstance(query, ast.SelectQuery):
