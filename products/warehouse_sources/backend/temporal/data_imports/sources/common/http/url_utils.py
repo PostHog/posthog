@@ -25,6 +25,7 @@ _REDACT_PARAM_NAMES: Final[frozenset[str]] = frozenset(
         "apikey",
         "appid",  # OpenWeather passes the API key as the `appid` query param
         "access_token",
+        "appsecret_proof",  # Meta Graph API proof-of-app-secret (HMAC of the access token)
         "auth",
         "auth_token",
         "key",

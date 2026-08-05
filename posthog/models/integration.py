@@ -497,6 +497,7 @@ class Integration(models.Model):
         CUSTOMERIO_WEBHOOK = "customerio-webhook"
         DATABRICKS = "databricks"
         EMAIL = "email"
+        FACEBOOK_PAGES = "facebook-pages"
         FIREBASE = "firebase"
         GITHUB = "github"
         GITLAB = "gitlab"
@@ -674,6 +675,11 @@ def _build_posthog_slack_scope() -> str:
 
 POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
 
+# Page permissions the Facebook Pages warehouse source reads with. Meta accepts a comma- or
+# space-separated scope list; space matches the `requiredScopes` format the source declares, so the
+# two stay comparable. https://developers.facebook.com/docs/permissions/
+FACEBOOK_PAGES_SCOPE = "pages_show_list pages_read_engagement pages_read_user_content read_insights"
+
 
 def _salesforce_instance_host(instance_url: str | None) -> str | None:
     # Every Salesforce-issued instance_url host ends in .salesforce.com: login/test, the
@@ -794,6 +800,7 @@ class OauthIntegration:
         "tiktok-ads",
         "bing-ads",
         "meta-ads",
+        "facebook-pages",
         "intercom",
         "linear",
         "clickup",
@@ -1102,6 +1109,24 @@ class OauthIntegration:
                 client_id=settings.META_ADS_APP_CLIENT_ID,
                 client_secret=settings.META_ADS_APP_CLIENT_SECRET,
                 scope="ads_read",
+                id_path="id",
+                name_path="name",
+            )
+        elif kind == "facebook-pages":
+            # Shares the Meta Ads app registration: one Meta app, two grants. A separate kind keeps
+            # the Pages permissions off the Meta Ads consent screen (and vice versa), so connecting
+            # one never asks for access the other needs.
+            if not settings.META_ADS_APP_CLIENT_ID or not settings.META_ADS_APP_CLIENT_SECRET:
+                raise NotImplementedError("Facebook Pages app not configured")
+
+            return OauthConfig(
+                authorize_url=f"https://www.facebook.com/{MetaAdsIntegration.api_version}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/me",
+                token_info_config_fields=["id", "name"],
+                client_id=settings.META_ADS_APP_CLIENT_ID,
+                client_secret=settings.META_ADS_APP_CLIENT_SECRET,
+                scope=FACEBOOK_PAGES_SCOPE,
                 id_path="id",
                 name_path="name",
             )
@@ -3854,10 +3879,13 @@ class GitLabIntegration:
 class MetaAdsIntegration:
     integration: Integration
     api_version: str = "v25.0"
+    # Meta issues no refresh token: a long-lived user token is re-minted with `fb_exchange_token`.
+    # That is true of every kind running on a Meta app, so subclasses widen this to reuse the flow.
+    supported_kinds: tuple[str, ...] = ("meta-ads",)
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != "meta-ads":
-            raise Exception("MetaAdsIntegration init called with Integration with wrong 'kind'")
+        if integration.kind not in self.supported_kinds:
+            raise Exception(f"{type(self).__name__} init called with Integration with wrong 'kind'")
         self.integration = integration
 
     def refresh_access_token(self):
@@ -3907,6 +3935,12 @@ class MetaAdsIntegration:
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
         self.integration.save()
+
+
+class FacebookPagesIntegration(MetaAdsIntegration):
+    """Facebook Pages runs on the same Meta app as Meta Ads, so token handling is identical."""
+
+    supported_kinds = ("facebook-pages",)
 
 
 class TwilioIntegration:
