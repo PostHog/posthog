@@ -984,20 +984,16 @@ class AccessControlViewSetMixin(_GenericViewSet):
         organization_member: OrganizationMembership | None = None,
         role: Role | None = None,
     ) -> Response:
-        """Property restrictions belonging to one subject (anything below read & write)."""
+        """Property rules belonging to one subject, including read & write grants over a stricter default."""
         from products.access_control.backend.facade.api import (
             list_property_access_controls,  # noqa: PLC0415 — the facade imports ee models, a module-level import would be circular
         )
 
-        rules = [
-            rule
-            for rule in list_property_access_controls(
-                team_id=team.id,
-                organization_member_id=organization_member.id if organization_member else None,
-                role_id=role.id if role else None,
-            )
-            if rule.access_level.value != "read_write"
-        ]
+        rules = list_property_access_controls(
+            team_id=team.id,
+            organization_member_id=organization_member.id if organization_member else None,
+            role_id=role.id if role else None,
+        )
         definitions_by_id = {
             str(pd.id): pd
             for pd in PropertyDefinition.objects.filter(id__in=[rule.property_definition_id for rule in rules])

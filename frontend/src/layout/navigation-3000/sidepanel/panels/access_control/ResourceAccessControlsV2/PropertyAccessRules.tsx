@@ -20,9 +20,9 @@ import { AccessDetailSection } from './AccessDetailSection'
 import { addPropertyRestrictionModalLogic } from './addPropertyRestrictionModalLogic'
 import type { ScopeType } from './types'
 
-// The same levels and labels as the property definition page, minus read & write — a rule at
-// read & write is the default, expressed here by removing the rule.
-const PROPERTY_LEVEL_OPTIONS = PROPERTY_ACCESS_LEVEL_OPTIONS.filter((o) => o.value !== AccessLevelEnumApi.ReadWrite)
+// The same levels and labels as the property definition page. Read & write stays available:
+// an override can grant it over a more restrictive property default.
+const PROPERTY_LEVEL_OPTIONS = PROPERTY_ACCESS_LEVEL_OPTIONS
 
 function propertyLevelLabel(level: AccessLevelEnumApi): string | JSX.Element {
     return PROPERTY_ACCESS_LEVEL_OPTIONS.find((o) => o.value === level)?.label ?? level
@@ -62,11 +62,11 @@ export function PropertyAccessRules({
 
     return (
         <AccessDetailSection
-            title="Restricted properties"
+            title="Property rules"
             description={
                 scopeType === 'default'
-                    ? 'Properties nobody can read & write freely, unless they have a rule of their own. Default for every property is read & write.'
-                    : `Properties this ${subjectNoun} cannot read & write freely. Default for every property is read & write.`
+                    ? 'Property access that applies to everyone without a rule of their own. Default for every property is read & write.'
+                    : `This ${subjectNoun}'s access to specific properties. Default for every property is read & write.`
             }
         >
             <AddPropertyRuleModal projectId={projectId} scopeType={scopeType} subjectId={subjectId} />
@@ -117,7 +117,7 @@ export function PropertyAccessRules({
                                     status="danger"
                                     icon={<IconTrash />}
                                     disabledReason={editDisabledReason}
-                                    tooltip="Remove the restriction. Read & write applies instead."
+                                    tooltip="Remove the rule. The property's default applies instead."
                                     onClick={() => setPropertyRule(p.property_definition_id, null)}
                                 />
                             </div>
@@ -126,7 +126,7 @@ export function PropertyAccessRules({
                 ]}
                 dataSource={properties}
                 pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                emptyState={`No restricted properties for this ${subjectNoun}.`}
+                emptyState={`No property rules for this ${subjectNoun}.`}
             />
             <div>
                 <LemonButton
@@ -161,11 +161,11 @@ function AddPropertyRuleModal({
         <LemonModal
             isOpen={isOpen}
             onClose={closeModal}
-            title="Restrict a property"
+            title="Add property rule"
             description={
                 scopeType === 'default'
-                    ? "Limit everyone's access to a specific property."
-                    : `Limit this ${scopeType === 'role' ? 'role' : 'member'}'s access to a specific property.`
+                    ? "Set everyone's access to a specific property."
+                    : `Set this ${scopeType === 'role' ? 'role' : 'member'}'s access to a specific property.`
             }
             footer={
                 <>
