@@ -291,6 +291,28 @@ describe("TaskCommentsList", () => {
     });
   });
 
+  it("shows selected artifact text alongside its source", () => {
+    mocks.comments = [
+      comment({
+        item_context: {
+          anchor: {
+            kind: "text",
+            quote: "Purpose",
+            prefix: "",
+            suffix: "",
+            start: 0,
+            end: 7,
+          },
+        },
+      }),
+    ];
+
+    render(<TaskCommentsList task={task} timeline={[]} />);
+
+    expect(screen.getByText("report.md")).toBeTruthy();
+    expect(screen.getByText("“Purpose”")).toBeTruthy();
+  });
+
   it("loads canvas comments from a local-development artifact link", () => {
     mocks.runs = [];
     mocks.comments = [

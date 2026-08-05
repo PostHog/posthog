@@ -116,7 +116,7 @@ function SourceLabel({ thread }: { thread: TaskCommentThread }) {
   );
 }
 
-function CanvasCommentReference({
+function TextCommentReference({
   root,
   versionLabel,
 }: {
@@ -182,14 +182,13 @@ function ResourceThreadRow({
       resolution={resolution}
       busy={createComment.isPending || setResolved.isPending}
       source={
-        showSource ? (
-          <SourceLabel thread={thread} />
-        ) : (
-          <CanvasCommentReference
+        <>
+          {showSource && <SourceLabel thread={thread} />}
+          <TextCommentReference
             root={root}
             versionLabel={commentVersionLabel}
           />
-        )
+        </>
       }
       onSelect={onOpen}
       onReply={(content, mentions) =>

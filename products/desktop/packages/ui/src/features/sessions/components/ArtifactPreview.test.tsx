@@ -489,6 +489,35 @@ describe("ArtifactPreview", () => {
     expect(screen.queryByLabelText("Open comment thread")).toBeNull();
   });
 
+  it("highlights a Markdown comment that arrives after the preview renders", async () => {
+    Range.prototype.getClientRects = () =>
+      [{ left: 0, top: 0, width: 40, height: 12 }] as unknown as DOMRectList;
+    try {
+      useQuery.mockReturnValue({
+        data: "# Report",
+        isLoading: false,
+        isError: false,
+      });
+      const view = () => (
+        <ArtifactPreview
+          taskId="task-1"
+          runId="run-1"
+          artifactId="artifact-1"
+          name="report.md"
+        />
+      );
+      const { rerender } = render(view());
+      expect(screen.queryByLabelText("Open comment thread")).toBeNull();
+
+      artifactComments.data = [textComment()];
+      rerender(view());
+
+      expect(await screen.findByLabelText("Open comment thread")).toBeTruthy();
+    } finally {
+      Reflect.deleteProperty(Range.prototype, "getClientRects");
+    }
+  });
+
   // Both directions of the cross-pane bridge, since the list and the artifact
   // sit in sibling React trees and can only talk through the store. jsdom has
   // no layout, so the highlight geometry and the scroll are stubbed.
