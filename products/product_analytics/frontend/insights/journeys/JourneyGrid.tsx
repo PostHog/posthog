@@ -248,7 +248,11 @@ export function JourneyGrid({
 const CARD_STYLES: Record<JourneyGridRowKind, { container: string; text: string; dataAttr: string }> = {
     item: { container: 'border bg-surface-primary', text: '', dataAttr: 'journey-grid-node' },
     other: { container: 'border border-dashed bg-surface-primary', text: '', dataAttr: 'journey-grid-other-row' },
-    dropOff: { container: 'border border-transparent', text: 'text-secondary', dataAttr: 'journey-grid-drop-off-row' },
+    dropOff: {
+        container: 'border border-dashed bg-surface-primary',
+        text: 'text-secondary',
+        dataAttr: 'journey-grid-drop-off-row',
+    },
 }
 
 /** The card renders one column after the step its journeys end at, so the rendered 0-based column
@@ -348,15 +352,13 @@ function JourneyCard({
                 {!onChain && <span className="text-xs text-secondary">{percentage(row.fraction, 1)}</span>}
                 {onChain && <span className="text-xs text-secondary">on this path</span>}
             </div>
-            {row.kind !== 'dropOff' && (
-                <LemonProgress
-                    percent={Math.max(2, (onChain ? (chainFraction ?? 0) : row.fraction) * 100)}
-                    strokeColor={row.kind === 'other' ? 'var(--color-gray-400)' : nodeColor}
-                    bgColor="var(--color-fill-secondary)"
-                    smoothing={false}
-                    className="mt-1"
-                />
-            )}
+            <LemonProgress
+                percent={Math.max(2, (onChain ? (chainFraction ?? 0) : row.fraction) * 100)}
+                strokeColor={row.kind === 'item' ? nodeColor : 'var(--color-gray-400)'}
+                bgColor="var(--color-fill-secondary)"
+                smoothing={false}
+                className="mt-1"
+            />
         </div>
     )
 }
