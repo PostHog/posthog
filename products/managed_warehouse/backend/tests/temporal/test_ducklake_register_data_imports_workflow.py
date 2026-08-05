@@ -1,9 +1,11 @@
+import time
 import uuid
 import datetime as dt
+import threading
 import contextlib
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
@@ -167,7 +169,21 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     conn.__enter__ = MagicMock(return_value=conn)
     conn.__exit__ = MagicMock(return_value=False)
     conn.transaction.return_value.__enter__ = MagicMock()
-    conn.transaction.return_value.__exit__ = MagicMock(return_value=False)
+    stage_events: list[str] = []
+
+    def record_transaction_exit(*args: object) -> bool:
+        stage_events.append("transaction:exit")
+        return False
+
+    conn.transaction.return_value.__exit__ = MagicMock(side_effect=record_transaction_exit)
+
+    @contextlib.contextmanager
+    def stage_timer(*, stage: str, team_id: int, schema_id: str):
+        stage_events.append(f"{stage}:start")
+        yield MagicMock()
+        stage_events.append(f"{stage}:end")
+
+    monkeypatch.setattr(registration_module, "_stage_timer", stage_timer)
 
     def execute(query: object) -> MagicMock:
         query_text = str(query)
@@ -229,6 +245,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     assert len(verification_indexes) == 2
     assert max(registration_indexes) < min(verification_indexes)
     assert max(verification_indexes) < drop_live_index < rename_index
+    assert stage_events.index("publish:end") < stage_events.index("commit:start")
+    assert stage_events.index("commit:start") < stage_events.index("transaction:exit")
+    assert stage_events.index("transaction:exit") < stage_events.index("commit:end")
     assert any("SET PARTITIONED BY" in query for query in executed)
     workload_metrics.files_getter.assert_called_once_with(team_id=1, schema_id="schema")
     workload_metrics.rows_getter.assert_called_once_with(team_id=1, schema_id="schema")
@@ -236,6 +255,32 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.files.record.assert_called_once_with(2.0)
     workload_metrics.rows.record.assert_called_once_with(2.0)
     workload_metrics.bytes.record.assert_called_once_with(300.0)
+
+
+@pytest.mark.parametrize("trigger", ["cancelled", "deadline"])
+def test_duckgres_connection_is_interrupted_when_activity_ends(monkeypatch, trigger):
+    interrupted = threading.Event()
+    conn = MagicMock()
+    conn.cancel_safe.side_effect = lambda **kwargs: interrupted.set()
+    monkeypatch.setattr(registration_module.activity, "in_activity", lambda: True)
+    monkeypatch.setattr(registration_module.activity, "is_cancelled", lambda: trigger == "cancelled")
+    monkeypatch.setattr(registration_module, "_DUCKGRES_INTERRUPT_POLL_INTERVAL_SECONDS", 0.001)
+    deadline = time.monotonic() if trigger == "deadline" else None
+
+    with registration_module._interrupt_duckgres_on_activity_end(conn, MagicMock(), deadline):
+        assert interrupted.wait(timeout=1)
+
+    conn.cancel_safe.assert_called_once_with(timeout=registration_module._DUCKGRES_INTERRUPT_TIMEOUT_SECONDS)
+    conn.close.assert_not_called()
+
+
+def test_duckgres_connection_is_closed_when_cancellation_fails():
+    conn = MagicMock()
+    conn.cancel_safe.side_effect = RuntimeError("cancel failed")
+
+    registration_module._interrupt_duckgres_connection(conn, MagicMock(), threading.Event(), "deadline")
+
+    conn.close.assert_called_once_with()
 
 
 def test_copy_activity_does_not_touch_catalog_for_stale_generation(monkeypatch):
@@ -343,6 +388,12 @@ async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
     metrics.duration.record.assert_called_once_with(432.0)
     metrics.last_success_getter.assert_called_once_with(**metric_identifiers)
     metrics.last_success.set.assert_called_once_with(finished_at.timestamp())
+    copy_call = next(
+        activity_call
+        for activity_call in execute_activity.await_args_list
+        if activity_call.args[0] is registration_module.copy_and_register_ducklake_data_imports_activity
+    )
+    assert copy_call.kwargs["retry_policy"].maximum_attempts == 1
     assert _recorded_source_job_statuses(execute_activity) == [
         registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
         registration_module.ManagedWarehouseSourceJobStatus.COMPLETED,
@@ -366,7 +417,10 @@ async def test_workflow_skips_source_job_state_for_pre_patch_history(monkeypatch
 
     await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
 
-    patched.assert_called_once_with(registration_module._SOURCE_JOB_STATE_PATCH_ID)
+    assert patched.call_args_list == [
+        call(registration_module._SOURCE_JOB_STATE_PATCH_ID),
+        call(registration_module._NON_OVERLAPPING_REGISTRATION_PATCH_ID),
+    ]
     assert _recorded_source_job_statuses(execute_activity) == []
     metrics.finished_getter.assert_called_once_with(
         team_id=1,

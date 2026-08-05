@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import re
 import json
+import time
 import uuid
 import typing
 import hashlib
 import datetime as dt
+import threading
 import contextlib
 import dataclasses
 from collections.abc import Iterator
+from contextvars import copy_context
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -16,6 +19,7 @@ from django.db import close_old_connections
 import psycopg
 from psycopg import sql as psql
 from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
@@ -66,6 +70,11 @@ DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
 S3_COPY_BATCH_SIZE = 16
 _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
+_NON_OVERLAPPING_REGISTRATION_PATCH_ID = "ducklake-register-non-overlapping-activity-2026-08"
+_ACTIVITY_DEADLINE_MARGIN = dt.timedelta(minutes=1)
+_DUCKGRES_INTERRUPT_POLL_INTERVAL_SECONDS = 0.5
+_DUCKGRES_INTERRUPT_TIMEOUT_SECONDS = 5.0
+_DUCKGRES_INTERRUPT_GRACE_SECONDS = 5.0
 
 
 def _register_source_job_update(
@@ -317,6 +326,7 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
     if not settings.TEST:
         close_old_connections()
 
+    activity_deadline = _activity_deadline()
     heartbeater = HeartbeaterSync(
         details=("ducklake_register_data_imports", inputs.metadata.source_schema_id),
         logger=logger,
@@ -336,7 +346,8 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
 
         try:
             with _connect_to_duckgres_for_team(inputs.team_id) as conn:
-                registered_rows = _register_prepared_parquet_files(inputs, conn, landing_paths)
+                with _interrupt_duckgres_on_activity_end(conn, logger, activity_deadline):
+                    registered_rows = _register_prepared_parquet_files(inputs, conn, landing_paths)
         except _StalePreparedGenerationError:
             get_ducklake_register_data_imports_stale_metric(
                 team_id=inputs.team_id, schema_id=schema_id, stage="publish"
@@ -474,6 +485,76 @@ def _prepared_generation_is_current(inputs: DuckLakeRegisterDataImportsActivityI
     return schema.table is not None and schema.table.queryable_folder == inputs.metadata.prepared_queryable_folder
 
 
+def _activity_deadline() -> float | None:
+    if not activity.in_activity():
+        return None
+    start_to_close_timeout = activity.info().start_to_close_timeout
+    if start_to_close_timeout is None:
+        return None
+    usable_budget = start_to_close_timeout - _ACTIVITY_DEADLINE_MARGIN
+    if usable_budget <= dt.timedelta():
+        return time.monotonic()
+    return time.monotonic() + usable_budget.total_seconds()
+
+
+def _interrupt_duckgres_connection(
+    conn: psycopg.Connection,
+    logger: FilteringBoundLogger,
+    stop_event: threading.Event,
+    reason: str,
+) -> None:
+    logger.warning("Interrupting Duckgres data import registration", reason=reason)
+    try:
+        conn.cancel_safe(timeout=_DUCKGRES_INTERRUPT_TIMEOUT_SECONDS)
+    except Exception as error:
+        logger.warning("Failed to cancel Duckgres data import registration", reason=reason, error=str(error))
+        try:
+            conn.close()
+        except Exception:
+            logger.exception("Failed to close interrupted Duckgres data import registration connection")
+        return
+
+    if stop_event.wait(_DUCKGRES_INTERRUPT_GRACE_SECONDS):
+        return
+    try:
+        conn.close()
+    except Exception:
+        logger.exception("Failed to close interrupted Duckgres data import registration connection")
+
+
+@contextlib.contextmanager
+def _interrupt_duckgres_on_activity_end(
+    conn: psycopg.Connection,
+    logger: FilteringBoundLogger,
+    deadline: float | None,
+) -> Iterator[None]:
+    if not activity.in_activity():
+        yield
+        return
+
+    stop_event = threading.Event()
+
+    def watch_activity() -> None:
+        while not stop_event.wait(_DUCKGRES_INTERRUPT_POLL_INTERVAL_SECONDS):
+            reason = None
+            if activity.is_cancelled():
+                reason = "cancelled"
+            elif deadline is not None and time.monotonic() >= deadline:
+                reason = "deadline"
+            if reason is not None:
+                _interrupt_duckgres_connection(conn, logger, stop_event, reason)
+                return
+
+    context = copy_context()
+    watcher = threading.Thread(target=context.run, args=(watch_activity,), daemon=True)
+    watcher.start()
+    try:
+        yield
+    finally:
+        stop_event.set()
+        watcher.join()
+
+
 @contextlib.contextmanager
 def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
     if is_dev_mode():
@@ -501,7 +582,11 @@ def _register_prepared_parquet_files(
     partition_columns = _hive_partition_columns(inputs.metadata.landing_uri, landing_paths)
 
     setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
-    with conn.transaction():
+    with _timed_transaction(
+        conn,
+        team_id=inputs.team_id,
+        schema_id=inputs.metadata.source_schema_id,
+    ):
         with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
             conn.execute(
@@ -587,6 +672,25 @@ def _register_prepared_parquet_files(
     return registered_count
 
 
+@contextlib.contextmanager
+def _timed_transaction(
+    conn: psycopg.Connection,
+    *,
+    team_id: int,
+    schema_id: str,
+) -> Iterator[None]:
+    transaction = conn.transaction()
+    transaction.__enter__()
+    try:
+        yield
+    except BaseException as error:
+        transaction.__exit__(type(error), error, error.__traceback__)
+        raise
+    else:
+        with _stage_timer(stage="commit", team_id=team_id, schema_id=schema_id):
+            transaction.__exit__(None, None, None)
+
+
 def _data_imports_shadow_table_name(inputs: DuckLakeRegisterDataImportsActivityInputs) -> str:
     schema_fragment = re.sub(r"[^A-Za-z0-9]", "", inputs.metadata.source_schema_id)[:8]
     job_fragment = re.sub(r"[^A-Za-z0-9]", "", inputs.job_id)[:8]
@@ -670,12 +774,13 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                 job_id=inputs.job_id,
                 metadata=metadata,
             )
+            use_non_overlapping_activity = workflow.patched(_NON_OVERLAPPING_REGISTRATION_PATCH_ID)
             copy_applied = await workflow.execute_activity(
                 copy_and_register_ducklake_data_imports_activity,
                 activity_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=30),
                 heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2),
+                retry_policy=RetryPolicy(maximum_attempts=1 if use_non_overlapping_activity else 2),
             )
             if not copy_applied:
                 status = "stale"
