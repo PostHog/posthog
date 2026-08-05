@@ -296,6 +296,7 @@ class Subscription(ModelActivityMixin, models.Model):
             rrule_fields.get("frequency") == Subscription.SubscriptionFrequency.DAILY
             and interval % 7 == 0
             and byweekday
+            and start_date
             and start_date.strftime("%A").lower() not in byweekday
         ):
             return None

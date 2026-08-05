@@ -40,11 +40,9 @@ class TestSubscriptionScheduling:
         )
 
         assert subscription.summary == "sent every week on Monday, Wednesday and Friday"
-        assert list(subscription.rrule[:3]) == [
-            datetime(2026, 8, 3, 9, tzinfo=ZoneInfo("UTC")),
-            datetime(2026, 8, 5, 9, tzinfo=ZoneInfo("UTC")),
-            datetime(2026, 8, 7, 9, tzinfo=ZoneInfo("UTC")),
-        ]
+        assert subscription.rrule[0] == datetime(2026, 8, 3, 9, tzinfo=ZoneInfo("UTC"))
+        assert subscription.rrule[1] == datetime(2026, 8, 5, 9, tzinfo=ZoneInfo("UTC"))
+        assert subscription.rrule[2] == datetime(2026, 8, 7, 9, tzinfo=ZoneInfo("UTC"))
 
     @parameterized.expand(
         [
