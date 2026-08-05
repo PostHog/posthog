@@ -1476,7 +1476,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (session.clearing) {
       // A /clear is swapping the SDK query: there is no turn to cancel, and
       // interrupting the half-initialized replacement would corrupt the swap.
-      // A wedged clear self-limits via SESSION_VALIDATION_TIMEOUT_MS.
+      // A wedged clear self-limits: retireQuery's interrupt() and the new
+      // query's init are both time-bounded (see retireQuery, performClear).
       this.logger.debug("Ignoring cancel while a /clear is in progress", {
         sessionId: this.sessionId,
       });
@@ -1583,7 +1584,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // the old one doesn't poison it.
     session.abortController.abort();
     try {
-      await session.query.interrupt();
+      // Bounded so a wedged interrupt() can't block the swap indefinitely —
+      // the abort above should already unblock it; this is the backstop.
+      await withTimeout(session.query.interrupt(), 5_000);
     } catch (error) {
       this.logger.debug("Ignoring interrupt error while retiring query", {
         sessionId: this.sessionId,
@@ -1762,22 +1765,25 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // Future resumes (refreshSession, desktop reconnect, cloud rehydration)
     // must target the fresh SDK session. `this.sessionId` (the ACP-visible
     // id) stays stable — clients keep addressing the session with it.
+    const previousSdkSessionId = session.sdkSessionId;
     session.sdkSessionId = newSdkSessionId;
 
-    // Invalidate the local jsonl the SDK wrote under the stable ACP id
-    // (non-empty only before a session's first /clear — later clears never
-    // write there again). Left in place, a cold reconnect that hydrates by
-    // this id would find it, skip re-fetching the authoritative log, and
-    // resume the pre-clear conversation instead of the cleared one.
+    // Invalidate the jsonl the SDK just finished writing for the retired
+    // session — the stable ACP id on a session's first /clear, or that
+    // clear's own sdkSessionId on every clear after. Left in place, a cold
+    // reconnect that hydrates by that id would find it, skip re-fetching the
+    // authoritative log, and resume the pre-clear conversation instead of the
+    // cleared one; left on disk, it also orphans one file per clear.
     try {
       await fs.promises.unlink(
-        getSessionJsonlPath(this.sessionId, session.cwd),
+        getSessionJsonlPath(previousSdkSessionId, session.cwd),
       );
     } catch (error) {
-      // Already gone is the common case (every clear after the first). Anything
-      // else means the file survives, and a cold reconnect that finds it resumes
-      // the pre-clear conversation — so the clear has to fail rather than report
-      // a success the next reconnect quietly undoes.
+      // Already gone is the common case (a resumed session that never wrote a
+      // local jsonl this run). Anything else means the file survives, and a
+      // cold reconnect that finds it resumes the pre-clear conversation — so
+      // the clear has to fail rather than report a success the next
+      // reconnect quietly undoes.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         throw error;
       }
