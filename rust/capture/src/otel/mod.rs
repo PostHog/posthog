@@ -196,6 +196,9 @@ pub async fn otel_handler(
         &mut span_events,
         gateway_provenance,
         headers.contains_key(crate::gateway_provenance::SIGNATURE_HEADER),
+        headers
+            .get(crate::gateway_provenance::REQUEST_ID_HEADER)
+            .and_then(|value| value.to_str().ok()),
     );
     let span_count = span_events.len();
     let dropped_span_count = raw_span_count.saturating_sub(span_count);
