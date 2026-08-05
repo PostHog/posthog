@@ -15,6 +15,7 @@ Do NOT:
 - Import DRF, serializers, or HTTP concerns
 """
 
+import asyncio
 from collections.abc import Iterable
 from datetime import datetime
 from enum import Enum
@@ -22,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Exists, OuterRef, Prefetch, Q
@@ -30,6 +32,8 @@ from django.utils import timezone
 import structlog
 from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration, OrganizationMembership, Tag
@@ -2507,6 +2511,38 @@ def get_account_support_tickets(
     if account is None or not account.external_id:
         return []
     return list_account_tickets(team_id, account.external_id, limit=limit)
+
+
+def trigger_calendar_sync(team_id: int, integration_id: int) -> str | None:
+    """Start the calendar-sync workflow for one connected calendar, outside the hourly
+    schedule. Returns 'started', 'already_running' (a sync for this calendar is in
+    flight; the workflow id is deterministic per integration), or None when the
+    integration doesn't exist for this team (→ 404)."""
+    if not Integration.objects.filter(id=integration_id, team_id=team_id, kind="google-calendar").exists():
+        return None
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keeps temporal off the import path
+
+    from products.customer_analytics.backend.temporal.calendar_sync import (  # noqa: PLC0415 — same
+        CalendarSyncInput,
+        CalendarSyncWorkflow,
+    )
+
+    client = sync_connect()
+    try:
+        asyncio.run(
+            client.start_workflow(
+                CalendarSyncWorkflow.run,
+                CalendarSyncInput(integration_id=integration_id, team_id=team_id),
+                id=f"google-calendar-sync-{integration_id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        return "already_running"
+    return "started"
 
 
 def list_account_meetings(

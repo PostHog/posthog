@@ -378,6 +378,21 @@ class SupportTicketSerializer(DataclassSerializer):
         fields = ["id", "ticket_number", "status", "last_message_at", "last_message_text", "deep_link"]
 
 
+class CalendarSyncTriggerSerializer(serializers.Serializer):
+    """Request body of the calendar sync-now trigger."""
+
+    integration_id = serializers.IntegerField(help_text="Id of the google-calendar integration to sync.")
+
+
+class CalendarSyncTriggerResponseSerializer(serializers.Serializer):
+    """Response of the calendar sync-now trigger."""
+
+    status = serializers.ChoiceField(
+        choices=[("started", "started"), ("already_running", "already_running")],
+        help_text="'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).",
+    )
+
+
 class MeetingParticipantSerializer(DataclassSerializer):
     """One attendee of a synced calendar meeting (read-only)."""
 

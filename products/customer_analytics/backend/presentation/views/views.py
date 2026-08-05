@@ -21,7 +21,7 @@ from uuid import UUID
 from django.db import transaction
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -29,6 +29,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.exceptions import Conflict
@@ -47,6 +48,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountRelationshipSerializer,
     AccountRelationshipWriteSerializer,
     AccountSerializer,
+    CalendarSyncTriggerResponseSerializer,
+    CalendarSyncTriggerSerializer,
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
     CustomPropertyDefinitionSerializer,
@@ -1641,3 +1644,25 @@ def _event_stream_write_fields(validated, raw_data: dict) -> dict:
     """The event-stream columns the caller actually sent, so a PATCH that omits a field
     leaves it untouched (the serializer fields carry defaults for create)."""
     return {column: getattr(validated, key) for key, column in _EVENT_STREAM_WRITE_FIELDS.items() if key in raw_data}
+
+
+class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+    """Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+    Temporal schedule; this surface only offers the manual "sync now" escape hatch."""
+
+    scope_object = "account"
+    serializer_class = CalendarSyncTriggerSerializer
+    queryset = None  # no model — the trigger starts a Temporal workflow through the facade
+
+    @validated_request(
+        request_serializer=CalendarSyncTriggerSerializer,
+        responses={200: OpenApiResponse(response=CalendarSyncTriggerResponseSerializer)},
+        summary="Sync a connected calendar now",
+        description="Start a sync run for one connected Google Calendar immediately, outside the hourly schedule.",
+    )
+    @action(methods=["POST"], detail=False, url_path="sync_now")
+    def sync_now(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        result = api.trigger_calendar_sync(self.team_id, request.validated_data["integration_id"])
+        if result is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CalendarSyncTriggerResponseSerializer({"status": result}).data)

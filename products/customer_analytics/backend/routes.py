@@ -10,6 +10,7 @@ from products.customer_analytics.backend.presentation.views.views import (
     AccountRelationshipDefinitionViewSet,
     AccountRelationshipViewSet,
     AccountViewSet,
+    CalendarSyncViewSet,
     CustomerJourneyViewSet,
     CustomerProfileConfigViewSet,
     CustomPropertyDefinitionViewSet,
@@ -67,6 +68,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"event_streams",
         EventStreamViewSet,
         "project_event_streams",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"calendar_sync",
+        CalendarSyncViewSet,
+        "project_calendar_sync",
         ["team_id"],
     )
     project_accounts_router = routers.projects.register(r"accounts", AccountViewSet, "project_accounts", ["team_id"])

@@ -2666,6 +2666,43 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(self.endpoint).status_code)
 
 
+class TestCalendarSyncViewSet(APIBaseTest):
+    def test_sync_now_starts_the_workflow_for_a_team_owned_integration(self):
+        from posthog.models.integration import Integration
+
+        integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-1")
+        with patch("posthog.temporal.common.client.sync_connect") as mock_connect:
+            mock_connect.return_value.start_workflow.return_value = _immediate_future()
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
+                {"integration_id": integration.id},
+            )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json(), {"status": "started"})
+        workflow_kwargs = mock_connect.return_value.start_workflow.call_args.kwargs
+        self.assertEqual(workflow_kwargs["id"], f"google-calendar-sync-{integration.id}")
+
+    def test_sync_now_404s_for_another_teams_integration(self):
+        from posthog.models.integration import Integration
+
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        integration = Integration.objects.create(team=other_team, kind="google-calendar", integration_id="sub-2")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
+            {"integration_id": integration.id},
+        )
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+
+def _immediate_future():
+
+    async def _done():
+        return None
+
+    return _done()
+
+
 class TestAccountMeetingViewSet(APIBaseTest):
     def test_list_returns_the_accounts_meetings_newest_first_with_participants(self):
         account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-1")
