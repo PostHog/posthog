@@ -46,21 +46,22 @@ function getCurrentLocationLink(): string {
 }
 
 // The recording lives in PostHog's own telemetry project, which the reporting user is not a member
-// of, so this link is for PostHog staff triaging the ticket/issue — never the user. We rewrite to the
-// internal http://go/session/ golink to make that explicit. posthog-js returns a project-scoped path
-// (`/project/<token>/replay/<id>`), so pull the session id out of the `/replay/` segment rather than
-// assuming the URL starts with the current origin.
-function getSessionReplayLink(): string {
+// of, so this is for PostHog staff triaging the ticket or the alert — never the user. posthog-js
+// returns a project-scoped path (`/project/<token>/replay/<id>`), so pull the session id out of the
+// `/replay/` segment rather than assuming the URL starts with the current origin.
+function getSessionReplayGolink(): string | null {
     const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
-    if (!replayUrl) {
-        return ''
-    }
-    const match = replayUrl.match(/\/replay\/([^/?#]+)([?#].*)?$/)
+    const match = replayUrl?.match(/\/replay\/([^/?#]+)([?#].*)?$/)
     if (!match) {
-        return ''
+        return null
     }
     const [, sessionId, queryAndHash] = match
-    return `\nSession: http://go/session/${sessionId}${queryAndHash ?? ''}`
+    return `http://go/session/${sessionId}${queryAndHash ?? ''}`
+}
+
+function getSessionReplayLink(): string {
+    const golink = getSessionReplayGolink()
+    return golink ? `\nSession: ${golink}` : ''
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
@@ -86,11 +87,7 @@ async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
 // through posthog.conversations.sendMessage (the widget endpoint), so guard against the same cap.
 export const CONVERSATIONS_MESSAGE_MAX_LENGTH = 10000
 
-/**
- * Where the customer was when support broke for them. Keep in sync with the alert that routes these
- * to #alerts-support — the surface is what tells a responder whether a message was lost or whether
- * someone just couldn't open the panel.
- */
+/** Where the customer was when support broke for them. */
 export type SupportFailureSurface =
     | 'support_form' // the modal / side-panel support form (every "contact support" CTA)
     | 'side_panel_composer' // the conversations composer in the support panel
@@ -105,59 +102,49 @@ export type SupportSendFailureReason =
     | 'message_too_long' // rejected by the client-side cap before we tried
     | 'not_entitled' // plan has no ticket channel, so the draft was dropped on the floor
 
-/**
- * Why a support surface couldn't function. Nothing was submitted, so no message is at risk.
- *
- * `restore_link_failed` is a request failure rather than a load, but it sits under the same event:
- * the umbrella is "the surface couldn't do its job", and `reason` carries the specifics.
- */
+/** Why a support surface couldn't function. Nothing was submitted, so no message is at risk. */
 export type SupportLoadFailureReason =
     | 'extension_missing' // posthog.conversations never showed up
     | 'tickets_load_failed' // listing existing tickets threw
     | 'thread_load_failed' // opening a ticket's messages threw
-    | 'restore_link_failed' // requesting a restore link threw
+    | 'restore_link_failed' // a request rather than a load, but the same "surface can't do its job"
 
-// The draft is the one thing we can't reconstruct after the fact, so a lost submit records enough for
-// a responder to pick it up straight from the alert. Capped because event properties are not a place
-// to store documents, and because the tail of a long message is rarely what identifies the customer.
+// Event properties are no place to store a document, so the draft an alert carries is capped.
 export const SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH = 1000
 
-// Attached to every support-failure event so an alert can carry a responder straight to what
-// happened. `current_url` is explicit rather than relying on the auto-captured `$current_url`: this
-// is the payload an alert template reads, and it should not depend on autocapture staying enabled.
+export const SUPPORT_WIDGET_UNAVAILABLE_MESSAGE =
+    "We can't load the support chat, which is usually an ad blocker or a network policy."
+
+// `current_url` is explicit rather than autocapture's `$current_url`, so an alert template reading
+// these properties doesn't depend on autocapture staying enabled.
 function supportFailureContext(): Record<string, any> {
-    const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
     return {
         session_id: posthog.get_session_id?.() ?? null,
-        // Rewritten to the internal golink for the same reason as the ticket snippet: the recording
-        // lives in PostHog's own project, so this link is for staff triaging the alert, never the user.
-        session_replay_url: replayUrl
-            ? replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/')
-            : null,
+        session_replay_url: getSessionReplayGolink(),
         current_url: window.location.href,
     }
 }
 
-function messagePreviewProperties(message?: string): Record<string, any> {
-    const draft = message?.trim()
-    if (!draft) {
-        return { had_draft: false, message_length: 0 }
+function errorMessage(error: unknown): string | undefined {
+    if (error === undefined) {
+        return undefined
     }
+    return error instanceof Error ? error.message : String(error)
+}
+
+// Always the same keys, so the event stays queryable whether or not anything had been typed
+function messagePreviewProperties(message?: string): Record<string, any> {
+    const draft = message?.trim() ?? ''
     return {
-        had_draft: true,
+        had_draft: !!draft,
         message_length: draft.length,
         message_truncated: draft.length > SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH,
         message_preview: draft.slice(0, SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH),
     }
 }
 
-/**
- * A customer submitted a support message and it did not become a ticket.
- *
- * Shares its event name with the backend widget endpoint (which reports its own rejections), so an
- * alert on this name catches both client- and server-side losses. Note the backend tags itself with
- * `channel_source`, not `channel`.
- */
+// Shares its event name with the widget endpoint's own rejections so one alert covers client and
+// server. Note the backend tags itself `channel_source`, not `channel`.
 export function captureSupportTicketFailed({
     surface,
     reason,
@@ -177,17 +164,14 @@ export function captureSupportTicketFailed({
         channel: 'conversations',
         surface,
         reason,
-        error: error !== undefined ? (error instanceof Error ? error.message : String(error)) : undefined,
+        error: errorMessage(error),
         ...messagePreviewProperties(message),
         ...supportFailureContext(),
         ...rest,
     })
 }
 
-/**
- * A support surface couldn't function. Nothing was submitted, so no customer message is at risk —
- * this is the rate signal for "support is broken for people", not the per-message loss signal.
- */
+// The rate signal for "support is broken for people", as opposed to the per-message loss above.
 export function captureSupportWidgetLoadFailed({
     surface,
     reason,
@@ -202,22 +186,16 @@ export function captureSupportWidgetLoadFailed({
     posthog.capture('support widget load failed', {
         surface,
         reason,
-        error: error !== undefined ? (error instanceof Error ? error.message : String(error)) : undefined,
+        error: errorMessage(error),
         ...supportFailureContext(),
         ...rest,
     })
 }
 
-// Shared over-limit guard for the conversations composer surfaces (support form + side panel). Shows
-// an error toast and returns true when the message exceeds the widget cap, so callers bail before
-// hitting the endpoint and surfacing only a generic send-failure toast. Reports as a lost submit:
-// the customer pressed send and has no ticket, even though we rejected it before the network.
-export function warnIfMessageTooLong(
-    message: string,
-    context: { surface: SupportFailureSurface; kind?: SupportTicketKind | null; is_new_ticket?: boolean }
-): boolean {
+// Returns true when the message exceeds the cap the widget endpoint enforces, so callers can bail
+// before the network. Callers report it: the customer pressed send and has no ticket.
+export function warnIfMessageTooLong(message: string): boolean {
     if (message.length > CONVERSATIONS_MESSAGE_MAX_LENGTH) {
-        captureSupportTicketFailed({ ...context, reason: 'message_too_long', message })
         lemonToast.error(
             `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`
         )
@@ -226,16 +204,11 @@ export function warnIfMessageTooLong(
     return false
 }
 
-// Distinct from a failed send: the widget is a lazily-loaded posthog-js extension, so its absence is
-// usually something no retry will fix (ad blocker, content blocker, network policy). Saying "try
-// again" there sends people round a loop, so name the likely cause instead. Stays open because it
-// can't be recovered from by waiting. Only call this where the user is actually entitled to email
-// us — free plans have no email channel, so pointing them at one promises something they don't have.
+// The widget is a lazily-loaded posthog-js extension, so its absence is rarely something a retry
+// fixes — name the likely cause instead of saying "try again", and stay open because waiting won't
+// help. Only for users entitled to email us: a free plan has no email channel to point at.
 export function warnSupportWidgetUnavailable(): void {
-    lemonToast.error(
-        "We can't load the support chat, so your message can't be sent. That's usually an ad blocker or a network policy.",
-        { button: EMAIL_SUPPORT_BUTTON, autoClose: false }
-    )
+    lemonToast.error(SUPPORT_WIDGET_UNAVAILABLE_MESSAGE, { button: EMAIL_SUPPORT_BUTTON, autoClose: false })
 }
 
 // Conversations tickets carry just the user's message (like the side panel composer), but for bug
@@ -623,7 +596,13 @@ export const supportLogic = kea<supportLogicType>([
             // Measure the full outgoing payload (message plus any appended exception) so the guard
             // matches what the widget endpoint actually receives and rejects
             const outgoingMessage = appendExceptionToMessage(message, exception_event)
-            if (warnIfMessageTooLong(outgoingMessage, { surface: 'support_form', kind })) {
+            if (warnIfMessageTooLong(outgoingMessage)) {
+                captureSupportTicketFailed({
+                    surface: 'support_form',
+                    reason: 'message_too_long',
+                    message: outgoingMessage,
+                    kind,
+                })
                 return
             }
             try {

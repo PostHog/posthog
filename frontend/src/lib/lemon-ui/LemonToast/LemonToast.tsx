@@ -43,15 +43,12 @@ export const GET_HELP_BUTTON: ToastButton = {
     },
 }
 
-export const SUPPORT_EMAIL = 'supportreply@posthog.com'
-
 // Fallback for when submitting a support ticket in-app fails: let the user reach us
-// directly by email instead of being sent back to the form that just failed. The address
-// belongs in the toast text too — a mailto: does nothing on a machine with no mail handler.
+// directly by email instead of being sent back to the form that just failed.
 export const EMAIL_SUPPORT_BUTTON: ToastButton = {
     label: 'Email us directly',
     action: () => {
-        window.location.href = `mailto:${SUPPORT_EMAIL}?subject=PostHog support request`
+        window.location.href = 'mailto:supportreply@posthog.com?subject=PostHog support request'
     },
 }
 

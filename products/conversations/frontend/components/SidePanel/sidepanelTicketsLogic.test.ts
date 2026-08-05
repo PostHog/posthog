@@ -136,6 +136,23 @@ describe('sidepanelTicketsLogic', () => {
         })
     })
 
+    // Half the billing CTAs (Billing.tsx, ConfirmDowngradeModal, PurchaseCreditsModal) open the panel
+    // without setting isEmailFormOpen, so they never reach `startTicketFromSupportForm`. The exemption
+    // has to hold for them too, or a free plan lands on a panel with no composer and no explanation.
+    it('grants the billing exemption to a CTA that never opens the composer', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        setSubscriptionLevel('free')
+        expect(logic.values.canCreateTicket).toBe(false)
+
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({ kind: 'bug', billing_issue: true, target: 'sidePanel' })
+        }).toFinishAllListeners()
+
+        expect(logic.values.canCreateTicket).toBe(true)
+    })
+
     it('keeps the billing exemption after the support form resets, so backing out of the composer is not a dead end', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()

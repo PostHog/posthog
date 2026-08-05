@@ -19,6 +19,7 @@ import {
     appendExceptionToMessage,
     captureSupportTicketFailed,
     captureSupportWidgetLoadFailed,
+    SUPPORT_WIDGET_UNAVAILABLE_MESSAGE,
     supportLogic,
     warnIfMessageTooLong,
     warnSupportWidgetUnavailable,
@@ -190,7 +191,8 @@ export interface sidepanelTicketsLogicMeta {
         canCreateTicket: (
             billing: BillingType | null,
             isCurrentOrganizationNew: boolean,
-            hasBillingExemption: boolean
+            hasBillingExemption: boolean,
+            isBillingIssue: boolean
         ) => boolean
         isBillingResolved: (billing: BillingType | null, billingLoading: boolean) => boolean
     }
@@ -347,8 +349,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         // the account isn't — free plans can end up with tickets via billing questions or PostHog AI
         // bug reports, and abandoning those threads helps nobody.
         canCreateTicket: [
-            (s) => [s.billing, s.isCurrentOrganizationNew, s.hasBillingExemption],
-            (billing: BillingType | null, isCurrentOrganizationNew: boolean, hasBillingExemption: boolean): boolean => {
+            (s) => [s.billing, s.isCurrentOrganizationNew, s.hasBillingExemption, s.isBillingIssue],
+            (
+                billing: BillingType | null,
+                isCurrentOrganizationNew: boolean,
+                hasBillingExemption: boolean,
+                isBillingIssue: boolean
+            ): boolean => {
                 const hasSupportTrial =
                     billing?.trial?.status === 'active' &&
                     ['boost', 'scale', 'enterprise'].includes(billing.trial?.target ?? '')
@@ -357,6 +364,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     billing?.subscription_level === 'custom' ||
                     hasSupportTrial ||
                     isCurrentOrganizationNew ||
+                    // Billing questions are answered on every plan. Read live from the request as
+                    // well as the sticky reducer: CTAs that don't open the composer never reach
+                    // `startTicketFromSupportForm`, so the reducer alone would miss them.
+                    isBillingIssue ||
                     hasBillingExemption
                 )
             },
@@ -532,12 +543,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 warnSupportWidgetUnavailable()
                 return
             }
-            if (
-                warnIfMessageTooLong(content, {
+            if (warnIfMessageTooLong(content)) {
+                captureSupportTicketFailed({
                     surface: 'side_panel_composer',
+                    reason: 'message_too_long',
+                    message: content,
                     is_new_ticket: values.view === 'new',
                 })
-            ) {
                 return
             }
             actions.setMessageSending(true)
@@ -678,7 +690,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // restoreError inline, which beats a toast for something the user has to act on.
                 captureSupportWidgetLoadFailed({ surface: 'restore_form', reason: 'extension_missing' })
                 actions.setRestoreError(
-                    "We can't load the support chat, which is usually an ad blocker or a network policy. Try turning it off for this site and reloading."
+                    `${SUPPORT_WIDGET_UNAVAILABLE_MESSAGE} Try turning it off for this site and reloading.`
                 )
                 actions.setRestoreState('error')
                 return

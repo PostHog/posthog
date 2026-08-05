@@ -5,7 +5,6 @@ import { IconExpand45, IconFeatures, IconHelmet, IconMap, IconWarning } from '@p
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import {
     DEFAULT_PAID_RESPONSE_TIME,
     PAY_AS_YOU_GO_RESPONSE_TIME,
@@ -253,7 +252,6 @@ const SupportResponseTimesTable = ({
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
-    const { isBillingIssue } = useValues(supportLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { tickets, canCreateTicket } = useValues(sidepanelTicketsLogic)
@@ -262,9 +260,8 @@ export function SidePanelSupport(): JSX.Element {
     const showMaxAI = isCloudOrDev
     const isBillingLoaded = !billingLoading && billing !== undefined
     // Free plans can't open new tickets, but tickets they already have (billing questions, PostHog AI
-    // bug reports) stay readable and repliable here. The `isBillingIssue` arm shows the section right
-    // away for a billing CTA, before `grantBillingExemption` lands.
-    const showTickets = isCloudOrDev && (canCreateTicket || isBillingIssue || tickets.length > 0)
+    // bug reports) stay readable and repliable here
+    const showTickets = isCloudOrDev && (canCreateTicket || tickets.length > 0)
 
     return (
         <div className="SidePanelSupport contents">

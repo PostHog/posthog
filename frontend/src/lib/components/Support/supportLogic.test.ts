@@ -190,8 +190,9 @@ describe('supportLogic', () => {
         // ticket that never got created. That needs the draft and a way back into the session.
         it('carries the draft and session context on a lost submit, so an alert is actionable', async () => {
             ;(posthog.get_session_id as jest.Mock).mockReturnValue('sess-1')
+            // Project-scoped path, the shape posthog-js actually returns — see the snippet tests
             ;(posthog.get_session_replay_url as jest.Mock).mockReturnValue(
-                `${window.location.origin}/replay/sess-1?t=30`
+                `${window.location.origin}/project/sTMFPsFhdP1Ssg/replay/sess-1?t=30`
             )
             conversationsMock(jest.fn().mockRejectedValue(new Error('network down')))
 
