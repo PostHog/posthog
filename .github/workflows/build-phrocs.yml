@@ -22,8 +22,8 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
-    # hogli-lint: allow-master-cancel -- a push only rewrites the single mutable phrocs-latest
-    # release, by deleting and recreating it. Two runs at once race that; newest must win.
+    # hogli-lint: allow-master-cancel -- every push deletes and recreates the one mutable
+    # phrocs-latest release, so concurrent runs would race it and the newest must win.
     cancel-in-progress: true
 
 permissions:

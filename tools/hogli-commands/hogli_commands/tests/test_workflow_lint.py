@@ -424,6 +424,15 @@ class TestPrConcurrencyCheck:
                 "true",
                 True,
             ),
+            # A SHA on a non-push arm still leaves every push sharing one ref.
+            (
+                "publish.yml",
+                "[pull_request, push]",
+                "${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.sha || github.ref }}",
+                "true",
+                True,
+            ),
+            ("publish.yml", "[push]", "${{ github.workflow }}-${{ github.sha }}", "true", False),
         ],
     )
     def test_bare_cancel_flagged_only_when_it_can_kill_a_push_run(

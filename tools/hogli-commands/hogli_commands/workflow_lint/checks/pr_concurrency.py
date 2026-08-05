@@ -18,7 +18,7 @@ A bare ``cancel-in-progress: true`` on a push-triggered workflow shares one
 group across every commit on the branch, so each push kills the previous
 commit's run and whatever it was proving. Gate it on the event, or key the
 push arm per-SHA when the workflow publishes on push. Its opt-out is the
-inline marker, not ``SKIP`` — an exemption for one line reads better beside
+inline marker rather than ``SKIP``, so an exemption for one line sits beside
 that line.
 
 Some workflows are intentionally exempt from *requiring* a block (telemetry /
@@ -29,19 +29,20 @@ below with a one-line reason each.
 from __future__ import annotations
 
 import re
-from functools import cache
+from pathlib import Path
 
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow
 
 BAD_FALLBACK = re.compile(r"head_ref\s*\|\|\s*github\.run_id")
+PER_SHA_PUSH_ARM = re.compile(r"event_name\s*==\s*['\"]push['\"]\s*&&\s*github\.sha")
 MASTER_CANCEL_MARKER = "hogli-lint: allow-master-cancel"
 
 
 class PrConcurrencyCheck(WorkflowCheck):
     id = "WF002-pr-concurrency"
     label = "PR concurrency"
-    description = "ci-*.yml PR workflows declare concurrency; push-triggered ones don't cancel master runs"
+    description = "ci-*.yml PR workflows declare concurrency; no workflow cancels master runs on push"
 
     # Workflows intentionally exempt from concurrency cancellation. Each entry has
     # a one-line reason so the next reader knows why.
@@ -61,22 +62,22 @@ class PrConcurrencyCheck(WorkflowCheck):
     @property
     def fix_hint(self) -> str | None:
         return (
-            "Either add a top-level block after `on:`:\n"
+            "Missing concurrency block: add a top-level one after `on:`:\n"
             "concurrency:\n"
             "    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}\n"
             "    cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
+            "Or give every job its own `concurrency:` block. If any block would lose data\n"
+            "(telemetry, schedule-only PR triggers, etc.), add the filename to\n"
+            f"{type(self).__name__}.SKIP with a one-line reason.\n"
             "\n"
-            "Or add a `concurrency:` block to every job in the workflow.\n"
-            "Or, if a block would lose data (telemetry, schedule-only PR triggers, etc.),\n"
-            f"add the filename to {type(self).__name__}.SKIP with a one-line reason.\n"
+            "`github.run_id` fallback: use `github.head_ref || github.ref` instead; run_id is unique\n"
+            "per run, so push runs never deduplicate.\n"
             "\n"
-            "Do not use `github.run_id` as the fallback; it creates a unique concurrency group per push run.\n"
-            "\n"
-            "A push-triggered workflow must not carry a bare `cancel-in-progress: true`, or each push cancels\n"
-            "the previous commit's run. Gate it on the event, or key the push arm per-SHA when it publishes:\n"
+            "Bare `cancel-in-progress: true` on push: every push cancels the previous commit's run.\n"
+            "Gate it on the event as above, or key the push arm per-SHA when the workflow publishes:\n"
             "    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}\n"
             f"Where latest-wins is right (a cache warmer), say so with `# {MASTER_CANCEL_MARKER} -- <reason>`.\n"
-            "SKIP does not exempt this one; the marker is its opt-out."
+            "SKIP does not exempt this rule; the marker is its opt-out."
         )
 
     def run(self, workflows: list[Workflow]) -> CheckResult:
@@ -135,14 +136,26 @@ def _cancels_master_pushes(wf: Workflow, group_expr: str) -> bool:
         return False
     if not wf.is_push_triggered:
         return False
-    # A per-SHA push arm gives every commit its own group, so nothing is cancelled across pushes.
-    if "github.sha" in group_expr:
+    if _keys_pushes_per_sha(group_expr):
         return False
-    return not _has_master_cancel_marker(str(wf.path))
+    return not _has_master_cancel_marker(wf.path)
 
 
-@cache
-def _has_master_cancel_marker(path: str) -> bool:
+def _keys_pushes_per_sha(group_expr: str) -> bool:
+    """Report whether a push event resolves the group to a per-SHA value.
+
+    Merely mentioning ``github.sha`` is not enough: when the SHA sits on some
+    other arm of a conditional, pushes still fall through to one shared ref and
+    cancel the commit before them.
+    """
+    if PER_SHA_PUSH_ARM.search(group_expr):
+        return True
+    if "&&" in group_expr or "||" in group_expr:
+        return False
+    return "github.sha" in group_expr
+
+
+def _has_master_cancel_marker(path: Path) -> bool:
     """Report an explicit, reasoned bypass comment anywhere in the file.
 
     PyYAML drops comments, so the parsed model decides the violation and this

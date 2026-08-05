@@ -206,6 +206,7 @@ def read_workflows(workflows_dir: Path, glob: str = "*.y*ml") -> Iterator[Workfl
 __all__ = [
     "Job",
     "PR_TRIGGERS",
+    "PUSH_TRIGGERS",
     "Step",
     "Workflow",
     "WorkflowParseError",
