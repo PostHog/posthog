@@ -28,6 +28,7 @@ from parameterized import parameterized
 
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
+from posthog.storage.cache_expiry_manager import CacheRefreshCounts
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
@@ -1581,13 +1582,13 @@ class TestBatchOperations(BaseTest):
             refresh_expiring_flags_caches,
         )
 
-        mock_refresh.return_value = (2, 0)  # successful, failed
+        mock_refresh.return_value = CacheRefreshCounts(successful=2, failed=0)
 
-        successful, failed = refresh_expiring_flags_caches(ttl_threshold_hours=24)
+        counts = refresh_expiring_flags_caches(ttl_threshold_hours=24)
 
         # Should return result from generic function
-        self.assertEqual(successful, 2)
-        self.assertEqual(failed, 0)
+        self.assertEqual(counts.successful, 2)
+        self.assertEqual(counts.failed, 0)
 
         # Should call generic refresh_expiring_caches with correct config
         mock_refresh.assert_called_once_with(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, 24, settings.FLAGS_CACHE_REFRESH_LIMIT)
