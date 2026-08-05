@@ -103,36 +103,73 @@ def generate_survey_headline(
     start_date = (survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0)
     end_date = (survey.end_date or datetime.now()).replace(hour=23, minute=59, second=59, microsecond=0)
 
-    select_fields = []
+    # Merge a submission's `survey sent` events instead of collapsing to a single one. Group by
+    # $survey_submission_id and, per question, keep the latest event that actually carried an
+    # answer. This stops multi-event submissions (e.g. AI-feedback manual capture, where a rating
+    # and a free-text follow-up can arrive on separate events) from dropping answers that only
+    # appeared on a non-final event, matching the fix already applied to the response fetchers and
+    # per-question stats.
+    inner_answer_fields = []
+    outer_answer_fields = []
     for orig_idx, q in questions_with_idx:
         is_multiple_choice = q.get("type", "").lower() == SurveyQuestionType.MULTIPLE_CHOICE
         field = get_survey_response_clickhouse_query(orig_idx, q.get("id"), is_multiple_choice)
-        select_fields.append(f"{field} as q{orig_idx}")
+        inner_answer_fields.append(f"{field} AS raw_q{orig_idx}")
+        # Multiple-choice answers are arrays, so "answered" is a non-empty array rather than a
+        # non-null value. Using isNotNull here would let a later empty array clobber a real answer.
+        if is_multiple_choice:
+            outer_answer_fields.append(
+                f"argMaxIf(raw_q{orig_idx}, timestamp, length(raw_q{orig_idx}) > 0) AS q{orig_idx}"
+            )
+        else:
+            outer_answer_fields.append(
+                f"argMaxIf(raw_q{orig_idx}, timestamp, isNotNull(raw_q{orig_idx})) AS q{orig_idx}"
+            )
 
+    # Collapse a submission's events into one group. Events without a $survey_submission_id are
+    # keyed by their own uuid, so each stays a distinct response (the legacy single-event
+    # behavior). This is the same grouping the response fetchers use.
+    submission_grouping_key = (
+        "if(coalesce(properties.$survey_submission_id, '') = '', toString(uuid), properties.$survey_submission_id)"
+    )
+
+    # When partial responses are disabled we still only summarize completed submissions, so the
+    # completed filter stays on the per-event scan. When enabled, every event of a submission is
+    # eligible and the per-submission merge above replaces the old dedupe.
     if survey.enable_partial_responses:
-        partial_filter = f"AND uniqueSurveySubmissionsFilter('{survey.id}')"
+        completed_filter = ""
     else:
-        partial_filter = """AND (
+        completed_filter = """AND (
             NOT JSONHas(properties, '$survey_completed')
             OR JSONExtractBool(properties, '$survey_completed') = true
         )"""
 
-    # Get archived response UUIDs to exclude
-    # UUIDs are pre-validated by Django's UUIDField when stored in SurveyResponseArchive
+    # Get archived response UUIDs to exclude.
+    # UUIDs are pre-validated by Django's UUIDField when stored in SurveyResponseArchive.
+    # Archiving records a submission's representative (latest) uuid, which is what argMax(uuid)
+    # surfaces after the merge, so exclude by that after grouping.
     archived_uuids = get_archived_response_uuids(survey.id, team.pk)
-    archived_filter = " AND uuid NOT IN {exclude_uuids}" if archived_uuids else ""
+    archived_having = "HAVING argMax(uuid, timestamp) NOT IN {exclude_uuids}" if archived_uuids else ""
 
     with timer("query"):
         query = f"""
-            SELECT {", ".join(select_fields)}
-            FROM events
-            WHERE event == 'survey sent'
-                AND properties.$survey_id = {{survey_id}}
-                AND timestamp >= {{start_date}}
-                AND timestamp <= {{end_date}}
-                {partial_filter}
-                {archived_filter}
-            ORDER BY timestamp DESC
+            SELECT {", ".join(outer_answer_fields)}
+            FROM (
+                SELECT
+                    {", ".join(inner_answer_fields)},
+                    timestamp,
+                    uuid,
+                    {submission_grouping_key} AS submission_key
+                FROM events
+                WHERE event == 'survey sent'
+                    AND properties.$survey_id = {{survey_id}}
+                    AND timestamp >= {{start_date}}
+                    AND timestamp <= {{end_date}}
+                    {completed_filter}
+            )
+            GROUP BY submission_key
+            {archived_having}
+            ORDER BY max(timestamp) DESC
         """
 
         placeholders: dict[str, ast.Expr] = {
