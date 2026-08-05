@@ -23,8 +23,8 @@ export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?
     return (
         <LemonCard hoverEffect={false} className="p-3">
             <div className="flex items-center gap-2 mb-2">
-                <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                <h3 className="text-sm font-semibold flex-1">Merged ticket #{ticket.ticket_number}</h3>
+                <span className="block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                <h3 className="text-sm font-semibold flex-1 leading-none">Merged ticket #{ticket.ticket_number}</h3>
                 <LemonTag type="muted" className="capitalize">
                     {ticket.status}
                 </LemonTag>
