@@ -107,6 +107,7 @@ const advancedActivityLogsList = (): ToolBase<
                 clients: params.clients,
                 detail_filters: params.detail_filters,
                 end_date: params.end_date,
+                follow: params.follow,
                 hogql_filter: params.hogql_filter,
                 include_values: params.include_values,
                 ip_addresses: params.ip_addresses,

@@ -160,6 +160,7 @@ export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
 export const advancedActivityLogsListQueryClientsDefault = []
+export const advancedActivityLogsListQueryFollowDefault = false
 export const advancedActivityLogsListQueryIncludeValuesDefault = false
 export const advancedActivityLogsListQueryIpAddressesDefault = []
 export const advancedActivityLogsListQueryItemIdsDefault = []
@@ -191,6 +192,12 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
+    follow: zod
+        .boolean()
+        .default(advancedActivityLogsListQueryFollowDefault)
+        .describe(
+            'Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.'
+        ),
     hogql_filter: zod.string().optional().describe('Reserved for future HogQL-based filtering.'),
     include_values: zod
         .boolean()

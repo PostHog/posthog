@@ -1320,6 +1320,10 @@ export type AdvancedActivityLogsListParams = {
      */
     end_date?: string
     /**
+     * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
+     */
+    follow?: boolean
+    /**
      * Reserved for future HogQL-based filtering.
      */
     hogql_filter?: string
