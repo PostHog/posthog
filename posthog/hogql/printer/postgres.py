@@ -13,6 +13,7 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import StructDatabaseField
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.postgres_functions import (
     POSTGRES_FUNCTION_HANDLERS_LOWER,
@@ -141,6 +142,13 @@ class PostgresPrinter(BasePrinter):
                 "toStartOfFifteenMinutes": 15,
             }
             return self._render_minute_bucket(self.visit(node.args[0]), minute_bucket_sizes[node.name])
+
+        if node.name in HOGQL_COMPARISON_MAPPING:
+            if len(node.args) != 2:
+                raise QueryError(f"Comparison '{node.name}' requires exactly two arguments")
+            return self.visit_compare_operation(
+                ast.CompareOperation(left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name])
+            )
 
         function_renames = self._get_function_renames()
         function_handlers = self._get_function_handlers()

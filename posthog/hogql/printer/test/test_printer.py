@@ -7928,6 +7928,11 @@ class TestDuckDBPrinter(SimpleTestCase):
             ),
             ("tuple_renames_to_row", "tuple(event, 1)", "row(events.event, 1)"),
             ("range_is_allowed", "range(3)", "range(3)"),
+            (
+                "JSON_VALUE_renames_to_json_extract_string",
+                "JSON_VALUE(properties, '$.a.b')",
+                "json_extract_string(events.properties, %(hogql_val_0)s)",
+            ),
         ]
     )
     def test_function_renames(self, _name: str, expr: str, expected: str) -> None:
@@ -7980,10 +7985,65 @@ class TestDuckDBPrinter(SimpleTestCase):
             ("not_uses_operator", ast.Call(name="NOT", args=[ast.Constant(value=True)]), "(NOT true)"),
             ("like_uses_operator", "like(event, 'x%')", "(events.event LIKE %(hogql_val_0)s)"),
             ("current_timestamp_uses_keyword", "current_timestamp()", "CURRENT_TIMESTAMP"),
+            ("greaterOrEquals_uses_operator", "greaterOrEquals(1, 2)", "(1 >= 2)"),
+            ("in_uses_operator", "in(event, ('a', 'b'))", "(events.event IN (%(hogql_val_0)s, %(hogql_val_1)s))"),
+            ("bitShiftLeft_uses_operator", "bitShiftLeft(1, 3)", "(1 << 3)"),
+            ("bitShiftRight_uses_operator", "bitShiftRight(16, 2)", "(16 >> 2)"),
+            (
+                "JSONHas_checks_path_not_null",
+                "JSONHas(properties, 'key')",
+                "(json_extract_path(events.properties, %(hogql_val_0)s) IS NOT NULL)",
+            ),
+            (
+                "multiplyDecimal_casts_to_decimal",
+                "multiplyDecimal(2, 3)",
+                "(CAST(2 AS DECIMAL(38, 10)) * CAST(3 AS DECIMAL(38, 10)))",
+            ),
+            (
+                "divideDecimal_casts_to_decimal",
+                "divideDecimal(6, 3)",
+                "(CAST(6 AS DECIMAL(38, 10)) / CAST(3 AS DECIMAL(38, 10)))",
+            ),
+            (
+                "toTimeZone_converts_from_utc",
+                "toTimeZone(timestamp, 'America/New_York')",
+                "timezone(%(hogql_val_0)s, timezone('UTC', events.timestamp))",
+            ),
+            (
+                "domain_uses_regexp_extract",
+                "domain(event)",
+                "regexp_extract(events.event, '^(?:[^/@:]+://)?(?:[^/@]+@)?([^/:?#]+)', 1)",
+            ),
+            (
+                "parseDateTime_uses_strptime",
+                "parseDateTime('2024-01-02', '%Y-%m-%d')",
+                "strptime(%(hogql_val_0)s, %(hogql_val_1)s)",
+            ),
+            (
+                "arrayFilter_uses_list_filter",
+                "arrayFilter(x -> x > 1, [1, 2, 3])",
+                "list_filter([1, 2, 3], lambda x: (x > 1))",
+            ),
+            (
+                "arrayFirst_indexes_list_filter",
+                "arrayFirst(x -> x > 1, [1, 2, 3])",
+                "(list_filter([1, 2, 3], lambda x: (x > 1)))[1]",
+            ),
+            (
+                "JSONExtractKeysAndValuesRaw_uses_map_entries",
+                "JSONExtractKeysAndValuesRaw(properties)",
+                "map_entries(json_transform(events.properties, '\"MAP(VARCHAR, JSON)\"'))",
+            ),
         ]
     )
     def test_function_handlers(self, _name: str, expr: str, expected: str) -> None:
         self.assertEqual(self._expr(expr), expected)
+
+    def test_parse_datetime_with_timezone_argument_is_rejected(self) -> None:
+        # strptime has no timezone parameter — silently dropping the third argument
+        # would change the parsed instant, so it must fail loudly instead.
+        with self.assertRaisesMessage(QueryError, "parseDateTime"):
+            self._expr("parseDateTime('2024-01-02', '%Y-%m-%d', 'America/New_York')")
 
     def test_smoke_basic_select(self):
         self.assertEqual(

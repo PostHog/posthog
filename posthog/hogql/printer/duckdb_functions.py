@@ -7,6 +7,8 @@ produce cleaner or faster output than the Postgres equivalents we emit by defaul
 
 from collections.abc import Callable
 
+from posthog.hogql.errors import QueryError
+
 # HogQL name → DuckDB target name. Overlays POSTGRES_FUNCTION_RENAMES.
 DUCKDB_FUNCTION_RENAMES: dict[str, str] = {
     # ClickHouse's ``any`` is "pick any row"; DuckDB has a native ``any_value`` aggregator.
@@ -26,6 +28,9 @@ DUCKDB_FUNCTION_RENAMES: dict[str, str] = {
     "dateTrunc": "date_trunc",
     "tuple": "row",
     "range": "range",
+    # ClickHouse's JSON_VALUE takes a real JSONPath argument, which DuckDB's
+    # json_extract_string accepts directly.
+    "JSON_VALUE": "json_extract_string",
 }
 
 DUCKDB_FUNCTION_RENAMES_LOWER: dict[str, str] = {k.lower(): v for k, v in DUCKDB_FUNCTION_RENAMES.items()}
@@ -67,12 +72,43 @@ def _handle_not(args: list[str]) -> str:
     return f"(NOT {args[0]})"
 
 
-def _handle_like(args: list[str]) -> str:
-    return f"({args[0]} LIKE {args[1]})"
-
-
 def _handle_current_timestamp(args: list[str]) -> str:
     return "CURRENT_TIMESTAMP"
+
+
+# ClickHouse's domain() is a URL parser; DuckDB has no URL functions, so extract the
+# host (optionally skipping scheme and userinfo, stopping at port/path/query) by regex.
+_DOMAIN_REGEX = "^(?:[^/@:]+://)?(?:[^/@]+@)?([^/:?#]+)"
+
+
+def _handle_domain(args: list[str]) -> str:
+    return f"regexp_extract({args[0]}, '{_DOMAIN_REGEX}', 1)"
+
+
+def _handle_parse_datetime(args: list[str]) -> str:
+    if len(args) != 2:
+        raise QueryError("parseDateTime with a timezone argument is not supported in the DuckDB dialect.")
+    return f"strptime({args[0]}, {args[1]})"
+
+
+def _handle_array_filter(args: list[str]) -> str:
+    if len(args) != 2:
+        raise QueryError("arrayFilter over multiple arrays is not supported in the DuckDB dialect.")
+    # ClickHouse takes (lambda, array); DuckDB's list_filter takes (array, lambda).
+    return f"list_filter({args[1]}, {args[0]})"
+
+
+def _handle_array_first(args: list[str]) -> str:
+    if len(args) != 2:
+        raise QueryError("arrayFirst over multiple arrays is not supported in the DuckDB dialect.")
+    return f"(list_filter({args[1]}, {args[0]}))[1]"
+
+
+def _handle_json_extract_keys_and_values_raw(args: list[str]) -> str:
+    if len(args) != 1:
+        raise QueryError("JSONExtractKeysAndValuesRaw with a path argument is not supported in the DuckDB dialect.")
+    # json_transform's structure argument is itself JSON, so the MAP type is a quoted JSON string.
+    return f"map_entries(json_transform({args[0]}, '\"MAP(VARCHAR, JSON)\"'))"
 
 
 DUCKDB_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
@@ -84,8 +120,12 @@ DUCKDB_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "tupleElement": _handle_tuple_element,
     "multiply": _handle_multiply,
     "not": _handle_not,
-    "like": _handle_like,
     "current_timestamp": _handle_current_timestamp,
+    "domain": _handle_domain,
+    "parseDateTime": _handle_parse_datetime,
+    "arrayFilter": _handle_array_filter,
+    "arrayFirst": _handle_array_first,
+    "JSONExtractKeysAndValuesRaw": _handle_json_extract_keys_and_values_raw,
 }
 
 DUCKDB_FUNCTION_HANDLERS_LOWER: dict[str, Callable[[list[str]], str]] = {

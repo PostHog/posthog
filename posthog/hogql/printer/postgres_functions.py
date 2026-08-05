@@ -187,6 +187,33 @@ def _handle_ends_with(args: list[str]) -> str:
     return f"(RIGHT({args[0]}, LENGTH({args[1]})) = {args[1]})"
 
 
+def _handle_bit_shift_left(args: list[str]) -> str:
+    return f"({args[0]} << {args[1]})"
+
+
+def _handle_bit_shift_right(args: list[str]) -> str:
+    return f"({args[0]} >> {args[1]})"
+
+
+def _handle_json_has(args: list[str]) -> str:
+    return f"(json_extract_path({', '.join(args)}) IS NOT NULL)"
+
+
+def _make_decimal_arithmetic_handler(op: str) -> Callable[[list[str]], str]:
+    # DECIMAL(38, 10) is the widest precision DuckDB accepts; ClickHouse's explicit
+    # result-scale argument is not representable, so the default scale applies.
+    def handler(args: list[str]) -> str:
+        return f"(CAST({args[0]} AS DECIMAL(38, 10)) {op} CAST({args[1]} AS DECIMAL(38, 10)))"
+
+    return handler
+
+
+def _handle_to_timezone(args: list[str]) -> str:
+    # ClickHouse DateTimes are wall-clock UTC, so interpret the naive timestamp as UTC
+    # before converting; a bare AT TIME ZONE would read it in the session timezone.
+    return f"timezone({args[1]}, timezone('UTC', {args[0]}))"
+
+
 def _handle_e(args: list[str]) -> str:
     return "exp(1)"
 
@@ -301,6 +328,14 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     # Math
     "e": _handle_e,
     "log2": _handle_log2,
+    "bitShiftLeft": _handle_bit_shift_left,
+    "bitShiftRight": _handle_bit_shift_right,
+    "multiplyDecimal": _make_decimal_arithmetic_handler("*"),
+    "divideDecimal": _make_decimal_arithmetic_handler("/"),
+    # More JSON
+    "JSONHas": _handle_json_has,
+    # Timezone conversion
+    "toTimeZone": _handle_to_timezone,
     # Aggregate *If combinators
     "countIf": _handle_count_if,
     "sumIf": _make_if_combinator_handler("sum"),
