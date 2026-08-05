@@ -331,6 +331,122 @@ dashboard_tiles: PostgresTable = PostgresTable(
     },
 )
 
+datasets: PostgresTable = PostgresTable(
+    name="datasets",
+    postgres_table_name="llm_analytics_dataset_v2",
+    access_scope="dataset",
+    description="AI observability datasets used to curate inputs and expected outputs; one row per dataset.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Dataset UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name", description="Dataset name."),
+        "description": StringDatabaseField(name="description", description="What the dataset contains."),
+        "metadata": StringJSONDatabaseField(name="metadata", description="JSON dataset metadata."),
+        "archived": BooleanDatabaseField(name="archived", description="Whether the dataset is archived."),
+        "current_revision_id": UUIDDatabaseField(
+            name="current_revision_id",
+            nullable=True,
+            description="Latest committed revision; NULL before the first item mutation.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the dataset."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the dataset was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the dataset fields or item contents last changed."
+        ),
+    },
+)
+
+dataset_revisions: PostgresTable = PostgresTable(
+    name="dataset_revisions",
+    postgres_table_name="llm_analytics_datasetrevision_v2",
+    access_scope="dataset",
+    access_control_id_field="dataset_id",
+    description="Immutable snapshots of dataset contents; one row per committed dataset revision.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Dataset revision UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
+        "revision": IntegerDatabaseField(name="revision", description="Monotonic revision number within the dataset."),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who committed the revision."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the revision was committed."),
+    },
+)
+
+dataset_items: PostgresTable = PostgresTable(
+    name="dataset_items",
+    postgres_table_name="llm_analytics_datasetitem_v2",
+    access_scope="dataset",
+    access_control_id_field="dataset_id",
+    description="Stable identities for versioned dataset items; one row per item.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Stable dataset item UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
+        "client_item_id": StringDatabaseField(
+            name="external_id",
+            nullable=True,
+            description="Optional caller-owned stable key, unique within the dataset.",
+        ),
+        "current_version_id": UUIDDatabaseField(
+            name="current_version_id", nullable=True, description="Latest immutable item version."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the item."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the item was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the item last received a version."
+        ),
+    },
+)
+
+dataset_item_versions: PostgresTable = PostgresTable(
+    name="dataset_item_versions",
+    postgres_table_name="llm_analytics_datasetitemversion_v2",
+    access_scope="dataset",
+    access_control_id_field="dataset_id",
+    description="Immutable content versions of dataset items; one row per item version.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Dataset item version UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
+        "dataset_item_id": UUIDDatabaseField(
+            name="dataset_item_id", description="Stable item; joins to dataset_items.id."
+        ),
+        "dataset_revision_id": UUIDDatabaseField(
+            name="dataset_revision_id",
+            description="Revision that introduced this version; joins to dataset_revisions.id.",
+        ),
+        "version": IntegerDatabaseField(name="version", description="Monotonic version number within the item."),
+        "archived": BooleanDatabaseField(name="archived", description="Whether this version archives the item."),
+        "input": StringJSONDatabaseField(name="input", description="JSON input supplied to the system under test."),
+        "expected_output": StringJSONDatabaseField(
+            name="expected_output", nullable=True, description="Optional JSON expected output."
+        ),
+        "source_output": StringJSONDatabaseField(
+            name="source_output", nullable=True, description="Optional JSON output captured from the source trace."
+        ),
+        "metadata": StringJSONDatabaseField(name="metadata", description="JSON item metadata."),
+        "source_trace_id": StringDatabaseField(
+            name="source_trace_id", nullable=True, description="Source AI trace ID."
+        ),
+        "source_event_id": StringDatabaseField(
+            name="source_event_id", nullable=True, description="Source event ID within the trace."
+        ),
+        "source_timestamp": DateTimeDatabaseField(
+            name="source_timestamp", nullable=True, description="Timestamp used to retrieve the source trace event."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created this version."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the version was created."),
+    },
+)
+
 insights: PostgresTable = PostgresTable(
     name="insights",
     postgres_table_name="posthog_dashboarditem",
@@ -2443,6 +2559,10 @@ class SystemTables(TableNode):
         "custom_property_definitions": TableNode(name="custom_property_definitions", table=custom_property_definitions),
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),
+        "dataset_item_versions": TableNode(name="dataset_item_versions", table=dataset_item_versions),
+        "dataset_items": TableNode(name="dataset_items", table=dataset_items),
+        "dataset_revisions": TableNode(name="dataset_revisions", table=dataset_revisions),
+        "datasets": TableNode(name="datasets", table=datasets),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),
