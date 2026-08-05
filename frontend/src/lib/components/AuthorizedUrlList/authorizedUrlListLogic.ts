@@ -67,11 +67,50 @@ export function hasWildcardInPort(input: unknown): boolean {
     return portWildcardRegex.test(input.trim())
 }
 
+/** Treat www.domain.com and domain.com as equivalent. */
+const stripWww = (host: string): string => (host.startsWith('www.') ? host.slice(4) : host)
+
+/**
+ * Whether `candidateUrl` is already registered in `urlsToCheck`. Non-wildcard entries are compared
+ * by origin with www stripped, matching checkUrlIsAuthorized's equivalence rule, so a URL that only
+ * differs by a www prefix is flagged as the duplicate it actually is. Wildcard entries stay an exact
+ * string match: they don't represent one concrete registration, so pattern-matching them here would
+ * flag URLs that aren't literally registered yet.
+ */
+const isDuplicateUrl = (candidateUrl: string, urlsToCheck: string[]): boolean => {
+    if (urlsToCheck.includes(candidateUrl)) {
+        return true
+    }
+    if (candidateUrl.includes('*')) {
+        return false
+    }
+    try {
+        const candidate = sanitizePossibleWildCardedURL(candidateUrl)
+        return urlsToCheck.some((url) => {
+            if (url.includes('*')) {
+                return false
+            }
+            try {
+                const existing = sanitizePossibleWildCardedURL(url)
+                return (
+                    existing.protocol === candidate.protocol &&
+                    stripWww(existing.hostname) === stripWww(candidate.hostname)
+                )
+            } catch {
+                return false
+            }
+        })
+    } catch {
+        return false
+    }
+}
+
 export const validateProposedUrl = (
     proposedUrl: string,
     currentUrls: string[],
     onlyAllowDomains: boolean = false,
-    allowWildCards: boolean = true
+    allowWildCards: boolean = true,
+    urlBeingEdited?: string
 ): string | undefined => {
     if (!isURL(proposedUrl)) {
         return 'Please enter a valid URL'
@@ -98,7 +137,8 @@ export const validateProposedUrl = (
         return 'Wildcards can only be used for subdomains'
     }
 
-    if (currentUrls.indexOf(proposedUrl) > -1) {
+    const otherUrls = urlBeingEdited !== undefined ? currentUrls.filter((url) => url !== urlBeingEdited) : currentUrls
+    if (isDuplicateUrl(proposedUrl, otherUrls)) {
         return `This ${onlyAllowDomains ? 'domains' : 'URL'} already is registered`
     }
 
@@ -191,9 +231,6 @@ export function directToolbarUrl(
     const state = encodeURIComponent(JSON.stringify(params))
     return `${appUrl}#__posthog=${state}`
 }
-
-/** Treat www.domain.com and domain.com as equivalent. */
-const stripWww = (host: string): string => (host.startsWith('www.') ? host.slice(4) : host)
 
 export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]): boolean => {
     try {
@@ -544,7 +581,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     url,
                     values.authorizedUrls,
                     values.onlyAllowDomains,
-                    props.allowWildCards ?? true
+                    props.allowWildCards ?? true,
+                    values.editUrlIndex !== null && values.editUrlIndex >= 0 ? values.urlToEdit : undefined
                 ),
             }),
             submit: async ({ url }) => {

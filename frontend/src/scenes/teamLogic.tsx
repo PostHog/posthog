@@ -73,6 +73,27 @@ function withProductIntentsFrom(
     return { ...currentTeam, product_intents: response.product_intents }
 }
 
+/**
+ * Same shape as withProductIntentsFrom, generalized: a PATCH response reflects the full team as
+ * the server serialized it, but a sibling updateCurrentTeam call can commit in between and its
+ * response can carry a stale snapshot of fields this request never touched. Keep the local team
+ * and only take the keys this request actually asked to change.
+ */
+function withPatchedFieldsFrom(
+    currentTeam: TeamType | TeamPublicType | null,
+    response: TeamType | TeamPublicType,
+    changedKeys: (keyof TeamType)[]
+): TeamType | TeamPublicType {
+    if (!currentTeam || response.id !== currentTeam.id) {
+        return response
+    }
+    const patched: Record<string, unknown> = { ...currentTeam }
+    for (const key of changedKeys) {
+        patched[key] = (response as Record<string, unknown>)[key]
+    }
+    return patched as TeamType | TeamPublicType
+}
+
 export interface FrequentMistakeAdvice {
     key: string
     type: 'event' | 'person'
@@ -382,8 +403,13 @@ export const teamLogic = kea<teamLogicType>([
                         actions.loadCurrentProjectSuccess(patchedProject)
                         patchedTeam = { ...values.currentTeam, name: patchedProject.name }
                     } else {
-                        patchedTeam = await api.update(`api/environments/${values.currentTeam.id}`, payload)
+                        const response = await api.update(`api/environments/${values.currentTeam.id}`, payload)
                         breakpoint()
+                        patchedTeam = withPatchedFieldsFrom(
+                            values.currentTeam,
+                            response,
+                            Object.keys(payload) as (keyof TeamType)[]
+                        )
                     }
 
                     // We need to reload current org (which lists its teams) in organizationLogic

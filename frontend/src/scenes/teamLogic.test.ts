@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID, api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
@@ -66,6 +66,44 @@ describe('teamLogic', () => {
 
             expect(logic.values.currentTeam?.name).toBe('Renamed project')
             expect(projectLogic.values.currentProject?.name).toBe('Renamed project')
+        })
+    })
+
+    describe('updateCurrentTeam with a single-field payload', () => {
+        beforeEach(() => {
+            initKeaTests()
+            logic = teamLogic()
+            logic.mount()
+        })
+
+        it('does not let a later unrelated update clobber a field it did not send', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+
+            const apiUpdateSpy = jest
+                .spyOn(api, 'update')
+                .mockResolvedValueOnce({ ...MOCK_DEFAULT_TEAM, app_urls: ['https://new-domain.com'] })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeam({ app_urls: ['https://new-domain.com'] })
+            }).toDispatchActions(['updateCurrentTeamSuccess'])
+
+            expect(logic.values.currentTeam?.app_urls).toEqual(['https://new-domain.com'])
+
+            // The response for this second, unrelated PATCH carries a stale app_urls snapshot (e.g.
+            // built from state read before the first PATCH committed). It must not clobber app_urls,
+            // since this request never asked to change it.
+            apiUpdateSpy.mockResolvedValueOnce({
+                ...MOCK_DEFAULT_TEAM,
+                app_urls: MOCK_DEFAULT_TEAM.app_urls,
+                anonymize_ips: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeam({ anonymize_ips: true })
+            }).toDispatchActions(['updateCurrentTeamSuccess'])
+
+            expect(logic.values.currentTeam?.app_urls).toEqual(['https://new-domain.com'])
+            expect((logic.values.currentTeam as TeamType)?.anonymize_ips).toBe(true)
         })
     })
 

@@ -214,6 +214,30 @@ describe('the authorized urls list logic', () => {
                 )
             ).toBe(undefined)
         })
+
+        it('treats a www variant as already registered, matching checkUrlIsAuthorized', () => {
+            expect(validateProposedUrl('https://www.example.com', ['https://example.com'], false)).toBe(
+                'This URL already is registered'
+            )
+            expect(validateProposedUrl('https://example.com', ['https://www.example.com'], false)).toBe(
+                'This URL already is registered'
+            )
+            // A different protocol is not the same registration, even with matching hosts.
+            expect(validateProposedUrl('http://www.example.com', ['https://example.com'], false)).toBe(undefined)
+        })
+
+        it('does not flag the entry being edited as a duplicate of itself', () => {
+            const currentUrls = ['https://example.com', 'https://other.com']
+            // Editing https://example.com and resubmitting the same value must not error, since
+            // that value is only "already registered" as the entry being replaced.
+            expect(validateProposedUrl('https://example.com', currentUrls, false, true, 'https://example.com')).toBe(
+                undefined
+            )
+            // Still blocked if it collides with a *different* existing entry.
+            expect(validateProposedUrl('https://other.com', currentUrls, false, true, 'https://example.com')).toBe(
+                'This URL already is registered'
+            )
+        })
     })
     describe('recording domain type', () => {
         beforeEach(() => {
