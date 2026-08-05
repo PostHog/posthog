@@ -231,6 +231,7 @@ the row lists both.
 | e_conomic                        | HTTP                        | requests                                                        | ✅                          |
 | easypost                         | HTTP                        | requests                                                        | ✅                          |
 | easypromos                       | HTTP                        | requests                                                        | ✅                          |
+| ebay                             | HTTP                        | requests                                                        | ✅                          |
 | elevenlabs                       | HTTP                        | requests                                                        | ✅                          |
 | eppo                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | etsy                             | HTTP                        | requests                                                        | ✅                          |
