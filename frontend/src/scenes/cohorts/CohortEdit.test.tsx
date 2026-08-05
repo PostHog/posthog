@@ -613,59 +613,58 @@ describe('cohortEditLogic', () => {
             cleanup()
         })
 
-        // Stored criteria can carry any string as their behavioral value: one with no ROWS entry, or
-        // one that a plain ROWS lookup resolves to something inherited from Object.prototype.
-        it.each([['legacy_unknown_value'], ['constructor']])(
-            'renders an empty, recoverable criteria row for the unmapped value %s',
-            async (unmappedValue: string) => {
-                const cohortId = 11
+        // Stored criteria can carry a behavioral value with no ROWS entry. Values that instead
+        // resolve to an Object.prototype member are covered against getRowShape in cohortUtils.test,
+        // since this scene render is the most expensive place to assert the same lookup.
+        it('renders an empty, recoverable criteria row for an unmapped value', async () => {
+            const unmappedValue = 'legacy_unknown_value'
+            const cohortId = 11
 
-                useMocks({
-                    get: {
-                        [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
-                            id: cohortId,
-                            name: 'Unmapped Criteria Cohort',
-                            is_static: false,
-                            filters: {
-                                properties: {
-                                    id: '1',
-                                    type: FilterLogicalOperator.Or,
-                                    values: [
-                                        {
-                                            id: '2',
-                                            type: FilterLogicalOperator.Or,
-                                            values: [
-                                                {
-                                                    type: BehavioralFilterKey.Behavioral,
-                                                    value: unmappedValue,
-                                                    key: '$pageview',
-                                                },
-                                            ],
-                                        },
-                                    ],
-                                },
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Unmapped Criteria Cohort',
+                        is_static: false,
+                        filters: {
+                            properties: {
+                                id: '1',
+                                type: FilterLogicalOperator.Or,
+                                values: [
+                                    {
+                                        id: '2',
+                                        type: FilterLogicalOperator.Or,
+                                        values: [
+                                            {
+                                                type: BehavioralFilterKey.Behavioral,
+                                                value: unmappedValue,
+                                                key: '$pageview',
+                                            },
+                                        ],
+                                    },
+                                ],
                             },
-                            version: 1,
-                            pending_version: 1,
-                            is_calculating: false,
-                            last_calculation: '2024-01-01T00:00:00Z',
                         },
+                        version: 1,
+                        pending_version: 1,
+                        is_calculating: false,
+                        last_calculation: '2024-01-01T00:00:00Z',
                     },
-                })
+                },
+            })
 
-                render(<CohortEdit id={cohortId} />)
+            render(<CohortEdit id={cohortId} />)
 
-                // The name only gates on the cohort having loaded; a throw in the row builder has no
-                // error boundary between here and the test, so it fails the render outright.
-                expect(await screen.findByText('Unmapped Criteria Cohort')).toBeInTheDocument()
-                expect(document.querySelector('.CohortCriteriaRow')).toBeInTheDocument()
-                // The type selector has no option to label itself with, so the placeholder is what
-                // keeps it usable as the way back to a valid criterion.
-                expect(screen.getByText('Choose criterion')).toBeInTheDocument()
-                // No fields render for an unmapped type: substituting another row's fields would let
-                // an edit merge into the criterion, which cleanCriteria then strips to undefined.
-                expect(screen.queryByText('Choose event or action')).not.toBeInTheDocument()
-            }
-        )
+            // The name only gates on the cohort having loaded; a throw in the row builder has no
+            // error boundary between here and the test, so it fails the render outright.
+            expect(await screen.findByText('Unmapped Criteria Cohort')).toBeInTheDocument()
+            expect(document.querySelector('.CohortCriteriaRow')).toBeInTheDocument()
+            // The type selector has no option to label itself with, so the placeholder is what
+            // keeps it usable as the way back to a valid criterion.
+            expect(screen.getByText('Choose criterion')).toBeInTheDocument()
+            // No fields render for an unmapped type: substituting another row's fields would let
+            // an edit merge into the criterion, which cleanCriteria then strips to undefined.
+            expect(screen.queryByText('Choose event or action')).not.toBeInTheDocument()
+        })
     })
 })
