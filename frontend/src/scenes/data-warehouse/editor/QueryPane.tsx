@@ -59,6 +59,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         width={width}
                                         originalValue={props.originalValue}
                                         enableVimMode={props.editorVimModeEnabled}
+                                        enableRegexTester={true}
                                         autoFocus={true}
                                         {...props.codeEditorProps}
                                         options={{

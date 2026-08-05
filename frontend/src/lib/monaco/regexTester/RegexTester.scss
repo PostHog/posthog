@@ -1,0 +1,6 @@
+.monaco-editor .RegexTester__literal {
+    // The fallback is load-bearing: an unresolvable token in the shorthand drops the underline too.
+    text-decoration: underline dashed var(--color-accent, currentcolor);
+    text-underline-offset: 3px;
+    cursor: help;
+}

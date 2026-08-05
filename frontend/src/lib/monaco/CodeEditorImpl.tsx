@@ -23,6 +23,7 @@ import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
+import { RegexTester } from 'lib/monaco/regexTester/RegexTester'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -52,6 +53,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     originalValue?: string
     /** Enable vim keybindings */
     enableVimMode?: boolean
+    /** Underline regex patterns in the query and offer a popover to test them against a sample value */
+    enableRegexTester?: boolean
 }
 let codeEditorIndex = 0
 
@@ -158,6 +161,7 @@ export function CodeEditor({
     metadataQueryOffset,
     originalValue,
     enableVimMode,
+    enableRegexTester,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -651,6 +655,7 @@ export function CodeEditor({
                     className="CodeEditor__vim-status-bar absolute bottom-0 left-0 right-0 font-mono text-xs px-2 py-0.5 bg-bg-light border-t z-10"
                 />
             )}
+            {enableRegexTester && editor && <RegexTester editor={editor} logicKey={queryKey ?? `new/${realKey}`} />}
         </div>
     )
 }
