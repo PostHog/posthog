@@ -8430,6 +8430,7 @@ export const externalDataSources = [
     'Raisely',
     'WindsorAi',
     'Wix',
+    'Sevalla',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
