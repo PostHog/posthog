@@ -333,7 +333,7 @@ export class FsService {
 // therefore reads as contained while the OS still follows both links out.
 async function realTargetForContainment(resolved: string): Promise<string> {
   let current = resolved;
-  for (let hop = 0; hop <= MAX_SYMLINK_HOPS; hop++) {
+  for (let hop = 0; hop < MAX_SYMLINK_HOPS; hop++) {
     const realParent = await realpathAllowingMissing(path.dirname(current));
     const leaf = path.join(realParent, path.basename(current));
     let stats: Awaited<ReturnType<typeof fs.lstat>>;
