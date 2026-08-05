@@ -283,11 +283,13 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         # Seed a recipient result with the exception detail first — it carries planner
         # context that the disable reason (appended next by `auto_disable_and_return`)
         # doesn't.
+        # PromptRejectedError messages are handcrafted rejections (empty/too long/no creator), safe to show.
         recipient_results = [
             RecipientResult(
                 recipient=subscription.target_value,
                 status="failed",
                 error={"message": str(exc), "type": "PromptRejectedError"},
+                human_readable_error=str(exc),
             )
         ]
         aborted = await auto_disable_and_return(subscription, AI_PROMPT_INVALID_DISABLE_REASON, recipient_results)
