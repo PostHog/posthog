@@ -46,6 +46,7 @@ export function LoopMcpServerFields({
     new Map(),
   );
   const unavailableIds = unavailableLoopMcpServerIds(selectedIds, servers);
+  const selected = new Set(selectedIds);
 
   const toggle = (id: string, checked: boolean) => {
     onChange(
@@ -85,7 +86,7 @@ export function LoopMcpServerFields({
         const name = resolveServerName(server, null);
         const hint = serverHint(server);
         const ready = isLoopMcpServerReady(server);
-        const checked = selectedIds.includes(server.id);
+        const checked = selected.has(server.id);
         return (
           <div
             key={server.id}
