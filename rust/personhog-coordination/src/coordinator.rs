@@ -234,6 +234,9 @@ impl Coordinator {
                     lease_ttl,
                     granted_at,
                     "coordinator",
+                    // The coordinator serves no partition data; there is
+                    // no request path to gate on its lease.
+                    None,
                     token.clone(),
                 ));
                 let failure = match inner.await {
