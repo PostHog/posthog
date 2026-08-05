@@ -182,8 +182,8 @@ export function getEmailReplyBlockedReason(
 export interface supportTicketSceneLogicValues {
     resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
     draftModeDefault: boolean // conversationsDraftModeLogic
-    availableTags: string[] // tagsModel
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
