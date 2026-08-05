@@ -128,11 +128,19 @@ class _Response:
 class _Recorder:
     """Replaces ``_request``, recording every call and replaying canned payloads."""
 
-    def __init__(self, *, status: int = 200, payload: Any = None, fail: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        status: int = 200,
+        payload: Any = None,
+        fail: str | None = None,
+        overrides: dict[str, Any] | None = None,
+    ) -> None:
         self.calls: list[dict[str, Any]] = []
         self._status = status
         self._payload = payload
         self._fail = fail
+        self._overrides = overrides or {}
 
     def __call__(self, url: str, *, token: str, params: dict[str, Any], timeout: float) -> _Response:
         self.calls.append({"url": url, "token": token, "params": params, "timeout": timeout})
@@ -141,7 +149,7 @@ class _Recorder:
             return _Response(self._status, self._payload)
         if self._fail == action:
             return _Response(500, {"detail": "upstream exploded"})
-        return _Response(200, _PAYLOADS[action])
+        return _Response(200, self._overrides.get(action, _PAYLOADS[action]))
 
     def actions(self) -> set[str]:
         return {call["url"].rstrip("/").rsplit("/", 1)[-1] for call in self.calls}
@@ -291,6 +299,80 @@ def test_digest_degrades_one_section_without_losing_the_rest(runner: CliRunner) 
     assert result.exit_code == 0
     assert "unavailable" in result.output
     assert "4 distinct failures" in result.output
+
+
+def test_digest_json_reports_a_failed_section_as_null_not_as_zero(runner: CliRunner) -> None:
+    """A zero-filled section is a complete, well-formed claim that nothing is broken. JSON is the
+    default for every non-tty caller, and the skills tell agents to report from the digest."""
+    result = _invoke(runner, ["--json"], _Recorder(fail="broken_tests"))
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["broken_tests"] is None
+    assert "broken_tests" in payload["unavailable"]
+
+
+@pytest.mark.parametrize(
+    "failed, key",
+    [
+        ("broken_tests", "broken_tests"),
+        ("resolve_branch", "branch_pull_requests"),
+        ("master_failures", "master_failures"),
+    ],
+)
+def test_digest_json_keys_unavailable_by_the_section_it_describes(runner: CliRunner, failed: str, key: str) -> None:
+    """Keyed by the internal section name, `broken` and `branch` name nothing in the payload, so a
+    consumer cannot join the failure to the section, and `branch` collides with the branch name."""
+    result = _invoke(runner, ["--json"], _Recorder(fail=failed))
+    payload = json.loads(result.output)
+    assert list(payload["unavailable"]) == [key]
+    assert key in payload
+
+
+def test_search_honors_limit_and_discloses_what_it_dropped(runner: CliRunner) -> None:
+    """`--limit` is accepted on every subcommand but only the digest read it, so text silently
+    capped at 10 while --json returned everything: the two disagreed on how many matches exist."""
+    rows = [_row(f"posthog/test_{index}.py::test_it") for index in range(25)]
+    broken = {**_BROKEN, "rows": rows}
+    text = _invoke(
+        runner,
+        ["search", "test_it", "--format", "text", "--limit", "3"],
+        _Recorder(overrides={"broken_tests": broken}),
+    )
+    assert text.exit_code == 0
+    assert text.output.count("posthog/test_") == 3
+    assert "Showing 3 of 25" in text.output
+    every = _invoke(
+        runner, ["search", "test_it", "--json", "--limit", "0"], _Recorder(overrides={"broken_tests": broken})
+    )
+    assert len(json.loads(every.output)["broken_tests"]) == 25
+
+
+def test_search_rejects_a_window_the_backend_will_not_serve(runner: CliRunner) -> None:
+    """The backend caps the flaky window at 30 days and 400s past it, which discarded the healthy
+    broken-tests half of the search too."""
+    result = _invoke(runner, ["search", "x", "--days", "45"], _Recorder())
+    assert result.exit_code == 2
+    assert "30" in result.output
+
+
+def test_search_keeps_one_section_when_the_other_fails(runner: CliRunner) -> None:
+    """Independent reads. Raising the first error threw away results that came back fine."""
+    result = _invoke(runner, ["search", "test_event", "--format", "text"], _Recorder(fail="flaky_tests"))
+    assert result.exit_code == 0
+    # The ref, not the test id: the id is truncated to the terminal width when rendered.
+    assert ci_insights._ref(_ROWS[0]["fingerprint"]) in result.output
+    assert "flaky_tests unavailable" in result.output
+
+
+def test_view_logs_explains_a_missing_run_id_rather_than_blaming_retention(runner: CliRunner) -> None:
+    """The endpoint writes `latest_run_id or 0`, so 0 means no run id was recorded. Treating it as
+    absent printed a reason about log retention that has nothing to do with the real cause."""
+    broken = {**_BROKEN, "rows": [_row("posthog/test_norun.py::test_it", latest_run_id=0)]}
+    recorder = _Recorder(overrides={"broken_tests": broken})
+    result = _invoke(runner, ["view", "test_norun", "--logs", "--format", "text"], recorder)
+    assert result.exit_code == 0
+    assert "no run id recorded" in result.output
+    assert "run_failure_logs" not in recorder.actions()
 
 
 def test_digest_json_carries_only_the_shown_rows_and_no_sparklines(runner: CliRunner) -> None:

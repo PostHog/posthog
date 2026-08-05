@@ -55,6 +55,8 @@ _EXIT_NOT_CONFIGURED = posthog_auth.EXIT_NOT_CONFIGURED
 _DIGEST_ROWS = 8
 _SEARCH_ROWS = 10
 _SEARCH_DEFAULT_DAYS = 7
+# Mirrors MAX_FLAKY_WINDOW_DAYS in products/engineering_analytics/backend/logic/suite_health.py.
+_MAX_FLAKY_DAYS = 30
 _FLAKY_SCAN_LIMIT = 200
 # Below this, a ref prefix matches too much to be a useful handle.
 _MIN_REF_PREFIX = 4
@@ -80,6 +82,18 @@ _SECTION_LABELS = {
     "broken": "broken tests",
     "master_failures": "master failures",
     "branch": "your branch",
+}
+
+# _gather's section names are internal; these are the keys the JSON payload uses for the same
+# sections, so `unavailable` can name what a consumer actually reads.
+# The same mapping for `search`, whose sections differ from the digest's.
+_SEARCH_SECTION_KEYS = {"broken": "broken_tests", "flaky": "flaky_tests"}
+
+_SECTION_KEYS = {
+    "master": "master",
+    "broken": "broken_tests",
+    "master_failures": "master_failures",
+    "branch": "branch_pull_requests",
 }
 
 _CAVEATS = (
@@ -531,9 +545,19 @@ def _digest(options: _Options) -> NoReturn:
                 "repo": api.repo,
                 "source_id": api.source_id,
                 "branch": branch,
-                "unavailable": {name: error.message for name, (_, error) in sections.items() if error is not None},
+                # Keyed by the payload key of the section that failed, so a consumer can join the
+                # two. Keyed by _gather's internal name, `broken` and `branch` name nothing in this
+                # payload, and `branch` collides with the branch name above.
+                "unavailable": {
+                    _SECTION_KEYS[name]: error.message for name, (_, error) in sections.items() if error is not None
+                },
                 "master": sections["master"][0],
-                "broken_tests": {
+                # None, never a zero-filled section: a failed read rendered as `total: 0` is a
+                # complete, well-formed claim that nothing is broken, and JSON is the default for
+                # every non-tty caller.
+                "broken_tests": None
+                if sections["broken"][1] is not None
+                else {
                     "window_days": broken.get("window_days"),
                     "total": len(rows),
                     "shown": len(shown),
@@ -571,9 +595,13 @@ def _digest(options: _Options) -> NoReturn:
 @click.argument("query")
 @click.option(
     "--days",
+    # Ranged rather than clamped: the backend rejects a wider window, and silently narrowing the
+    # window someone asked for would answer a different question than the one they posed.
+    type=click.IntRange(1, _MAX_FLAKY_DAYS),
     default=_SEARCH_DEFAULT_DAYS,
     show_default=True,
-    help="Window for the test-health queue (max 30). Error text is only searchable over the last 2 days.",
+    help=f"Window for the test-health queue (max {_MAX_FLAKY_DAYS}). "
+    "Error text is only searchable over the last 2 days.",
 )
 @_common_options
 @click.pass_context
@@ -591,9 +619,11 @@ def search(ctx: click.Context, query: str, days: int, **kwargs: Any) -> NoReturn
                     ),
                 }
             )
-        for _, error in sections.values():
-            if error is not None:
-                raise error
+        errors = [error for _, error in sections.values() if error is not None]
+        # One section failing must not discard the other: they are independent reads, and the
+        # digest already degrades this way. Both failing means there is nothing to show.
+        if len(errors) == len(sections):
+            raise errors[0]
     except _ApiError as exc:
         _fail(exc)
 
@@ -607,29 +637,55 @@ def search(ctx: click.Context, query: str, days: int, **kwargs: Any) -> NoReturn
         for item in (sections["flaky"][0] or {}).get("items") or []
         if any(needle in str(item.get(field, "")).lower() for field in ("nodeid", "selector"))
     ]
+    limit = len(broken) + len(flaky) if options.limit == 0 else options.limit
+    shown_broken, shown_flaky = broken[:limit], flaky[:limit]
     if options.json():
-        _emit_json({"query": query, "broken_tests": [_summarize_row(row) for row in broken], "flaky_tests": flaky})
+        _emit_json(
+            {
+                "query": query,
+                "unavailable": {
+                    _SEARCH_SECTION_KEYS[name]: error.message
+                    for name, (_, error) in sections.items()
+                    if error is not None
+                },
+                "broken_tests": [_summarize_row(row) for row in shown_broken],
+                "flaky_tests": shown_flaky,
+                "truncated": len(shown_broken) < len(broken) or len(shown_flaky) < len(flaky),
+            }
+        )
 
     # Two sections, never one merged ranking: these are different grains (failure lines from
     # Logs vs CI runs from Traces) over different windows, and fusing them would invent a
     # flaky-versus-broken verdict neither endpoint made.
     click.secho("broken tests        live failures, last 2 days", bold=True)
     if broken:
-        _render_rows(broken[:_SEARCH_ROWS])
+        _render_rows(shown_broken)
+        _note_truncation(len(shown_broken), len(broken))
     else:
         click.echo(f"{'':<20}no match")
     click.echo("")
     click.secho(f"test health         ranked by blast radius, last {days} days", bold=True)
     if flaky:
-        _render_flaky(flaky[:_SEARCH_ROWS])
+        _render_flaky(shown_flaky)
+        _note_truncation(len(shown_flaky), len(flaky))
     else:
         click.echo(f"{'':<20}no match")
+    for name, (_, error) in sections.items():
+        if error is not None:
+            click.secho(f"\n{_SEARCH_SECTION_KEYS[name]} unavailable: {error.message}", fg="yellow")
     if not broken and not flaky:
         click.echo(
             "\nError text is only searchable over the last 2 days, and only for pytest failures. For older or\n"
             "non-pytest text, use the investigating-ci-failures skill's SQL over engineering_analytics_ci_failures."
         )
     raise SystemExit(0)
+
+
+def _note_truncation(shown: int, total: int) -> None:
+    """Say what was dropped. Text silently capping while --json returned everything made the two
+    output shapes disagree on how many matches exist."""
+    if shown < total:
+        click.echo(f"{'':<20}Showing {shown} of {total} — raise --limit, or 0 for every row.")
 
 
 def _render_flaky(items: list[dict[str, Any]]) -> None:
@@ -652,7 +708,8 @@ def view(ctx: click.Context, ref: str, with_logs: bool, **kwargs: Any) -> NoRetu
     try:
         api = _resolve_source(options.api(), options.repo)
         row = _resolve_ref((api.get("broken_tests") or {}).get("rows") or [], ref)
-        run_id = row.get("latest_run_id")
+        # The endpoint writes `latest_run_id or 0`, so 0 is "no run id recorded" rather than a run.
+        run_id = row.get("latest_run_id") or 0
         logs = api.get("run_failure_logs", run_id=run_id) if with_logs and run_id else None
     except _ApiError as exc:
         _fail(exc)
@@ -678,9 +735,12 @@ def view(ctx: click.Context, ref: str, with_logs: bool, **kwargs: Any) -> NoRetu
     trend = row.get("trend_24h") or []
     click.echo(f"  {'last 24h':<18}{_spark(trend)}  ({sum(trend)} failures, oldest hour first)")
     if with_logs:
-        # An empty dict renders the same "no logs" note as an empty response, so asking for
-        # logs never silently prints nothing.
-        _render_logs(logs or {})
+        if not run_id:
+            click.echo("\n  No failure logs: this failure has no run id recorded, so there is nothing to fetch.")
+        else:
+            # An empty dict renders the same "no logs" note as an empty response, so asking for
+            # logs never silently prints nothing.
+            _render_logs(logs or {})
     click.echo(f"\n{_CAVEATS}")
     raise SystemExit(0)
 
@@ -689,7 +749,7 @@ def _render_logs(logs: dict[str, Any]) -> None:
     """The thinned failure region per failed job. Jobs carry an id but no name, so the run
     id and branch are the only anchors back to GitHub."""
     if not logs.get("logs_available"):
-        click.echo("\n  No failure logs — the run did not fail, or its logs aged out of the short Logs retention.")
+        click.echo("\n  No failure logs: the run did not fail, or its logs aged out of the short Logs retention.")
         return
     for job in logs.get("jobs") or []:
         click.echo(
