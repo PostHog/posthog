@@ -33,6 +33,9 @@ def _nullable_json_subcolumn_types(subcolumns: dict[str, str]) -> dict[str, str]
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$active_feature_flags": "Array(String)",
     "$ai_experiment_id": "Nullable(String)",
+    "$ai_gateway_relay": "Nullable(String)",
+    "$ai_gateway_request_id": "Nullable(String)",
+    "$ai_gateway_verified": "Nullable(String)",
     "$ai_http_status": "Nullable(String)",
     "$ai_is_error": "Nullable(String)",
     "$ai_model": "Nullable(String)",
