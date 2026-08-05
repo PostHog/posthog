@@ -3,8 +3,8 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from posthog.models import Comment, Organization, OrganizationMembership, Team, User
-from posthog.models.file_system.file_system import FileSystem
 
+from products.canvas.backend.models import Canvas
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, Task, TaskActivity, TaskRun
 
@@ -50,6 +50,7 @@ class CommentMentionTestCase(TestCase):
             author_id=comment.created_by_id,
             created_at=comment.created_at,
             mentioned_user_ids=user_ids,
+            target_was_validated=comment.scope == "desktop_canvas",
         )
 
 
@@ -74,14 +75,12 @@ class TestCommentMentionActivity(CommentMentionTestCase):
         assert TaskActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
 
     def test_canvas_comment_uses_its_generation_task(self):
-        canvas = FileSystem.objects.create(
+        canvas = Canvas.objects.create(
             team=self.team,
-            path="general/Launch canvas",
-            depth=2,
-            type="dashboard",
-            surface="desktop",
+            channel=self.channel,
+            name="Launch canvas",
             created_by=self.peer,
-            meta={"generationTaskId": str(self.task.id)},
+            generation_task_id=self.task.id,
         )
         comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
 

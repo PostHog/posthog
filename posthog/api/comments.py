@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 from django.core import exceptions as django_exceptions
 from django.db import transaction
@@ -70,6 +71,17 @@ def _record_task_comment_activity(comment: Comment, mentions: list[int], *, acti
         record_comment_mention_activity,
     )
 
+    task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
+    target_was_validated = _task_comment_target_is_accessible(
+        team_id=comment.team_id,
+        user_id=comment.created_by_id,
+        task_id=task_id or "",
+        scope=comment.scope,
+        item_id=comment.item_id,
+    )
+    if not target_was_validated:
+        return
+
     record_comment_mention_activity(
         team_id=comment.team_id,
         scope=comment.scope,
@@ -79,6 +91,44 @@ def _record_task_comment_activity(comment: Comment, mentions: list[int], *, acti
         author_id=comment.created_by_id,
         created_at=activity_at or comment.created_at,
         mentioned_user_ids=mentions,
+        target_was_validated=True,
+    )
+
+
+def _task_comment_target_is_accessible(
+    *, team_id: int, user_id: int | None, task_id: str, scope: str, item_id: str | None
+) -> bool:
+    from products.tasks.backend.facade.api import task_comment_target_is_accessible  # noqa: PLC0415
+
+    if scope != "desktop_canvas":
+        return task_comment_target_is_accessible(
+            team_id=team_id,
+            user_id=user_id,
+            task_id=task_id,
+            scope=scope,
+            item_id=item_id,
+        )
+    if not task_comment_target_is_accessible(
+        team_id=team_id,
+        user_id=user_id,
+        task_id=task_id,
+        scope="task",
+        item_id=task_id,
+    ):
+        return False
+
+    from products.canvas.backend.facade.api import canvas_belongs_to_generation_task  # noqa: PLC0415
+
+    try:
+        parsed_task_id = UUID(task_id)
+    except ValueError:
+        return False
+    if not item_id:
+        return False
+    return canvas_belongs_to_generation_task(
+        team_id=team_id,
+        canvas_id=item_id,
+        task_id=parsed_task_id,
     )
 
 
@@ -206,10 +256,8 @@ class CommentSerializer(serializers.ModelSerializer):
         target_item_id = data.get("item_id", instance.item_id if instance else None)
         target_context = data.get("item_context", instance.item_context if instance else None) or {}
         if target_scope in {"task", "task_artifact", "desktop_canvas"}:
-            from products.tasks.backend.facade.api import task_comment_target_is_accessible  # noqa: PLC0415
-
             task_id = target_item_id if target_scope == "task" else target_context.get("taskId")
-            if not task_comment_target_is_accessible(
+            if not _task_comment_target_is_accessible(
                 team_id=self.context["get_team"]().id,
                 user_id=request.user.id,
                 task_id=task_id or "",
@@ -439,10 +487,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         lookup_value = self.kwargs[lookup_url_kwarg]
         comment = get_object_or_404(queryset, **{self.lookup_field: lookup_value})
         if comment.scope in {"task", "task_artifact", "desktop_canvas"}:
-            from products.tasks.backend.facade.api import task_comment_target_is_accessible  # noqa: PLC0415
-
             task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
-            if not task_comment_target_is_accessible(
+            if not _task_comment_target_is_accessible(
                 team_id=self.team_id,
                 user_id=self.request.user.id,
                 task_id=task_id or "",
@@ -496,11 +542,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             if scope in TICKET_COMMENT_SCOPES:
                 queryset = self._filter_ticket_scoped_queryset(queryset, params.get("item_id"))
             elif scope in {"task", "task_artifact", "desktop_canvas"}:
-                from products.tasks.backend.facade.api import task_comment_target_is_accessible  # noqa: PLC0415
-
                 task_id = params.get("task_id")
                 item_id = params.get("item_id")
-                if not task_comment_target_is_accessible(
+                if not _task_comment_target_is_accessible(
                     team_id=self.team_id,
                     user_id=self.request.user.id,
                     task_id=task_id or "",

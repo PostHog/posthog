@@ -45,7 +45,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
     def test_task_artifact_comments_require_a_visible_owning_task(self) -> None:
         task = self._task_artifact_target()
-        payload = {
+        payload: dict[str, Any] = {
             "content": "Review this",
             "scope": "task_artifact",
             "item_id": "artifact-1",
@@ -77,6 +77,54 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         visible_task = self._task_artifact_target()
         payload["item_context"]["taskId"] = str(visible_task.id)
         payload["item_id"] = "not-on-visible-task"
+        assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+
+    def test_canvas_comments_use_the_relational_canvas_owner(self) -> None:
+        task = self._task_artifact_target()
+        channel = task.channel
+        canvas_model = apps.get_model("canvas", "Canvas")
+        canvas = canvas_model.objects.create(
+            team=self.team,
+            channel=channel,
+            name="Launch canvas",
+            created_by=self.user,
+        )
+        canvas_version_model = apps.get_model("canvas", "CanvasSourceVersion")
+        canvas_version_model.objects.create(
+            team=self.team,
+            canvas=canvas,
+            source_hash="a" * 64,
+            source_object_key="canvases/test/source.json",
+            source_size=2,
+            task_id=task.id,
+            created_by=self.user,
+        )
+        mentioned = User.objects.create_and_join(self.organization, "canvas-mentioned@posthog.com", "password")
+        payload: dict[str, Any] = {
+            "content": "Review this canvas",
+            "scope": "desktop_canvas",
+            "item_id": str(canvas.id),
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            "mentions": [mentioned.id],
+        }
+
+        created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
+
+        assert created.status_code == status.HTTP_201_CREATED
+        with_task = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+        )
+        assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
+        task_activity_model = apps.get_model("tasks", "TaskActivity")
+        assert task_activity_model.objects.filter(
+            team=self.team,
+            user=mentioned,
+            task=task,
+            comment_id=created.json()["id"],
+        ).exists()
+
+        other_task = self._task_artifact_target()
+        payload["item_context"]["taskId"] = str(other_task.id)
         assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
 
     @mock.patch("posthog.api.comments._record_task_comment_activity")

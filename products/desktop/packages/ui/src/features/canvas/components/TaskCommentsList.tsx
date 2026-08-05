@@ -31,7 +31,6 @@ import {
   buildRows,
   type CommentSource,
   commentSources,
-  openCanvasFromUrl,
   taskCommentTarget,
 } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import {
@@ -44,6 +43,7 @@ import {
 } from "@posthog/ui/features/canvas/components/taskCommentThreads";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
+import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { usePrCommentActions } from "@posthog/ui/features/code-review/hooks/usePrCommentActions";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
@@ -402,9 +402,7 @@ export function TaskCommentsList({
     }
     const { source, root } = origin;
     if (source.kind === "canvas") {
-      // Canvas comment surfaces land with the canvas work; until then this
-      // opens the canvas itself rather than a dead deep link.
-      openCanvasFromUrl(source.url)?.();
+      canvasArtifactOpenHandler(source.url)?.();
       return;
     }
     // A thread on the task itself has nowhere else to open — it lives here.

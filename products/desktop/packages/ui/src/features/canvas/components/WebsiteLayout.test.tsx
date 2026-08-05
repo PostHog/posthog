@@ -6,6 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));
+vi.mock("@posthog/host-router/react", () => ({
+  useHostTRPC: () => ({
+    dashboards: { saveContext: { mutationKey: () => ["save-context"] } },
+  }),
+}));
 
 const { useChannelTasks, useDashboard, useParams, usePathname, useTasks } =
   vi.hoisted(() => ({

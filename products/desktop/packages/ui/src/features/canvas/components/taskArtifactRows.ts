@@ -14,10 +14,7 @@ import type {
   TaskRun,
   TaskThreadMessage,
 } from "@posthog/shared/domain-types";
-import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
-import { navigateToShareTarget } from "@posthog/ui/utils/shareLinks";
-import { getPostHogUrl } from "@posthog/ui/utils/urls";
 
 export type ArtifactRow =
   | { kind: "pr"; key: string; url: string }
@@ -79,25 +76,6 @@ function canvasDashboardId(url: string | null): string | null {
   const parsed = parseHttpsUrl(url);
   const target = parsed ? parseShareLink(parsed.href) : null;
   return target?.kind === "canvas" ? target.dashboardId : null;
-}
-
-export function openCanvasFromUrl(
-  url: string | null,
-): (() => void) | undefined {
-  const parsed = url ? parseHttpsUrl(url) : null;
-  const target = parsed ? parseShareLink(parsed.href) : null;
-  if (!parsed || !target) return undefined;
-  return () => {
-    const currentPostHogUrl = getPostHogUrl("/");
-    const currentPostHogOrigin = currentPostHogUrl
-      ? parseHttpsUrl(currentPostHogUrl)?.origin
-      : null;
-    if (parsed.origin === currentPostHogOrigin) {
-      navigateToShareTarget(target);
-    } else {
-      openExternalUrl(parsed.href);
-    }
-  };
 }
 
 /** Where a row's comments live, or null when the row can't carry any. */

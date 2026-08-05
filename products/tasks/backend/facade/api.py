@@ -49,10 +49,10 @@ from products.tasks.backend.constants import (
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.forwarded_content import frame_forwarded_comment
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
-from products.tasks.backend.forwarded_content import frame_forwarded_comment
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -6038,6 +6038,15 @@ def _index_thread_message_mentions(message: TaskThreadMessage, mentioned_user_id
 COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
 
 
+def task_has_canvas_created_event(*, team_id: int, task_id: UUID, canvas_id: str) -> bool:
+    return TaskThreadMessage.objects.filter(
+        team_id=team_id,
+        task_id=task_id,
+        event="canvas_created",
+        payload__canvas_url__endswith=f"/{canvas_id}",
+    ).exists()
+
+
 def task_comment_target_is_accessible(
     *, team_id: int, user_id: int | None, task_id: str | UUID, scope: str, item_id: str | None
 ) -> bool:
@@ -6066,24 +6075,7 @@ def task_comment_target_is_accessible(
                 return True
         return False
 
-    from posthog.models.file_system.file_system import FileSystem  # noqa: PLC0415
-
-    try:
-        canvas = FileSystem.objects.filter(team_id=team_id, id=item_id, type="dashboard").first()
-    except (ValueError, DjangoValidationError):
-        return False
-    if canvas is None:
-        return False
-    generation_task_id = (canvas.meta or {}).get("generationTaskId")
-    if str(generation_task_id) == str(task.id):
-        return True
-    # Older canvases can predate generationTaskId but still have the durable creation event.
-    return TaskThreadMessage.objects.filter(
-        team_id=team_id,
-        task_id=task.id,
-        event="canvas_created",
-        payload__canvas_url__endswith=f"/{item_id}",
-    ).exists()
+    return False
 
 
 def _comment_task_id(scope: str, item_id: str | None, item_context: dict[str, Any] | None) -> UUID | None:
@@ -6115,6 +6107,7 @@ def record_comment_mention_activity(
     author_id: int | None,
     created_at: datetime,
     mentioned_user_ids: Sequence[int],
+    target_was_validated: bool = False,
 ) -> None:
     """Project mentions on a task's comments into the mentioned users' activity feeds.
 
@@ -6137,7 +6130,7 @@ def record_comment_mention_activity(
         return
 
     try:
-        if not task_comment_target_is_accessible(
+        if not target_was_validated and not task_comment_target_is_accessible(
             team_id=team_id,
             user_id=author_id,
             task_id=task_id,
