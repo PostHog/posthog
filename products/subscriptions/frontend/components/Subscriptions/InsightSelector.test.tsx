@@ -8,7 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { DashboardTile } from '~/types'
 
 import { InsightSelector } from './InsightSelector'
-import { MAX_INSIGHTS } from './insightSelectorLogic'
+import { MAX_DASHBOARD_INSIGHTS } from './insightSelectorLogic'
 
 function renderInsightSelector(props: {
     tiles: DashboardTile[]
@@ -64,7 +64,7 @@ describe('InsightSelector', () => {
             onChange: jest.fn(),
         })
 
-        expect(screen.getByText(`2 of ${MAX_INSIGHTS} insights selected`)).toBeInTheDocument()
+        expect(screen.getByText(`2 of ${MAX_DASHBOARD_INSIGHTS} insights selected`)).toBeInTheDocument()
     })
 
     it('calls onChange when selecting an insight', async () => {
@@ -121,7 +121,7 @@ describe('InsightSelector', () => {
     })
 
     it('shows max limit message when at capacity', () => {
-        const maxInsightTiles = Array.from({ length: MAX_INSIGHTS }, (_, i) => ({
+        const maxInsightTiles = Array.from({ length: MAX_DASHBOARD_INSIGHTS }, (_, i) => ({
             id: i + 1,
             insight: { id: 100 + i, name: `Insight ${i}` } as any,
             layouts: { sm: { x: 0, y: i } } as any,
@@ -134,7 +134,9 @@ describe('InsightSelector', () => {
             onChange: jest.fn(),
         })
 
-        expect(screen.getByText(`Maximum ${MAX_INSIGHTS} insights. Deselect one to add another.`)).toBeInTheDocument()
+        expect(
+            screen.getByText(`Maximum ${MAX_DASHBOARD_INSIGHTS} insights. Deselect one to add another.`)
+        ).toBeInTheDocument()
     })
 
     it('shows warning when none selected after user interaction', async () => {
