@@ -529,3 +529,40 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
             mcp=False,
         )
         assert response.status_code == 201, response.json()
+
+    def test_materialized_template_content_is_capped_per_save(self):
+        # Each body-less reference expands server-side, so without a cumulative cap a small
+        # request with many steps referencing one large template amplifies into an oversized
+        # write. Each step here is under the cap on its own; only the running total crosses it.
+        template = self._create_library_template()
+        template.content["email"]["html"] = "<p>" + "x" * 5000 + "</p>"
+        template.save()
+        email_config = {
+            "template_id": "template-email",
+            "template_uuid": str(template.id),
+            "inputs": {"email": {"value": {"from": "a@b.com", "to": "c@d.com"}}},
+        }
+        flow = {
+            "name": "Amplified Flow",
+            "actions": [
+                _trigger_action(),
+                *(
+                    {"id": f"email_{i}", "name": f"Email step {i}", "type": "function_email", "config": email_config}
+                    for i in range(3)
+                ),
+            ],
+            "edges": [
+                {"from": "trigger_node", "to": "email_0", "type": "continue"},
+                {"from": "email_0", "to": "email_1", "type": "continue"},
+                {"from": "email_1", "to": "email_2", "type": "continue"},
+            ],
+        }
+
+        with patch(
+            "products.workflows.backend.api.hog_flow.MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES",
+            8000,
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        assert "author the email bodies inline" in response.json()["detail"], response.json()

@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -513,10 +514,13 @@ def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: 
 # from the caller.
 _TEMPLATE_EMAIL_BODY_KEYS = ("subject", "text", "html", "design")
 
+# Materialization must not persist more content than the request-body ceiling lets a caller
+# send inline: many tiny steps referencing one large template would otherwise amplify a small
+# request into an oversized write. Cumulative across all steps in one save.
+MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
 
-def _apply_email_template_content(
-    config: dict, team: Team, strict: bool, template_cache: dict[str, Optional[MessageTemplate]]
-) -> None:
+
+def _apply_email_template_content(config: dict, team: Team, strict: bool, context: dict) -> None:
     """Materialize a referenced saved template's email body into the step's inputs at save,
     mirroring what the web editor does when a template is picked (snapshot semantics: later
     template edits don't propagate). Only fires when the caller supplied no body at all — a
@@ -538,6 +542,9 @@ def _apply_email_template_content(
         parsed_uuid = None
     # Memoized per request: a drip sequence reuses one template across steps, and the actions
     # list validates one action at a time, so without this each step re-queries the same row.
+    # The context dict is shared across the many=True action list, so the memo (and the
+    # materialized-bytes counter below) span all steps in one request.
+    template_cache: dict[str, Optional[MessageTemplate]] = context.setdefault("_message_template_cache", {})
     cache_key = str(parsed_uuid)
     if parsed_uuid is None:
         template = None
@@ -561,6 +568,19 @@ def _apply_email_template_content(
         return
 
     body = {key: email_content[key] for key in _TEMPLATE_EMAIL_BODY_KEYS if email_content.get(key)}
+    # Applies on lenient saves too: the lenient path is caller-selectable (a request header),
+    # so a strict-only cap would leave the amplification open.
+    materialized_bytes = context.get("_materialized_template_bytes", 0) + len(json.dumps(body))
+    if materialized_bytes > MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES:
+        raise serializers.ValidationError(
+            {
+                "template_uuid": (
+                    "Referenced templates expand into too much email content for one workflow save. "
+                    "Use fewer or smaller templates, or author the email bodies inline."
+                )
+            }
+        )
+    context["_materialized_template_bytes"] = materialized_bytes
     # Body keys are template-sourced once materialization is decided: a falsy placeholder the
     # detection above just ignored (subject: null) must not clobber the template's content.
     carried_over = (
@@ -1113,10 +1133,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                 # re-saves, direct construction) - no team to resolve against, so skip.
                 get_team = self.context.get("get_team")
                 if get_team is not None:
-                    # The context dict is shared across the many=True action list, so the
-                    # memo spans all steps in one request.
-                    template_cache = self.context.setdefault("_message_template_cache", {})
-                    _apply_email_template_content(config, get_team(), strict, template_cache)
+                    _apply_email_template_content(config, get_team(), strict, self.context)
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 if strict:
