@@ -15,6 +15,7 @@ import { LemonSegmentedButton } from '~/lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from '~/lib/lemon-ui/LemonTag'
+import { toAccessControlLevel } from '~/lib/utils/accessControlUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
@@ -100,7 +101,7 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmAnalytics}
                                     minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={dataset.user_access_level as AccessControlLevel}
+                                    userAccessLevel={toAccessControlLevel(dataset.user_access_level)}
                                 >
                                     <LemonButton
                                         status={dataset.archived ? undefined : 'danger'}
@@ -178,6 +179,7 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
             </div>
 
             <LemonTable
+                id="datasets"
                 loading={datasetsLoading}
                 columns={columns}
                 dataSource={datasets.results}

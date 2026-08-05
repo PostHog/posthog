@@ -70,7 +70,7 @@ describe('aiObservabilityDatasetsLogic', () => {
         mockDatasetsApi.restoreDataset.mockResolvedValue(mockDataset1)
     })
 
-    it('does not carry route-specific state between dataset routes', () => {
+    it('keeps list pagination without carrying detail-specific state between dataset routes', () => {
         const searchParams = {
             dataset_status: 'archived',
             item: 'item-1',
@@ -85,11 +85,13 @@ describe('aiObservabilityDatasetsLogic', () => {
 
         expect(getDatasetNavigationSearchParams(searchParams)).toEqual({
             dataset_status: 'archived',
+            datasets_page: 2,
             order_by: 'name',
             search: 'support',
         })
-        expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).not.toContain('page=')
-        expect(getDatasetListUrl(searchParams)).not.toContain('page=')
+        expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).toContain('datasets_page=2')
+        expect(getDatasetListUrl(searchParams)).toContain('datasets_page=2')
+        expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).not.toContain('item=')
     })
 
     describe('filters functionality', () => {

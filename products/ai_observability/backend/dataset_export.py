@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
+from django.db.models import Q, QuerySet
+
 from posthog.permissions import posthog_feature_flag_value
 from posthog.rbac.user_access_control import UserAccessControl
 
+from products.ai_observability.backend.dataset_limits import MAX_DATASET_EXPORT_BYTES, MAX_DATASET_EXPORT_MEGABYTES
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
 from products.exports.backend.facade.api import (
@@ -20,8 +24,7 @@ from products.exports.backend.facade.api import (
 
 DATASETS_FEATURE_FLAG = "llm-analytics-datasets"
 DATASET_EXPORT_DATABASE_FALLBACK_BYTES = 50_000_000
-MAX_DATASET_EXPORT_MEGABYTES = 250
-MAX_DATASET_EXPORT_BYTES = MAX_DATASET_EXPORT_MEGABYTES * 1_000_000
+DATASET_EXPORT_BATCH_SIZE = 50
 
 
 DatasetExportError = InvalidExportContext
@@ -47,6 +50,29 @@ def _export_row(version: DatasetItemVersion, *, selected_revision: DatasetRevisi
         "source_event_id": version.source_event_id,
         "source_timestamp": _isoformat(version.source_timestamp),
     }
+
+
+def _iter_versions_in_batches(
+    versions: QuerySet[DatasetItemVersion, DatasetItemVersion],
+) -> Iterator[DatasetItemVersion]:
+    last_created_at: datetime | None = None
+    last_item_id: UUID | None = None
+
+    while True:
+        page = versions
+        if last_created_at is not None and last_item_id is not None:
+            page = page.filter(
+                Q(dataset_item__created_at__gt=last_created_at)
+                | Q(dataset_item__created_at=last_created_at, dataset_item_id__gt=last_item_id)
+            )
+        batch = list(page[:DATASET_EXPORT_BATCH_SIZE])
+        if not batch:
+            return
+
+        yield from batch
+        last_version = batch[-1]
+        last_created_at = last_version.dataset_item.created_at
+        last_item_id = last_version.dataset_item_id
 
 
 def export_dataset_jsonl(asset: ExportedAsset) -> None:
@@ -102,7 +128,7 @@ def export_dataset_jsonl(asset: ExportedAsset) -> None:
         total_bytes = 0
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".jsonl", delete=False) as export_file:
             file_path = export_file.name
-            for version in versions.iterator(chunk_size=50):
+            for version in _iter_versions_in_batches(versions):
                 line = (
                     json.dumps(
                         _export_row(version, selected_revision=selected_revision),

@@ -8,6 +8,7 @@ import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSkeleton } f
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
 import { isObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
@@ -142,7 +143,7 @@ function OverlayMenu(): JSX.Element {
                                         ref={itemsRef?.current?.[index]}
                                         resourceType={AccessControlResourceType.LlmAnalytics}
                                         minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={dataset.user_access_level as AccessControlLevel}
+                                        userAccessLevel={toAccessControlLevel(dataset.user_access_level)}
                                     >
                                         <LemonButton
                                             fullWidth
@@ -173,7 +174,7 @@ function OverlayMenu(): JSX.Element {
                                 ref={itemsRef?.current?.[recentDatasetsLength + index]}
                                 resourceType={AccessControlResourceType.LlmAnalytics}
                                 minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={dataset.user_access_level as AccessControlLevel}
+                                userAccessLevel={toAccessControlLevel(dataset.user_access_level)}
                             >
                                 <LemonButton
                                     fullWidth

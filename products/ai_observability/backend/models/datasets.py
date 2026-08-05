@@ -96,6 +96,10 @@ class DatasetRevision(UUIDModel, CreatedMetaFields):
                 fields=["dataset", "revision"],
                 name="uniq_llma_dataset_revision_v2",
             ),
+            models.UniqueConstraint(
+                fields=["id", "dataset", "team"],
+                name="uniq_llma_dataset_rev_v2_owner",
+            ),
             models.CheckConstraint(
                 condition=Q(revision__gte=1),
                 name="llma_dataset_revision_v2_positive",
@@ -133,7 +137,11 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 fields=["dataset", "client_item_id"],
                 condition=Q(client_item_id__isnull=False),
                 name="uniq_llma_dataset_item_v2_ext",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["id", "dataset", "team"],
+                name="uniq_llma_dataset_item_v2_owner",
+            ),
         ]
         indexes = [
             models.Index(

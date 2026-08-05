@@ -136,7 +136,11 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                     {loadError ? (
                         <LemonBanner
                             type="error"
-                            action={onRetry ? { children: 'Try again', onClick: onRetry } : undefined}
+                            action={
+                                onRetry && loadError.status !== 403 && loadError.status !== 404
+                                    ? { children: 'Try again', onClick: onRetry }
+                                    : undefined
+                            }
                         >
                             {getDatasetItemLoadErrorMessage(loadError)}
                         </LemonBanner>

@@ -11,19 +11,18 @@ from django.db.models import Max
 
 from posthog.models import Team, User
 
+from products.ai_observability.backend.dataset_limits import MAX_DATASET_ITEM_PAYLOAD_BYTES, MAX_ITEMS_PER_DATASET
 from products.ai_observability.backend.dataset_queries import latest_dataset_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 
 type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
 
-MAX_DATASET_ITEM_PAYLOAD_BYTES = 1_000_000
 MAX_DATASET_METADATA_BYTES = 1_000_000
 MAX_DATASET_DESCRIPTION_LENGTH = 10_000
 MAX_DATASET_NAME_LENGTH = 400
 MAX_CLIENT_ITEM_ID_LENGTH = 255
 MAX_SOURCE_ID_LENGTH = 255
 MAX_DATASETS_PER_TEAM = 100
-MAX_ITEMS_PER_DATASET = 5_000
 MAX_VERSIONS_PER_ITEM = 100
 
 

@@ -10,6 +10,7 @@ from posthog.event_usage import EventSource, groups
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
 
+from products.exports.backend.facade.exporters import get_export_format_handler
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.failure_handler import (
     USER_QUERY_ERRORS,
@@ -124,11 +125,10 @@ def export_asset_direct(
         elif exported_asset.export_format == ExportedAsset.ExportFormat.JSONL:
             if not exported_asset.is_dataset_export:
                 raise InvalidExportContext("JSONL exports require a dataset export context.")
-            from products.ai_observability.backend.dataset_export import (  # noqa: PLC0415 because this keeps product-specific code off the generic task import path
-                export_dataset_jsonl,
-            )
-
-            export_dataset_jsonl(exported_asset)
+            export_handler = get_export_format_handler(exported_asset.export_format)
+            if export_handler is None:
+                raise InvalidExportContext("No handler is registered for this export format.")
+            export_handler(exported_asset)
         else:
             image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels, source=export_source)
 

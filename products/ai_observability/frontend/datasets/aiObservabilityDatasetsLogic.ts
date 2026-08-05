@@ -18,12 +18,14 @@ import { datasetsApi } from './datasetsApi'
 
 export const DATASETS_PER_PAGE = 30
 
-const DATASET_NAVIGATION_SEARCH_PARAM_KEYS = new Set(['dataset_status', 'order_by', 'search'])
+const DATASET_NAVIGATION_SEARCH_PARAM_KEYS = new Set(['dataset_status', 'datasets_page', 'order_by', 'search'])
 
 export function getDatasetNavigationSearchParams(searchParams: Record<string, any>): Record<string, any> {
-    return Object.fromEntries(
+    const navigationSearchParams = Object.fromEntries(
         Object.entries(searchParams).filter(([key]) => DATASET_NAVIGATION_SEARCH_PARAM_KEYS.has(key))
     )
+    const page = searchParams.datasets_page ?? searchParams.page
+    return page === undefined ? navigationSearchParams : { ...navigationSearchParams, datasets_page: page }
 }
 
 export function getDatasetListUrl(searchParams: Record<string, any>): string {
@@ -41,9 +43,11 @@ export interface DatasetFilters {
     archived: boolean
 }
 
-function cleanFilters(values: Partial<DatasetFilters> & { dataset_status?: unknown }): DatasetFilters {
+function cleanFilters(
+    values: Partial<DatasetFilters> & { dataset_status?: unknown; datasets_page?: unknown }
+): DatasetFilters {
     return {
-        page: parseInt(String(values.page)) || 1,
+        page: parseInt(String(values.datasets_page ?? values.page)) || 1,
         search: String(values.search || ''),
         order_by: values.order_by || '-created_at',
         archived: values.dataset_status ? values.dataset_status === 'archived' : values.archived === true,
@@ -312,8 +316,10 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
                   },
               ]
             | void => {
+            const { page, ...pagedSearchOrderParams } = cleanPagedSearchOrderParams(values.filters)
             const nextValues = {
-                ...cleanPagedSearchOrderParams(values.filters),
+                ...pagedSearchOrderParams,
+                datasets_page: page,
                 dataset_status: values.filters.archived ? 'archived' : undefined,
             }
             const urlValues = cleanFilters(router.values.searchParams)

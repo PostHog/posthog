@@ -18,6 +18,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -28,6 +29,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { createdAtColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
 import { isObject } from 'lib/utils/guards'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -144,13 +146,15 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         return <NotFound object="dataset" />
     }
 
-    if (datasetLoadError && (!isDataset(dataset) || datasetLoadError.status === 403)) {
+    if (datasetLoadError?.status === 403) {
+        return <AccessDenied object="dataset" />
+    }
+
+    if (datasetLoadError && !isDataset(dataset)) {
         return (
             <SceneContent>
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: loadDataset }}>
-                    {datasetLoadError.status === 403
-                        ? "You don't have permission to view this dataset."
-                        : datasetLoadError.detail || "Couldn't load this dataset. Try again."}
+                    {datasetLoadError.detail || "Couldn't load this dataset. Try again."}
                 </LemonBanner>
             </SceneContent>
         )
@@ -202,9 +206,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                     resourceType={AccessControlResourceType.LlmAnalytics}
                                     minAccessLevel={AccessControlLevel.Editor}
                                     userAccessLevel={
-                                        isDataset(dataset)
-                                            ? (dataset.user_access_level as AccessControlLevel)
-                                            : undefined
+                                        isDataset(dataset) ? toAccessControlLevel(dataset.user_access_level) : undefined
                                     }
                                 >
                                     <LemonButton

@@ -3,7 +3,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models.deletion import RestrictedError
 from django.utils.timezone import now
 
@@ -770,6 +770,17 @@ class TestDatasetsApi(APIBaseTest):
             DatasetItemVersion.objects.for_team(self.team.id).filter(id=item["version_id"]).update(
                 source_trace_id="trace-without-timestamp"
             )
+
+    def test_database_constraints_reject_inconsistent_version_ownership(self) -> None:
+        dataset = self._create_dataset()
+        item = self._create_item(dataset["id"])
+        other_dataset = self._create_dataset("Other dataset")
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            DatasetItemVersion.objects.for_team(self.team.id).filter(id=item["version_id"]).update(
+                dataset_id=other_dataset["id"]
+            )
+            connection.check_constraints([DatasetItemVersion._meta.db_table])
 
     def test_dataset_limit_counts_archived_datasets(self) -> None:
         with patch("products.ai_observability.backend.dataset_service.MAX_DATASETS_PER_TEAM", 1):

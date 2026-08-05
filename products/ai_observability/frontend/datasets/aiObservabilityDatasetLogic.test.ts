@@ -36,6 +36,7 @@ jest.mock('./datasetsApi', () => ({
         archiveItem: jest.fn(),
         restoreItem: jest.fn(),
         exportDataset: jest.fn(),
+        getExport: jest.fn(),
     },
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
@@ -137,6 +138,10 @@ describe('aiObservabilityDatasetLogic', () => {
         mockDatasetsApi.listRevisions.mockResolvedValue({ results: [], count: 0 })
         mockDatasetsApi.updateItem.mockResolvedValue(mockDatasetItem1)
         mockDatasetsApi.exportDataset.mockResolvedValue(mockDatasetExport)
+        mockDatasetsApi.getExport.mockResolvedValue({
+            ...mockDatasetExport,
+            status: 'complete',
+        })
         mockDatasetsApi.archiveDataset.mockResolvedValue({ ...mockDataset, archived: true })
         mockDatasetsApi.restoreDataset.mockResolvedValue(mockDataset)
         mockDatasetsApi.archiveItem.mockResolvedValue({ ...mockDatasetItem1, archived: true, version: 2 })
@@ -417,14 +422,25 @@ describe('aiObservabilityDatasetLogic', () => {
 
     describe('dataset export', () => {
         it('starts an export and links to the exports list without staying loading', async () => {
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            const trackExportSpy = jest.spyOn(logic.actions, 'trackExport')
+
+            await expectLogic(logic, () => logic.actions.exportDataset(7)).toFinishAllListeners()
+
+            expect(trackExportSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    id: mockDatasetExport.id,
+                    export_format: 'application/x-ndjson',
+                    has_content: false,
+                }),
+                expect.any(Function)
+            )
+
             const setAssetFormat = jest.fn()
             const findExportsLogicSpy = jest
                 .spyOn(exportsLogic, 'findMounted')
                 .mockReturnValue({ actions: { setAssetFormat } } as any)
-            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
-            logic.mount()
-
-            await expectLogic(logic, () => logic.actions.exportDataset(7)).toFinishAllListeners()
 
             expect(mockDatasetsApi.exportDataset).toHaveBeenCalledWith(mockDataset.id, 7)
             expect(logic.values.datasetExport).toEqual(mockDatasetExport)
@@ -446,6 +462,23 @@ describe('aiObservabilityDatasetLogic', () => {
             expect(setAssetFormat).toHaveBeenCalledWith(null)
             expect(router.values.location.pathname).toContain(urls.exports())
             findExportsLogicSpy.mockRestore()
+        })
+
+        it('reports a workflow start failure without tracking it as pending', async () => {
+            mockDatasetsApi.exportDataset.mockResolvedValue({
+                ...mockDatasetExport,
+                status: 'failed',
+                exception: 'The export could not be started.',
+            })
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            const trackExportSpy = jest.spyOn(logic.actions, 'trackExport')
+
+            await expectLogic(logic, () => logic.actions.exportDataset(7)).toFinishAllListeners()
+
+            expect(trackExportSpy).not.toHaveBeenCalled()
+            expect(lemonToast.error).toHaveBeenCalledWith('The export could not be started.')
+            expect(lemonToast.info).not.toHaveBeenCalled()
         })
 
         it('retries export creation when a new request fails after an earlier export succeeded', async () => {
