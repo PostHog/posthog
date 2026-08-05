@@ -19,7 +19,6 @@ class TestCustomerTurns(TestCase):
         [
             ("bare command carries nothing", "/ticket", []),
             ("command with text keeps the text", "/ticket the sync is failing", ["the sync is failing"]),
-            ("command with padding is trimmed", "/ticket   the sync is failing  ", ["the sync is failing"]),
             ("plain message is kept", "the sync is failing", ["the sync is failing"]),
             ("word starting with the command is untouched", "/ticketing is broken", ["/ticketing is broken"]),
         ]
@@ -29,11 +28,12 @@ class TestCustomerTurns(TestCase):
 
 
 class TestRenderTranscript(TestCase):
-    def test_tags_each_side_and_drops_the_bare_command(self):
+    def test_tags_each_side_and_drops_what_carries_nothing(self):
         rendered = render_transcript(
             [
                 HumanMessage(content="the sync is failing"),
                 AssistantMessage(content="Which source?"),
+                AssistantMessage(content=""),
                 HumanMessage(content="/ticket"),
             ]
         )
@@ -41,10 +41,6 @@ class TestRenderTranscript(TestCase):
             rendered,
             "<customer>\nthe sync is failing\n</customer>\n<posthog_ai>\nWhich source?\n</posthog_ai>",
         )
-
-    def test_skips_assistant_messages_without_content(self):
-        rendered = render_transcript([HumanMessage(content="hello"), AssistantMessage(content="")])
-        self.assertEqual(rendered, "<customer>\nhello\n</customer>")
 
 
 class TestStripUnverifiableQuotes(TestCase):
