@@ -1035,13 +1035,18 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # A derived note quotes a report's id, title, and dismissal text, all of which the
-            # report API gates on `task:read`. A scout-only token must not read around that.
+            # Every report-derived note quotes a report's id, title, and reviewer/reader text, all of
+            # which the report API gates on `task:read`. A scout-only token must not read around that,
+            # so all derived origins are withheld together — a new one must not reopen the gap.
             ("without_report_read", ["signal_scout:read"], {"steering"}),
-            ("with_report_read", ["signal_scout:read", "task:read"], {"steering", "derived from a dismissal"}),
+            (
+                "with_report_read",
+                ["signal_scout:read", "task:read"],
+                {"steering", "derived from a dismissal", "derived from feedback"},
+            ),
         ]
     )
-    def test_list_withholds_dismissal_notes_from_callers_without_report_read(
+    def test_list_withholds_derived_notes_from_callers_without_report_read(
         self, _name: str, scopes: list[str], expected: set[str]
     ) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
@@ -1052,6 +1057,11 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             team=self.team,
             content="derived from a dismissal",
             origin=SignalScoutNote.Origin.REPORT_DISMISSAL,
+        )
+        SignalScoutNote.objects.create(
+            team=self.team,
+            content="derived from feedback",
+            origin=SignalScoutNote.Origin.REPORT_FEEDBACK,
         )
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
@@ -1401,6 +1411,132 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.status == SignalScoutConfig.Status.ACTIVE
         assert config.pause_reason is None
 
+    def test_partial_update_resets_the_failure_streak_but_not_a_breaker_pause(self) -> None:
+        # An unrelated edit resets the breaker's evidence, but must not resume the pause —
+        # resuming through an edit would sidestep the enabled-scout cap that `enabled=true`
+        # and the probe's resume both re-check.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        )
+        SignalScoutConfig.objects.filter(pk=config.pk).update(consecutive_failure_count=5)
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 60}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.consecutive_failure_count == 0
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert config.pause_reason == SignalScoutConfig.PauseReason.REPEATED_FAILURES
+
+    def test_create_upsert_on_existing_config_resets_the_failure_streak(self) -> None:
+        # The POST path re-registers an existing config through `_upsert_scout_config`, which is
+        # a human edit like PATCH — the pre-trip streak must reset there too, or an edit through
+        # this path leaves the scout one failure from pausing despite the intervening human touch.
+        self._make_skill("signals-scout-foo")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        SignalScoutConfig.objects.filter(pk=config.pk).update(consecutive_failure_count=4)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-foo", "run_interval_minutes": 120},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.consecutive_failure_count == 0
+        assert config.run_interval_minutes == 120
+
+    @parameterized.expand(
+        [
+            ("default_marks_exempt", {"enabled": True}, True),
+            ("explicit_false_wins", {"enabled": True, "auto_pause_exempt": False}, False),
+        ]
+    )
+    def test_re_enabling_an_inactivity_paused_scout_marks_it_exempt(
+        self, _name: str, payload: dict, expected_exempt: bool
+    ) -> None:
+        # A re-enable is a human overruling the sweep, and the sweep must not overrule them back:
+        # the same quiet fortnight would re-qualify the scout as soon as its grace window lapses.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["auto_pause_exempt"] is expected_exempt
+        config.refresh_from_db()
+        assert config.enabled is True
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.pause_reason is None
+        assert config.auto_pause_exempt is expected_exempt
+
+    def test_re_enabling_an_inactivity_paused_scout_emits_the_revert_event(self) -> None:
+        # The sweep's false-positive metric: a re-enable soon after the pause means the rule
+        # paused something someone still wanted.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.IGNORED,
+            status_changed_at=timezone.now() - timedelta(hours=2),
+        )
+
+        with patch("products.signals.backend.scout_harness.serializers.posthoganalytics.capture") as capture:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_auto_pause_reverted"]
+        assert call.kwargs["properties"]["pause_reason"] == SignalScoutConfig.PauseReason.IGNORED
+        assert call.kwargs["properties"]["reverted_within_24h"] is True
+
+    def test_re_enabling_a_breaker_paused_scout_does_not_mark_it_exempt(self) -> None:
+        # The exemption belongs to the inactivity sweep; a re-enable after repeated failures says
+        # nothing about whether the scout's silence is wanted.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.auto_pause_exempt is False
+
+    def test_exempting_a_scout_clears_its_pending_warning(self) -> None:
+        # Exempting takes the scout out of the sweep, so nothing else would ever clear the
+        # warning and the fleet page would keep saying it's about to pause.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            status=SignalScoutConfig.Status.PENDING_PAUSE,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"auto_pause_exempt": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["auto_pause_exempt"] is True
+        config.refresh_from_db()
+        assert config.auto_pause_exempt is True
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.pause_reason is None
+
     def test_resending_enabled_false_does_not_escalate_a_system_pause(self) -> None:
         # Clients resend whole config objects; an unchanged `enabled=false` must not convert
         # a system pause into a user pause the system may never resume.
@@ -1511,6 +1647,51 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.output_destinations == (destination if expected_status == status.HTTP_200_OK else {})
         if expected_missing_scope is not None:
             assert expected_missing_scope in response.json()["detail"]
+
+    def test_child_scoped_api_key_cannot_update_parent_config(self) -> None:
+        # Config rows canonicalize to the parent team, so a key scoped only to a child
+        # environment passes the default scope check (URL team == child) while the PATCH
+        # targets the parent's row — ScoutCanonicalTeamAccessPermission must 403 before a
+        # child-scoped credential can change the parent's sandbox posture (network_access).
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:write"],
+            scoped_teams=[env.id],
+        )
+        self.client.logout()
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/signals/scout/configs/{config.id}/",
+            data={"network_access": "full"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        config.refresh_from_db()
+        assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
+
+    def test_partial_update_round_trips_network_access(self) -> None:
+        # Wiring guard: DRF silently drops a field missing from the update serializer's
+        # `Meta.fields` (the PATCH would 200 while never changing the sandbox posture), and the
+        # read serializer must surface the stored value back.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"network_access": "full"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["network_access"] == "full"
+        config.refresh_from_db()
+        assert config.network_access == SignalScoutConfig.NetworkAccess.FULL
 
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
@@ -1749,7 +1930,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         response = self.client.post(
             self._list_url(),
-            data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 120, "emit": False},
+            data={
+                "skill_name": "signals-scout-fresh",
+                "run_interval_minutes": 120,
+                "emit": False,
+                "network_access": "full",
+            },
             format="json",
         )
 
@@ -1759,9 +1945,11 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body["run_interval_minutes"] == 120
         assert body["emit"] is False
         assert body["enabled"] is True
+        assert body["network_access"] == "full"
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.created_by_id == self.user.id
         assert config.enabled_by_id == self.user.id
+        assert config.network_access == SignalScoutConfig.NetworkAccess.FULL
 
     def test_create_stamps_scout_category_on_skill(self) -> None:
         skill = self._make_skill("signals-scout-fresh")

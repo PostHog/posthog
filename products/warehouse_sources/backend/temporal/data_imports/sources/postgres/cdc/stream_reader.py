@@ -134,7 +134,10 @@ class PgCDCStreamReader:
                 # sits idle between yields as the caller flushes to S3 and advances the slot —
                 # statement_timeout doesn't apply there because no statement is running. Both are
                 # dropped if the source sits behind a pooler that rejects the libpq `options`
-                # parameter (CDC sources never do).
+                # parameter — CDC sources do sit behind one (a Neon pooled endpoint serves the peek
+                # functions fine), and without the fallback the connection can never be opened at
+                # all. The activity's start-to-close and heartbeat timeouts still bound a stalled
+                # peek when the server-side ceiling is gone.
                 options="-c statement_timeout=1800000 -c idle_in_transaction_session_timeout=0",
             ),
             logger,

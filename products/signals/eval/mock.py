@@ -55,8 +55,12 @@ class EmbeddingStore:
 
     def _save_disk_cache(self) -> None:
         self.CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.CACHE_PATH, "w") as f:
+        # Rewritten on every cache miss, so an interrupted run would otherwise leave behind a
+        # truncated file that no later run can parse.
+        temp_path = self.CACHE_PATH.with_suffix(".json.tmp")
+        with open(temp_path, "w") as f:
             json.dump(self._embedding_cache, f)
+        temp_path.replace(self.CACHE_PATH)
 
     async def embed(self, content: str) -> list[float]:
         """Generate and cache an embedding. Returns cached result if available."""

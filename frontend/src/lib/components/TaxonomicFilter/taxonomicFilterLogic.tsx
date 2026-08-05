@@ -68,6 +68,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { toParams } from 'lib/utils/url'
 import {
+    getAccountCustomPropertyDefinitionIcon,
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
     getPersonPropertyDefinitionIcon,
@@ -1345,8 +1346,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.AccountCustomProperties,
                         // Account custom property definitions are per-team API data, so the
                         // options come from the consumer via `optionsFromProp` — items carry
-                        // `{ id, name, property_type }` with the definition id as the value.
-                        getIcon: getPropertyDefinitionIcon,
+                        // `{ id, name, description, is_canonical, property_type }` with the
+                        // definition id as the value.
+                        getIcon: getAccountCustomPropertyDefinitionIcon,
                         getName: (option: PropertyDefinition) => option.name,
                         getValue: (option: PropertyDefinition) => option.id,
                         valuesEndpoint: (key) =>

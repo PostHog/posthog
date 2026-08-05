@@ -207,9 +207,10 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     description={metric.description}
                     resourceType={{ type: 'data_warehouse' }}
                     canEdit
-                    onNameChange={(value) => confirmAndUpdate({ display_name: value })}
+                    onNameChange={(value) => updateMetric({ display_name: value })}
                     onDescriptionChange={(value) => confirmAndUpdate({ description: value })}
                     renameDebounceMs={0}
+                    saveOnBlur
                 />
 
                 {metric.is_drifted && (
