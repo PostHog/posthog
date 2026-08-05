@@ -81,6 +81,17 @@ const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): Acc
     ...overrides,
 })
 
+const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
+    id: 'acc-1',
+    name: 'Acme',
+    tags: [],
+    notebooks: [],
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    ...overrides,
+})
+
 const buildUser = (overrides: Partial<UserBasicType> = {}): UserBasicType =>
     ({
         id: 42,
@@ -753,7 +764,7 @@ describe('accountsLogic', () => {
 
     describe('updateAccountTags', () => {
         it('masks the cell optimistically and collapses an editing burst into one PATCH with the final list', async () => {
-            mockPartialUpdate.mockResolvedValue({} as AccountApi)
+            mockPartialUpdate.mockResolvedValue(buildAccount({ tags: ['vip', 'churn-risk'] }))
 
             logic.actions.updateAccountTags('acc-1', ['vip'])
             expect(logic.values.tagOverrides['acc-1']).toEqual(['vip'])
