@@ -9,8 +9,6 @@ use crate::gateway_provenance as shared;
 use super::fan_out::SpanEvent;
 
 const SIGNATURE_SCOPE: &str = "otel-v1";
-const GATEWAY_PREFIX: &str = "$ai_gateway";
-const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
 const RELAY_PROPERTY: &str = "$ai_gateway_relay";
 const PROVENANCE_METRIC: &str = "capture_ai_otel_gateway_provenance";
 pub use crate::gateway_provenance::Provenance;
@@ -58,9 +56,9 @@ pub fn apply(span_events: &mut [SpanEvent], provenance: Provenance) {
         let Some(properties) = span_event.properties.as_object_mut() else {
             continue;
         };
-        properties.retain(|key, _| !key.starts_with(GATEWAY_PREFIX));
+        properties.retain(|key, _| !key.starts_with(shared::GATEWAY_PREFIX));
         if trusted {
-            properties.insert(VERIFIED_PROPERTY.to_string(), Value::Bool(true));
+            properties.insert(shared::VERIFIED_PROPERTY.to_string(), Value::Bool(true));
             properties.insert(RELAY_PROPERTY.to_string(), Value::Bool(true));
         }
     }
@@ -155,7 +153,10 @@ mod tests {
         apply(&mut events, Provenance::Verified);
 
         let properties = events[0].properties.as_object().unwrap();
-        assert_eq!(properties.get(VERIFIED_PROPERTY), Some(&Value::Bool(true)));
+        assert_eq!(
+            properties.get(shared::VERIFIED_PROPERTY),
+            Some(&Value::Bool(true))
+        );
         assert_eq!(properties.get(RELAY_PROPERTY), Some(&Value::Bool(true)));
         assert!(!properties.contains_key("$ai_gateway_request_id"));
         assert_eq!(properties.get("$ai_trace_id"), Some(&json!("trace-1")));
@@ -173,7 +174,7 @@ mod tests {
         apply(&mut events, Provenance::Invalid);
 
         let properties = events[0].properties.as_object().unwrap();
-        assert!(!properties.contains_key(VERIFIED_PROPERTY));
+        assert!(!properties.contains_key(shared::VERIFIED_PROPERTY));
         assert!(!properties.contains_key(RELAY_PROPERTY));
         assert_eq!(properties.get("$ai_trace_id"), Some(&json!("trace-1")));
     }
