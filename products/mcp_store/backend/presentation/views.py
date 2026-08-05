@@ -1243,10 +1243,15 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        # The upstream server is untrusted input — `content` isn't guaranteed to be a list,
+        # so a malformed response degrades to an empty content array instead of raising.
+        content = result.get("content")
+        content_blocks = [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
+
         return Response(
             CallToolResponseSerializer(
                 {
-                    "content": [block for block in (result.get("content") or []) if isinstance(block, dict)],
+                    "content": content_blocks,
                     "is_error": bool(result.get("isError")),
                     "structured_content": result.get("structuredContent"),
                 }

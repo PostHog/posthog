@@ -93,6 +93,25 @@ class TestGatewayExecTools(APIBaseTest):
         }
         assert mock_call.call_args.args[1:] == ("create_issue", {"title": "Bug"})
 
+    @parameterized.expand(
+        [
+            ("string", "not a list"),
+            ("int", 42),
+            ("dict", {"type": "text", "text": "done"}),
+        ]
+    )
+    def test_call_tool_tolerates_non_list_upstream_content(self, _name, malformed_content):
+        self._tool()
+
+        with patch(
+            "products.mcp_store.backend.presentation.views.call_upstream_tool",
+            return_value={"content": malformed_content, "isError": False},
+        ):
+            response = self._call()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["content"] == []
+
     @patch("products.mcp_store.backend.presentation.views.call_upstream_tool")
     def test_call_tool_rejects_unregistered_tool_without_calling_upstream(self, mock_call):
         self._tool()
