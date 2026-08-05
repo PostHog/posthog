@@ -426,6 +426,8 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannel
 
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
+export const signalsScoutCreateBodyConfigOneTagsMax = 10
+
 export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -528,6 +530,13 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
                     ),
+                tags: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneTagsMax)
+                    .optional()
+                    .describe(
+                        'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+                    ),
                 structured_output_schema: zod
                     .record(zod.string(), zod.unknown())
                     .nullish()
@@ -544,7 +553,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .describe('Create a runnable custom scout and its config in one atomic request.')
 
 /**
- * List the per-(team, skill) scout configs for this project. Each row includes its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, and `emit` posture. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
+ * List the per-(team, skill) scout configs for this project. Each row includes its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given labels.
  * @summary List scout configs
  */
 export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
@@ -552,6 +561,16 @@ export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SignalsScoutConfigListQueryParams = /* @__PURE__ */ zod.object({
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.'
         ),
 })
 
@@ -573,6 +592,8 @@ export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
+
+export const signalsScoutConfigCreateBodyTagsMax = 10
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
@@ -639,6 +660,13 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyTagsMax)
+            .optional()
+            .describe(
+                'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+            ),
         structured_output_schema: zod
             .record(zod.string(), zod.unknown())
             .nullish()
@@ -675,6 +703,8 @@ export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
+
+export const signalsScoutConfigUpdateBodyTagsMax = 10
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -751,6 +781,13 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet.'
+            ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutConfigUpdateBodyTagsMax)
+            .optional()
+            .describe(
+                'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
             ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')

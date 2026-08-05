@@ -3,7 +3,6 @@
 !.devcontainer
 !.kearc
 !bin
-!common/alerting
 !common/hogvm
 !common/esbuilder
 !common/migration_utils
