@@ -12,7 +12,8 @@ use tonic::{Request, Status};
 
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
-    ConsistencyLevel, GetPersonRequest, Person, ReadOptions, UpdatePersonPropertiesRequest,
+    ConsistencyLevel, FencePersonRequest, FencePersonResponse, GetPersonRequest, Person,
+    ReadOptions, ReleaseFenceRequest, ReleaseFenceResponse, UpdatePersonPropertiesRequest,
     UpdatePersonPropertiesResponse,
 };
 
@@ -75,6 +76,40 @@ impl RouterClient {
             .get_person(request)
             .await
             .map(|response| response.into_inner().person)
+    }
+
+    /// Leader-routed lifecycle fence (saga runner only): freeze the person
+    /// and return its sealed state.
+    pub async fn fence_person(
+        &self,
+        request: FencePersonRequest,
+    ) -> Result<FencePersonResponse, Status> {
+        let (team_id, person_id) = (request.team_id, request.person_id);
+        let mut request = Request::new(request);
+        request.set_timeout(self.request_timeout);
+        stamp_person_routing_headers(&mut request, team_id, person_id);
+        self.inner
+            .clone()
+            .fence_person(request)
+            .await
+            .map(|response| response.into_inner())
+    }
+
+    /// Leader-routed fence release (saga runner only): committed produces
+    /// the death document, aborted resumes the person's normal life.
+    pub async fn release_fence(
+        &self,
+        request: ReleaseFenceRequest,
+    ) -> Result<ReleaseFenceResponse, Status> {
+        let (team_id, person_id) = (request.team_id, request.person_id);
+        let mut request = Request::new(request);
+        request.set_timeout(self.request_timeout);
+        stamp_person_routing_headers(&mut request, team_id, person_id);
+        self.inner
+            .clone()
+            .release_fence(request)
+            .await
+            .map(|response| response.into_inner())
     }
 
     fn build_update_request(

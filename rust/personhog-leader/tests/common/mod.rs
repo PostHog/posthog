@@ -336,6 +336,9 @@ pub async fn start_leader_pod(
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
         test_warming_config(name, &mock_cluster.bootstrap_servers()),
+        Arc::new(dashmap::DashMap::new()),
+        None,
+        NUM_PARTITIONS,
     );
     let pod = PodHandle::new(
         store,
@@ -362,6 +365,7 @@ pub async fn start_leader_pod(
         recovery,
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(dashmap::DashMap::new()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -406,6 +410,9 @@ pub async fn start_leader_pod_with_lease_ttl(
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
         test_warming_config(name, &mock_cluster.bootstrap_servers()),
+        Arc::new(dashmap::DashMap::new()),
+        None,
+        NUM_PARTITIONS,
     );
     let pod = PodHandle::new(
         store,
@@ -433,6 +440,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         recovery,
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(dashmap::DashMap::new()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -482,6 +490,7 @@ pub fn test_cached_person() -> CachedPerson {
         created_at: 1700000000,
         version: 1,
         is_identified: false,
+        is_deleted: false,
     }
 }
 
@@ -520,6 +529,7 @@ pub async fn start_leader_with_pg_fallback(
         test_recovery(&mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(dashmap::DashMap::new()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

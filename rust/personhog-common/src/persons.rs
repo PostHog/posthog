@@ -58,6 +58,9 @@ impl From<Person> for personhog_proto::personhog::types::v1::Person {
             is_identified: person.is_identified,
             is_user_id: person.is_user_id,
             last_seen_at: person.last_seen_at.map(|t| t.timestamp_millis()),
+            // Read-plane rows: the queries behind this struct filter
+            // tombstones out.
+            is_deleted: false,
         }
     }
 }

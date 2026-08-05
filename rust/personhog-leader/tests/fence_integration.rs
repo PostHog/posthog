@@ -1,0 +1,515 @@
+//! Lifecycle fence semantics over the real gRPC surface: the fence is a
+//! document write, so these tests assert both the RPC behavior and the
+//! changelog records it produces.
+
+mod common;
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use dashmap::DashMap;
+
+use common::{
+    create_leader_client, create_test_kafka, seed_person, test_cached_person, test_recovery,
+    CHANGELOG_TOPIC, NUM_PARTITIONS,
+};
+use personhog_common::partitioning::partition_for_person;
+use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache};
+use personhog_leader::fence::{FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY};
+use personhog_leader::inflight::InflightTracker;
+use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::warnings::WarningsProducer;
+use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
+use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use personhog_proto::personhog::types::v1::{
+    FencePersonRequest, GetPersonRequest, LifecycleOpType, Person, ReleaseFenceRequest,
+    ReleaseOutcome, UpdatePersonPropertiesRequest,
+};
+use prost::Message;
+use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::{ClientConfig, Message as KafkaMessage, TopicPartitionList};
+use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
+use tonic::transport::Channel;
+use tonic::transport::Server;
+use tonic::{Code, Request};
+use uuid::Uuid;
+
+const TEAM_ID: i64 = 1;
+
+fn with_partition<T>(req: T, partition: u32) -> Request<T> {
+    let mut request = Request::new(req);
+    request
+        .metadata_mut()
+        .insert("x-partition", partition.to_string().parse().unwrap());
+    request
+}
+
+fn fence_request(person_id: i64, op_id: &Uuid) -> FencePersonRequest {
+    FencePersonRequest {
+        team_id: TEAM_ID,
+        person_id,
+        op_id: op_id.to_string(),
+        op_type: LifecycleOpType::Delete.into(),
+    }
+}
+
+fn update_request(person_id: i64) -> UpdatePersonPropertiesRequest {
+    UpdatePersonPropertiesRequest {
+        team_id: TEAM_ID,
+        person_id,
+        event_name: "$set".to_string(),
+        set_properties: serde_json::to_vec(&serde_json::json!({"name": "after-fence"})).unwrap(),
+        set_once_properties: vec![],
+        unset_properties: vec![],
+    }
+}
+
+/// A leader service over a mock Kafka cluster with one seeded person, served
+/// on a local socket. Returns the client, the seeded person's partition, its
+/// id, and the consumer-facing bootstrap for changelog assertions.
+struct FenceHarness {
+    client: PersonHogLeaderClient<Channel>,
+    partition: u32,
+    person_id: i64,
+    bootstrap: String,
+    cache: Arc<PartitionedCache>,
+    _cancel: CancellationToken,
+    _mock_cluster:
+        rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
+}
+
+async fn start_fence_harness(seed: CachedPerson) -> FenceHarness {
+    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+    let bootstrap = mock_cluster.bootstrap_servers();
+
+    let person_id = seed.id;
+    let partition = partition_for_person(TEAM_ID, person_id, NUM_PARTITIONS);
+
+    let cache = Arc::new(PartitionedCache::new(100));
+    // Recovery consumes the same mock cluster so a post-death cache miss
+    // can recover the death document.
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer.clone(),
+        CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::new(InflightTracker::new()),
+        NUM_PARTITIONS,
+        Arc::new(DirtyIndex::new(1_000_000)),
+        test_recovery(&bootstrap),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
+    );
+
+    cache.create_partition(partition);
+    seed_person(&cache, partition, seed);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    FenceHarness {
+        client: create_leader_client(addr).await,
+        partition,
+        person_id,
+        bootstrap,
+        cache,
+        _cancel: cancel,
+        _mock_cluster: mock_cluster,
+    }
+}
+
+/// All changelog records currently on the person's partition, oldest first.
+fn changelog_records(harness: &FenceHarness) -> Vec<Person> {
+    let consumer: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", &harness.bootstrap)
+        .set("group.id", format!("fence-test-{}", Uuid::new_v4()))
+        .create()
+        .expect("failed to create consumer");
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition_offset(
+        CHANGELOG_TOPIC,
+        harness.partition as i32,
+        rdkafka::Offset::Beginning,
+    )
+    .unwrap();
+    consumer.assign(&tpl).unwrap();
+
+    // The first poll can come back empty while the assignment settles, so
+    // keep polling until the partition has been quiet after producing at
+    // least one record, bounded by an overall deadline.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut records = Vec::new();
+    loop {
+        match consumer.poll(Duration::from_millis(300)) {
+            Some(result) => {
+                let msg = result.expect("kafka error");
+                records
+                    .push(Person::decode(msg.payload().unwrap()).expect("decode changelog record"));
+            }
+            None if !records.is_empty() || std::time::Instant::now() >= deadline => break,
+            None => {}
+        }
+    }
+    records
+}
+
+#[tokio::test]
+async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
+    let mut harness = start_fence_harness(test_cached_person()).await;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let op = Uuid::now_v7();
+
+    // Fence + seal in one call: the sealed state is the person's current
+    // state — fencing produces nothing and does not advance the version.
+    let sealed = harness
+        .client
+        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .expect("sealed state returned");
+    assert_eq!(
+        sealed.version, 1,
+        "the seal is the current version, not a write"
+    );
+
+    // Writes are rejected with the typed error while the fence holds.
+    let status = harness
+        .client
+        .update_person_properties(with_partition(update_request(person_id), partition))
+        .await
+        .expect_err("fenced person rejects writes");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    assert_eq!(
+        status.metadata().get(FENCED_METADATA_KEY).unwrap(),
+        "delete"
+    );
+    assert_eq!(
+        status.metadata().get(FENCED_OP_ID_METADATA_KEY).unwrap(),
+        op.to_string().as_str()
+    );
+
+    // Reads are unaffected.
+    let read = harness
+        .client
+        .get_person(with_partition(
+            GetPersonRequest {
+                team_id: TEAM_ID,
+                person_id,
+                read_options: None,
+            },
+            partition,
+        ))
+        .await
+        .expect("reads flow while fenced");
+    assert_eq!(read.into_inner().person.unwrap().version, 1);
+
+    // Re-fencing with the same op re-seals with fresh state (the saga's
+    // seal step is safe to repeat); a different op is rejected.
+    let resealed = harness
+        .client
+        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .await
+        .expect("same-op re-fence succeeds")
+        .into_inner()
+        .sealed
+        .unwrap();
+    assert_eq!(
+        resealed.version, 1,
+        "nothing changed, so the fresh seal matches"
+    );
+
+    let other_op = Uuid::now_v7();
+    let status = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(person_id, &other_op),
+            partition,
+        ))
+        .await
+        .expect_err("at most one op holds a person");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+
+    // An aborted release clears the fence with a document write and the
+    // person resumes normal life.
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id: TEAM_ID,
+                person_id,
+                person_uuid: String::new(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Aborted.into(),
+                sealed_version: 0,
+            },
+            partition,
+        ))
+        .await
+        .expect("aborted release succeeds");
+
+    let updated = harness
+        .client
+        .update_person_properties(with_partition(update_request(person_id), partition))
+        .await
+        .expect("writes resume after the aborted release")
+        .into_inner();
+    assert!(updated.updated);
+    let person = updated.person.unwrap();
+    assert_eq!(
+        person.version, 2,
+        "fencing and the aborted release left no trace in the version"
+    );
+}
+
+#[tokio::test]
+async fn a_committed_release_produces_the_death_document_above_every_version() {
+    let mut harness = start_fence_harness(test_cached_person()).await;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let person_uuid = test_cached_person().uuid;
+    let op = Uuid::now_v7();
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .unwrap();
+    let sealed_version = sealed.version;
+
+    // Simulate a write that slipped through an unfenced window (leader
+    // amnesia after a handoff): the cached person advances past the seal
+    // without the fence.
+    seed_person(
+        &harness.cache,
+        partition,
+        CachedPerson {
+            version: sealed_version + 3,
+            ..test_cached_person()
+        },
+    );
+
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id: TEAM_ID,
+                person_id,
+                person_uuid: person_uuid.clone(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version,
+            },
+            partition,
+        ))
+        .await
+        .expect("committed release succeeds");
+
+    let records = changelog_records(&harness);
+    let death = records.last().expect("death document produced");
+    assert!(death.is_deleted);
+    assert_eq!(
+        death.version,
+        sealed_version + 4,
+        "death version outranks the slipped write, not just the seal"
+    );
+    assert_eq!(death.uuid, person_uuid);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&death.properties).unwrap(),
+        serde_json::json!({}),
+        "death documents carry no properties"
+    );
+
+    // The entry is evicted; the dirty mark recovers the death document from
+    // the changelog and reads answer an authoritative not-found.
+    let status = harness
+        .client
+        .get_person(with_partition(
+            GetPersonRequest {
+                team_id: TEAM_ID,
+                person_id,
+                read_options: None,
+            },
+            partition,
+        ))
+        .await
+        .expect_err("a destroyed person reads as not-found");
+    assert_eq!(status.code(), Code::NotFound);
+
+    // A duplicate committed release is absorbed without a second death
+    // document.
+    let records_before = changelog_records(&harness).len();
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id: TEAM_ID,
+                person_id,
+                person_uuid,
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version,
+            },
+            partition,
+        ))
+        .await
+        .expect("duplicate release is idempotent");
+    assert_eq!(changelog_records(&harness).len(), records_before);
+}
+
+#[tokio::test]
+async fn a_destroyed_person_rejects_fencing_and_writes_with_not_found() {
+    let harness = start_fence_harness(CachedPerson {
+        is_deleted: true,
+        ..test_cached_person()
+    })
+    .await;
+    let mut client = harness.client.clone();
+    let op = Uuid::now_v7();
+
+    let status = client
+        .fence_person(with_partition(
+            fence_request(harness.person_id, &op),
+            harness.partition,
+        ))
+        .await
+        .expect_err("cannot fence a destroyed person");
+    assert_eq!(status.code(), Code::NotFound);
+
+    let status = client
+        .update_person_properties(with_partition(
+            update_request(harness.person_id),
+            harness.partition,
+        ))
+        .await
+        .expect_err("cannot write to a destroyed person");
+    assert_eq!(status.code(), Code::NotFound);
+
+    let status = client
+        .get_person(with_partition(
+            GetPersonRequest {
+                team_id: TEAM_ID,
+                person_id: harness.person_id,
+                read_options: None,
+            },
+            harness.partition,
+        ))
+        .await
+        .expect_err("a destroyed person reads as not-found");
+    assert_eq!(status.code(), Code::NotFound);
+}
+
+/// The takeover scan: a leader acquiring a partition rebuilds its fence map
+/// from the live marks in Postgres, keeping only its partition's rows and
+/// excluding merge targets (claimed, never fenced). Release drops exactly
+/// the partition's entries. Runs against the real persons DB.
+#[tokio::test]
+async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
+    use personhog_leader::fence::{drop_partition_fences, rebuild_partition_fences, FenceMap};
+
+    let pool = common::create_persons_pool().await;
+    // A team id unlikely to collide with other tests' lifecycle rows.
+    let team_id: i64 = 910_000_000 + (std::process::id() as i64 % 1_000_000);
+    let op_id = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'merge', $2, 'claimed', '{}'::jsonb)",
+    )
+    .bind(op_id)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+
+    // Two live marks on different partitions, one merge target, one
+    // already-settled row: only the live non-target marks are fences.
+    let fenced_a: i64 = 1; // some partition
+    let mut fenced_b: i64 = 2;
+    while partition_for_person(team_id, fenced_b, NUM_PARTITIONS)
+        == partition_for_person(team_id, fenced_a, NUM_PARTITIONS)
+    {
+        fenced_b += 1;
+    }
+    let target: i64 = 100;
+    let settled: i64 = 101;
+    for (person_id, role, status) in [
+        (fenced_a, "source", "marked"),
+        (fenced_b, "victim", "sealed"),
+        (target, "target", "marked"),
+        (settled, "victim", "deleted"),
+    ] {
+        sqlx::query(
+            "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+             VALUES ($1, $2, $3, gen_random_uuid(), $4, $5)",
+        )
+        .bind(op_id)
+        .bind(team_id as i32)
+        .bind(person_id)
+        .bind(role)
+        .bind(status)
+        .execute(&pool)
+        .await
+        .expect("insert mark");
+    }
+
+    let partition_a = partition_for_person(team_id, fenced_a, NUM_PARTITIONS);
+    let fences: FenceMap = Arc::new(DashMap::new());
+    let installed = rebuild_partition_fences(&pool, &fences, partition_a, NUM_PARTITIONS)
+        .await
+        .expect("scan runs");
+
+    let key = |person_id| personhog_leader::cache::PersonCacheKey { team_id, person_id };
+    assert!(installed >= 1, "the partition's live mark was installed");
+    let entry = fences
+        .get(&key(fenced_a))
+        .expect("live mark became a fence");
+    assert_eq!(entry.op_id, op_id);
+    drop(entry);
+    assert!(
+        fences.get(&key(fenced_b)).is_none(),
+        "another partition's mark is not ours"
+    );
+    assert!(
+        fences.get(&key(target)).is_none(),
+        "merge targets are claimed, never fenced"
+    );
+    assert!(
+        fences.get(&key(settled)).is_none(),
+        "settled rows are outside the mark set"
+    );
+
+    let dropped = drop_partition_fences(&fences, partition_a, NUM_PARTITIONS);
+    assert!(dropped >= 1);
+    assert!(
+        fences.get(&key(fenced_a)).is_none(),
+        "release drops the partition's fences"
+    );
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup");
+}

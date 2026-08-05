@@ -22,6 +22,11 @@ pub struct CachedPerson {
     pub created_at: i64,
     pub version: i64,
     pub is_identified: bool,
+    /// True when this entry is a recovered death document: the person was
+    /// destroyed and this version closes its stream. Kept in cache (rather
+    /// than dropped) so reads answer an authoritative not-found instead of
+    /// falling back to a PG row the writer may not have tombstoned yet.
+    pub is_deleted: bool,
     // TODO: Add properties_last_updated_at and properties_last_operation
 }
 
@@ -40,6 +45,7 @@ impl TryFrom<Person> for CachedPerson {
             created_at: person.created_at,
             version: person.version,
             is_identified: person.is_identified,
+            is_deleted: person.is_deleted,
         })
     }
 }
@@ -124,6 +130,7 @@ mod tests {
             created_at: 1700000000,
             version: 1,
             is_identified: false,
+            is_deleted: false,
         }
     }
 

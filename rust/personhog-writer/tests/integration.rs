@@ -60,6 +60,68 @@ async fn writer_upserts_person_to_pg() {
 }
 
 #[tokio::test]
+async fn writer_projects_death_documents_as_tombstones() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = 99_010;
+    cleanup_team(&pool, team_id).await;
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
+
+    let fetch_row = |pool: sqlx::PgPool| async move {
+        let row: (i64, bool, String) = sqlx::query_as(
+            "SELECT version, is_deleted, properties::text \
+             FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+        )
+        .bind(team_id)
+        .bind(1_i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        row
+    };
+
+    // Birth: live.
+    assert!(matches!(
+        writer
+            .upsert_batch(vec![make_person(team_id as i64, 1, 1)])
+            .await,
+        BatchOutcome::Success
+    ));
+    let row = fetch_row(pool.clone()).await;
+    assert!(!row.1);
+
+    // The death document projects as an ordinary update whose tombstone
+    // lands on the row: is_deleted set, properties scrubbed — never a row
+    // delete (burial is the GC job's, after ClickHouse erasure).
+    let mut death = make_person(team_id as i64, 1, 3);
+    death.is_deleted = true;
+    death.properties = b"{}".to_vec();
+    assert!(matches!(
+        writer.upsert_batch(vec![death]).await,
+        BatchOutcome::Success
+    ));
+    let row = fetch_row(pool.clone()).await;
+    assert_eq!(row.0, 3);
+    assert!(row.1, "the tombstone is projected, not a row delete");
+    assert_eq!(row.2, "{}");
+
+    // A lagging pre-death record must not resurrect the tombstone.
+    let stale = make_person(team_id as i64, 1, 2);
+    assert!(matches!(
+        writer.upsert_batch(vec![stale]).await,
+        BatchOutcome::Success
+    ));
+    let row = fetch_row(pool.clone()).await;
+    assert_eq!(row.0, 3, "version guard holds");
+    assert!(row.1, "the tombstone survives lagging writes");
+
+    cleanup_team(&pool, team_id).await;
+}
+
+#[tokio::test]
 async fn writer_version_guard_skips_stale_updates() {
     let pool = create_test_pool().await;
     let team_id: i32 = 99_002;

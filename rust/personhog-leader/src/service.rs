@@ -6,8 +6,9 @@ use dashmap::DashMap;
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
-    GetPersonRequest, GetPersonResponse, Person, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse,
+    FencePersonRequest, FencePersonResponse, GetPersonRequest, GetPersonResponse, LifecycleOpType,
+    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseOutcome,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
 use tokio::sync::Mutex;
@@ -19,6 +20,7 @@ use personhog_common::partitioning::partition_for_person;
 use crate::cache::{
     CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
 };
+use crate::fence::{fenced_status, op_is_live, FenceMap, FenceState};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
@@ -81,6 +83,11 @@ pub struct PersonHogLeaderService {
     recovery: Arc<ChangelogRecovery>,
     size_limits: PropertySizeLimits,
     warnings: WarningsProducer,
+    /// The in-process copy of the fence state (see the fence module for the
+    /// durability model: the marks in Postgres are the source of truth,
+    /// this map exists so the write path rejects without a database read).
+    /// Mutated only under the per-key lock.
+    fences: FenceMap,
 }
 
 impl PersonHogLeaderService {
@@ -97,6 +104,7 @@ impl PersonHogLeaderService {
         recovery: Arc<ChangelogRecovery>,
         size_limits: PropertySizeLimits,
         warnings: WarningsProducer,
+        fences: FenceMap,
     ) -> Self {
         Self {
             cache,
@@ -110,6 +118,7 @@ impl PersonHogLeaderService {
             recovery,
             size_limits,
             warnings,
+            fences,
         }
     }
 
@@ -330,6 +339,102 @@ impl PersonHogLeaderService {
             CacheLookup::PersonNotFound => self.recover_or_load(partition, key).await,
         }
     }
+
+    /// The shared tail of every document write: refuse unapplyable records,
+    /// produce to Kafka first, then dirty-mark and update the cache — so
+    /// readers only ever see durably committed state. The mark precedes the
+    /// cache insert: a reader that misses the cache in the gap sees the
+    /// mark and recovers this exact record from the changelog. Assumes the
+    /// caller holds the per-key lock.
+    async fn commit_document(
+        &self,
+        partition: u32,
+        cache_key: &PersonCacheKey,
+        person: CachedPerson,
+    ) -> Result<Person, Status> {
+        // A record the writer cannot bind must never reach the changelog —
+        // no consumer downstream can apply or repair it.
+        if let Err(reason) = assert_writeable(&person) {
+            counter!("personhog_leader_unwriteable_state_total").increment(1);
+            tracing::error!(
+                team_id = cache_key.team_id,
+                person_id = cache_key.person_id,
+                reason,
+                "refusing to produce an unapplyable changelog record"
+            );
+            return Err(Status::internal(format!(
+                "person state is not writeable: {reason}"
+            )));
+        }
+
+        let proto = cached_person_to_proto(&person);
+        let offset = match produce_person_changelog(
+            &self.producer,
+            &self.changelog_topic,
+            partition,
+            &proto,
+        )
+        .await
+        {
+            Ok(offset) => offset,
+            Err(e) => {
+                tracing::error!(
+                    team_id = cache_key.team_id,
+                    person_id = cache_key.person_id,
+                    error = %e,
+                    "failed to produce person state changelog"
+                );
+                return Err(Status::internal(format!(
+                    "failed to durably store person state: {e}"
+                )));
+            }
+        };
+
+        self.dirty_index.mark(
+            cache_key.clone(),
+            DirtyMark {
+                version: person.version,
+                offset,
+                partition,
+            },
+        );
+        self.cache.put(partition, cache_key.clone(), person);
+        Ok(proto)
+    }
+
+    /// The write path's fence conditional, with the lazy liveness check: a
+    /// map entry can briefly outlive its op (the op finished just after the
+    /// takeover scan), so a rejection first verifies the op is still live
+    /// and drops a stale entry instead of rejecting on it. On a Postgres
+    /// error the rejection stands — fail closed. Returns the fence to
+    /// reject with, or None when the person is writable. Assumes the
+    /// caller holds the per-key lock.
+    async fn check_fence(&self, cache_key: &PersonCacheKey) -> Result<Option<FenceState>, Status> {
+        let Some(entry) = self.fences.get(cache_key) else {
+            return Ok(None);
+        };
+        let state = *entry.value();
+        // Drop the map guard before awaiting.
+        drop(entry);
+
+        let Some(fallback) = &self.fallback else {
+            return Ok(Some(state));
+        };
+        match op_is_live(&fallback.pool, state.op_id).await {
+            Ok(true) => Ok(Some(state)),
+            Ok(false) => {
+                // The op finished; the entry is stale. Drop it and let the
+                // write proceed.
+                self.fences.remove(cache_key);
+                counter!("personhog_leader_fences_total", "action" => "stale_dropped").increment(1);
+                Ok(None)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "fence liveness check failed; rejecting (fail closed)");
+                Ok(Some(state))
+            }
+        }
+    }
 }
 
 /// The changelog contract: every produced record must be applyable by the
@@ -379,6 +484,7 @@ fn cached_person_to_proto(p: &CachedPerson) -> Person {
         is_identified: p.is_identified,
         is_user_id: None,
         last_seen_at: None,
+        is_deleted: p.is_deleted,
     }
 }
 
@@ -416,6 +522,12 @@ impl PersonHogLeader for PersonHogLeaderService {
         };
 
         let person = self.lookup_or_load(partition, &cache_key).await?;
+
+        // A recovered death document is an authoritative not-found: the
+        // person was destroyed and this entry closes its stream.
+        if person.is_deleted {
+            return Err(Status::not_found("person is destroyed"));
+        }
 
         Ok(Response::new(GetPersonResponse {
             person: Some(cached_person_to_proto(&person)),
@@ -525,7 +637,21 @@ impl PersonHogLeader for PersonHogLeaderService {
             ));
         }
 
+        // A person fenced by a live lifecycle op rejects writes until the
+        // fence is released; reads are unaffected. Checked under the
+        // per-key lock so a concurrent FencePerson cannot be missed.
+        if let Some(fence) = self.check_fence(&cache_key).await? {
+            counter!("personhog_leader_writes_fenced_total").increment(1);
+            return Err(fenced_status(&fence));
+        }
+
         let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+
+        // A destroyed person answers not-found — the caller re-resolves;
+        // post-death the distinct id may have been reborn as a new person.
+        if person.is_deleted {
+            return Err(Status::not_found("person is destroyed"));
+        }
 
         // Compute property updates
         let updates = compute_event_property_updates(
@@ -664,70 +790,193 @@ impl PersonHogLeader for PersonHogLeaderService {
             created_at: person.created_at,
             version: person.version + 1,
             is_identified: person.is_identified,
+            is_deleted: false,
         };
 
         // Final applyability assertions on the identity fields, which
         // originate from earlier state rather than this request. A record
-        // the writer cannot bind must never reach the changelog — no
-        // consumer downstream can apply or repair it.
-        if let Err(reason) = assert_writeable(&updated_person) {
-            counter!("personhog_leader_unwriteable_state_total").increment(1);
-            tracing::error!(
-                team_id = cache_key.team_id,
-                person_id = cache_key.person_id,
-                reason,
-                "refusing to produce an unapplyable changelog record"
-            );
-            return Err(Status::internal(format!(
-                "person state is not writeable: {reason}"
-            )));
-        }
-
-        let proto = cached_person_to_proto(&updated_person);
-
-        // Produce to Kafka first, then update the cache on success.
-        // Readers only ever see durably committed state.
-        let offset = match produce_person_changelog(
-            &self.producer,
-            &self.changelog_topic,
-            partition,
-            &proto,
-        )
-        .await
-        {
-            Ok(offset) => offset,
-            Err(e) => {
-                tracing::error!(
-                    team_id = cache_key.team_id,
-                    person_id = cache_key.person_id,
-                    error = %e,
-                    "failed to produce person state changelog"
-                );
-                return Err(Status::internal(format!(
-                    "failed to durably store person state: {e}"
-                )));
-            }
-        };
-
-        // Mark before the cache insert: a reader that misses the cache in
-        // the gap sees the mark and recovers this exact record from the
-        // changelog. The mark outlives eviction and is pruned once the
-        // writer's committed offset passes it.
-        self.dirty_index.mark(
-            cache_key.clone(),
-            DirtyMark {
-                version: updated_person.version,
-                offset,
-                partition,
-            },
-        );
-        self.cache.put(partition, cache_key, updated_person);
+        let proto = self
+            .commit_document(partition, &cache_key, updated_person)
+            .await?;
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {
             person: Some(proto),
             updated: true,
         }))
+    }
+
+    async fn fence_person(
+        &self,
+        request: Request<FencePersonRequest>,
+    ) -> Result<Response<FencePersonResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
+        let op_id = Uuid::parse_str(&req.op_id)
+            .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
+        let op_type = req.op_type();
+        if op_type == LifecycleOpType::Unspecified {
+            return Err(Status::invalid_argument("op_type must be specified"));
+        }
+
+        let cache_key = PersonCacheKey {
+            team_id: req.team_id,
+            person_id: req.person_id,
+        };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let _guard = mutex.lock().await;
+
+        if let Some(entry) = self.fences.get(&cache_key) {
+            if entry.op_id != op_id {
+                // At most one lifecycle op holds a person; the loser backs
+                // off or aborts.
+                return Err(fenced_status(entry.value()));
+            }
+        }
+
+        // The seal: the newest cached state, captured under the same lock
+        // that admits writes — no gap for a write to sneak into. Fencing
+        // produces nothing and does not advance the version; the sealed
+        // version is the person's current one, made final by the fence. A
+        // same-op re-fence takes this path too, re-sealing with fresh
+        // state (the saga's seal step is safe to repeat).
+        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        if person.is_deleted {
+            return Err(Status::not_found("person is destroyed"));
+        }
+
+        self.fences.insert(cache_key, FenceState { op_id, op_type });
+        counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
+
+        Ok(Response::new(FencePersonResponse {
+            sealed: Some(cached_person_to_proto(&person)),
+        }))
+    }
+
+    async fn release_fence(
+        &self,
+        request: Request<ReleaseFenceRequest>,
+    ) -> Result<Response<ReleaseFenceResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
+        let op_id = Uuid::parse_str(&req.op_id)
+            .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
+        let outcome = req.outcome();
+
+        let cache_key = PersonCacheKey {
+            team_id: req.team_id,
+            person_id: req.person_id,
+        };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let _guard = mutex.lock().await;
+
+        // Releasing another op's fence would break that op's seal.
+        if let Some(entry) = self.fences.get(&cache_key) {
+            if entry.op_id != op_id {
+                return Err(fenced_status(entry.value()));
+            }
+        }
+
+        match outcome {
+            ReleaseOutcome::Committed => {
+                if req.sealed_version <= 0 {
+                    return Err(Status::invalid_argument(
+                        "sealed_version is required for a committed release",
+                    ));
+                }
+                if Uuid::parse_str(&req.person_uuid).is_err() {
+                    return Err(Status::invalid_argument(
+                        "person_uuid must be a valid UUID for a committed release",
+                    ));
+                }
+                // Producing to the changelog must respect the handoff
+                // write freeze like any write.
+                let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
+                    return Err(Status::failed_precondition(format!(
+                        "partition {partition} is fenced for handoff; writes are rejected"
+                    )));
+                };
+
+                // Release must stay idempotent for the saga's retry and the
+                // sweeper, so a person the leader cannot load anymore is
+                // tolerated.
+                let current = match self.lookup_or_load_locked(partition, &cache_key).await {
+                    Ok(person) => Some(person),
+                    Err(status) if status.code() == tonic::Code::NotFound => None,
+                    Err(status) => return Err(status),
+                };
+
+                // Duplicate release: the death document already exists;
+                // producing another would only bump the version.
+                if current.as_ref().is_some_and(|p| p.is_deleted) {
+                    self.fences.remove(&cache_key);
+                    return Ok(Response::new(ReleaseFenceResponse {}));
+                }
+                if !self.dirty_index.can_admit(&cache_key) {
+                    counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
+                        .increment(1);
+                    return Err(Status::resource_exhausted(
+                        "dirty index at capacity: the writer is behind and this death document \
+                         cannot be tracked; retry later",
+                    ));
+                }
+                // The death version: sealed + 1 per the RFC — the fence
+                // makes the sealed version final. The max over the current
+                // version is defense in depth until broker producer
+                // fencing lands (a deposed leader's produce could
+                // otherwise still advance the version); a cold leader with
+                // no state falls back to the sealed version carried by the
+                // request, reproducing the death document
+                // deterministically.
+                let base_version = current
+                    .as_ref()
+                    .map(|p| p.version)
+                    .unwrap_or(0)
+                    .max(req.sealed_version);
+                let death = CachedPerson {
+                    id: req.person_id,
+                    uuid: req.person_uuid.clone(),
+                    team_id: req.team_id,
+                    properties: serde_json::Value::Object(serde_json::Map::new()),
+                    created_at: current.as_ref().map(|p| p.created_at).unwrap_or(0),
+                    version: base_version + 1,
+                    is_identified: false,
+                    is_deleted: true,
+                };
+                self.commit_document(partition, &cache_key, death).await?;
+                // The death document closes the person's stream: drop the
+                // entry; a later read recovers the death record via the
+                // dirty mark and answers not-found.
+                self.cache.remove(partition, &cache_key);
+                self.fences.remove(&cache_key);
+                counter!("personhog_leader_fences_total", "action" => "released_committed")
+                    .increment(1);
+            }
+            ReleaseOutcome::Aborted => {
+                // The op backed out: drop the fence, keep the entry,
+                // produce nothing. The person resumes normal life.
+                self.fences.remove(&cache_key);
+                counter!("personhog_leader_fences_total", "action" => "released_aborted")
+                    .increment(1);
+            }
+            ReleaseOutcome::Unspecified => {
+                return Err(Status::invalid_argument("outcome must be specified"));
+            }
+        }
+
+        Ok(Response::new(ReleaseFenceResponse {}))
     }
 }
 
@@ -794,6 +1043,7 @@ mod tests {
             ),
             PropertySizeLimits::new(655360, 524288),
             WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
+            Arc::new(DashMap::new()),
         )
     }
 

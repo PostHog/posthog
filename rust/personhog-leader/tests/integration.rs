@@ -184,6 +184,7 @@ async fn unowned_partition_returns_failed_precondition() {
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -262,6 +263,7 @@ async fn missing_partition_metadata_returns_invalid_argument() {
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     // Warm the partition and seed the person so the only failure mode
@@ -343,6 +345,7 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     // Key (1, 42) hashes to some true partition; pick a different one and
@@ -430,6 +433,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
     // The handler shares the cache, inflight tracker, dirty index, and
     // recovery pool with the service, exactly as main.rs wires them.
@@ -438,6 +442,9 @@ async fn writes_fenced_after_drain_reads_still_served() {
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
         test_warming_config("fence-pod", KAFKA_BOOTSTRAP),
+        Arc::new(DashMap::new()),
+        None,
+        NUM_PARTITIONS,
     );
 
     cache.create_partition(0);
@@ -541,12 +548,16 @@ async fn drain_fences_before_waiting_on_inflight() {
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
     let handler = Arc::new(LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
         test_warming_config("fence-race-pod", KAFKA_BOOTSTRAP),
+        Arc::new(DashMap::new()),
+        None,
+        NUM_PARTITIONS,
     ));
 
     cache.create_partition(0);
@@ -850,6 +861,7 @@ async fn update_produces_person_state_to_kafka() {
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(routing_partition);
@@ -960,6 +972,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(0);
@@ -1068,6 +1081,7 @@ async fn e2e_update_produces_to_local_kafka() {
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(0);
@@ -1398,6 +1412,7 @@ async fn evicted_dirty_person_recovers_from_changelog() {
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(routing_partition);
@@ -1496,6 +1511,7 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(routing_partition);
@@ -1600,6 +1616,7 @@ async fn writes_shed_when_dirty_index_is_full() {
         test_recovery(&mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(partition);
@@ -1695,6 +1712,7 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(routing_partition);
@@ -1800,6 +1818,7 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(partition);
@@ -1955,6 +1974,7 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         is_identified: false,
         is_user_id: None,
         last_seen_at: None,
+        is_deleted: false,
     };
     let payload = person.encode_to_vec();
     producer
@@ -2016,6 +2036,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
             "clickhouse_ingestion_warnings".to_string(),
             WarningThrottle::new(DEFAULT_THROTTLE_PERIOD, NonZeroU32::new(2).unwrap()),
         ),
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(routing_partition);

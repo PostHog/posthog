@@ -108,6 +108,19 @@ target/debug/personhog-test-harness gate --leaders 3 --routers 3 --duration 20s 
 # fires on the first handoff observed after the shutdown/scale-up)
 target/debug/personhog-test-harness gate --leaders 3 --duration 20s \
   --shutdown-after 5s --kill-handoff-target
+
+# Lifecycle fence window: fence 5 persons (delete-op) at 3s, release
+# (aborted) at 12s. While fenced, any write acked above the sealed version
+# is a violation — writes to fenced persons must be rejected, not lost.
+target/debug/personhog-test-harness gate --duration 15s \
+  --fence-after 3s --fence-release-after 12s
+
+# The fence durability property: the fence is part of the person document,
+# so it must survive a leader crash-restart (recovered via warming /
+# changelog recovery) — a fence that fails open after the restart acks a
+# write above the seal and fails the gate
+target/debug/personhog-test-harness gate --leaders 3 --duration 18s \
+  --fence-after 3s --restart-after 6s --fence-release-after 14s
 ```
 
 ### Known defects these scenarios reproduce

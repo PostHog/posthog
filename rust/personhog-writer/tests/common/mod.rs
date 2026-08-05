@@ -93,6 +93,7 @@ pub fn make_person(team_id: i64, person_id: i64, version: i64) -> Person {
         is_identified: false,
         is_user_id: None,
         last_seen_at: None,
+        is_deleted: false,
     }
 }
 

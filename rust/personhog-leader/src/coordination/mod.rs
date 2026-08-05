@@ -7,6 +7,7 @@ use personhog_coordination::pod::HandoffHandler;
 use tracing::info;
 
 use crate::cache::{DirtyIndex, PartitionedCache};
+use crate::fence::{drop_partition_fences, rebuild_partition_fences, FenceMap};
 use crate::inflight::InflightTracker;
 use crate::warming::{warm_from_kafka, WarmingConfig};
 
@@ -45,20 +46,35 @@ pub struct LeaderHandoffHandler {
     inflight: Arc<InflightTracker>,
     dirty_index: Arc<DirtyIndex>,
     warming: WarmingConfig,
+    /// The in-process fence copies, rebuilt from the live marks at every
+    /// ownership boundary (see the fence module for the durability model).
+    fences: FenceMap,
+    /// Pool for the takeover scan — the cache-miss fallback pool. Without
+    /// it (dev fixtures) fences are not rebuilt on takeover and only
+    /// FencePerson calls fill the map.
+    fence_scan_pool: Option<sqlx::PgPool>,
+    num_partitions: u32,
 }
 
 impl LeaderHandoffHandler {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cache: Arc<PartitionedCache>,
         inflight: Arc<InflightTracker>,
         dirty_index: Arc<DirtyIndex>,
         warming: WarmingConfig,
+        fences: FenceMap,
+        fence_scan_pool: Option<sqlx::PgPool>,
+        num_partitions: u32,
     ) -> Self {
         Self {
             cache,
             inflight,
             dirty_index,
             warming,
+            fences,
+            fence_scan_pool,
+            num_partitions,
         }
     }
 
@@ -84,6 +100,29 @@ impl HandoffHandler for LeaderHandoffHandler {
     }
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
+        // The takeover scan: rebuild the partition's lifecycle fences from
+        // the live marks BEFORE warming — the partition becomes servable
+        // the moment `warm_from_kafka` installs it in the cache, and a
+        // fenced person must never be writable in that gap. A mark
+        // committed after this read arrives as a FencePerson call to this
+        // (now current) owner, so the two sources cover every mark; a
+        // fence installed for a partition that is not yet serving is
+        // harmless.
+        if let Some(pool) = &self.fence_scan_pool {
+            let installed =
+                rebuild_partition_fences(pool, &self.fences, partition, self.num_partitions)
+                    .await
+                    .map_err(|e| personhog_coordination::error::Error::HandoffFailed {
+                        partition,
+                        reason: format!("fence takeover scan failed: {e}"),
+                    })?;
+            if installed > 0 {
+                info!(
+                    partition,
+                    installed, "rebuilt lifecycle fences from live marks"
+                );
+            }
+        }
         info!(partition, "warming partition cache from kafka");
         warm_from_kafka(&self.warming, &self.cache, &self.dirty_index, partition).await?;
         // This pod may still carry a fence from a previous ownership of
@@ -101,6 +140,9 @@ impl HandoffHandler for LeaderHandoffHandler {
         // The new owner's warming rebuilds its own marks; stale marks here
         // would only pin memory for a partition this pod no longer serves.
         self.dirty_index.clear_partition(partition);
+        // Same for the lifecycle fences: the new owner's takeover scan
+        // rebuilds its own.
+        drop_partition_fences(&self.fences, partition, self.num_partitions);
         info!(partition, "partition released");
         Ok(())
     }
@@ -164,6 +206,9 @@ mod tests {
                     max_backoff: Duration::from_secs(5),
                 },
             },
+            Arc::new(dashmap::DashMap::new()),
+            None,
+            4,
         )
     }
 

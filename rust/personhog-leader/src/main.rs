@@ -186,6 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(num_partitions, "loaded partition count from etcd");
 
     let locks = Arc::new(DashMap::new());
+    let fences: personhog_leader::fence::FenceMap = Arc::new(DashMap::new());
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(config.dirty_index_max_entries));
     let recovery = Arc::new(
@@ -202,6 +203,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kafka_producer.clone(),
         config.ingestion_warnings_topic.clone(),
     );
+    let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer.clone(),
@@ -217,6 +219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.properties_trim_target,
         ),
         warnings.clone(),
+        Arc::clone(&fences),
     );
 
     let handler = LeaderHandoffHandler::new(
@@ -242,6 +245,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_backoff: Duration::from_millis(config.warm_retry_max_backoff_ms),
             },
         },
+        Arc::clone(&fences),
+        fence_scan_pool,
+        num_partitions,
     );
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
