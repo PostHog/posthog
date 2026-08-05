@@ -28,6 +28,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
+from posthog.models.utils import UUIDT
 
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
@@ -58,7 +59,12 @@ from products.notebooks.backend.sql_v2 import (
 )
 from products.notebooks.backend.sql_v2_callback import MAX_ENVELOPE_BYTES
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
-from products.notebooks.backend.sql_v2_direct import apply_page_bounds, notebook_direct_query_id, sync_direct_run
+from products.notebooks.backend.sql_v2_direct import (
+    apply_page_bounds,
+    apply_raw_page_bounds,
+    notebook_direct_query_id,
+    sync_direct_run,
+)
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
     dispatch_sql_v2_run_activity,
@@ -149,6 +155,52 @@ class TestSQLV2ApplyPageBounds(SimpleTestCase):
         assert parsed.select_from is not None
         assert isinstance(parsed.select_from.table, ast.SelectQuery | ast.SelectSetQuery)
         assert isinstance(parsed.limit, ast.Constant) and parsed.limit.value == limit
+
+    @parameterized.expand(
+        [
+            ("plain", "select * from credit.billing_credits"),
+            ("trailing_semicolon", "select * from credit.billing_credits;"),
+        ]
+    )
+    def test_raw_bounding_wraps_with_an_alias(self, _name: str, query: str) -> None:
+        # Raw SQL is the connection's dialect, so it can't be parsed to find a pushdown spot —
+        # it is always wrapped. The derived table needs an alias or Postgres and MySQL reject it,
+        # and a trailing ';' would end the statement before the bound.
+        out = apply_raw_page_bounds(query, limit=301, offset=0)
+        assert (
+            out == "select * from (select * from credit.billing_credits\n) as posthog_notebook_page limit 301 offset 0"
+        )
+
+    @parameterized.expand(
+        [
+            ("explain", "explain select 1"),
+            ("uppercase", "EXPLAIN ANALYZE select 1"),
+            ("show", "show search_path"),
+            ("behind_a_comment", "-- why is this slow\nexplain select 1"),
+        ]
+    )
+    def test_raw_bounding_leaves_unnestable_statements_alone(self, _name: str, query: str) -> None:
+        # Postgres admits EXPLAIN/SHOW in raw mode (only MySQL restricts raw SQL to SELECT), and
+        # neither is valid inside a derived table. Wrapping them turns a query that works in the
+        # SQL editor into a syntax error, so they reach the engine as written.
+        assert apply_raw_page_bounds(query, limit=301, offset=0) == query
+
+    def test_raw_bounding_still_wraps_a_select_behind_a_comment(self) -> None:
+        # The leading-keyword check skips comments, so it must not mistake a commented SELECT
+        # for something unnestable and ship an unbounded scan into the result store.
+        out = apply_raw_page_bounds("-- daily totals\nselect * from users", limit=301, offset=0)
+        assert out.startswith("select * from (-- daily totals\nselect * from users")
+        assert out.endswith(") as posthog_notebook_page limit 301 offset 0")
+
+    def test_terminator_is_stripped_even_behind_a_trailing_comment(self) -> None:
+        # `select 1; -- note` is a single statement to sqlparse, so it passes the engine's
+        # single-statement guard and lands here with the ';' mid-string. Wrapping that as a
+        # derived table is a hard syntax error on Postgres and MySQL. The comment stays put.
+        out = apply_raw_page_bounds("select * from users; -- daily totals", limit=301, offset=0)
+        assert ";" not in out.split(") as posthog_notebook_page")[0]
+        assert (
+            out == "select * from (select * from users -- daily totals\n) as posthog_notebook_page limit 301 offset 0"
+        )
 
 
 class TestSQLV2Callback(APIBaseTest):
@@ -648,6 +700,197 @@ class TestSQLV2Run(APIBaseTest):
         run = NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).first()
         assert run is not None
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
+
+
+@patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+class TestSQLV2RunOnAConnection(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbconn1")
+        self.run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/run/"
+        self.source_id = UUIDT()
+        # The source is another product's model, which this one may not import (tach). Notebooks
+        # only ever reaches it through core's resolver, so stub that seam: what this suite owns is
+        # whether notebooks calls it with the right arguments and honors its verdict. The
+        # resolver's own RBAC behavior is covered by the direct-connection tests in core.
+        patcher = patch(
+            "products.notebooks.backend.presentation.views.notebook.get_direct_connection_source",
+            return_value=SimpleNamespace(id=self.source_id),
+        )
+        self.mock_resolve_source = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _post(self, **data: Any):
+        return self.client.post(self.run_url, data={"node_id": "n1", **data}, format="json")
+
+    def _record_done_run(self, node_id: str, code: str, connection_id: str | None = None) -> None:
+        with team_scope(self.team.id):
+            NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id=node_id,
+                code=code,
+                connection_id=connection_id,
+                status=NotebookNodeRun.Status.DONE,
+            )
+
+    @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
+    def test_connection_reaches_the_enqueued_query(self, mock_enqueue, _mock_enabled):
+        # The bug: the cell's connection was dropped at dispatch, so a warehouse query ran
+        # against ClickHouse and failed with "Unknown table". The id has to ride the query.
+        response = self._post(code="select * from public.users", connection_id=str(self.source_id))
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(str(run.connection_id), str(self.source_id))
+        self.assertFalse(run.send_raw_query)
+        query_json = mock_enqueue.call_args.kwargs["query_json"]
+        self.assertEqual(query_json["connectionId"], str(self.source_id))
+        self.assertNotIn("sendRawQuery", query_json)
+
+    @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
+    def test_raw_mode_ships_engine_sql_untouched(self, mock_enqueue, _mock_enabled):
+        # Raw SQL never reaches the HogQL parser: `::text` and friends would fail to parse, and
+        # a query the parser did accept must still arrive verbatim inside the row bound.
+        response = self._post(
+            code="select id::text from credit.billing_credits",
+            connection_id=str(self.source_id),
+            send_raw_query=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertTrue(run.send_raw_query)
+        self.assertEqual(run.code, "select id::text from credit.billing_credits")
+        query_json = mock_enqueue.call_args.kwargs["query_json"]
+        self.assertTrue(query_json["sendRawQuery"])
+        self.assertIn("select id::text from credit.billing_credits", query_json["query"])
+        # Raw mode reads whatever the connection exposes, so it must be gated on a pure-direct
+        # source and on this user — a resolver call that dropped either would silently widen access.
+        resolve_kwargs = self.mock_resolve_source.call_args.kwargs
+        self.assertEqual(resolve_kwargs["user"], self.user)
+        self.assertTrue(resolve_kwargs["require_pure_direct"])
+
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    def test_unknown_connection_fails_the_dispatch(self, mock_enqueue, _mock_enabled):
+        # Fail here rather than stranding a run that can only report an opaque error later.
+        self.mock_resolve_source.return_value = None
+        response = self._post(code="select 1", connection_id=str(UUIDT()))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("connectionId", response.json()["detail"])
+        mock_enqueue.assert_not_called()
+        self.assertFalse(NotebookNodeRun.objects.for_team(self.team.id).exists())
+
+    @parameterized.expand(
+        [
+            ("connection_cell_reading_a_posthog_cell", True),
+            ("posthog_cell_reading_a_connection_cell", False),
+        ]
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    def test_cross_engine_reference_is_rejected(self, _name, run_on_connection, mock_enqueue, _mock_enabled):
+        # Both directions: a cell's stored SQL only means anything on the engine that ran it, so
+        # inlining it as a CTE elsewhere would silently ship the wrong query.
+        self._record_done_run(
+            "node-df1", "select id from events", connection_id=None if run_on_connection else str(self.source_id)
+        )
+        response = self._post(
+            code="select * from df1",
+            refs={"df1": {"node_id": "node-df1"}},
+            connection_id=str(self.source_id) if run_on_connection else None,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("last ran on a different connection", response.json()["detail"])
+        mock_enqueue.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    def test_python_reading_a_connection_cell_says_what_to_do(self, mock_start, _mock_enabled):
+        # A Python cell materializes upstream results through the data plane, which only reaches
+        # PostHog — so it must say that, not tell the user to move a Python cell onto a warehouse.
+        self._record_done_run("node-wh", "select * from public.users", connection_id=str(self.source_id))
+        response = self._post(
+            code="print(wh_df.head())",
+            node_type="python",
+            refs={"wh_df": {"node_id": "node-wh"}},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Python cells can only read PostHog results", response.json()["detail"])
+        mock_start.assert_not_called()
+
+    @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
+    def test_same_connection_reference_still_inlines(self, mock_enqueue, _mock_enabled):
+        # The rejection above must not swallow the ordinary case: two cells on one connection
+        # still compose, so the guard can't just refuse every ref once a connection is set.
+        self._record_done_run("node-df1", "select id from events", connection_id=str(self.source_id))
+        response = self._post(
+            code="select * from df1",
+            refs={"df1": {"node_id": "node-df1"}},
+            connection_id=str(self.source_id),
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertIn("WITH df1 AS (SELECT id FROM events)", run.code)
+        mock_enqueue.assert_called_once()
+
+    def test_reading_a_connection_run_needs_source_access(self, _mock_enabled):
+        # Dispatch gated the source, but the run row outlives that check and this endpoint serves
+        # its rows to anyone with notebook + query access. Without a re-check a member denied
+        # viewer on the warehouse could poll a colleague's run and read what it pulled.
+        with team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                code="select * from public.users",
+                connection_id=self.source_id,
+                envelope={"status": "ok", "columns": ["id"], "first_page": [[1]]},
+                status=NotebookNodeRun.Status.DONE,
+            )
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["result"]["first_page"], [[1]])
+        # The read must be resolved for the caller, not for whoever ran the cell.
+        self.assertEqual(self.mock_resolve_source.call_args.kwargs["user"], self.user)
+
+        self.mock_resolve_source.return_value = None
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+    def test_losing_source_access_mid_run_still_lets_the_run_reach_a_terminal_state(self, _mock_enabled):
+        # This poll is the only thing that advances a direct run, and the only place its expiry
+        # watchdog fires. Gating before that would strand the run RUNNING forever once access
+        # went away — so the row must still finish even though the caller is refused its rows.
+        with freeze_time("2026-07-01T00:00:00Z"), team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                code="select * from public.users",
+                connection_id=self.source_id,
+                status=NotebookNodeRun.Status.RUNNING,
+            )
+        self.mock_resolve_source.return_value = None
+
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run.id}/"
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    def test_local_frame_reference_never_reroutes_a_connection_run_to_the_sandbox(
+        self, mock_enqueue, mock_start, _mock_enabled
+    ):
+        # Without the guard this takes Journey 5's DuckDB reroute, where the sandbox would run
+        # the query against a kernel frame instead of the warehouse the user picked.
+        response = self._post(
+            code="select * from new_events",
+            refs={"new_events": {"node_id": "node-py", "kind": "local"}},
+            connection_id=str(self.source_id),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Python dataframe", response.json()["detail"])
+        mock_start.assert_not_called()
+        mock_enqueue.assert_not_called()
 
 
 class _RecordingSandbox:

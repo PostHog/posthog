@@ -129,8 +129,10 @@ class LoopContextOutputsWriteSerializer(serializers.Serializer):
 
 
 class LoopContextTargetWriteSerializer(serializers.Serializer):
-    folder_id = serializers.CharField(help_text="Desktop folder id of the context this loop is attached to.")
-    name = serializers.CharField(max_length=128, help_text="Context (channel) name, used to file runs into its feed.")
+    channel_id = serializers.CharField(help_text="Id of the channel (context) this loop is attached to.")
+    name = serializers.CharField(
+        max_length=128, help_text="Display name of the context, shown in the loop's publish prompt."
+    )
     outputs = LoopContextOutputsWriteSerializer(
         required=False, default=dict, help_text="What the loop maintains in this context each run."
     )
@@ -485,10 +487,12 @@ class LoopWriteSerializer(serializers.Serializer):
         context_target = attrs.get("context_target")
         if context_target:
             team_id = self.context["team"].id
-            if not loops_facade.desktop_folder_exists(team_id, context_target.get("folder_id")):
-                raise serializers.ValidationError({"context_target": "Context folder not found for this team."})
+            if not loops_facade.context_channel_exists(
+                team_id, context_target.get("channel_id"), self.context.get("user_id")
+            ):
+                raise serializers.ValidationError({"context_target": "Context channel not found for this team."})
             canvas_id = (context_target.get("outputs") or {}).get("canvas_id")
-            if canvas_id and not loops_facade.desktop_canvas_exists(team_id, canvas_id):
+            if canvas_id and not loops_facade.context_canvas_exists(team_id, canvas_id, self.context.get("user_id")):
                 raise serializers.ValidationError({"context_target": "Canvas not found in this team."})
 
         return attrs

@@ -49,6 +49,12 @@ export interface ExecInnerCallProperties {
     input_tokens?: number
     output_tokens?: number
     input?: Record<string, unknown>
+    /**
+     * The payload returned to the client, exactly as serialized. Consumed by the
+     * `$ai_span` capture for data-catalog-relevant calls, which needs the tool's
+     * result (e.g. which metrics a catalog lookup returned), not just its size.
+     */
+    output?: unknown
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -642,6 +648,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateTokens(outputText),
                             input,
+                            output: outputText,
                         })
                         return outputText
                     }
@@ -669,9 +676,9 @@ export function createExecTool(
                                 // the raw JSON. When such a table exists, re-home the UI app's data
                                 // onto `_meta` (see APP_DATA_META_KEY) so the model reads the compact
                                 // table and the chart still renders. When there is no formatted table,
-                                // the model reads the full data as text either way — so the payload
-                                // stays in the standard `structuredContent` field instead of being
-                                // duplicated under `_meta`, and the app still hydrates from it.
+                                // the payload stays in the standard `structuredContent` field — which
+                                // both the model and the app read — and the text channel carries a
+                                // pointer rather than a second copy of the same rows.
                                 forceUiDataToMeta: true,
                                 distinctId,
                                 includeUiResponseMeta: true,
@@ -684,6 +691,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
                             input,
+                            output: payload,
                         })
                         return payload
                     }
@@ -708,6 +716,7 @@ export function createExecTool(
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
                         input,
+                        output: outputText,
                     })
                     return outputText
                 }

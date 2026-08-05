@@ -21,6 +21,7 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 
 import { Experiment } from '~/types'
 
+import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
 import { isLaunched } from '../experimentStatus'
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { EXPOSURE_FALLBACK_NOTICE, EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
@@ -43,7 +44,7 @@ const MODE_SUMMARIES: Record<ExperimentReplayMetricFilterMode, string> = {
     fired_all: 'fired events from every selected metric',
     fired_any: 'fired events from at least one selected metric',
     no_metric_activity: 'fired no events from the selected metrics',
-    funnel_dropoff: "started the funnel but didn't finish it",
+    funnel_dropoff: "were exposed but didn't finish the funnel",
 }
 
 /**
@@ -86,7 +87,7 @@ function metricFilterTriggerLabel(
 /** Why a picked mode isn't narrowing the list — it needs a selection it doesn't have yet. */
 function unappliedModeReason(mode: ExperimentReplayMetricFilterMode): string {
     return mode === 'funnel_dropoff'
-        ? 'Pick a funnel metric with at least two steps that can be matched to recordings. Showing every exposed recording until then.'
+        ? 'Pick a funnel metric whose last step can be matched to recordings. Showing every exposed recording until then.'
         : 'Pick at least one metric. Showing every exposed recording until then.'
 }
 
@@ -154,7 +155,7 @@ const METRIC_FILTER_MODE_OPTIONS: { value: ExperimentReplayMetricFilterMode; lab
         value: 'funnel_dropoff',
         label: "Didn't finish funnel",
         tooltip:
-            "Sessions that reached a funnel metric's first step but not its last one during the recording. The same person may have finished it in a later session.",
+            "Sessions that saw the experiment but didn't fire a funnel metric's last step during the recording. The exposure counts as the funnel's first step. The same person may have finished it in a later session.",
     },
 ]
 
@@ -276,7 +277,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                     <DropdownMenuGroup>
                                         <DropdownMenuLabel inset className="flex items-center gap-1">
                                             {reason === NOT_A_FUNNEL_REASON
-                                                ? 'Needs two funnel steps'
+                                                ? 'Needs a funnel metric'
                                                 : "Can't match to recordings"}
                                             <Tooltip title={reason}>
                                                 <IconInfo className="size-3 shrink-0" />
@@ -300,6 +301,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         </DropdownMenuContent>
                     </DropdownMenu>
                 )}
+                <div className="ml-auto">
+                    <SummarizeSessionReplaysButton experiment={experiment} />
+                </div>
             </div>
             {/* The default mode also uses the endpoint for a single multi-source metric, so the
                 caption follows the request, not the mode. */}

@@ -304,7 +304,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
-    emailAssets: MessageAssetRow[]
+    messageAssets: MessageAssetRow[]
     execResult?: unknown
 }
 
@@ -344,10 +344,15 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
-    // Set by the subscription matcher when a person merge repointed this job's distinct_id and re-keyed
-    // personId onto the survivor. Tells the worker to resolve the person by personId, not the distinct_id
-    // (whose ~1min PersonsManager cache entry still points at the pre-merge person) — otherwise a
-    // merge-woken step reads stale person props (e.g. an email step gets no recipient and drops the send).
+    // Stamped at enqueue for account-audience batch children: event.distinct_id is the account's
+    // group key, not a person distinct_id. The worker must trust this over the live trigger config,
+    // which can be edited to a person audience while these children are still queued.
+    accountAudience?: boolean
+    // Set by the subscription matcher when it wrote this job's personId anchor: either a merge repointed
+    // the distinct_id onto a survivor, or the distinct_id acquired its first person. Tells the worker to
+    // resolve the person by personId, not the distinct_id (whose ~1min PersonsManager cache entry still
+    // points at the pre-merge person, or at no person at all) — otherwise the woken step reads stale
+    // person props (e.g. an email step gets no recipient and drops the send).
     personIdRepointed?: boolean
     // High-water mark of the repoint version last applied to this job's personId. Repoints aren't
     // Kafka-keyed, so a delayed lower-version move can arrive in a later batch than a higher one already

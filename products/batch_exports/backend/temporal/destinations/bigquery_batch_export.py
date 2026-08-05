@@ -67,7 +67,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     SchemaTransformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult, reduce_batch_export_results
-from products.batch_exports.backend.temporal.spmc import (
+from products.batch_exports.backend.temporal.queue import (
     RecordBatchQueue,
     raise_on_task_failure,
     wait_for_schema_or_producer,
