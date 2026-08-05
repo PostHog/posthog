@@ -17,6 +17,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.ph_client import PH_EU_API_KEY, PH_EU_HOST, PH_US_API_KEY, PH_US_HOST
 from posthog.utils import get_instance_region
 
+from products.streamlit_apps.backend.facade.contracts import AppRuntimeConcurrencyError, AppRuntimeError
 from products.streamlit_apps.backend.logic.oauth import create_sandbox_bridge_token, get_streamlit_oauth_app
 from products.streamlit_apps.backend.logic.zip_validator import MAX_UNCOMPRESSED_SIZE, is_safe_zip_path
 from products.streamlit_apps.backend.models import (
@@ -51,16 +52,6 @@ RESTART_COUNT_STABILITY_SECONDS = 5 * 60
 # 24h TTL). The auto-restart task keys off this exact string to distinguish
 # crashes from user/idle stops.
 TTL_TIMEOUT_LAST_ERROR = "Sandbox terminated (TTL timeout)"
-
-
-class AppRuntimeError(Exception):
-    pass
-
-
-class AppRuntimeConcurrencyError(AppRuntimeError):
-    """Raised when a lifecycle action collides with one already in flight."""
-
-    pass
 
 
 def _get_sandbox_callback_url() -> str:
@@ -293,7 +284,7 @@ def _clear_sync_failures(sandbox_record: StreamlitAppSandbox) -> None:
     cache.delete(_sync_failure_key(sandbox_record))
 
 
-def _sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
+def sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
     """Sync DB sandbox status with the Modal sandbox state.
 
     Handles only RUNNING→STOPPED (died) and STARTING→ERROR (timed out).
@@ -350,6 +341,14 @@ class AppRuntimeService:
         version = app.active_version
         if version is None:
             raise AppRuntimeError("App has no active version")
+        # The bridge runs the app's HogQL as the author of the code that is about to
+        # execute — not the app's creator, or a member who can only edit apps would
+        # inherit the creator's warehouse access. Checked before any sandbox is built:
+        # a deleted author is a deterministic no-start, not a provision-then-fail.
+        if version.created_by is None:
+            raise AppRuntimeError(
+                "The author of this app's active version no longer exists. Upload a new version to run it."
+            )
 
         with transaction.atomic():
             existing = StreamlitAppSandbox.objects.select_for_update().filter(app=app).first()
@@ -399,7 +398,7 @@ class AppRuntimeService:
                 version.save(update_fields=["snapshot_id", "snapshot_created_at"])
 
             # Write before the proxy boots so it can read+unlink the file.
-            bridge_token = create_sandbox_bridge_token(user=app.created_by, team_id=app.team_id)
+            bridge_token = create_sandbox_bridge_token(user=version.created_by, team_id=app.team_id)
             _write_bridge_token(sandbox, bridge_token)
 
             _start_auth_proxy(sandbox)
@@ -480,7 +479,10 @@ class AppRuntimeService:
 
         if destroy_error is None:
             sandbox_record.status = StreamlitAppSandbox.Status.STOPPED
-            sandbox_record.save(update_fields=["status"])
+            # Clear the TTL marker too: auto_restart_crashed_streamlit_sandboxes matches
+            # on it, so a deliberate stop of a TTL-expired sandbox would be undone.
+            sandbox_record.last_error = ""
+            sandbox_record.save(update_fields=["status", "last_error"])
         else:
             # Modal may still be running; TTL or cleanup will reclaim it.
             sandbox_record.status = StreamlitAppSandbox.Status.ERROR
@@ -495,7 +497,7 @@ class AppRuntimeService:
                 "restart_count": app.restart_count,
             }
 
-        sandbox_record = _sync_sandbox_status(sandbox_record)
+        sandbox_record = sync_sandbox_status(sandbox_record)
 
         return {
             "status": sandbox_record.status,
@@ -514,7 +516,7 @@ class AppRuntimeService:
         if not sandbox_record or not sandbox_record.sandbox_id:
             return None
 
-        sandbox_record = _sync_sandbox_status(sandbox_record)
+        sandbox_record = sync_sandbox_status(sandbox_record)
         if sandbox_record.status != StreamlitAppSandbox.Status.RUNNING:
             return None
 

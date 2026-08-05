@@ -1,0 +1,9 @@
+version: 1
+owners: []
+rules:
+    - match: ['/ManagedReverseProxy.tsx', '/ProxySDKSetup.tsx']
+      owners: team-platform-features
+    - match: '/SurveySettings.tsx'
+      owners: team-surveys
+    - match: ['/proxyLogic.test.ts', '/proxyLogic.ts']
+      owners: team-platform-features

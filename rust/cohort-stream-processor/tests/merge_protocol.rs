@@ -18,7 +18,8 @@ use cohort_stream_processor::merge::apply_handler::{
 use cohort_stream_processor::merge::drain_handler::{handle_merge_event, DrainOutcome};
 use cohort_stream_processor::merge::tombstone_redirect::{resolve, Resolution};
 use cohort_stream_processor::merge::transfer::{
-    MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, MERGE_EVENT_SCHEMA_VERSION,
+    MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, TransferMembershipRegister,
+    TransferMembershipRegisterKind, MERGE_EVENT_SCHEMA_VERSION,
 };
 use cohort_stream_processor::partitions::{partition_of, COHORT_PARTITION_COUNT};
 use cohort_stream_processor::producer::{now_last_updated, MembershipStatus};
@@ -27,8 +28,8 @@ use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord}
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, OffloadConfig,
-    OffloadMode, PendingTransferKey, PersonRecordKey, PersonRecords, Stage2Key, StoreConfig,
-    StoreHandle, TombstoneKey,
+    OffloadMode, PendingTransferKey, PersonRecordKey, PersonRecords, ReadLane, Stage2Key,
+    StoreConfig, StoreHandle, TombstoneKey,
 };
 use cohort_stream_processor::workers::{
     compose_stage2, handle_merge_gc, handle_stage2_orphan_gc, process_event, MergeGcCursor,
@@ -128,6 +129,14 @@ fn build_filters() -> TeamFilters {
             TeamId(TEAM),
             &cohort(vec![daily_leaf(), person_leaf()]),
         )
+        .unwrap();
+    builder.freeze(UTC)
+}
+
+fn false_single_leaf_filters() -> TeamFilters {
+    let mut builder = TeamFiltersBuilder::default();
+    builder
+        .add_cohort(CohortId(1), TeamId(TEAM), &cohort(vec![daily_leaf()]))
         .unwrap();
     builder.freeze(UTC)
 }
@@ -262,6 +271,357 @@ fn behavioral_states(
     )
 }
 
+fn membership_register_key(partition_id: u16, cohort_id: u64, person: Uuid) -> Stage2Key {
+    Stage2Key {
+        partition_id,
+        team_id: TEAM as u64,
+        cohort_id,
+        person_id: person,
+    }
+}
+
+fn membership_register_bit(
+    store: &CohortStore,
+    partition_id: u16,
+    cohort_id: u64,
+    person: Uuid,
+) -> Option<bool> {
+    store
+        .get_stage2(&membership_register_key(partition_id, cohort_id, person))
+        .unwrap()
+        .map(|bytes| Stage2State::decode(&bytes).unwrap().in_cohort)
+}
+
+fn put_membership_register(
+    store: &CohortStore,
+    partition_id: u16,
+    cohort_id: u64,
+    person: Uuid,
+    in_cohort: bool,
+) {
+    store
+        .write_batch(|batch| {
+            batch.put_stage2(
+                &membership_register_key(partition_id, cohort_id, person),
+                &Stage2State {
+                    in_cohort,
+                    last_evaluated_at_ms: 1,
+                }
+                .encode(),
+            )
+        })
+        .unwrap();
+}
+
+#[test]
+fn merge_preserves_a_false_single_leaf_register_with_or_without_leaf_state() {
+    for same_partition in [false, true] {
+        for leaf_state_present in [false, true] {
+            let dir = TempDir::new().unwrap();
+            let store = temp_store_in(&dir);
+            let filters = false_single_leaf_filters();
+            let p_old = Uuid::from_u128(0xA11CE);
+            let p_old_part = part(p_old);
+            let p_new = if same_partition {
+                person_on(p_old_part)
+            } else {
+                person_not_on(p_old_part)
+            };
+            let p_new_part = part(p_new);
+
+            if leaf_state_present {
+                fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
+            }
+            put_membership_register(&store, p_old_part, 1, p_old, false);
+
+            let drained = handle_merge_event(
+                p_old_part,
+                &store,
+                &filters,
+                &merge_event(p_old, p_new),
+                (5, 100),
+                COHORT_PARTITION_COUNT,
+            )
+            .unwrap();
+            match drained {
+                DrainOutcome::FastPath { .. } if same_partition => {}
+                DrainOutcome::Drained { transfer, .. } if !same_partition => {
+                    assert_eq!(
+                        transfer.membership_registers,
+                        vec![TransferMembershipRegister {
+                            cohort_id: 1,
+                            in_cohort: false,
+                            kind: TransferMembershipRegisterKind::SingleLeafBehavioral,
+                        }],
+                    );
+                    assert!(matches!(
+                        handle_transfer(
+                            p_new_part,
+                            &store,
+                            &filters,
+                            &transfer,
+                            (5, 7),
+                            COHORT_PARTITION_COUNT,
+                        )
+                        .unwrap(),
+                        ApplyOutcome::Applied { .. }
+                    ));
+                }
+                other => {
+                    panic!("unexpected merge path (same_partition={same_partition}): {other:?}")
+                }
+            }
+
+            assert_eq!(
+                membership_register_bit(&store, p_old_part, 1, p_old),
+                None,
+                "the merged-away identity is reclaimed",
+            );
+            assert_eq!(
+                membership_register_bit(&store, p_new_part, 1, p_new),
+                Some(false),
+                "the survivor stays in the reconcile scan domain (same_partition={same_partition}, leaf_state_present={leaf_state_present})",
+            );
+            assert_eq!(
+                leaf_state(
+                    &store,
+                    p_new_part,
+                    lsk_of(&filters, StateVariant::BehavioralDailyBuckets),
+                    p_new,
+                )
+                .is_some(),
+                leaf_state_present,
+            );
+        }
+    }
+}
+
+#[test]
+fn cross_partition_catalog_edit_preserves_the_register_scan_domain() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let source_filters = false_single_leaf_filters();
+    let mut target_builder = TeamFiltersBuilder::default();
+    target_builder
+        .add_cohort(CohortId(1), TeamId(TEAM), &cohort(vec![single_leaf()]))
+        .unwrap();
+    let target_filters = target_builder.freeze(UTC);
+    let p_old = Uuid::from_u128(0xA11CE);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    let p_new_part = part(p_new);
+
+    fold_pageview(&store, &source_filters, p_old_part, p_old, 10, 0);
+    put_membership_register(&store, p_old_part, 1, p_old, false);
+
+    let transfer = match handle_merge_event(
+        p_old_part,
+        &store,
+        &source_filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap()
+    {
+        DrainOutcome::Drained { transfer, .. } => transfer,
+        other => panic!("expected a cross-partition transfer, got {other:?}"),
+    };
+    assert_eq!(
+        transfer.membership_registers,
+        vec![TransferMembershipRegister {
+            cohort_id: 1,
+            in_cohort: false,
+            kind: TransferMembershipRegisterKind::SingleLeafBehavioral,
+        }],
+    );
+
+    assert!(matches!(
+        handle_transfer(
+            p_new_part,
+            &store,
+            &target_filters,
+            &transfer,
+            (5, 7),
+            COHORT_PARTITION_COUNT,
+        )
+        .unwrap(),
+        ApplyOutcome::Applied { .. }
+    ));
+    assert_eq!(
+        membership_register_bit(&store, p_new_part, 1, p_new),
+        Some(false),
+        "the transfer fallback keeps the survivor scannable across a single-leaf LSK edit",
+    );
+}
+
+#[test]
+fn cross_partition_single_leaf_to_composable_edit_materializes_a_false_sentinel() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let source_filters = false_single_leaf_filters();
+    let mut target_builder = TeamFiltersBuilder::default();
+    target_builder
+        .add_cohort(
+            CohortId(1),
+            TeamId(TEAM),
+            &cohort(vec![single_leaf(), compressed_leaf()]),
+        )
+        .unwrap();
+    let target_filters = target_builder.freeze(UTC);
+    let p_old = Uuid::from_u128(0xA11CE);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    let p_new_part = part(p_new);
+
+    put_membership_register(&store, p_old_part, 1, p_old, true);
+    let transfer = match handle_merge_event(
+        p_old_part,
+        &store,
+        &source_filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap()
+    {
+        DrainOutcome::Drained { transfer, .. } => transfer,
+        other => panic!("expected a cross-partition transfer, got {other:?}"),
+    };
+    assert_eq!(
+        transfer.membership_registers,
+        vec![TransferMembershipRegister {
+            cohort_id: 1,
+            in_cohort: true,
+            kind: TransferMembershipRegisterKind::SingleLeafBehavioral,
+        }],
+    );
+
+    assert!(matches!(
+        handle_transfer(
+            p_new_part,
+            &store,
+            &target_filters,
+            &transfer,
+            (5, 7),
+            COHORT_PARTITION_COUNT,
+        )
+        .unwrap(),
+        ApplyOutcome::Applied { .. }
+    ));
+    assert_eq!(
+        membership_register_bit(&store, p_new_part, 1, p_new),
+        Some(false),
+        "a newly composable row gains scan presence without changing its absent-is-false semantics",
+    );
+}
+
+#[test]
+fn cross_partition_merge_preserves_a_composable_false_row_without_leaf_state() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let mut builder = TeamFiltersBuilder::default();
+    builder
+        .add_cohort(
+            CohortId(1),
+            TeamId(TEAM),
+            &cohort(vec![single_leaf(), compressed_leaf()]),
+        )
+        .unwrap();
+    let filters = builder.freeze(UTC);
+    let p_old = Uuid::from_u128(0xA11CE);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    let p_new_part = part(p_new);
+
+    put_membership_register(&store, p_old_part, 1, p_old, false);
+    let transfer = match handle_merge_event(
+        p_old_part,
+        &store,
+        &filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap()
+    {
+        DrainOutcome::Drained { transfer, .. } => transfer,
+        other => panic!("expected a cross-partition transfer, got {other:?}"),
+    };
+
+    assert!(matches!(
+        handle_transfer(
+            p_new_part,
+            &store,
+            &filters,
+            &transfer,
+            (5, 7),
+            COHORT_PARTITION_COUNT,
+        )
+        .unwrap(),
+        ApplyOutcome::Applied { .. }
+    ));
+    assert_eq!(
+        membership_register_bit(&store, p_new_part, 1, p_new),
+        Some(false),
+        "the existing composable scan domain follows the survivor even without leaf transitions",
+    );
+}
+
+#[test]
+fn cross_partition_merge_preserves_the_domain_of_a_corrupt_register_row() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = false_single_leaf_filters();
+    let p_old = Uuid::from_u128(0xA11CE);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    let p_new_part = part(p_new);
+    store
+        .write_batch(|batch| {
+            batch.put_stage2(&membership_register_key(p_old_part, 1, p_old), b"corrupt")
+        })
+        .unwrap();
+
+    let transfer = match handle_merge_event(
+        p_old_part,
+        &store,
+        &filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap()
+    {
+        DrainOutcome::Drained { transfer, .. } => transfer,
+        other => panic!("expected a cross-partition transfer, got {other:?}"),
+    };
+    assert_eq!(
+        transfer.membership_registers,
+        vec![TransferMembershipRegister {
+            cohort_id: 1,
+            in_cohort: false,
+            kind: TransferMembershipRegisterKind::SingleLeafBehavioral,
+        }],
+    );
+    assert!(matches!(
+        handle_transfer(
+            p_new_part,
+            &store,
+            &filters,
+            &transfer,
+            (5, 7),
+            COHORT_PARTITION_COUNT,
+        )
+        .unwrap(),
+        ApplyOutcome::Applied { .. }
+    ));
+    assert_eq!(
+        membership_register_bit(&store, p_new_part, 1, p_new),
+        Some(false),
+    );
+}
+
 #[test]
 fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_oracle() {
     let dir = TempDir::new().unwrap();
@@ -279,6 +639,10 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
 
     fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
     fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
+    // Model the complete seed-created register domain: these leaves have state but are not members
+    // until old and survivor state are combined by the merge.
+    put_membership_register(&store, p_old_part, 2, p_old, false);
+    put_membership_register(&store, p_old_part, 3, p_old, false);
 
     let drained = handle_merge_event(
         p_old_part,
@@ -299,6 +663,13 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         s.is_none() && d.is_none() && c.is_none(),
         "P_old's state was drained"
     );
+    for cohort_id in 1..=3 {
+        assert_eq!(
+            membership_register_bit(&store, p_old_part, cohort_id, p_old),
+            None,
+            "drain removes P_old's single-leaf register for cohort {cohort_id}",
+        );
+    }
     assert!(store
         .get_tombstone(&TombstoneKey {
             partition_id: p_old_part,
@@ -337,6 +708,13 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         "daily summed across both persons"
     );
     assert_eq!(compressed_sum(&compressed.clone().unwrap()), 2);
+    for cohort_id in 1..=3 {
+        assert_eq!(
+            membership_register_bit(&store, p_new_part, cohort_id, p_new),
+            Some(true),
+            "apply aligns the survivor's single-leaf register for cohort {cohort_id}",
+        );
+    }
 
     // Oracle: a person that received both events from the start, keyed to P_new's partition.
     let oracle = Uuid::from_u128(0xABCDE);
@@ -541,6 +919,8 @@ fn fast_path_equals_the_cross_partition_result() {
 
     fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
     fold_pageview(&store, &filters, p_old_part, p_new, 20, 0);
+    put_membership_register(&store, p_old_part, 2, p_old, false);
+    put_membership_register(&store, p_old_part, 3, p_old, false);
 
     let outcome = handle_merge_event(
         p_old_part,
@@ -573,6 +953,13 @@ fn fast_path_equals_the_cross_partition_result() {
 
     let (s, d, c) = behavioral_states(&store, &filters, p_old_part, p_old);
     assert!(s.is_none() && d.is_none() && c.is_none());
+    for cohort_id in 1..=3 {
+        assert_eq!(
+            membership_register_bit(&store, p_old_part, cohort_id, p_old),
+            None,
+            "fast-path drain removes P_old's register for cohort {cohort_id}",
+        );
+    }
     let (single, daily, compressed) = behavioral_states(&store, &filters, p_old_part, p_new);
     assert!(matches!(
         single,
@@ -583,6 +970,13 @@ fn fast_path_equals_the_cross_partition_result() {
     ));
     assert_eq!(daily_sum(&daily.unwrap()), 2);
     assert_eq!(compressed_sum(&compressed.unwrap()), 2);
+    for cohort_id in 1..=3 {
+        assert_eq!(
+            membership_register_bit(&store, p_old_part, cohort_id, p_new),
+            Some(true),
+            "fast-path apply aligns P_new's register for cohort {cohort_id}",
+        );
+    }
 }
 
 #[test]
@@ -712,9 +1106,10 @@ async fn apply_transitions_compose_into_stage2() {
         p_new_part,
         &handle(&store),
         &filters,
-        &transitions,
+        &cohort_stream_processor::workers::worker::affected_leaves(&transitions),
         MERGED_AT,
         &now_last_updated(),
+        ReadLane::Event,
     )
     .await
     .unwrap();
@@ -2305,9 +2700,10 @@ async fn each_offload_mode_yields_the_same_merge_result() {
             p_new_part,
             &handle,
             &filters,
-            &transitions,
+            &cohort_stream_processor::workers::worker::affected_leaves(&transitions),
             MERGED_AT,
             &last_updated,
+            ReadLane::Event,
         )
         .await
         .unwrap();

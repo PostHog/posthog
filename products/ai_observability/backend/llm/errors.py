@@ -51,6 +51,26 @@ class StructuredOutputParseError(LLMError):
     """Raised when the LLM response cannot be parsed into the expected structured output format"""
 
 
+class ContextWindowExceededError(LLMError):
+    """Raised when the prompt exceeds the model's context window."""
+
+
+_CONTEXT_WINDOW_ERROR_MARKERS = (
+    "context_length_exceeded",
+    "maximum context length",
+    "input tokens exceed",
+    "reduce the length of the messages",
+    "prompt is too long",
+    "context window",
+    "exceed context limit",
+)
+
+
+def is_context_window_error_message(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _CONTEXT_WINDOW_ERROR_MARKERS)
+
+
 class ModelPermissionError(LLMError):
     """Raised when the API key doesn't have permission to access a model"""
 

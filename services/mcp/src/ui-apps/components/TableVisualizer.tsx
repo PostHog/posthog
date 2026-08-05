@@ -2,11 +2,19 @@ import type { ReactElement } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { DataTable, type DataTableProps, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+import {
+    DefaultTooltip,
+    type Series,
+    TimeSeriesLineChart,
+    type TimeSeriesLineChartConfig,
+    type TooltipContext,
+} from '@posthog/quill-charts'
 
 import { ChartHeader } from './ChartHeader'
-import { BigNumber, LineChart, type Series } from './charts'
+import { BigNumber } from './charts'
+import { colorAt, useMcpChartTheme } from './charts/theme'
 import type { TableVisualizerProps } from './types'
-import { formatNumber } from './utils'
+import { formatDate, formatNumber, formatTooltipDate } from './utils'
 
 const TITLE = 'Query results'
 
@@ -100,26 +108,33 @@ function transformToSeries(
     timeIdx: number,
     valueIdx: number,
     valueLabel: string
-): { series: Series[]; labels: string[]; maxValue: number } {
-    const labels: string[] = []
-    let maxValue = 0
-
-    const points = rows.map((row, i) => {
-        const label = String(row[timeIdx])
-        const value = row[valueIdx] as number
-        labels.push(label)
-        maxValue = Math.max(maxValue, value)
-        return { x: i, y: value, label }
-    })
+): { series: Series[]; labels: string[] } {
+    const labels = rows.map((row) => String(row[timeIdx]))
+    const data = rows.map((row) => row[valueIdx] as number)
 
     return {
-        series: [{ label: valueLabel, points }],
+        series: [{ key: '0', label: valueLabel, data, color: colorAt(0) }],
         labels,
-        maxValue: maxValue || 1,
     }
 }
 
+const TOOLTIP_CONFIG = { pinnable: true, placement: 'cursor' as const }
+
+// DefaultTooltip shows the raw x label; format it like the axis.
+const renderDateTooltip = (ctx: TooltipContext): ReactElement => (
+    <DefaultTooltip {...ctx} label={formatTooltipDate(ctx.label)} />
+)
+
+const TIME_SERIES_CONFIG: TimeSeriesLineChartConfig = {
+    xAxis: { tickFormatter: (value) => formatDate(value) },
+    yAxis: { tickFormatter: formatNumber, showGrid: true },
+    showCrosshair: true,
+    tooltip: TOOLTIP_CONFIG,
+    legend: { show: false },
+}
+
 export function TableVisualizer({ results }: TableVisualizerProps): ReactElement {
+    const theme = useMcpChartTheme()
     const columns = results?.columns || []
     const rows = results?.results || []
 
@@ -140,16 +155,19 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
         format.valueColumnIndex !== undefined
     ) {
         const valueLabel = columns[format.valueColumnIndex] || 'Value'
-        const { series, labels, maxValue } = transformToSeries(
-            rows,
-            format.timeColumnIndex,
-            format.valueColumnIndex,
-            valueLabel
-        )
+        const { series, labels } = transformToSeries(rows, format.timeColumnIndex, format.valueColumnIndex, valueLabel)
         return (
             <div>
                 <ChartHeader title={TITLE} />
-                <LineChart series={series} labels={labels} maxValue={maxValue} showLegend={false} />
+                <div className="flex flex-col w-full h-[400px]">
+                    <TimeSeriesLineChart
+                        series={series}
+                        labels={labels}
+                        theme={theme}
+                        config={TIME_SERIES_CONFIG}
+                        tooltip={renderDateTooltip}
+                    />
+                </div>
             </div>
         )
     }

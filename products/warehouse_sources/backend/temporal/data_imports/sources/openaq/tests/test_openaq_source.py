@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpenAQSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaq import OpenAQSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.openaq import OpenAQResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.settings import OPENAQ_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source import OpenAQSource

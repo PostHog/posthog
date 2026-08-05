@@ -30,6 +30,7 @@ class DependentEndpointConfig:
     include_from_parent: list[str]
     parent_field_renames: dict[str, str] = field(default_factory=dict)
     parent_params: dict[str, Any] = field(default_factory=dict)
+    child_params: dict[str, Any] = field(default_factory=dict)
 
 
 def rename_parent_fields(parent_name: str, renames: dict[str, str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -62,12 +63,17 @@ def build_dependent_resource(
     incremental_config_factory: Callable[[str], IncrementalConfig] | None = None,
     parent_endpoint_extra: Endpoint | None = None,
     child_endpoint_extra: Endpoint | None = None,
-    page_size_param: str = "limit",
+    child_params_extra: dict[str, Any] | None = None,
+    page_size_param: str | None = "limit",
+    resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
+    initial_paginator_state: dict[str, Any] | None = None,
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
     child_config = endpoint_configs[child_endpoint]
 
-    parent_params: dict[str, Any] = {page_size_param: parent_config.page_size}
+    # page_size_param=None is for APIs whose list endpoints take no page-size param at all
+    # (unpaginated, full-collection responses) — sending one would be an undocumented param.
+    parent_params: dict[str, Any] = {} if page_size_param is None else {page_size_param: parent_config.page_size}
     parent_params.update(fanout.parent_params)
 
     parent_path = parent_config.path
@@ -103,8 +109,19 @@ def build_dependent_resource(
             "resource": fanout.parent_name,
             "field": fanout.resolve_field,
         },
-        page_size_param: child_config.page_size,
     }
+    if page_size_param is not None:
+        child_params[page_size_param] = child_config.page_size
+    # The resolve param binds child requests to their parent row. A config that reuses that key
+    # would clobber the binding, so reject it loudly rather than silently dropping the value.
+    if fanout.resolve_param in fanout.child_params:
+        raise ValueError(
+            f"child_params must not include the resolve param '{fanout.resolve_param}'; "
+            "it is managed by build_dependent_resource."
+        )
+    child_params.update(fanout.child_params)
+    if child_params_extra:
+        child_params.update(child_params_extra)
     child_endpoint_config: Endpoint = {
         "path": child_path,
         "params": child_params,
@@ -140,6 +157,13 @@ def build_dependent_resource(
         "resources": [parent_resource, child_resource],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    resources = rest_api_resources(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
+    )
     child_dlt_resource = next(r for r in resources if getattr(r, "name", None) == child_endpoint)
     return child_dlt_resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))

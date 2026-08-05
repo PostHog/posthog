@@ -621,8 +621,8 @@ describe('getTrendDatasetKey()', () => {
         )
     })
 
-    it('handles insights with compare against previous', () => {
-        const dataset: Partial<IndexedTrendResult> = {
+    it('ignores compare periods, so that current and previous share a key', () => {
+        const current: Partial<IndexedTrendResult> = {
             label: '$pageview',
             action: {
                 id: '$pageview',
@@ -632,8 +632,10 @@ describe('getTrendDatasetKey()', () => {
             compare: true,
             compare_label: CompareLabelType.Current,
         }
+        const previous: Partial<IndexedTrendResult> = { ...current, compare_label: CompareLabelType.Previous }
 
-        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0,"compare_label":"current"}')
+        expect(getTrendDatasetKey(current as IndexedTrendResult)).toEqual('{"series":0}')
+        expect(getTrendDatasetKey(previous as IndexedTrendResult)).toEqual('{"series":0}')
     })
 
     it('handles insights with formulas', () => {
@@ -643,6 +645,22 @@ describe('getTrendDatasetKey()', () => {
         }
 
         expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":"formula"}')
+    })
+
+    it('keys compare periods of a formula by their shared position, not the raw series index', () => {
+        // with compare enabled, previous-period datasets have offset series indexes
+        // (e.g. 2 for the previous period of the first of two formulas), but share
+        // the colorIndex with their current-period counterpart
+        const previous: Partial<IndexedTrendResult> = {
+            label: 'Formula (A+B)',
+            action: undefined,
+            seriesIndex: 2,
+            colorIndex: 0,
+            compare: true,
+            compare_label: CompareLabelType.Previous,
+        }
+
+        expect(getTrendDatasetKey(previous as IndexedTrendResult)).toEqual('{"series":"formula"}')
     })
 
     it('handles insights with non-array breakdown values', () => {

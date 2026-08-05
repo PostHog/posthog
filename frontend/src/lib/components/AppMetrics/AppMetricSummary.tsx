@@ -5,16 +5,16 @@ import { LemonLabel, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lem
 
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { ChartDisplayType } from '~/types'
-
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
+import { AppMetricsSeriesOverride, AppMetricsTimeSeriesChart } from './AppMetricsTimeSeriesChart'
 
 export type AppMetricSummaryProps = {
     name: string
     description: string
     color?: string
+    /** Per-series colors keyed by series name, for tiles whose sparkline breaks down into named series
+     *  (e.g. a channel split). Takes precedence over `color` so the tile matches the full trends chart. */
+    seriesColors?: Record<string, string>
     colorIfZero?: string
     timeSeries: AppMetricsTimeSeriesResponse | null
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
@@ -34,6 +34,7 @@ export function AppMetricSummary({
     previousPeriodTimeSeries,
     description,
     color,
+    seriesColors,
     colorIfZero,
     loading,
     hideIfZero = false,
@@ -59,6 +60,34 @@ export function AppMetricSummary({
     }, [previousPeriodTimeSeries])
 
     const diffForDisplay = formatPercentageDiff(total, totalPreviousPeriod)
+
+    const chartColor = total === 0 ? colorIfZero : color
+    const seriesOverrides = useMemo(() => {
+        if (!timeSeries) {
+            return undefined
+        }
+        // With per-series colors, color each named series so the tile matches the full trends chart —
+        // this is what keeps a channel-breakdown sparkline consistent with the big chart below it.
+        if (seriesColors && total !== 0) {
+            return Object.fromEntries(
+                timeSeries.series
+                    .filter((x) => seriesColors[x.name])
+                    .map((x): [string, AppMetricsSeriesOverride] => [x.name, { color: seriesColors[x.name] }])
+            )
+        }
+        if (!chartColor) {
+            return undefined
+        }
+        // A single-series tile takes its metric's brand color. With more than one series (e.g. a
+        // channel breakdown) forcing them all to that one color makes the lines indistinguishable,
+        // so let each fall back to the theme palette — matching how the full trends chart colors them.
+        if (timeSeries.series.length > 1 && total !== 0) {
+            return undefined
+        }
+        return Object.fromEntries(
+            timeSeries.series.map((x): [string, AppMetricsSeriesOverride] => [x.name, { color: chartColor }])
+        )
+    }, [timeSeries, chartColor, total, seriesColors])
 
     // Hide component if hideIfZero is true and there's no data
     if (hideIfZero && !loading && total === 0 && totalPreviousPeriod === 0) {
@@ -114,48 +143,7 @@ export function AppMetricSummary({
                             <LemonLabel>No data</LemonLabel>
                         </div>
                     ) : (
-                        <LineGraph
-                            xData={{
-                                column: {
-                                    name: 'date',
-                                    type: {
-                                        name: 'DATE',
-                                        isNumerical: false,
-                                    },
-                                    label: 'Date',
-                                    dataIndex: 0,
-                                },
-                                data: timeSeries.labels,
-                            }}
-                            yData={timeSeries.series.map(
-                                (x): AxisSeries<number | null> => ({
-                                    column: {
-                                        name: x.name,
-                                        type: { name: 'INTEGER', isNumerical: true },
-                                        label: x.name,
-                                        dataIndex: 0,
-                                    },
-                                    data: x.values,
-                                    settings: {
-                                        display: {
-                                            color: total === 0 ? colorIfZero : color,
-                                        },
-                                    },
-                                })
-                            )}
-                            visualizationType={ChartDisplayType.ActionsLineGraph}
-                            chartSettings={{
-                                showLegend: false,
-                                showTotalRow: false,
-                                showXAxisBorder: false,
-                                showYAxisBorder: false,
-                                showXAxisTicks: false,
-                                leftYAxisSettings: {
-                                    showTicks: false,
-                                    showGridLines: false,
-                                },
-                            }}
-                        />
+                        <AppMetricsTimeSeriesChart timeSeries={timeSeries} seriesOverrides={seriesOverrides} minimal />
                     )}
                 </div>
             </div>

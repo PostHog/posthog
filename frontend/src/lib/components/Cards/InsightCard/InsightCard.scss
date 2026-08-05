@@ -58,4 +58,30 @@
     .WebAnalyticsDashboard .InsightVizDisplay & {
         min-height: var(--insight-viz-min-height);
     }
+
+    // Clip while the JS-throttled pinned size lags the growing/shrinking tile mid-resize.
+    &--resizing {
+        overflow: hidden;
+    }
+
+    // The Metric display bleeds its sparkline to the card edges (negative margins plus a
+    // few-pixel downward shift so the line rests on the edge), so its content sits a hair
+    // taller than the box. Clip it — otherwise `overflow: auto` shows a permanent vertical
+    // scrollbar that overlaps the chart's rightmost points and blocks hover there.
+    &--Metric {
+        overflow: hidden;
+    }
+}
+
+.InsightCard__vizInner {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+    min-height: 0;
+
+    .InsightCard__viz--resizing & {
+        flex: none;
+        pointer-events: none;
+    }
 }

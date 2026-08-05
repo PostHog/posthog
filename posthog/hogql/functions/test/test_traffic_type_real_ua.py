@@ -12,15 +12,15 @@ from products.web_analytics.backend.hogql_queries.bot_ip_definitions import BOT_
 from products.web_analytics.backend.hogql_queries.bot_ua_fixtures import BOT_USER_AGENTS, CATEGORY_TO_TRAFFIC_CATEGORY
 
 
-def _expected_ip_bot_name(ip: str) -> str:
+def _expected_ip_definition(ip: str):
     """Mirror the query-time multiIf: first BOT_IP_DEFINITIONS entry whose ranges contain the ip."""
     address = ip_address(ip)
     for ip_def in BOT_IP_DEFINITIONS.values():
         for cidr in ip_def.networks:
             network = ip_network(cidr)
             if network.version == address.version and address in network:
-                return ip_def.name
-    return ""
+                return ip_def
+    return None
 
 
 def _find_matching_pattern(ua: str) -> str | None:
@@ -259,11 +259,13 @@ class TestTrafficTypeIntegration(BaseTest):
             for cidr in ip_def.networks
             if ":" in cidr
         )
+        chatgpt_user_v4 = str(ip_network(BOT_IP_DEFINITIONS["openai-chatgpt-user"].networks[0]).network_address)
         cases = [
             # (case_id, properties, expected_is_bot, expected_traffic_type, expected_bot_name)
             ("google-v4", {"$raw_user_agent": renderer_ua, "$ip": "66.249.84.5"}, 1, "Bot", None),
             ("google-special-v4", {"$raw_user_agent": renderer_ua, "$ip": "74.125.150.10"}, 1, "Bot", None),
             ("google-v6", {"$raw_user_agent": renderer_ua, "$ip": google_v6}, 1, "Bot", None),
+            ("openai-chatgpt-user", {"$raw_user_agent": renderer_ua, "$ip": chatgpt_user_v4}, 1, "AI Agent", None),
             ("residential", {"$raw_user_agent": renderer_ua, "$ip": "203.0.113.7"}, 0, "Regular", ""),
             ("garbage-ip", {"$raw_user_agent": renderer_ua, "$ip": "not-an-ip"}, 0, "Regular", ""),
             ("missing-ip", {"$raw_user_agent": renderer_ua}, 0, "Regular", ""),
@@ -299,13 +301,17 @@ class TestTrafficTypeIntegration(BaseTest):
             _case, is_bot, traffic_type, bot_name, bot_operator = row
             assert is_bot == expected_is_bot, f"is_bot mismatch for {case_id}: got {is_bot}"
             assert traffic_type == expected_traffic_type, f"traffic_type mismatch for {case_id}: got {traffic_type}"
+            expected_operator = None
             if expected_bot_name is None:
-                # IP-classified: which Google list an IP sits in shifts across upstream
-                # refreshes, so derive the expected label from the data instead of pinning it
-                expected_bot_name = _expected_ip_bot_name(properties["$ip"])
+                # IP-classified: which operator list an IP sits in shifts across upstream
+                # refreshes, so derive the expected labels from the data instead of pinning them
+                ip_def = _expected_ip_definition(properties["$ip"])
+                assert ip_def is not None, f"case {case_id} ip no longer in any range — update the test ip"
+                expected_bot_name = ip_def.name
+                expected_operator = ip_def.operator
             assert bot_name == expected_bot_name, f"bot_name mismatch for {case_id}: got {bot_name}"
-            if expected_is_bot:
-                assert bot_operator == "Google", f"bot_operator mismatch for {case_id}: got {bot_operator}"
+            if expected_operator is not None:
+                assert bot_operator == expected_operator, f"bot_operator mismatch for {case_id}: got {bot_operator}"
 
     def test_virt_properties_empty_user_agent(self):
         tag = uuid4().hex

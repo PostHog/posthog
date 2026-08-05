@@ -2,9 +2,35 @@ import uuid
 import typing
 import dataclasses
 
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+
 from posthog.slo.types import SloConfig
 
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
+
+def safe_error_message(exc: BaseException) -> typing.Optional[str]:
+    """Owner-safe snippet of an exception, or None when the text may carry team-scoped data.
+
+    HogQL/ClickHouse error text can echo team-scoped identifiers (query data, internal
+    names), so only the query-structure error classes (which describe the field/property the
+    query referenced) are safe to surface to the subscription owner — the same trust boundary
+    the HogQL repair loop uses when forwarding to the fixer. Everything else returns None so
+    the caller falls back to a generic message. Executors often wrap a resolution/exposed
+    error in a generic Exception, so walk the __cause__/__context__ chain for a wrapped safe
+    message.
+
+    The result is persisted to Postgres jsonb columns, so NUL bytes are stripped (Postgres
+    rejects them); callers of the sibling raw "message" field already expect this scrub. The
+    walk honours ``raise ... from None`` (``__suppress_context__``) — a deliberately severed
+    chain stays severed, so an internal error the author meant to hide is never surfaced.
+    """
+    seen: set[int] = set()
+    current: typing.Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, (ExposedHogQLError, ResolutionError)):
+            return str(current).replace("\x00", "")
+        seen.add(id(current))
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+    return None
 
 
 class DeliveryStatus:
@@ -18,6 +44,30 @@ class DeliveryStatus:
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
+
+
+class ExportAssetPreparationStatus:
+    READY = "ready"
+    NO_EXPORTABLE_INSIGHTS = "no_exportable_insights"
+
+
+class NoExportableInsightsReason:
+    DASHBOARD_DELETED = "dashboard_deleted"
+    EMPTY_DASHBOARD = "empty_dashboard"
+    MISSING_RESOURCE = "missing_resource"
+    SELECTED_INSIGHTS_NO_LONGER_AVAILABLE = "selected_insights_no_longer_available"
+
+
+class NoExportableInsightsContext(typing.TypedDict):
+    reason: str
+    resource_type: str
+    available_insight_count: int
+    selected_insight_count: int
+
+
+class NoExportableInsightsErrorDetails(NoExportableInsightsContext):
+    message: str
+    type: str
 
 
 # Mirrors Subscription.ResourceType.AI_PROMPT — a plain constant so the Temporal
@@ -34,6 +84,9 @@ AI_REPORT_PROMPT_SNAPSHOT_KEY = "ai_report_prompt"
 # Per-step query diagnostics (generated HogQL + failure type) so a degraded report is debuggable
 # after the fact. Written alongside the markdown; never shipped to recipients.
 AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
+# The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
+# (exactly gap-free); rows written before this key existed fall back to finished_at.
+AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
 
 
 class SubscriptionTriggerType:
@@ -44,7 +97,7 @@ class SubscriptionTriggerType:
     """
 
     SCHEDULED = "scheduled"  # Regular cron-based delivery
-    TARGET_CHANGE = "target_change"  # Target changed (previous_value is the old target)
+    SUBSCRIPTION_CHANGE = "target_change"  # An API create or edit triggered an immediate delivery.
     MANUAL = "manual"  # User clicked "Test delivery"
 
 
@@ -73,7 +126,8 @@ class FetchDueSubscriptionsActivityInputs:
 @dataclasses.dataclass
 class CreateExportAssetsInputs:
     subscription_id: int
-    max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
+    max_asset_count: int | None = None
+    # TODO(2026-07-30): Remove in a follow-up after this PR is fully deployed and pre-deployment activity payloads expire.
     previous_value: typing.Optional[str] = None
     # When set, the activity persists the per-insight snapshot directly onto
     # SubscriptionDelivery.content_snapshot. Keeps multi-MB query_results off
@@ -96,6 +150,10 @@ class CreateExportAssetsResult:
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
+    available_insight_count: int = 0
+    selected_insight_count: int = 0
+    status: str = ExportAssetPreparationStatus.READY
+    failure_context: NoExportableInsightsContext | None = None
 
 
 @dataclasses.dataclass
@@ -103,8 +161,10 @@ class DeliverSubscriptionInputs:
     subscription_id: int
     exported_asset_ids: list[int]
     total_insight_count: int
-    is_new_subscription_target: bool = False
+    previous_target_value: typing.Optional[str] = None
+    # TODO(2026-07-30): Remove these legacy keys in a follow-up after this PR is fully deployed and pre-deployment activity payloads expire.
     previous_value: typing.Optional[str] = None
+    is_new_subscription_target: bool | None = None
     invite_message: typing.Optional[str] = None
     change_summary: typing.Optional[str] = None
     summary_skipped_over_budget: bool = False
@@ -118,9 +178,11 @@ class ProcessSubscriptionWorkflowInputs:
     subscription_id: int
     team_id: int = 0
     distinct_id: str = ""
+    previous_target_value: typing.Optional[str] = None
+    # TODO(2026-07-30): Remove in a follow-up after this PR is fully deployed and pre-deployment workflow payloads expire.
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
-    trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     # Lets HandleSubscriptionValueChangeWorkflow route AI-prompt subs to
     # ProcessAISubscriptionWorkflow. Passed by the API from the loaded instance.
@@ -140,10 +202,12 @@ class TrackedSubscriptionInputs:
     subscription_id: int
     team_id: int = 0
     distinct_id: str = ""
+    previous_target_value: typing.Optional[str] = None
+    # TODO(2026-07-30): Remove in a follow-up after this PR is fully deployed and pre-deployment workflow payloads expire.
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     slo: SloConfig | None = None
-    trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     resource_type: str = ""
 
@@ -156,6 +220,9 @@ class RecipientResult:
     recipient: str
     status: RecipientResultStatus
     error: typing.Optional[dict[str, str]] = None  # {"message": str, "type": str}
+    # Owner-safe failure reason; None when the raw error may carry team-scoped/internal detail.
+    # The UI renders this (or a generic fallback), never error.message.
+    human_readable_error: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -189,6 +256,7 @@ class GenerateAIReportResult:
     failed_step_count: int = 0
     total_step_count: int = 0
     query_error_types: list[str] = dataclasses.field(default_factory=list)
+    target_type: str = ""
 
     @property
     def all_queries_failed(self) -> bool:
@@ -250,7 +318,7 @@ class UpdateDeliveryRecordInputs:
     status: str
     exported_asset_ids: typing.Optional[list[int]] = None
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
-    error: typing.Optional[dict[str, typing.Any]] = None
+    error: typing.Optional[dict[str, typing.Any] | NoExportableInsightsErrorDetails] = None
     change_summary: typing.Optional[str] = None
     finished: bool = False
 

@@ -3,7 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GridlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gridly import GridlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.gridly import GridlyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.source import GridlySource
@@ -27,7 +27,6 @@ class TestGridlySource:
         assert config.name.value == "Gridly"
         assert config.label == "Gridly"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/gridly.png"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

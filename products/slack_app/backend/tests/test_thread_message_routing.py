@@ -330,6 +330,26 @@ class TestRouteThreadMessage(TestCase):
         assert kwargs["posthog_user"].id == self.user.id
         assert kwargs["untagged_followup"] is True
 
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_file_only_reply_reaches_mention_workflow(self):
+        """A file-only thread reply has empty text and the ``file_share`` subtype —
+        both gates must admit it or attachments silently never reach the agent."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        event = self._make_event(
+            user="U_ALICE",
+            text="",
+            subtype="file_share",
+            files=[{"id": "F123", "name": "debug.log"}],
+        )
+        with patch(
+            "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+        ) as mock_start:
+            result = self._route(event)
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_start.assert_called_once()
+        assert mock_start.call_args.kwargs["untagged_followup"] is True
+
     # --- Symmetry with the app_mention path -------------------------------
 
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")

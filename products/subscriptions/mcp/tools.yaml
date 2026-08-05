@@ -137,6 +137,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         list: true
         title: List subscriptions
         description: >
@@ -174,6 +175,7 @@ tools:
             - resource_name
             - insight_short_id
             - invite_message
+            - send_test_now
     subscriptions-retrieve:
         operation: subscriptions_retrieve
         enabled: true

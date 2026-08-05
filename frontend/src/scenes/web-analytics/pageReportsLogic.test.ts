@@ -48,6 +48,11 @@ describe('createPageReportsFilters', () => {
         expect(filters.map((filter) => filter.key).sort()).toEqual([...expectKeys].sort())
     })
 
+    // kea-router JSON-parses query params, so ?pageURL=123 arrives (and gets persisted) as a number
+    test.each([123, true, null])('non-string page URL %p does not crash the filter builder', (url) => {
+        expect(() => createPageReportsFilters(url as unknown as string, true, null)).not.toThrow()
+    })
+
     test.each([
         {
             name: 'cleaning off keeps the pathname an exact match',
@@ -129,6 +134,12 @@ describe('cleanPageURLForDisplay', () => {
             url: 'posthog.com/files/123',
             filters: idRule,
             expected: 'posthog.com/files/:id',
+        },
+        {
+            name: 'decodes an already-cleaned alias after URL parsing',
+            url: 'posthog.com/files/<id>',
+            filters: [{ regex: '\\d+', alias: '<id>' }],
+            expected: 'posthog.com/files/<id>',
         },
         {
             name: 'applies rules in order',

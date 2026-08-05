@@ -24,10 +24,6 @@ export class KafkaOffsetManager {
         }
     }
 
-    public discardPartition(partition: number): void {
-        this.partitionOffsets.delete(partition)
-    }
-
     public async commit(): Promise<void> {
         const topicPartitionOffsets: TopicPartitionOffset[] = []
 

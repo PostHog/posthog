@@ -3,7 +3,7 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { SessionReplayHeaders } from './validate-headers-step'
+import { SessionReplayHeaders } from './pipeline-types'
 
 export type TeamTokenResolver = Pick<TeamService, 'getTeamByToken' | 'getRetentionPeriodByTeamId'>
 

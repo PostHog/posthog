@@ -215,10 +215,17 @@ class TestCooldownSuppression(TestCase):
 
 
 class TestErrorHandling(TestCase):
-    def test_error_transitions_to_errored(self) -> None:
-        snapshot = _snapshot(state=NOT_FIRING)
+    @parameterized.expand(
+        [
+            ("from_not_firing", NOT_FIRING),
+            ("from_firing", FIRING),
+            ("from_pending_resolve", PENDING_RESOLVE),
+        ]
+    )
+    def test_error_keeps_prior_state(self, _name: str, prior: AlertState) -> None:
+        snapshot = _snapshot(state=prior)
         outcome = evaluate_alert_check(snapshot, _check(error="ClickHouse timeout"), NOW)
-        assert outcome.new_state == ERRORED
+        assert outcome.new_state == prior
         assert outcome.notification == NotificationAction.ERROR
         assert outcome.error_message == "ClickHouse timeout"
 
@@ -232,11 +239,37 @@ class TestErrorHandling(TestCase):
         outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
         assert outcome.consecutive_failures == 0
 
-    def test_error_from_firing_state(self) -> None:
-        snapshot = _snapshot(state=FIRING)
-        outcome = evaluate_alert_check(snapshot, _check(error="timeout"), NOW)
-        assert outcome.new_state == ERRORED
+    def test_firing_survives_error_then_recovery_emits_no_duplicate_fire(self) -> None:
+        # The firing episode must ride through a failed check: an error while
+        # FIRING keeps FIRING, and the next successful still-breaching check is
+        # a continuation, not a new FIRE notification.
+        firing = _snapshot(state=FIRING)
+        after_error = evaluate_alert_check(firing, _check(error="timeout"), NOW)
+        assert after_error.new_state == FIRING
 
+        recovered = _snapshot(state=after_error.new_state, consecutive_failures=after_error.consecutive_failures)
+        outcome = evaluate_alert_check(recovered, _check(breached=True), NOW)
+        assert outcome.new_state == FIRING
+        assert outcome.notification == NotificationAction.NONE
+
+    def test_second_consecutive_error_does_not_renotify(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=1)
+        outcome = evaluate_alert_check(snapshot, _check(error="timeout"), NOW)
+        assert outcome.notification == NotificationAction.NONE
+        assert outcome.consecutive_failures == 2
+
+    def test_error_after_expired_snooze_stays_snoozed(self) -> None:
+        # An error keeps the persisted SNOOZED label (only a successful check moves
+        # it out), but still counts as a failure and notifies once on the 0 -> 1 edge.
+        # The scheduler excludes on `state == SNOOZED AND snooze_until > now`, so an
+        # expired snooze keeps getting checked and won't stall in this label.
+        snapshot = _snapshot(state=SNOOZED, snooze_until=NOW - timedelta(minutes=1))
+        outcome = evaluate_alert_check(snapshot, _check(error="timeout"), NOW)
+        assert outcome.new_state == SNOOZED
+        assert outcome.notification == NotificationAction.ERROR
+        assert outcome.consecutive_failures == 1
+
+    # Legacy rows: alerts persisted as ERRORED before errors stopped moving state.
     def test_errored_recovery_with_breach(self) -> None:
         snapshot = _snapshot(state=ERRORED)
         outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
@@ -259,17 +292,26 @@ class TestTransientErrors(TestCase):
         outcome = evaluate_alert_check(snapshot, check, NOW)
         assert outcome.consecutive_failures == 2
 
-    def test_transient_error_still_transitions_to_errored(self) -> None:
-        snapshot = _snapshot(state=NOT_FIRING)
+    @parameterized.expand(
+        [
+            ("from_not_firing", NOT_FIRING),
+            ("from_firing", FIRING),
+        ]
+    )
+    def test_transient_error_is_silent_and_keeps_state(self, _name: str, prior: AlertState) -> None:
+        # Transient errors (cluster blips, `unknown`) propagate cohort-wide, so
+        # notifying on them broadcasts noise to every destination in the fleet.
+        snapshot = _snapshot(state=prior)
         check = CheckResult(
             result_count=None, threshold_breached=False, error_message="cluster busy", is_transient_error=True
         )
         outcome = evaluate_alert_check(snapshot, check, NOW)
-        assert outcome.new_state == ERRORED
-        assert outcome.notification == NotificationAction.ERROR
+        assert outcome.new_state == prior
+        assert outcome.notification == NotificationAction.NONE
+        assert outcome.error_message == "cluster busy"
 
     def test_transient_error_does_not_push_counter_past_threshold(self) -> None:
-        # MAX_CONSECUTIVE_FAILURES - 1 non-transient errors → ERRORED, counter at 4.
+        # MAX_CONSECUTIVE_FAILURES - 1 non-transient errors, counter at 4.
         # A transient error must NOT push it to 5 (BROKEN).
         snapshot = _snapshot(state=ERRORED, consecutive_failures=4)
         check = CheckResult(
@@ -291,7 +333,7 @@ class TestTransientErrors(TestCase):
 class TestBrokenTransition(TestCase):
     @parameterized.expand(
         [
-            ("below_threshold", 3, ERRORED, 4),
+            ("below_threshold", 3, NOT_FIRING, 4),
             ("one_below_threshold", 4, BROKEN, 5),
             ("at_threshold", 5, BROKEN, 6),
         ]
@@ -308,6 +350,12 @@ class TestBrokenTransition(TestCase):
         assert outcome.new_state == expected_state
         assert outcome.consecutive_failures == expected_failures
         assert outcome.error_message == "ClickHouse timeout"
+
+    def test_broken_overrides_kept_firing_state(self) -> None:
+        snapshot = _snapshot(state=FIRING, consecutive_failures=4)
+        outcome = evaluate_alert_check(snapshot, _check(error="ClickHouse timeout"), NOW)
+        assert outcome.new_state == BROKEN
+        assert outcome.notification == NotificationAction.BROKEN
 
     # Scheduler excludes BROKEN so these shouldn't occur, but belt-and-braces:
     # a BROKEN alert must not silently self-heal and its failure counter stays frozen

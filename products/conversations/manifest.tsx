@@ -5,7 +5,7 @@ import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: 'Conversations',
+    name: 'Support',
     scenes: {
         SupportTickets: {
             name: 'Ticket list',
@@ -25,11 +25,20 @@ export const manifest: ProductManifest = {
             projectBased: true,
             layout: 'app-container',
         },
+        // The user's own tickets with PostHog support — unrelated to the Support product's
+        // agent inbox above, which shows tickets from *their* customers
+        MyTickets: {
+            name: 'Your tickets',
+            import: () => import('./frontend/scenes/myTickets/MyTicketsScene'),
+            projectBased: true,
+            layout: 'app-container',
+        },
     },
     routes: {
         '/support/tickets': ['SupportTickets', 'supportTickets'],
         '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
         '/support/settings': ['SupportSettings', 'supportSettings'],
+        '/my-tickets': ['MyTickets', 'myTickets'],
     },
     redirects: {
         '/support': '/support/tickets',
@@ -39,6 +48,7 @@ export const manifest: ProductManifest = {
         supportTickets: (): string => '/support/tickets',
         supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
         supportSettings: (): string => '/support/settings',
+        myTickets: (): string => '/my-tickets',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -49,7 +59,6 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.BEHAVIOR,
             href: urls.supportTickets(),
             type: 'conversations',
-            tags: ['beta'],
             iconType: 'conversations',
             iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
             sceneKey: 'SupportTickets',

@@ -50,6 +50,7 @@ from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team import Team
 from posthog.storage.cache_expiry_manager import (
+    CacheRefreshCounts,
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches,
     refresh_expiring_caches,
@@ -207,7 +208,7 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
     HYPERCACHE CONTRACT: These field names must match the Rust Cohort struct in
     rust/feature-flags/src/cohorts/cohort_models.rs. Field changes must follow
     the expand-and-contract pattern. The contract test will catch mismatches:
-      pytest posthog/models/feature_flag/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
+      pytest products/feature_flags/backend/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
 
     Note: deleted, is_calculating, is_static, errors_calculating, and groups
     are required by the Rust struct (no #[serde(default)]), so omitting them
@@ -230,11 +231,17 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
         "groups": cohort.groups,
         "created_by_id": cohort.created_by_id,
         "cohort_type": cohort.cohort_type,
+        "condition_type": cohort.condition_type,
         "last_backfill_person_properties_at": (
             cohort.last_backfill_person_properties_at.isoformat() if cohort.last_backfill_person_properties_at else None
         ),
         "last_backfill_events_at": (
             cohort.last_backfill_events_at.isoformat() if cohort.last_backfill_events_at else None
+        ),
+        "last_realtime_cohort_calculation_at": (
+            cohort.last_realtime_cohort_calculation_at.isoformat()
+            if cohort.last_realtime_cohort_calculation_at
+            else None
         ),
     }
 
@@ -824,6 +831,10 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flags",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    # The refresh loads flags by team id/project_id; it reads no other Team columns.
+    # Narrowing the SELECT keeps it resilient to newly added Team columns the read
+    # replica may not have applied yet (organization_id keeps the select_related valid).
+    refresh_only_fields=["id", "project_id", "organization_id"],
 )
 
 
@@ -860,7 +871,7 @@ def get_teams_with_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: i
     return get_teams_with_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
 
-def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
+def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> CacheRefreshCounts:
     """
     Refresh flags caches that are expiring soon to prevent cache misses.
 
@@ -882,7 +893,7 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
                - Responsiveness: Completes quickly enough to not block other operations
 
     Returns:
-        Tuple of (successful_refreshes, failed_refreshes)
+        CacheRefreshCounts with successful and failed refresh counts
     """
     return refresh_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 

@@ -37,7 +37,7 @@ export const ERROR_TRACKING_FRAMEWORK_LINKS: {
     },
     { name: 'Next.js', image: nextjsImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/nextjs' },
     { name: 'React', image: reactImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/react' },
-    { name: 'Node.js', image: nodejsImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/nodejs' },
+    { name: 'Node.js', image: nodejsImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/node' },
     { name: 'Python', image: pythonImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/python' },
     { name: 'iOS', image: <IOSLogo />, docsLink: 'https://posthog.com/docs/error-tracking/installation/ios' },
     { name: 'Android', image: androidImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/android' },

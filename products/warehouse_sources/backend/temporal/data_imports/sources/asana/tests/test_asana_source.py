@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asana.asan
 from products.warehouse_sources.backend.temporal.data_imports.sources.asana.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.asana.source import AsanaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AsanaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asana import AsanaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

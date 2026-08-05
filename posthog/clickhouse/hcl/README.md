@@ -16,8 +16,13 @@ declared once in the manifest — there is no object→roles side-table.
 
 ```text
 hcl/
-  bin/hclexp               # wrapper: $HCLEXP_BIN local binary, or pinned container image
-  nodes                    # composition manifest: (env, role) -> ordered layer list  ← placement
+  bin/hclexp               # wrapper: $HCLEXP_BIN, `hclexp` on $PATH, or the pinned container image
+  bin/image.txt            # the pinned chschema image tag — the one place to bump
+  bin/install-hclexp       # extract the pinned binary onto $PATH (what CI does)
+  manifest.hcl             # composition manifest, consumed by hclexp itself  ← placement
+                           #   role "<role>" { env "<env>" { layers = [...] } }  -> a node's layer stack
+                           #   cluster "<name>" { roles = [...], aliases = [...] } -> cross-cluster proxy resolution
+  lib.sh                   # shared manifest helpers sourced by the scripts below
   roles/shared/            # objects on every role (query_log_archive path + custom_metrics_* sub-views + ops_query_log_archive_mv)
   roles/ops/shared/        # OPS objects on every OPS env
   roles/ops/prod/          # OPS objects on both prod envs only (the metrics suite)
@@ -50,7 +55,9 @@ The convergence gate closes it, in **two steps** that run inside the multinode m
 
 1. **`dump-live.sh [outdir]`** — `hclexp introspect` each managed role's live node into
    `<outdir>/<env>-<role>.hcl`, dropping unmanaged / transient objects via `exclude.hcl`. Needs the
-   cluster (a `--network host` container, or `HCLEXP_BIN` locally).
+   cluster (a `--network host` container, or `HCLEXP_BIN` locally). Also writes
+   `<outdir>/hclexp-version.txt` (`hclexp -version`) recording the tool build that produced the dump —
+   informational provenance, not gated by `check-live.sh`.
 2. **`check-live.sh <dumpdir>`** — for each role, `hclexp diff -format json` the committed
    `golden/<env>-<role>.hcl` against the dump, drop the ignored operations (named_collections +
    `exclude.hcl` globs), and require nothing left. Offline — only needs `hclexp`.
@@ -75,9 +82,13 @@ partial/newer schema than the cloud logs nodes, so `local logs` composes a self-
 only in the ops nodes → `[OPS]`; one under `roles/logs/` → `[LOGS]`.
 
 Per-node `{shard}` / `{replica}` stay as ClickHouse macros, so replicas collapse to one definition.
-Some objects reference tables outside the composed set by design (custom_metrics → `system`, the
-qla MV → `system.query_log`, distributed proxies → other clusters) and are listed in `SKIP` in
-`check.sh` so `validate` doesn't flag them.
+A cross-cluster Distributed proxy references a table on another cluster's composition; `check.sh`
+runs `validate -manifest manifest.hcl -env <env>`, so those
+remotes resolve against their target cluster (existence + column agreement) rather than being
+skipped. `system.*` remotes are always resolvable. The `posthog` data cluster is `local`-only here
+(prod goldens live in posthog-cloud-infra), so `check.sh` passes it via `-cluster` flags — composed
+for `local`, `@absent` elsewhere. A tiny `known_drift_skip` covers real proxy/storage drift pending
+a fix.
 
 ## Making a change (edit HCL → migration)
 
@@ -90,22 +101,30 @@ HCL=posthog/clickhouse/hcl
 $HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
-  ghcr.io/posthog/chschema:sha-bf84186 -help
+  "$(cat $HCL/bin/image.txt)" -help
 ```
 
-(For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in
-`../../../../python-clickhouse-schema` — and `export HCLEXP_BIN=…/hclexp`; the wrapper prefers it.)
+The image tag is pinned in `bin/image.txt` — the one place to bump when upgrading hclexp.
+The wrapper resolves `$HCLEXP_BIN` → `hclexp` on `$PATH` → that image, so a native binary always
+wins: run `bash $HCL/bin/install-hclexp` to extract one from the pinned image (what CI does), or
+build it yourself with `go build -o hclexp ./cmd/hclexp` in `../../../../python-clickhouse-schema`.
 
 1. **Edit the right layer** for what you're changing:
    - all-role object (the `query_log_archive` path, `custom_metrics_*` sub-views, cross-cluster MVs) → `roles/shared/`
    - OPS-only → `roles/ops/shared/` (all OPS envs), `roles/ops/prod/` (both prod envs), or `roles/ops/<env>/` (one env)
    - LOGS → `roles/logs/shared/` (common) or `roles/logs/<env>/` (per-env / differing)
    - a brand-new object → add it to the layer above **and**, if it's on a new role, add that role's
-     line to `nodes` (+ a golden for it).
+     block to `manifest.hcl` (+ a golden for it).
    - a long view/MV `query` → keep it in `<layer>/sql/<object>.sql` and reference it as
      `query = file("sql/<object>.sql")` (resolved relative to the layer file). The loader normalizes
      `file()`, heredoc, and inline forms to one canonical query, so the form is purely cosmetic — edit
      the `.sql`. `gen-sql.sh`/`gen-golden.sh` emit the beautified form.
+   - a column list shared by a sharded table and its Distributed siblings → an `abstract` table the
+     instances `extend`, kept codec-free. Most tables need no codec at all — the server already
+     compresses with ZSTD, and `posthog/clickhouse/migrations/AGENTS.md` has the rule for the rare
+     column that earns one. Where a column does, add it to the storage instance alone via
+     `patch_column "<col>" { codec = ... }`: a Distributed table stores nothing, so a codec there is
+     inert metadata that only invites the two column lists to drift.
 
 2. **Preview the DDL** the change produces, per node:
 

@@ -87,6 +87,27 @@ def _merge(state_alias: str, base_aggregator: str) -> ast.Call:
     return ast.Call(name=base_aggregator + _MERGE_SUFFIX, args=[ast.Field(chain=["ev", state_alias])])
 
 
+def _fingerprint_hash_expr() -> ast.Call:
+    """Hash the fingerprint without resolving it to its materialized column.
+
+    Distributed aggregation uses the textual expression as the block-column
+    name for grouping keys. ClickHouse versions disagree on whether the ``$``
+    in ``mat_$exception_fingerprint`` needs backticks in that name, which can
+    make the coordinator reject an otherwise valid block returned by a shard.
+    Reading the string directly from the properties JSON keeps the expression
+    stable across nodes.
+    """
+    return ast.Call(
+        name="cityHash64",
+        args=[
+            ast.Call(
+                name="JSONExtractString",
+                args=[ast.Field(chain=["e", "properties"]), ast.Constant(value="$exception_fingerprint")],
+            )
+        ],
+    )
+
+
 class ErrorTrackingQueryBuilder:
     """ClickHouse-only query builder using the denormalized fingerprint table.
 
@@ -212,7 +233,7 @@ class ErrorTrackingQueryBuilder:
         # Bucketing by bin_idx here lets the outer query assemble volumeRange
         # from the small post-aggregation set instead of per-event arrayMap.
         group_by: list[ast.Expr] = [ast.Field(chain=["fp_hash"])]
-        if self.query.withAggregations:
+        if self.query.withAggregations and self.query.volumeResolution > 0:
             group_by.append(ast.Field(chain=["bin_idx"]))
         return ast.SelectQuery(
             select=self._inner_select_expressions(),
@@ -226,10 +247,7 @@ class ErrorTrackingQueryBuilder:
         exprs: list[ast.Expr] = [
             ast.Alias(
                 alias="fp_hash",
-                expr=ast.Call(
-                    name="cityHash64",
-                    args=[ast.Field(chain=["e", "properties", "$exception_fingerprint"])],
-                ),
+                expr=_fingerprint_hash_expr(),
             ),
             ast.Alias(alias="last_seen_fp", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="function_state", expr=_state(innermost_frame_attribute("$exception_functions"))),
@@ -246,12 +264,15 @@ class ErrorTrackingQueryBuilder:
         ]
 
         if self.query.withAggregations:
-            exprs.append(
-                ast.Alias(
-                    alias="bin_idx",
-                    expr=_bin_idx_expr(self.date_from, self.date_to, self.query.volumeResolution),
+            # volumeResolution=0 means counts only: computing bins with it
+            # would divide by zero in ClickHouse.
+            if self.query.volumeResolution > 0:
+                exprs.append(
+                    ast.Alias(
+                        alias="bin_idx",
+                        expr=_bin_idx_expr(self.date_from, self.date_to, self.query.volumeResolution),
+                    )
                 )
-            )
             # `count(DISTINCT uuid)` is equivalent to `count()` because uuid is
             # the events primary key, but pays for a distinct hashset per group.
             exprs.append(ast.Alias(alias="occ", expr=ast.Call(name="count", args=[])))
@@ -273,9 +294,9 @@ class ErrorTrackingQueryBuilder:
                     ),
                 )
             )
-            # Same HLL tradeoff as `sessions`. Input semantics preserved
-            # (resolved person_id with distinct_id fallback) so the user
-            # population is unchanged — only the counting algorithm changed.
+            # Resolving person_id adds a full person-distinct-id override join before
+            # aggregation. event_person_id avoids that join and is already nullable for
+            # personless events, where distinct_id remains the fallback.
             exprs.append(
                 ast.Alias(
                     alias="users_state",
@@ -289,7 +310,9 @@ class ErrorTrackingQueryBuilder:
                                         ast.Call(
                                             name="nullIf",
                                             args=[
-                                                ast.Call(name="toString", args=[ast.Field(chain=["e", "person_id"])]),
+                                                ast.Call(
+                                                    name="toString", args=[ast.Field(chain=["e", "event_person_id"])]
+                                                ),
                                                 ast.Constant(value="00000000-0000-0000-0000-000000000000"),
                                             ],
                                         ),
@@ -433,9 +456,10 @@ class ErrorTrackingQueryBuilder:
                     ast.Alias(alias="occurrences", expr=ast.Call(name="sum", args=[ast.Field(chain=["ev", "occ"])])),
                     ast.Alias(alias="sessions", expr=_merge("sessions_state", "uniq")),
                     ast.Alias(alias="users", expr=_merge("users_state", "uniq")),
-                    ast.Alias(alias="volumeRange", expr=_volume_range_expr(self.query.volumeResolution)),
                 ]
             )
+            if self.query.volumeResolution > 0:
+                exprs.append(ast.Alias(alias="volumeRange", expr=_volume_range_expr(self.query.volumeResolution)))
 
         if self.query.withFirstEvent:
             exprs.append(ast.Alias(alias="first_event_uuid", expr=_merge("first_event_uuid_state", "argMin")))
@@ -844,6 +868,20 @@ class ErrorTrackingQueryBuilder:
         if operator == PropertyOperator.NOT_ICONTAINS:
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.NotILike, left=field, right=ast.Constant(value=f"%{value}%")
+            )
+
+        if operator in (
+            PropertyOperator.STARTS_WITH,
+            PropertyOperator.NOT_STARTS_WITH,
+            PropertyOperator.ENDS_WITH,
+            PropertyOperator.NOT_ENDS_WITH,
+        ):
+            prefix_match = operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH)
+            negated = operator in (PropertyOperator.NOT_STARTS_WITH, PropertyOperator.NOT_ENDS_WITH)
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotILike if negated else ast.CompareOperationOp.ILike,
+                left=field,
+                right=ast.Constant(value=f"{value}%" if prefix_match else f"%{value}"),
             )
 
         if operator in (PropertyOperator.GT, PropertyOperator.IS_DATE_AFTER):

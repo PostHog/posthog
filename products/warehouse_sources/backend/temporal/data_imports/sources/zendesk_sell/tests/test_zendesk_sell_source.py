@@ -11,8 +11,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.source import ZendeskSellSource
@@ -30,8 +30,6 @@ class TestSourceConfig:
         config = ZendeskSellSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.CRM
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Alpha ships hidden until end-to-end sync is verified against a live account.
-        assert config.unreleasedSource is True
 
     def test_config_exposes_single_password_access_token_field(self) -> None:
         fields = ZendeskSellSource().get_source_config.fields

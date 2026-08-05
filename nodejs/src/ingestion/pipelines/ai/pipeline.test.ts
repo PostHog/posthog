@@ -15,10 +15,10 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { DisabledOverflowRedirect } from '~/ingestion/common/overflow-redirect/disabled-overflow-redirect'
-import { TopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
+import { createNoopTopHog } from '~/tests/helpers/tophog'
 
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './outputs'
 import { AiIngestionPipelineConfig, createAiIngestionPipeline } from './pipeline'
@@ -38,10 +38,7 @@ describe('AiIngestionPipeline', () => {
     let mockEventFilterManager: { getFilter: jest.Mock }
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let mockHogTransformer: jest.Mocked<
-        Pick<
-            HogTransformer,
-            'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchTransformationStatesForTeams'
-        >
+        Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
     >
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
@@ -83,9 +80,8 @@ describe('AiIngestionPipeline', () => {
         await pipeline.feed(batch)
         let result = await pipeline.next()
         while (result !== null) {
-            for (const sideEffect of result.sideEffects ?? []) {
-                void promiseScheduler.schedule(sideEffect)
-            }
+            // The pipeline handles its own side effects; none may leak to drivers.
+            expect(result.sideEffects ?? []).toEqual([])
             result = await pipeline.next()
         }
         await promiseScheduler.waitForAll()
@@ -125,12 +121,8 @@ describe('AiIngestionPipeline', () => {
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
             processInvocationResults: jest.fn().mockResolvedValue(undefined),
-            prefetchTransformationStatesForTeams: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<
-            Pick<
-                HogTransformer,
-                'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchTransformationStatesForTeams'
-            >
+            Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
         >
 
         mockPersonRepository = {
@@ -167,16 +159,21 @@ describe('AiIngestionPipeline', () => {
             hogTransformer: mockHogTransformer as unknown as HogTransformer,
             personRepository: mockPersonRepository,
             groupTypeManager: mockGroupTypeManager,
-            overflowEnabled: false,
+            overflowMode: 'disabled',
             preservePartitionLocality: false,
             overflowRedirectService: new DisabledOverflowRedirect(),
             overflowLaneTTLRefreshService: new DisabledOverflowRedirect(),
             concurrentBatches: 1,
-            cdpHogWatcherSampleRate: 1,
             eventSchemaEnforcementEnabled: false,
             eventSchemaEnforcementManager: {} as unknown as EventSchemaEnforcementManager,
-            // No-op metrics wrapper — these tests assert pipeline output, not topHog counters.
-            topHog: ((step) => step) as TopHogWrapper,
+            topHog: createNoopTopHog(),
+            aiBlobStore: null,
+            aiBlobOffloadConfig: {
+                isTeamEnabled: (): boolean => false,
+                minBase64Length: 8192,
+                maxBlobsPerEvent: 50,
+                uploadMaxConcurrency: 8,
+            },
         }
     })
 
@@ -220,6 +217,5 @@ describe('AiIngestionPipeline', () => {
 
         // Without this prefetch the transformer can't see Hog watcher's disabled state,
         // so disabled transformations would still run.
-        expect(mockHogTransformer.prefetchTransformationStatesForTeams).toHaveBeenCalledWith([123])
     })
 })

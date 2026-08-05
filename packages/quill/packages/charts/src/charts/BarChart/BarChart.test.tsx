@@ -673,4 +673,38 @@ describe('BarChart', () => {
             expect(getHogChart(container).seriesCount).toBe(2)
         })
     })
+
+    describe('drag-to-zoom', () => {
+        const FIVE_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        const FIVE_SERIES: Series[] = [{ key: 'a', label: 'A', data: [10, 20, 30, 40, 50] }]
+
+        it('fires onDateRangeZoom with the dragged label range on vertical bars', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart series={FIVE_SERIES} labels={FIVE_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalledWith({
+                startLabel: 'Tue',
+                endLabel: 'Thu',
+                startIndex: 1,
+                endIndex: 3,
+            })
+        })
+
+        it('does not fire on horizontal bars, whose interaction axis is vertical', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={FIVE_SERIES}
+                    labels={FIVE_LABELS}
+                    theme={THEME}
+                    config={{ axisOrientation: 'horizontal' }}
+                    onDateRangeZoom={onDateRangeZoom}
+                />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
+    })
 })

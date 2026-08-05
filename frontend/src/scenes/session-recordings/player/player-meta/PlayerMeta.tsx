@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
+import { PlayerMetaExperimentTags } from './PlayerMetaExperimentTags'
 import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 
@@ -176,6 +177,7 @@ export function PlayerMeta(): JSX.Element {
                             )}
                         </>
                     )}
+                    <PlayerMetaExperimentTags />
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     <PlayerMetaLinks size={size} />
                     <PlayerPersonMeta />

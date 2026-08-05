@@ -1,10 +1,12 @@
+from typing import Any
 from uuid import UUID
 
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -15,13 +17,37 @@ from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
+    ChannelContextGenerationSerializer,
+    ChannelFeedMessageSerializer,
+    ChannelFeedMessageWriteSerializer,
+    ChannelInstructionsSerializer,
+    ChannelInstructionsWriteSerializer,
     ChannelSerializer,
+    ChannelStarWriteSerializer,
+    ChannelUpdateSerializer,
     ChannelWriteSerializer,
+    TaskActivityMarkReadResponseSerializer,
+    TaskActivityMarkReadSerializer,
+    TaskActivityPageSerializer,
+    TaskActivityQuerySerializer,
+    TaskActivitySerializer,
     TaskMentionQuerySerializer,
     TaskMentionSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
 )
+
+# Shared by the PUT and PATCH verbs on /instructions/ — same request/response contract,
+# PATCH is an alias for clients that can't send PUT.
+PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
+    "request": ChannelInstructionsWriteSerializer,
+    "responses": {200: ChannelInstructionsSerializer},
+    "summary": "Publish channel instructions",
+    "description": (
+        "Publish a new version of the channel's CONTEXT.md instructions. Pass base_version "
+        "(the version you read) so a concurrent edit is rejected with 409 instead of overwritten."
+    ),
+}
 
 
 class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -39,6 +65,20 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     serializer_class = ChannelSerializer
+    # GET /instructions/ and /context_generation/ are reads; the PUT/PATCH/DELETE
+    # method mappings resolve to their own action names, so they go in the write
+    # bucket by name.
+    scope_object_read_actions = ["list", "retrieve", "instructions", "instructions_versions", "context_generation"]
+    scope_object_write_actions = [
+        "create",
+        "partial_update",
+        "destroy",
+        "publish_instructions",
+        "patch_instructions",
+        "delete_instructions",
+        "set_context_generation",
+        "star",
+    ]
 
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
@@ -67,14 +107,14 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ChannelSerializer(channel).data)
 
     @extend_schema(
-        request=ChannelWriteSerializer,
+        request=ChannelUpdateSerializer,
         responses={200: ChannelSerializer},
         summary="Rename a public channel",
     )
     def partial_update(self, request, pk=None, **kwargs):
-        serializer = ChannelWriteSerializer(data=request.data)
+        serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
-        result = tasks_facade.rename_channel(pk, self.team_id, name=serializer.validated_data["name"])
+        result = tasks_facade.update_channel(pk, self.team_id, self._user_id(), **serializer.validated_data)
         if result == "not_found":
             raise NotFound()
         if result == "personal":
@@ -83,7 +123,10 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":
             return Response({"detail": "A channel with this name already exists"}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(ChannelSerializer(result).data)
+        channel = tasks_facade.get_channel(pk, self.team_id, self._user_id())
+        if channel is None:
+            raise NotFound()
+        return Response(ChannelSerializer(channel).data)
 
     @extend_schema(responses={204: None}, summary="Delete a public channel")
     def destroy(self, request, pk=None, **kwargs):
@@ -93,6 +136,203 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be deleted")
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(responses={200: ChannelSerializer}, summary="Get a channel")
+    def retrieve(self, request, pk=None, **kwargs):
+        channel = tasks_facade.get_channel(pk, self.team_id, self._user_id())
+        if channel is None:
+            raise NotFound()
+        return Response(ChannelSerializer(channel).data)
+
+    @extend_schema(
+        responses={200: ChannelInstructionsSerializer},
+        summary="Get channel instructions",
+        description=(
+            "The channel's latest CONTEXT.md instructions. A channel with no published "
+            "instructions reads as a blank version 0 — publish against base_version 0 to create version 1."
+        ),
+    )
+    @action(methods=["GET"], detail=True)
+    def instructions(self, request, pk=None, **kwargs):
+        instructions = tasks_facade.get_channel_instructions(pk, self.team_id, self._user_id())
+        if instructions is None:
+            raise NotFound("Channel not found")
+        return Response(ChannelInstructionsSerializer(instructions).data)
+
+    @extend_schema(**PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS)
+    @instructions.mapping.put
+    def publish_instructions(self, request, pk=None, **kwargs):
+        serializer = ChannelInstructionsWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            published = tasks_facade.publish_channel_instructions(
+                pk,
+                self.team_id,
+                self._user_id(),
+                content=serializer.validated_data["content"],
+                base_version=serializer.validated_data.get("base_version"),
+            )
+        except tasks_facade.ChannelInstructionsVersionConflictError as err:
+            return Response(
+                {
+                    "detail": "The instructions changed since you read them. Reload the latest version and try again.",
+                    "current_version": err.current_version,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except tasks_facade.ChannelInstructionsVersionLimitError as err:
+            return Response(
+                {"detail": f"This channel has reached the maximum of {err.max_version} instruction versions."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except tasks_facade.ChannelInstructionsTooLargeError as err:
+            return Response(
+                {"detail": f"Instructions are limited to {err.max_bytes} bytes."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if published is None:
+            raise NotFound("Channel not found")
+        return Response(ChannelInstructionsSerializer(published).data)
+
+    @extend_schema(**PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS)
+    @instructions.mapping.patch
+    def patch_instructions(self, request, pk=None, **kwargs):
+        return self.publish_instructions(request, pk, **kwargs)
+
+    @extend_schema(request=None, responses={204: None}, summary="Delete channel instructions")
+    @instructions.mapping.delete
+    def delete_instructions(self, request, pk=None, **kwargs):
+        deleted = tasks_facade.delete_channel_instructions(pk, self.team_id, self._user_id())
+        if deleted is None:
+            raise NotFound("Channel not found")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        responses={200: OpenApiResponse(response=ChannelInstructionsSerializer(many=True))},
+        summary="List channel instruction versions",
+    )
+    @action(methods=["GET"], detail=True, url_path="instructions/versions")
+    def instructions_versions(self, request, pk=None, **kwargs):
+        versions = tasks_facade.list_channel_instruction_versions(pk, self.team_id, self._user_id())
+        if versions is None:
+            raise NotFound("Channel not found")
+        page = self.paginate_queryset(versions)
+        if page is not None:
+            return self.get_paginated_response(ChannelInstructionsSerializer(page, many=True).data)
+        return Response(ChannelInstructionsSerializer(versions, many=True).data)
+
+    @extend_schema(
+        responses={200: ChannelContextGenerationSerializer},
+        summary="Get the channel's CONTEXT.md generation task",
+    )
+    @action(methods=["GET"], detail=True, url_path="context_generation")
+    def context_generation(self, request, pk=None, **kwargs):
+        result = tasks_facade.get_channel_context_generation(pk, self.team_id, self._user_id())
+        if result == "not_found":
+            raise NotFound("Channel not found")
+        return Response(ChannelContextGenerationSerializer({"task_id": result}).data)
+
+    @extend_schema(
+        request=ChannelContextGenerationSerializer,
+        responses={200: ChannelContextGenerationSerializer},
+        summary="Set or clear the channel's CONTEXT.md generation task",
+    )
+    @context_generation.mapping.put
+    def set_context_generation(self, request, pk=None, **kwargs):
+        serializer = ChannelContextGenerationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = tasks_facade.set_channel_context_generation(
+            pk, self.team_id, self._user_id(), task_id=serializer.validated_data["task_id"]
+        )
+        if result == "not_found":
+            raise NotFound("Channel not found")
+        if result == "invalid_task":
+            return Response({"detail": "Task not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ChannelContextGenerationSerializer({"task_id": result}).data)
+
+    @extend_schema(
+        request=ChannelStarWriteSerializer,
+        responses={204: None},
+        summary="Star or unstar a channel for the requesting user",
+    )
+    @action(methods=["POST"], detail=True)
+    def star(self, request, pk=None, **kwargs):
+        serializer = ChannelStarWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user_id = self._user_id()
+        if user_id is None:
+            raise PermissionDenied("Stars are per-user")
+        if not tasks_facade.star_channel(pk, self.team_id, user_id, starred=serializer.validated_data["starred"]):
+            raise NotFound("Channel not found")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for a channel's system-announcement feed — durable "PostHog agent" rows
+    (context created, CONTEXT.md being built) rendered alongside the channel's task
+    cards. Read by any team member for a public channel; personal channels are owner-only.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "post", "head", "options"]
+    serializer_class = ChannelFeedMessageSerializer
+
+    def _channel_id(self) -> str:
+        channel_id = self.kwargs.get("parent_lookup_channel_id")
+        if not channel_id:
+            raise NotFound("Channel ID is required")
+        try:
+            UUID(channel_id)
+        except (ValueError, TypeError):
+            raise NotFound("Channel not found")
+        return channel_id
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ChannelFeedMessageSerializer(many=True), description="Feed messages, chronological"
+            )
+        },
+        summary="List channel feed messages",
+        description="A channel's system announcements in chronological order.",
+    )
+    def list(self, request, *args, **kwargs):
+        messages = tasks_facade.list_channel_feed_messages(self._channel_id(), self.team_id, self._user_id())
+        if messages is None:
+            raise NotFound("Channel not found")
+        return Response(ChannelFeedMessageSerializer(messages, many=True).data)
+
+    @extend_schema(
+        request=ChannelFeedMessageWriteSerializer,
+        responses={201: ChannelFeedMessageSerializer},
+        summary="Post a channel feed message",
+    )
+    def create(self, request, **kwargs):
+        serializer = ChannelFeedMessageWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        message = tasks_facade.create_channel_feed_message(
+            self._channel_id(),
+            self.team_id,
+            self._user_id(),
+            event=serializer.validated_data["event"],
+            payload=serializer.validated_data.get("payload") or {},
+            created_at=serializer.validated_data.get("created_at"),
+        )
+        if message is None:
+            raise NotFound("Channel not found")
+        if message == "full":
+            raise ValidationError("This channel's feed is full.")
+        return Response(ChannelFeedMessageSerializer(message).data, status=status.HTTP_201_CREATED)
 
 
 class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -127,6 +367,96 @@ class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = request.validated_query_data["limit"]
         mentions = tasks_facade.list_mentions(self.team_id, self._user_id(), since=since, limit=limit)
         return Response(TaskMentionSerializer(mentions, many=True).data)
+
+
+class _ActivityPageEnvelopeSchema(AutoSchema):
+    """Stops drf-spectacular's list-view heuristic from wrapping the `list` response in an array.
+
+    `list` returns a single page envelope (`results` + `unread_count`), not a bare collection.
+    Forcing the heuristic off renames the operation to `*_retrieve`, so pin the operationId back
+    to keep the generated client's `*List` name.
+    """
+
+    def _is_list_view(self, serializer: Any = None) -> bool:
+        return False
+
+    def get_operation_id(self) -> str:
+        operation_id = super().get_operation_id()
+        if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
+            return operation_id.removesuffix("_retrieve") + "_list"
+        return operation_id
+
+
+class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for the requester's activity feed — one row per task they are involved in (created,
+    @-mentioned in, or authored a thread message on), most-recent activity first.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "post", "head", "options"]
+    serializer_class = TaskActivitySerializer
+    # `list` hands back one envelope carrying its own unread total, so neither DRF's
+    # pagination wrapper nor spectacular's array wrapper describes what it sends.
+    pagination_class = None
+    schema = _ActivityPageEnvelopeSchema()
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @validated_request(
+        query_serializer=TaskActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskActivityPageSerializer, description="Tasks, most-recent activity first"),
+        },
+        summary="List the requester's task activity",
+        description=(
+            "Tasks the requester is involved in (created, mentioned, or messaged), one row per task, "
+            "most-recent activity first, restricted to tasks they can see."
+        ),
+    )
+    def list(self, request, *args, **kwargs):
+        activity = tasks_facade.list_task_activity(
+            self.team_id,
+            self._user_id(),
+            limit=request.validated_query_data["limit"],
+            before=request.validated_query_data.get("before"),
+            before_id=request.validated_query_data.get("before_id"),
+        )
+        return Response(TaskActivityPageSerializer(activity).data)
+
+    # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
+    # annotation applied earlier — including @validated_request's — from the generated OpenAPI.
+    @extend_schema(
+        request=TaskActivityMarkReadSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskActivityMarkReadResponseSerializer, description="Remaining unread total"),
+        },
+        summary="Mark task activity read",
+        description=(
+            "Clear the unread flag on the requester's feed rows for the given tasks. Read state is per "
+            "task, so opening a task through any surface clears the same row."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="mark_read", required_scopes=["task:write"])
+    @validated_request(request_serializer=TaskActivityMarkReadSerializer)
+    def mark_read(self, request, *args, **kwargs):
+        activities = [
+            (activity["task_id"], activity["seen_before"]) for activity in request.validated_data["activities"]
+        ]
+        marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), activities)
+        return Response(
+            {
+                "marked_read": marked_read,
+                "unread_count": tasks_facade.count_unread_task_activity(self.team_id, self._user_id()),
+            }
+        )
 
 
 class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

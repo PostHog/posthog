@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -52,7 +54,8 @@ def assert_symbol_set_cleanup_schedule(schedule) -> None:
 
 class TestCreateErrorTrackingSymbolSetCleanupSchedule:
     @pytest.mark.asyncio
-    async def test_creates_hourly_schedule_when_missing(self, mock_client, schedule_helpers) -> None:
+    async def test_creates_30_minute_schedule_when_missing(self, mock_client, schedule_helpers) -> None:
+        assert SCHEDULE_INTERVAL == timedelta(minutes=30)
         schedule_helpers["exists"].return_value = False
 
         await create_error_tracking_symbol_set_cleanup_schedule(mock_client)

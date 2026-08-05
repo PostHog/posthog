@@ -7,7 +7,6 @@ from requests import Request, Response, Session
 from requests.exceptions import HTTPError
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     make_tracked_session,
@@ -17,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
     BasePaginator,
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
@@ -26,12 +26,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.row_transforms import coerce_fields_to_str
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import (
     INTERCOM_ENDPOINTS,
     IntercomEndpointConfig,
 )
 
 INTERCOM_API_BASE = "https://api.intercom.io"
+# Version used for credential validation at source-create time, where no row pin exists yet.
+# Sync requests send the version resolved from the source pin (threaded into `intercom_source`).
 INTERCOM_API_VERSION = "2.13"
 
 logger = structlog.get_logger(__name__)
@@ -82,16 +86,16 @@ def _is_scroll_expired(exc: HTTPError) -> bool:
     return resp is not None and resp.status_code == 404
 
 
-def _default_headers() -> dict[str, str]:
+def _default_headers(api_version: str) -> dict[str, str]:
     return {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Intercom-Version": INTERCOM_API_VERSION,
+        "Intercom-Version": api_version,
     }
 
 
-def _auth_headers(access_token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {access_token}", **_default_headers()}
+def _auth_headers(access_token: str, api_version: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {access_token}", **_default_headers(api_version)}
 
 
 # The substream walk reaches `/conversations/search` via POST (the companies
@@ -111,14 +115,14 @@ _INTERCOM_RETRY = Retry(
 )
 
 
-def _make_intercom_session(access_token: str) -> Session:
+def _make_intercom_session(access_token: str, api_version: str) -> Session:
     """Build a tracked session with Intercom auth + default headers baked in.
 
     Reusing one session across the many requests a sync makes lets urllib3
     keep the underlying TCP+TLS connection alive — the substream generators
     (one GET per parent row) are the main beneficiary.
     """
-    return make_tracked_session(headers=_auth_headers(access_token), retry=_INTERCOM_RETRY)
+    return make_tracked_session(headers=_auth_headers(access_token, api_version), retry=_INTERCOM_RETRY)
 
 
 class IntercomSearchPaginator(BasePaginator):
@@ -159,6 +163,59 @@ class IntercomSearchPaginator(BasePaginator):
         pagination["starting_after"] = self._next_cursor
 
 
+class IntercomPagesPaginator(BaseNextUrlPaginator):
+    """Paginator for Intercom list endpoints whose ``pages.next`` shape varies.
+
+    Intercom's OpenAPI description types ``pages.next`` as a
+    ``{"starting_after": ...}`` object for the Help Center and News lists, but the
+    live Help Center endpoints return a plain next-page URL there instead — which
+    is why ``articles`` ships on ``JSONResponsePaginator``. Rather than bet on one
+    shape per endpoint, accept both: a string is followed as the next URL, an
+    object's ``starting_after`` is sent back as a query param.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cursor: Optional[str] = None
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        pages = payload.get("pages") if isinstance(payload, dict) else None
+        next_block = pages.get("next") if isinstance(pages, dict) else None
+
+        if isinstance(next_block, str):
+            self._cursor = None
+            self._advance_to(next_block)
+            return
+
+        # Clear any URL from a previous page so `update_request` can't reuse it.
+        self._next_url = None
+        cursor = next_block.get("starting_after") if isinstance(next_block, dict) else None
+        if cursor and cursor == self._cursor:
+            # Same guard as the base class applies to a repeated next URL: a cursor that
+            # doesn't advance would re-fetch the same page until the activity times out.
+            logger.warning("intercom_pagination_not_advancing", paginator=str(self))
+            self._has_next_page = False
+            return
+        self._cursor = cursor or None
+        self._has_next_page = bool(cursor)
+
+    def update_request(self, request: Request) -> None:
+        if self._next_url is not None:
+            super().update_request(request)
+            return
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["starting_after"] = self._cursor
+
+    def __str__(self) -> str:
+        return "IntercomPagesPaginator()"
+
+
 def _build_search_body(
     cfg: IntercomEndpointConfig,
     incremental_field: str,
@@ -190,6 +247,8 @@ def _build_paginator(cfg: IntercomEndpointConfig) -> BasePaginator:
         )
     if cfg.paginator_kind == "next_url":
         return JSONResponsePaginator(next_url_path="pages.next")
+    if cfg.paginator_kind == "pages":
+        return IntercomPagesPaginator()
     return SinglePagePaginator()
 
 
@@ -215,7 +274,7 @@ def get_resource(
         # `value: 0` matches every record. Default to "updated_at" (the only
         # cursor Intercom search endpoints support) when no field is passed.
         endpoint["json"] = _build_search_body(cfg, incremental_field or "updated_at", db_incremental_field_last_value)
-    elif cfg.paginator_kind in ("cursor", "next_url"):
+    elif cfg.paginator_kind in ("cursor", "next_url", "pages"):
         params: dict[str, Any] = {"per_page": cfg.page_size, **cfg.extra_params}
         if cfg.incremental_query_param:
             # Intercom's `/admins/activity_logs` returns a much smaller default
@@ -237,7 +296,7 @@ def get_resource(
     )
     write_disposition: Any = {"disposition": "merge", "strategy": "upsert"} if is_incremental else "replace"
 
-    return {
+    resource: EndpointResource = {
         "name": cfg.name,
         "table_name": cfg.name,
         "write_disposition": write_disposition,
@@ -245,22 +304,87 @@ def get_resource(
         "table_format": "delta",
     }
 
+    if cfg.coerce_string_fields:
+        coerce_fields = cfg.coerce_string_fields
+        resource["data_map"] = lambda item: coerce_fields_to_str(item, coerce_fields)
+
+    return resource
+
 
 def _resolve_intercom_url(path_or_url: str) -> str:
     """Accept either an API path or a full URL (e.g. a `pages.next` link)."""
     return path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
 
 
+def _is_rate_limited(exc: HTTPError) -> bool:
+    """Intercom rate-limits per workspace and returns `429` once the window is
+    exhausted. It's transient — the counter resets on a short rolling window —
+    so retrying after a wait clears it. Match on the status, not the URL."""
+    resp = exc.response
+    return resp is not None and resp.status_code == 429
+
+
+def _rate_limit_backoff_seconds(resp: Response, default: float) -> float:
+    """Honor Intercom's `Retry-After` (seconds) on a 429 when present, else fall
+    back to `default`. Intercom sends `Retry-After` on some 429s and always sends
+    `X-RateLimit-Reset`, but a fixed window-sized fallback rides out the bucket
+    regardless, so we key off the simpler signal."""
+    raw = resp.headers.get("Retry-After")
+    if raw is None:
+        return default
+    try:
+        return max(float(raw), 0.0)
+    except (TypeError, ValueError):
+        return default
+
+
+# Intercom's default limit is 1000 requests/minute, metered in ~10s buckets, so a
+# burst of per-row substream fetches (one GET per company/conversation) can exhaust
+# one bucket and get 429ed. The shared transport retry lists 429 but backs off at
+# most ~2s across its attempts — shorter than the bucket window — so a rate-limited
+# burst surfaces and Temporal re-walks the whole activity. Wait out a bucket inline
+# and retry, capped so sustained pressure still surfaces instead of looping forever.
+_RATE_LIMIT_BACKOFF_SECONDS = 10.0
+_RATE_LIMIT_MAX_RETRIES = 3
+
+
+def _request_with_rate_limit_retry(do_request: Callable[[], Response]) -> dict[str, Any]:
+    """Run an Intercom request, riding out a transient 429 rate limit inline.
+
+    `do_request` performs the call and raises `HTTPError` on a non-2xx. On a 429
+    we back off (honoring `Retry-After` when Intercom sends it) and retry the same
+    request, which is safe: every Intercom call routed through here is a read."""
+    for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+        try:
+            return do_request().json()
+        except HTTPError as exc:
+            resp = exc.response
+            if _is_rate_limited(exc) and resp is not None and attempt < _RATE_LIMIT_MAX_RETRIES:
+                wait = _rate_limit_backoff_seconds(resp, _RATE_LIMIT_BACKOFF_SECONDS)
+                logger.warning("intercom_rate_limited_retry", attempt=attempt + 1, backoff_seconds=wait)
+                time.sleep(wait)
+                continue
+            raise
+    # Unreachable: the final attempt either returns or re-raises above.
+    raise AssertionError("unreachable")
+
+
 def _intercom_get(session: Session, path_or_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    response = session.get(_resolve_intercom_url(path_or_url), params=params, timeout=30)
-    response.raise_for_status()
-    return response.json()
+    def do() -> Response:
+        response = session.get(_resolve_intercom_url(path_or_url), params=params, timeout=30)
+        response.raise_for_status()
+        return response
+
+    return _request_with_rate_limit_retry(do)
 
 
 def _intercom_post(session: Session, path_or_url: str, body: dict[str, Any]) -> dict[str, Any]:
-    response = session.post(_resolve_intercom_url(path_or_url), json=body, timeout=30)
-    response.raise_for_status()
-    return response.json()
+    def do() -> Response:
+        response = session.post(_resolve_intercom_url(path_or_url), json=body, timeout=30)
+        response.raise_for_status()
+        return response
+
+    return _request_with_rate_limit_retry(do)
 
 
 def _iter_conversations(
@@ -466,13 +590,23 @@ def _substream_items(
             # walk every conversation. `updated_at` is the only declared
             # cursor, so default to it for the parent search filter.
             incremental_field = "updated_at"
-        return _conversation_parts_generator(session, incremental_field, db_incremental_field_last_value)
-    if endpoint == "company_segments":
-        return _company_segments_generator(session)
-    raise ValueError(f"Unknown Intercom substream endpoint: {endpoint}")
+        base = _conversation_parts_generator(session, incremental_field, db_incremental_field_last_value)
+    elif endpoint == "company_segments":
+        base = _company_segments_generator(session)
+    else:
+        raise ValueError(f"Unknown Intercom substream endpoint: {endpoint}")
+
+    # Substreams bypass the REST framework's `data_map`, so coerce type-flip
+    # fields here to keep every Arrow batch's schema consistent (see get_resource).
+    coerce_fields = INTERCOM_ENDPOINTS[endpoint].coerce_string_fields
+    if not coerce_fields:
+        return base
+    return (coerce_fields_to_str(item, coerce_fields) for item in base)
 
 
-def validate_credentials(access_token: str, schema_name: str | None = None) -> tuple[bool, str | None]:
+def validate_credentials(
+    access_token: str, schema_name: str | None = None, api_version: str = INTERCOM_API_VERSION
+) -> tuple[bool, str | None]:
     """Validate an Intercom access token by hitting `/me`.
 
     Works identically with OAuth-issued access tokens and Personal Access
@@ -488,7 +622,7 @@ def validate_credentials(access_token: str, schema_name: str | None = None) -> t
         return False, "Missing Intercom access token"
 
     try:
-        response = _make_intercom_session(access_token).get(
+        response = _make_intercom_session(access_token, api_version).get(
             f"{INTERCOM_API_BASE}/me",
             timeout=10,
         )
@@ -511,6 +645,7 @@ def intercom_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    api_version: str,
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -522,13 +657,13 @@ def intercom_source(
         # One session built here is reused across the parent walk and every
         # per-row child fetch, so urllib3 keeps the connection alive instead
         # of re-handshaking per request.
-        session = _make_intercom_session(access_token)
+        session = _make_intercom_session(access_token, api_version)
         items = lambda: _substream_items(session, endpoint, incremental_field, db_incremental_field_last_value)
     elif cfg.paginator_kind == "scroll":
         # The Scroll API doesn't fit the framework paginators (the cursor is a
         # `scroll_param`, not a request mutation), so `companies` walks it with a
         # custom iterator. One session is reused across the whole scroll walk.
-        session = _make_intercom_session(access_token)
+        session = _make_intercom_session(access_token, api_version)
         items = lambda: _iter_companies(session)
     else:
         config: RESTAPIConfig = {
@@ -538,7 +673,7 @@ def intercom_source(
                     "type": "bearer",
                     "token": access_token,
                 },
-                "headers": _default_headers(),
+                "headers": _default_headers(api_version),
             },
             "resource_defaults": {},
             "resources": [

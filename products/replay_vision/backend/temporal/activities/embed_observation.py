@@ -111,7 +111,7 @@ async def _emit_embeddings(
 
 
 @activity.defn
-@track_activity()
+@track_activity(side_effect="embed")
 async def embed_observation_activity(inputs: EmbedObservationInputs) -> None:
     """Emit one embedding per non-empty rendering of the observation's explanation text."""
     metadata = {

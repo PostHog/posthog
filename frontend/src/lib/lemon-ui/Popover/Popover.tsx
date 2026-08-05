@@ -408,15 +408,16 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                 aria-level={currentPopoverLevel}
                             >
                                 <div className="Popover__box">
-                                    {showArrow && isAttached && (
-                                        // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
-                                        <div
-                                            ref={arrowRef}
-                                            className="Popover__arrow"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={arrowStyle}
-                                        />
-                                    )}
+                                    {showArrow &&
+                                        isAttached && (
+                                            // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
+                                            <div
+                                                ref={arrowRef}
+                                                className="Popover__arrow"
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={arrowStyle}
+                                            />
+                                        )}
 
                                     {loadingBar != null && <LemonTableLoader loading={loadingBar} placement="top" />}
 

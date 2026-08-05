@@ -180,39 +180,39 @@ export const YAxisFormats: Story = {
     ),
 }
 
-export const WithGoalLine: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        return (
-            <Stage>
-                <TimeSeriesBarChart
-                    series={SERIES}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{
-                        yAxis: { showGrid: true },
-                        goalLines: [{ value: 50, label: 'Target' }],
-                    }}
-                />
-            </Stage>
-        )
-    },
+// Single occurrences (1) alongside a spike three orders of magnitude taller (1400) — without
+// minBarSize the small bars collapse to a sub-pixel sliver next to the spike.
+const MIN_BAR_SIZE_SERIES: Series[] = [{ key: 'errors', label: 'Errors', data: [1, 0, 2, 1400, 3, 0, 1] }]
+
+interface MinBarSizeCellProps {
+    title: string
+    series: Series[]
+    minBarSize?: number
 }
 
-export const WithValueLabels: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        return (
+function MinBarSizeCell({ title, series, minBarSize }: MinBarSizeCellProps): JSX.Element {
+    const theme = useReactiveTheme()
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span className="text-xs text-muted-foreground">{title}</span>
             <Stage>
-                <TimeSeriesBarChart
-                    series={[SERIES[0]]}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{ yAxis: { showGrid: true }, valueLabels: true }}
-                />
+                <TimeSeriesBarChart series={series} labels={DAYS} theme={theme} config={{ minBarSize }} />
             </Stage>
-        )
-    },
+        </div>
+    )
+}
+
+/** `minBarSize` floors each non-zero bar's thickness along the value axis, so single-occurrence
+ *  buckets stay visible next to a spike three orders of magnitude taller. Empty buckets stay empty. */
+export const MinBarSize: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
+            <MinBarSizeCell title="default" series={MIN_BAR_SIZE_SERIES} />
+            <MinBarSizeCell title="minBarSize: 6" series={MIN_BAR_SIZE_SERIES} minBarSize={6} />
+        </div>
+    ),
 }
 
 export const DateAxis: Story = {

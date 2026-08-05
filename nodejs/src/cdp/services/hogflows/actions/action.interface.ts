@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../../../types'
-import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
+import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 
 export interface ActionHandlerResult {
     nextAction?: HogFlowAction

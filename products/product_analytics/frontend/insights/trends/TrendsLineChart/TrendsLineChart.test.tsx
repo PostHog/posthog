@@ -1,24 +1,30 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
 
 import { ExportType } from '~/exporter/types'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import {
     buildTrendsQuery,
     chart,
     createInsightTooltipAccessor,
     getHogChart,
+    getQuerySource,
     legend,
     personsModal,
     renderInsight,
+    trendsSeries,
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
-import { AnnotationScope, ChartDisplayType } from '~/types'
+import { AnnotationScope, ChartDisplayType, InsightShortId } from '~/types'
 
 // The full InsightViz tree is heavy to mount under jsdom; on contended CI shards
 // the default 1s waitFor / findBy timeout is too tight and flakes randomly.
@@ -290,18 +296,6 @@ describe('TrendsLineChart', () => {
             expect(tooltip.title()).toMatch(/Wednesday/i)
             expect(tooltip.title()).toMatch(/12.+Jun/)
         })
-
-        it('keeps the weekday in the quill tooltip (PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS on)', async () => {
-            renderInsight({
-                query: buildTrendsQuery({ interval: 'day' }),
-                featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]: true },
-            })
-
-            const tooltip = await chart.hoverTooltip(2)
-
-            expect(tooltip.title()).toMatch(/Wednesday/i)
-            expect(tooltip.title()).toMatch(/12.+Jun/)
-        })
     })
 
     describe('alert overlays', () => {
@@ -348,8 +342,13 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByLabelText(/chart with/i)
-            expect(getHogChart().xAxisLabel()).toBe('Signup date')
-            expect(getHogChart().yAxisLabel()).toBe('Unique users')
+            // Axis titles are a layout-dependent overlay that commits a tick after the
+            // chart's aria-label appears (like referenceLines/valueLabels below), so read
+            // them through waitFor rather than synchronously.
+            await waitFor(() => {
+                expect(getHogChart().xAxisLabel()).toBe('Signup date')
+                expect(getHogChart().yAxisLabel()).toBe('Unique users')
+            })
         })
     })
 
@@ -541,6 +540,22 @@ describe('TrendsLineChart', () => {
         })
     })
 
+    describe('display fallback', () => {
+        it('renders the line chart for display types without a trends renderer', async () => {
+            // `Auto` is schema-valid on a trends query (reachable via the API/MCP) but has no
+            // dedicated branch in the trends render dispatch — it must not blank the tile.
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { display: ChartDisplayType.Auto },
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('trend-line-graph')).toBeInTheDocument()
+            })
+        })
+    })
+
     describe('click → persons modal', () => {
         it('single series: direct click shows the actors for the clicked day', async () => {
             renderInsight({ query: buildTrendsQuery() })
@@ -621,8 +636,76 @@ describe('TrendsLineChart', () => {
         })
     })
 
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+    describe('formula insights with drill-down disabled', () => {
+        const multiSeriesFormulaQuery = buildTrendsQuery({
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+            ],
+            trendsFilter: { formula: 'A/B' },
+        })
+
+        /** Mirrors how InsightCard hands a dashboard tile's real short_id and query down through
+         *  `context.insightProps.cachedInsight` (see InsightCard.tsx / InsightMeta.tsx). */
+        const dashboardTileContext = (shortId: InsightShortId): QueryContext<InsightVizNode> => ({
+            insightProps: {
+                dashboardItemId: shortId,
+                dashboardId: 42,
+                cachedInsight: {
+                    short_id: shortId,
+                    query: { kind: NodeKind.InsightVizNode, source: multiSeriesFormulaQuery } as InsightVizNode,
+                },
+            },
+        })
+
+        it('offers no click affordance and does not open the persons modal', async () => {
+            renderInsight({ query: multiSeriesFormulaQuery })
+
+            await chart.hoverTooltip(2)
+
+            expect(chart.getTooltip()?.textContent).not.toContain('Click to view')
+            await chart.clickTooltipRow('Pageview')
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it('navigates to the insight on click when rendered as a dashboard/card tile', async () => {
+            const shortId = 'formula-insight-1' as InsightShortId
+            renderInsight({
+                query: multiSeriesFormulaQuery,
+                embedded: true,
+                context: dashboardTileContext(shortId),
+            })
+
+            await chart.hoverTooltip(2)
+            expect(chart.getTooltip()?.textContent).toContain('Click to view the insight')
+
+            await chart.clickTooltipRow('Pageview')
+
+            await waitFor(() => {
+                const path = removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search
+                expect(path).toEqual(urls.insightView(shortId, 42))
+            })
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it('does not navigate on click when rendered in shared mode', async () => {
+            const shortId = 'formula-insight-2' as InsightShortId
+            renderInsight({
+                query: multiSeriesFormulaQuery,
+                embedded: true,
+                inSharedMode: true,
+                context: dashboardTileContext(shortId),
+            })
+            const pathnameBeforeClick = router.values.location.pathname
+
+            await chart.hoverTooltip(2)
+            await chart.clickTooltipRow('Pageview')
+
+            expect(router.values.location.pathname).toEqual(pathnameBeforeClick)
+        })
+    })
+
+    describe('quill in-chart legend', () => {
         const twoSeriesQuery = buildTrendsQuery({
             series: [
                 { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
@@ -635,7 +718,7 @@ describe('TrendsLineChart', () => {
             container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-line-legend"]')!
 
         it('renders the in-chart legend and suppresses the legacy side legend', async () => {
-            const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesQuery })
 
             await waitFor(() => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
@@ -647,7 +730,7 @@ describe('TrendsLineChart', () => {
         })
 
         it('keeps a toggled-off series listed and dimmed in the legend but out of the tooltip', async () => {
-            const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesQuery })
 
             await waitFor(() => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
@@ -673,7 +756,6 @@ describe('TrendsLineChart', () => {
         it('renders a static, non-interactive legend in shared mode', async () => {
             const { container } = renderInsight({
                 query: twoSeriesQuery,
-                featureFlags: quillLegendFlag,
                 inSharedMode: true,
             })
 
@@ -684,6 +766,66 @@ describe('TrendsLineChart', () => {
 
             expect(legendEl.textContent).toContain('Napped')
             expect(legendEl.querySelector('button')).not.toBeInTheDocument()
+        })
+    })
+
+    describe('drag-to-zoom', () => {
+        const totalLabels = trendsSeries.pageviews.labels.length
+        const zoomFlag = { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true }
+
+        async function getChartWrapper(): Promise<HTMLElement> {
+            const canvas = await screen.findByLabelText(/chart with/i)
+            return canvas.parentElement!
+        }
+
+        it('reports the dragged range as day strings to context.onDateRangeZoom', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
+            const wrapper = await getChartWrapper()
+
+            dragSelection(wrapper, 1, 3, totalLabels)
+
+            await waitFor(() => {
+                // Days, not the formatted axis labels ('Tue'/'Thu') the chart renders with.
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
+            })
+        })
+
+        it('reports a drag that stays within a single bucket as that bucket', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
+            const wrapper = await getChartWrapper()
+
+            // Both drag edges snap to the same label — the common case on sparse charts
+            // (e.g. a 3-bar monthly chart), where this used to be a silent no-op.
+            const step = dimensions.plotWidth / (totalLabels - 1)
+            const x = dimensions.plotLeft + step
+            const y = dimensions.plotTop + dimensions.plotHeight / 2
+            rawDrag(wrapper, { from: { x: x - 40, y }, to: { x: x + 40, y } })
+
+            await waitFor(() => {
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-11')
+            })
+        })
+
+        it('ignores drags when the drag-to-zoom flag is off', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom } })
+            const wrapper = await getChartWrapper()
+
+            dragSelection(wrapper, 1, 3, totalLabels)
+
+            // A regression dropping the flag gate would ship zoom to everyone.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
+
+        it('ignores drags when no context handler opts in', async () => {
+            renderInsight({ query: buildTrendsQuery(), featureFlags: zoomFlag })
+            const wrapper = await getChartWrapper()
+
+            dragSelection(wrapper, 1, 3, totalLabels)
+
+            expect(getQuerySource().dateRange).toBeUndefined()
         })
     })
 })

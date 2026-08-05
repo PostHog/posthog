@@ -45,8 +45,9 @@ from hogli_commands.build import (
     _match_commands,
 )
 from hogli_commands.change_detection import changed_files, matches_globs
+from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 
-Requirement = Literal["node", "stack", "clickhouse"]
+Requirement = Literal["node", "desktop-node", "stack", "clickhouse"]
 
 
 @dataclass
@@ -59,25 +60,41 @@ class DiffCheck:
     triggers: list[str]  # fnmatch globs against changed paths (`*` spans `/`, as in build.py)
     verify: list[str] | None  # advisory command; None = guidance only (no runnable local check)
     fix: list[str] | None = None  # remediation for --fix
+    advice: str | None = None  # nudge-only: preflight never runs this check, it just says what to run
     requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
+    # Run once per pnpm workspace containing matched files (cwd = that workspace),
+    # so nested workspaces like products/desktop validate their own lockfile instead
+    # of the root one. Capability (node_modules present) is checked per workspace.
+    workspace_scoped: bool = False
     matched: list[str] = field(default_factory=list)
 
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
-# broken lockfile blocking all CI, OpenAPI drift, formatting/lint, flag sort,
-# workflow-convention failures, migration conflicts.
+# broken lockfile blocking all CI, OpenAPI drift, formatting/lint/type checking,
+# flag sort, workflow-convention failures, migration conflicts.
 DIFF_CHECKS: list[DiffCheck] = [
     DiffCheck(
         key="lockfile",
         label="broken pnpm-lock.yaml (blocks ALL CI)",
         # pnpm-workspace.yaml (catalog versions) and patches/* (patchedDependencies
-        # hashes) invalidate the lockfile just like a package.json edit.
-        triggers=["package.json", "*/package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/*"],
+        # hashes) invalidate the lockfile just like a package.json edit. The `*/`
+        # variants reach nested standalone workspaces (products/desktop), which
+        # workspace scoping then validates against their own lockfile.
+        triggers=[
+            "package.json",
+            "*/package.json",
+            "pnpm-lock.yaml",
+            "*/pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
+            "*/pnpm-workspace.yaml",
+            "patches/*",
+            "*/patches/*",
+        ],
         # --lockfile-only validates manifest/lockfile agreement without touching node_modules.
         verify=["pnpm", "install", "--frozen-lockfile", "--lockfile-only"],
         fix=["pnpm", "install", "--no-frozen-lockfile"],
-        requires=("node",),
+        workspace_scoped=True,
     ),
     DiffCheck(
         key="uv-lock",
@@ -103,6 +120,33 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
+        key="desktop-biome",
+        label="desktop lint/format (Biome, what desktop-quality CI runs)",
+        triggers=[
+            "products/desktop/*.ts",
+            "products/desktop/*.tsx",
+            "products/desktop/*.json",
+            "products/desktop/*.jsonc",
+            "products/desktop/*.css",
+        ],
+        # `pnpm --dir` runs from the nested workspace, so `.` is products/desktop
+        # and Biome resolves desktop's own biome.jsonc. `biome ci` is read-only;
+        # the fix path applies safe fixes only (desktop's own lint script is --unsafe).
+        verify=["pnpm", "--dir", "products/desktop", "exec", "biome", "ci", "."],
+        fix=["pnpm", "--dir", "products/desktop", "exec", "biome", "check", "--write", "."],
+        requires=("desktop-node",),
+    ),
+    DiffCheck(
+        key="type-check",
+        label="Python type checking (mypy)",
+        triggers=["*.py", "*.pyi"],
+        # A nudge, not a run: mypy is only meaningful repo-wide (it follows imports, so a
+        # changed-file subset both blames files outside the diff and misses reverse-dependency
+        # breakage), and that costs minutes cold. Naming the command lets the agent judge.
+        verify=None,
+        advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
+    ),
+    DiffCheck(
         key="markdown-format",
         label="markdown formatting (oxfmt)",
         triggers=["*.md", "*.mdx"],
@@ -126,6 +170,17 @@ DIFF_CHECKS: list[DiffCheck] = [
         label="workflow-convention failure in .github/workflows",
         triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],
         verify=["hogli", "lint:workflows"],
+    ),
+    DiffCheck(
+        key="mprocs",
+        label="bin/mprocs*.yaml docker-compose shell out of sync with generator.py",
+        # From TRACKED_MPROCS_FILES so preflight can't drift on which files need a regen.
+        triggers=[
+            "tools/hogli-commands/hogli_commands/devenv/generator.py",
+            *(t.name for t in TRACKED_MPROCS_FILES),
+        ],
+        verify=["hogli", "dev:regenerate-mprocs", "--check"],
+        fix=["hogli", "dev:regenerate-mprocs"],
     ),
     DiffCheck(
         key="openapi",
@@ -163,6 +218,9 @@ def _port_open(port: int) -> bool:
 def _capability_met(req: Requirement) -> bool:
     if req == "node":
         return _has_node_modules()
+    if req == "desktop-node":
+        # products/desktop is a nested standalone workspace with its own install.
+        return (REPO_ROOT / "products" / "desktop" / "node_modules" / ".pnpm").exists()
     if req == "stack":
         # Postgres reachable — proxy for "dev stack is running".
         return _port_open(5432)
@@ -180,7 +238,68 @@ Status = Literal["pass", "fail", "advisory", "skipped"]
 _CHECK_TIMEOUT_SECONDS = 600
 
 
+def _pnpm_workspace_root(file_path: str) -> str:
+    """Repo-relative root of the pnpm workspace owning *file_path* ("." for the root
+    workspace): the nearest ancestor directory with a pnpm-workspace.yaml. The lockfile
+    is not a workspace marker on purpose — products/desktop/packages/agent carries a
+    publish-only pnpm-lock.yaml but belongs to the desktop workspace."""
+    current = (REPO_ROOT / file_path).parent.resolve()
+    root = REPO_ROOT.resolve()
+    while current != root and root in current.parents:
+        if (current / "pnpm-workspace.yaml").exists():
+            return current.relative_to(root).as_posix()
+        current = current.parent
+    return "."
+
+
+def _workspace_install_present(ws_root: Path) -> bool:
+    return (ws_root / "node_modules" / ".pnpm").exists()
+
+
+def _run_workspace_scoped(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
+    """Run *chk* once per pnpm workspace containing matched files, cwd'd into it."""
+    statuses: list[Status] = []
+    parts: list[str] = []
+    for ws in sorted({_pnpm_workspace_root(f) for f in chk.matched}):
+        ws_root = REPO_ROOT if ws == "." else REPO_ROOT / ws
+        label = "root" if ws == "." else ws
+        if not _workspace_install_present(ws_root):
+            statuses.append("skipped")
+            parts.append(f"{label}: needs node (no install)")
+            continue
+        cmd = list(chk.fix) if do_fix and chk.fix is not None else list(chk.verify or [])
+        if not cmd or shutil.which(cmd[0]) is None:
+            statuses.append("skipped")
+            parts.append(f"{label}: {cmd[0] if cmd else 'command'} not found")
+            continue
+        try:
+            result = subprocess.run(cmd, cwd=ws_root, capture_output=True, text=True, timeout=_CHECK_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            statuses.append("fail")
+            parts.append(f"{label}: timed out after {_CHECK_TIMEOUT_SECONDS}s")
+            continue
+        if result.returncode == 0:
+            statuses.append("pass")
+            parts.append(f"{label}: {'fixed' if do_fix else 'ok'}")
+        else:
+            lines = (result.stdout or result.stderr).strip().splitlines()
+            parts.append(f"{label}: {lines[0] if lines else f'exit {result.returncode}'}")
+            statuses.append("fail")
+    if "fail" in statuses:
+        overall: Status = "fail"
+    elif "pass" in statuses:
+        overall = "pass"
+    else:
+        overall = "skipped"
+    return overall, " · ".join(parts)
+
+
 def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
+    if chk.advice is not None:
+        # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
+        return "advisory", chk.advice
+    if chk.workspace_scoped:
+        return _run_workspace_scoped(chk, do_fix)
     unmet = _unmet(chk)
     if do_fix and chk.fix is not None and not unmet:
         cmd = list(chk.fix)
@@ -455,7 +574,9 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     for chk in triggered:
         status, detail = _run_diff_check(chk, do_fix)
         failures += status == "fail"
-        advisories += status == "advisory"
+        # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
+        # the footer on every matching push and cost the detected advisories their weight.
+        advisories += status == "advisory" and chk.advice is None
         results.append({"check": chk.key, "status": status, "files": len(chk.matched), "detail": detail})
         if not as_json:
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])

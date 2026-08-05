@@ -693,8 +693,8 @@ def parse_clickhouse_type(type_name: str) -> RuntimeType:
 
 # Scalar constant types whose runtime type is fully determined by (class, nullable) — used to
 # dedupe before unification so large homogeneous literal arrays don't allocate per element.
-# Only families where unifying N identical types equals unifying one belong here; UUIDType and
-# IntervalType don't (a lone uuid keeps its family, but several unify to string via the subset rule).
+# Only families where unifying N identical types equals unifying one belong here; IntervalType
+# doesn't (a lone interval keeps its family, but several unify via the subset rules).
 _SIMPLE_CONSTANT_TYPE_CLASSES = frozenset(
     {
         ast.BooleanType,
@@ -706,6 +706,7 @@ _SIMPLE_CONSTANT_TYPE_CLASSES = frozenset(
         ast.StringArrayType,
         ast.DateType,
         ast.DateTimeType,
+        ast.UUIDType,
     }
 )
 
@@ -758,6 +759,8 @@ def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDi
             if "datetime" in families
             else DATE_RUNTIME_TYPE.with_nullable(nullable)
         )
+    if families == {"uuid"}:
+        return RuntimeType(family="uuid", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if families <= {"string", "fixed_string", "enum", "uuid"}:
         return STRING_RUNTIME_TYPE.with_nullable(nullable)
     if families == {"json"}:
@@ -841,7 +844,7 @@ def infer_function_return_type(
     dialect: HogQLDialect = "clickhouse",
 ) -> FunctionTypeInference:
     normalized_name = name.lower()
-    generic_type = _infer_generic_function_type(normalized_name, arg_types, args=args, dialect=dialect)
+    generic_type = _infer_generic_function_type(normalized_name, arg_types, args=args, dialect=dialect, meta=meta)
     if generic_type is not None:
         return FunctionTypeInference(
             return_type=generic_type,
@@ -949,6 +952,7 @@ def _infer_generic_function_type(
     arg_types: list[ast.ConstantType],
     args: Optional[list[ast.Expr]],
     dialect: HogQLDialect,
+    meta: Optional[HogQLFunctionMeta] = None,
 ) -> ast.ConstantType | None:
     if normalized_name in {
         "equals",
@@ -1148,10 +1152,10 @@ def _infer_generic_function_type(
         return ast.DecimalType(nullable=True)
 
     if normalized_name in {"todate", "to_date", "_todate"}:
-        return ast.DateType(nullable=_conversion_nullable(normalized_name, arg_types))
+        return ast.DateType(nullable=_conversion_nullable(normalized_name, arg_types, meta))
 
     if normalized_name in {"todatetime", "todatetime64", "todatetimeus", "parsedatetime", "parsedatetimebesteffort"}:
-        return ast.DateTimeType(nullable=_conversion_nullable(normalized_name, arg_types))
+        return ast.DateTimeType(nullable=_conversion_nullable(normalized_name, arg_types, meta))
 
     if normalized_name.startswith("tointerval"):
         return ast.IntervalType(nullable=False)
@@ -1340,10 +1344,41 @@ def _infer_generic_function_type(
     return None
 
 
-def _conversion_nullable(normalized_name: str, arg_types: list[ast.ConstantType]) -> bool:
+# HogQL date conversions whose printed ClickHouse function depends on the argument: `toDate` ->
+# `toDateOrNull`, `toDateTime` -> `parseDateTime64BestEffortOrNull`, `toDateTimeUS` ->
+# `parseDateTime64BestEffortUSOrNull`, each falling back to a plain constructor for the argument
+# types in its `overloads` (and `toDateTimeUS` declares none, so it always parses). Nullability
+# has to follow whichever name is actually printed: claiming non-nullable for a parse path makes
+# a caller's `assumeNotNull(...)` look redundant when it is load-bearing. Deliberately excludes
+# `_toDate`, which always prints the plain, non-nullable `toDate`.
+_ARGUMENT_DEPENDENT_DATE_CONVERSIONS = {"todate", "to_date", "todatetime", "todatetimeus"}
+
+
+def _printed_clickhouse_name(meta: Optional[HogQLFunctionMeta], arg_types: list[ast.ConstantType]) -> Optional[str]:
+    """The ClickHouse function the printer will emit, mirroring its overload selection."""
+    if meta is None:
+        return None
+    if meta.overloads and arg_types:
+        for overload_types, overload_clickhouse_name in meta.overloads:
+            if isinstance(arg_types[0], overload_types):
+                return overload_clickhouse_name
+    return meta.clickhouse_name
+
+
+def _conversion_nullable(
+    normalized_name: str,
+    arg_types: list[ast.ConstantType],
+    meta: Optional[HogQLFunctionMeta] = None,
+) -> bool:
     if normalized_name.endswith("orzero") or normalized_name.endswith("ordefault"):
         return False
-    return any(arg_type.nullable for arg_type in arg_types) or normalized_name in {
+    if any(arg_type.nullable for arg_type in arg_types):
+        return True
+    if normalized_name in _ARGUMENT_DEPENDENT_DATE_CONVERSIONS:
+        printed_name = _printed_clickhouse_name(meta, arg_types)
+        # Without meta the winning overload is unknowable, so assume the parse path and stay nullable.
+        return printed_name is None or printed_name.lower().endswith("ornull")
+    return normalized_name in {
         "toint",
         "tofloat",
         "tobool",

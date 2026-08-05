@@ -7,7 +7,10 @@ import weakref
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 import redis
+import redis.exceptions as redis_exceptions
 from redis import asyncio as aioredis
+from redis.asyncio.retry import Retry
+from redis.backoff import ExponentialBackoff
 
 
 _client_map: Dict[str, Any] = {}
@@ -37,7 +40,12 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
 
             client: Any = fakeredis.FakeRedis(server=_get_test_fake_server(redis_url))
         elif redis_url:
-            client = redis.from_url(redis_url, db=0)
+            client = redis.from_url(
+                redis_url,
+                db=0,
+                socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
+                socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
+            )
         else:
             client = None
 
@@ -135,7 +143,16 @@ def get_async_client(redis_url: Optional[str] = None):
         # Get (or create) the Redis instance for redis_url
         client = pool_map.get(redis_url)
         if client is None:
-            client = aioredis.from_url(redis_url, db=0)
+            client = aioredis.from_url(
+                redis_url,
+                db=0,
+                socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
+                socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
+                # Retry transient connect/timeout blips a couple of times with a
+                # short exponential backoff instead of failing the caller outright.
+                retry=Retry(ExponentialBackoff(cap=0.5, base=0.05), retries=2),
+                retry_on_error=[redis_exceptions.ConnectionError, redis_exceptions.TimeoutError],
+            )
             pool_map[redis_url] = client
 
         return client

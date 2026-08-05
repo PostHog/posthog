@@ -49,6 +49,8 @@ const TOKEN_PROPERTIES = [
     '$ai_reasoning_tokens',
     '$ai_cache_read_input_tokens',
     '$ai_cache_creation_input_tokens',
+    '$ai_cache_creation_5m_input_tokens',
+    '$ai_cache_creation_1h_input_tokens',
 ] as const
 
 const AI_EVENT_TYPES = ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback']

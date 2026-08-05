@@ -96,8 +96,16 @@ func StripComposeLogsTail(shell string) string {
 		return shell
 	}
 	last := strings.TrimSpace(segments[len(segments)-1])
+	// The logs tail may sit inside an if/else (e.g. the POSTHOG_SANDBOX guard),
+	// leaving "; fi" attached to the final segment. Preserve the closer so the
+	// stripped shell still parses.
+	suffix := ""
+	if trimmed, ok := strings.CutSuffix(last, "; fi"); ok {
+		last = strings.TrimSpace(trimmed)
+		suffix = "; fi"
+	}
 	if IsDockerComposeShell(last) && strings.Contains(last, "logs") {
-		return strings.TrimRight(strings.Join(segments[:len(segments)-1], "&&"), " ")
+		return strings.TrimRight(strings.Join(segments[:len(segments)-1], "&&"), " ") + suffix
 	}
 	return shell
 }

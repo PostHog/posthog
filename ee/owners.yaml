@@ -1,0 +1,19 @@
+version: 1
+owners: []
+rules:
+    - match: ['/api/billing.py', '/billing/']
+      owners: team-billing
+    - match: '/clickhouse/materialized_columns/'
+      owners: team-analytics-platform
+    - match: ['/clickhouse/queries/related_actors_query.py', '/clickhouse/views/groups.py']
+      owners: team-product-analytics
+    - match: '/hogai/'
+      owners: team-self-driving
+    - match: '/session_recordings/'
+      owners: team-replay
+    - match: '/support_sidebar_max/'
+      owners: team-self-driving
+    - match: '/surveys/'
+      owners: team-surveys
+    - match: '/tasks/subscriptions/'
+      owners: team-analytics-platform

@@ -19,6 +19,15 @@ class GongEndpointConfig:
     # `/v2/calls` requires `fromDateTime` and caps each request to a 90-day range, so it is
     # synced by iterating bounded date windows rather than a single cursor scan.
     uses_date_window: bool = False
+    # `/v2/calls/extensive` is a POST endpoint whose filter, content selector, and pagination
+    # cursor live in a JSON body, and whose rows wrap the call fields in a `metaData` object
+    # alongside `parties` (participants) and CRM `context`. Requires the broader
+    # `api:calls:read:extensive` scope.
+    uses_extensive: bool = False
+    # Whether responses from this endpoint may be sampled into HTTP troubleshooting storage.
+    # Disabled for endpoints whose bodies carry participant names and free-form CRM field values
+    # that the name-based scrubbers can't recognise; requests stay metered and logged.
+    capture_http_samples: bool = True
 
 
 GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
@@ -30,6 +39,29 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
         partition_key="started",
         supports_incremental=True,
         uses_date_window=True,
+        incremental_fields=[
+            {
+                "label": "started",
+                "type": IncrementalFieldType.DateTime,
+                "field": "started",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Same call universe as `calls`, but sourced from `POST /v2/calls/extensive` so each row
+    # additionally carries `parties` (participant name/email/affiliation) and CRM `context`
+    # (linked Salesforce/HubSpot objects and fields) — neither of which the basic `/v2/calls`
+    # list can return. Kept as a separate table so enabling it never changes the `calls` schema.
+    "calls_extensive": GongEndpointConfig(
+        name="calls_extensive",
+        path="/v2/calls/extensive",
+        response_key="calls",
+        primary_key="id",
+        partition_key="started",
+        supports_incremental=True,
+        uses_date_window=True,
+        uses_extensive=True,
+        capture_http_samples=False,
         incremental_fields=[
             {
                 "label": "started",

@@ -2,9 +2,8 @@
 
 Pre-existing incremental/append schemas have history in Delta that the sink's
 per-batch stream will never replay. The primer backfills it with bounded
-memory and resume-from-checkpoint. This module owns the lifecycle
-(DuckgresSinkSchemaState transitions + reconciliation); the moving parts live
-in sibling modules:
+memory and resume-from-checkpoint. This module owns the lifecycle transitions and
+reconciliation; the moving parts live in sibling modules:
 
 - backfill_snapshot.py — Delta snapshot resolution and chunk planning (pure).
 - backfill_queue.py    — idempotent queue writes (pre-apply, enqueue, retire).
@@ -37,12 +36,12 @@ metadata at the pinned snapshot version (see backfill_queue.preapply_covered_bat
 
 from __future__ import annotations
 
+import random
 from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
 from django.db import close_old_connections
-from django.db.models import Count
 from django.utils import timezone
 
 import psycopg
@@ -50,8 +49,14 @@ import structlog
 from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import DuckgresSinkSchemaState
 
+from products.managed_warehouse.backend.facade import sink_state
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresSinkBackfillPlanInput,
+    DuckgresSinkState,
+    DuckgresSinkStateCreateInput,
+    DuckgresSinkStateRecord,
+)
 from products.warehouse_sources.backend.models import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue import (
     BACKFILL_JOB_ID,
@@ -90,10 +95,34 @@ MAX_CONCURRENT_BACKFILLS_GLOBAL = 5
 # metadata-only (Delta log read + row inserts), so minutes of lease are ample.
 PLANNING_LEASE_SECONDS = 900
 
+# A schema with this many consecutive failed backfill attempts (and not primed)
+# is classified "failing": its blocked backlog moves off the pageable gauges
+# into the failing bucket, and the planner retries it with backoff instead of
+# every tick. 3 rides out a single transient blip without flapping the buckets.
+FAILING_THRESHOLD = 3
+# Planner retry backoff for failing schemas: BASE * 2**(failures-1), capped.
+# Never gives up — at the cap the schema retries every ~30min forever, so it
+# self-heals the moment the underlying issue clears.
+RETRY_BACKOFF_BASE_SECONDS = 30
+RETRY_BACKOFF_CAP_SECONDS = 30 * 60
+
 BACKFILL_SCHEMAS_GAUGE = Gauge(
     "duckgres_backfill_schemas",
     "Duckgres sink schemas per backfill lifecycle state",
     labelnames=["state"],
+    multiprocess_mode="livemax",
+)
+# Visibility-only (dashboards / future UI). Deliberately unalerted: a stuck
+# backfill is an operator-remediation queue, not a page — the pageable signal
+# is the healthy blocked backlog in the consumer's gauges.
+STUCK_BACKFILL_GAUGE = Gauge(
+    "duckgres_sink_stuck_backfill",
+    "Schemas whose backfill is persistently failing (failure streak at threshold, or parked in needs_resync)",
+    multiprocess_mode="livemax",
+)
+STUCK_BACKFILL_OLDEST_AGE_GAUGE = Gauge(
+    "duckgres_sink_stuck_oldest_age_seconds",
+    "Age of the oldest failing schema's failure streak (first_failed_at) — survives queue retention",
     multiprocess_mode="livemax",
 )
 
@@ -102,7 +131,9 @@ __all__ = [
     "BackfillUnsupportedError",
     "backfill_run_uuid",
     "blocked_schema_ids",
+    "failing_schema_ids",
     "mark_primed",
+    "mark_schema_diverged",
     "replan_backfill",
     "run_backfill_planner",
     "sink_eligible_schema_ids",
@@ -142,11 +173,22 @@ def blocked_schema_ids(team_ids: list[int] | None) -> list[str]:
     schemas = ExternalDataSchema.objects.exclude(deleted=True)
     if team_ids is not None:
         schemas = schemas.filter(team_id__in=team_ids)
-    primed = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.PRIMED)
-    if team_ids is not None:
-        primed = primed.filter(team_id__in=team_ids)
-    primed_ids = {str(s) for s in primed.values_list("schema_id", flat=True)}
+    primed_ids = set(sink_state.list_primed_schema_ids(team_ids))
     return [str(sid) for sid in schemas.values_list("id", flat=True) if str(sid) not in primed_ids]
+
+
+def failing_schema_ids(team_ids: list[int] | None) -> list[str]:
+    """Schemas whose blocked backlog is hard-blocked, not merely in-progress.
+
+    A subset of blocked_schema_ids: the consumer subtracts these batches from
+    the pageable blocked gauges so a wedged schema cannot mask (or trigger) a
+    genuine-throughput page, and reports them in the failing bucket instead.
+    """
+    close_old_connections()
+    if team_ids is not None and not team_ids:
+        return []
+
+    return sink_state.list_failing_schema_ids(team_ids, failing_threshold=FAILING_THRESHOLD)
 
 
 def sink_eligible_schema_ids(team_ids: list[int]) -> list[str]:
@@ -196,21 +238,52 @@ def sink_eligible_schema_ids(team_ids: list[int]) -> list[str]:
     return eligible
 
 
-def mark_primed(schema_id: str, *, chunks_applied: int | None = None) -> None:
+def mark_primed(schema_id: str, *, run_uuid: str, chunks_applied: int | None = None) -> None:
     """Fast path called by the processor right after the swap commits.
 
     CAS from BACKFILLING only — the reconciler is the authoritative healer,
-    and a late call must never clobber a state that has since moved on.
+    and a late call must never clobber a state that has since moved on. The
+    CAS is also pinned to the run generation: a replan can retire run R1 and
+    plan R2 while R1's final chunk is still mid-swap (its duckgres transaction
+    cannot be cancelled), and R1's late mark_primed must not flip R2's row —
+    that would unblock live batches over a table R2's own swap later replaces,
+    silently dropping them.
     """
-    updates: dict[str, Any] = {
-        "state": DuckgresSinkSchemaState.State.PRIMED,
-        "updated_at": timezone.now(),
-    }
-    if chunks_applied is not None:
-        updates["chunks_applied"] = chunks_applied
-    DuckgresSinkSchemaState.objects.filter(schema_id=schema_id, state=DuckgresSinkSchemaState.State.BACKFILLING).update(
-        **updates
+    sink_state.mark_sink_state_primed(
+        schema_id,
+        backfill_run_uuid=run_uuid,
+        chunks_applied=chunks_applied,
     )
+
+
+def mark_schema_diverged(schema_id: str, *, run_uuid: str, error: str) -> None:
+    """A LIVE run hard-failed in the sink: some of its batches applied and the
+    rest never will, so the duckgres table is durably behind Delta. Park the
+    schema in NEEDS_RESYNC — that blocks further live batches from compounding
+    the gap, classifies the schema failing (streak jumped to threshold: a
+    terminally failed run has no retry loop to ride out), and routes healing
+    through the existing path: the next fully-applied replace-head run
+    (full-refresh resync, or the schema's own next full_refresh sync) flips it
+    back to PRIMED.
+
+    CAS from PRIMED only: a BACKFILLING schema's failures are the reconciler's
+    to escalate, and an already-parked schema must not have its streak anchor
+    or error overwritten.
+    """
+    close_old_connections()
+    flipped = sink_state.mark_sink_state_diverged(
+        schema_id,
+        run_uuid=run_uuid,
+        error=error,
+        failing_threshold=FAILING_THRESHOLD,
+    )
+    if flipped:
+        logger.warning(
+            "duckgres_sink_schema_diverged",
+            schema_id=schema_id,
+            run_uuid=run_uuid,
+            error=error[:500],
+        )
 
 
 def replan_backfill(schema_id: str) -> None:
@@ -219,20 +292,23 @@ def replan_backfill(schema_id: str) -> None:
     The next plan gets a fresh generation nonce, so an unadvanced Delta
     version still yields a new, claimable run.
     """
-    state = DuckgresSinkSchemaState.objects.get(schema_id=schema_id)
+    state = sink_state.get_sink_state(schema_id)
+    if state is None:
+        raise LookupError(f"No duckgres sink state for schema {schema_id!r}")
     if state.backfill_run_uuid:
-        with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+        with psycopg.connect(
+            settings.WAREHOUSE_SOURCES_DATABASE_URL,
+            autocommit=True,
+            # These run inline in the consumer fetch path: a half-open connection
+            # must fail in minutes, not the OS TCP timeout (hours).
+            connect_timeout=30,
+            keepalives=1,
+            keepalives_idle=60,
+            keepalives_interval=15,
+            keepalives_count=4,
+        ) as conn:
             retire_backfill_run(conn, run_uuid=state.backfill_run_uuid)
-    DuckgresSinkSchemaState.objects.filter(id=state.id).update(
-        state=DuckgresSinkSchemaState.State.PENDING_BACKFILL,
-        snapshot_version=None,
-        plan_cutoff=None,
-        backfill_run_uuid=None,
-        chunk_count=None,
-        chunks_applied=0,
-        last_error=None,
-        updated_at=timezone.now(),
-    )
+    sink_state.reset_backfill_plan(state.id)
 
 
 # ---------------------------------------------------------------------------
@@ -266,13 +342,10 @@ def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
         is_pipeline_v3_enabled,
     )
 
-    schemas = (
-        ExternalDataSchema.objects.exclude(deleted=True)
-        .exclude(id__in=DuckgresSinkSchemaState.objects.values("schema_id"))
-        .values("id", "team_id", "sync_type", "table_id", "source__source_type")
-    )
+    schemas = sink_state.exclude_schemas_with_sink_state(ExternalDataSchema.objects.exclude(deleted=True))
     if team_ids is not None:
         schemas = schemas.filter(team_id__in=team_ids)
+    schema_values = schemas.values("id", "team_id", "sync_type", "table_id", "source__source_type")
 
     # The sink only follows v3 sources (warehouse-pipelines-v3 is evaluated per
     # team+source_type), so only prime schemas the consumer will actually mirror.
@@ -287,41 +360,42 @@ def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
         return v3_enabled[key]
 
     created = 0
-    to_create: list[DuckgresSinkSchemaState] = []
-    for schema in schemas.iterator(chunk_size=BOOTSTRAP_BATCH_SIZE):
+    to_create: list[DuckgresSinkStateCreateInput] = []
+    for schema in schema_values.iterator(chunk_size=BOOTSTRAP_BATCH_SIZE):
         if not _source_is_v3(schema["team_id"], schema["source__source_type"]):
             continue
         needs_backfill = schema["sync_type"] not in ("full_refresh", "cdc", None) and schema["table_id"] is not None
         to_create.append(
-            DuckgresSinkSchemaState(
+            DuckgresSinkStateCreateInput(
                 team_id=schema["team_id"],
                 schema_id=schema["id"],
-                state=(
-                    DuckgresSinkSchemaState.State.PENDING_BACKFILL
-                    if needs_backfill
-                    else DuckgresSinkSchemaState.State.PRIMED
-                ),
+                state=(DuckgresSinkState.PENDING_BACKFILL if needs_backfill else DuckgresSinkState.PRIMED),
             )
         )
         if len(to_create) >= BOOTSTRAP_BATCH_SIZE:
-            DuckgresSinkSchemaState.objects.bulk_create(to_create, ignore_conflicts=True)
+            sink_state.bulk_create_sink_states(to_create)
             created += len(to_create)
             to_create = []
 
     if to_create:
-        DuckgresSinkSchemaState.objects.bulk_create(to_create, ignore_conflicts=True)
+        sink_state.bulk_create_sink_states(to_create)
         created += len(to_create)
     if created:
         logger.info("duckgres_backfill_bootstrapped", created=created)
 
 
+def _retry_backoff_seconds(failures: int) -> float:
+    if failures <= 0:
+        return 0.0
+    base = min(RETRY_BACKOFF_BASE_SECONDS * 2 ** (failures - 1), RETRY_BACKOFF_CAP_SECONDS)
+    return base * random.uniform(0.8, 1.2)
+
+
 def _plan_pending(team_ids: list[int] | None) -> None:
-    pending = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.PENDING_BACKFILL)
-    if team_ids is not None:
-        pending = pending.filter(team_id__in=team_ids)
+    pending = sink_state.list_pending_sink_states(team_ids, limit=50)
 
     # Oldest-touched first so a failing schema cannot starve the rest of the slice.
-    for state in pending.select_related("team").order_by("updated_at")[:50]:
+    for state in pending:
         # Global ceiling: backfills share the consumer worker pool with live
         # application, so once the global budget is full no org may claim —
         # stop scanning this tick. Re-evaluated each iteration since earlier
@@ -329,14 +403,27 @@ def _plan_pending(team_ids: list[int] | None) -> None:
         if _global_at_capacity():
             break
 
-        org_id = state.team.organization_id
+        # Failing schemas retry with backoff instead of hammering a broken
+        # Delta table every tick. updated_at is the last-attempt anchor (each
+        # recorded failure bumps it). Never gives up: at the cap this is one
+        # attempt per ~30min forever, so it self-heals when the table recovers.
+        # auto_now makes updated_at nullable to the type checker only; a missing
+        # anchor means no backoff to honour, so attempt rather than skip forever.
+        last_attempt_at = state.updated_at
+        if (
+            state.consecutive_failures > 0
+            and last_attempt_at is not None
+            and timezone.now() < last_attempt_at + timedelta(seconds=_retry_backoff_seconds(state.consecutive_failures))
+        ):
+            continue
+
+        org_id = state.organization_id
+        assert org_id is not None
         if _org_at_capacity(org_id):
             continue
 
         # Lease claim: exactly one pod proceeds past this line per schema.
-        claimed = DuckgresSinkSchemaState.objects.filter(
-            id=state.id, state=DuckgresSinkSchemaState.State.PENDING_BACKFILL
-        ).update(state=DuckgresSinkSchemaState.State.BACKFILLING, updated_at=timezone.now())
+        claimed = sink_state.claim_pending_backfill(state.id)
         if not claimed:
             continue
 
@@ -351,52 +438,98 @@ def _plan_pending(team_ids: list[int] | None) -> None:
         try:
             _plan_one(state)
         except BackfillUnsupportedError as e:
-            DuckgresSinkSchemaState.objects.filter(id=state.id).update(
-                state=DuckgresSinkSchemaState.State.NEEDS_RESYNC,
-                last_error=str(e)[:2000],
-                updated_at=timezone.now(),
-            )
+            sink_state.mark_backfill_unsupported(state.id, error=str(e))
             logger.warning("duckgres_backfill_unsupported", schema_id=str(state.schema_id), error=str(e))
         except Exception as e:
             logger.exception("duckgres_backfill_plan_failed", schema_id=str(state.schema_id))
             capture_exception(e)
-            _revert_to_pending(state.id, error=str(e)[:2000])
+            _revert_to_pending(state.id, error=str(e)[:2000], record_failure=True)
 
 
 def _org_at_capacity(org_id: Any, *, exclude_id: Any = None) -> bool:
     """Is this org at its per-org backfill cap? Pass exclude_id to ignore the
     just-claimed row when re-checking after a claim."""
-    qs = DuckgresSinkSchemaState.objects.filter(
-        state=DuckgresSinkSchemaState.State.BACKFILLING,
-        team__organization_id=org_id,
+    return sink_state.is_backfill_capacity_reached(
+        MAX_CONCURRENT_BACKFILLS_PER_ORG,
+        organization_id=org_id,
+        exclude_id=exclude_id,
     )
-    if exclude_id is not None:
-        qs = qs.exclude(id=exclude_id)
-    return qs.count() >= MAX_CONCURRENT_BACKFILLS_PER_ORG
 
 
 def _global_at_capacity(*, exclude_id: Any = None) -> bool:
     """Is the global backfill budget (across all orgs) full? Counts every
     BACKFILLING row, since all backfills draw from one shared worker pool."""
-    qs = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.BACKFILLING)
-    if exclude_id is not None:
-        qs = qs.exclude(id=exclude_id)
-    return qs.count() >= MAX_CONCURRENT_BACKFILLS_GLOBAL
+    return sink_state.is_backfill_capacity_reached(
+        MAX_CONCURRENT_BACKFILLS_GLOBAL,
+        exclude_id=exclude_id,
+    )
 
 
-def _revert_to_pending(state_id: Any, error: str | None = None) -> None:
-    updates: dict[str, Any] = {
-        "state": DuckgresSinkSchemaState.State.PENDING_BACKFILL,
-        "updated_at": timezone.now(),
-    }
-    if error is not None:
-        updates["last_error"] = error
-    DuckgresSinkSchemaState.objects.filter(
-        id=state_id, state=DuckgresSinkSchemaState.State.BACKFILLING, backfill_run_uuid__isnull=True
-    ).update(**updates)
+def _revert_to_pending(state_id: Any, error: str | None = None, *, record_failure: bool = False) -> None:
+    """record_failure distinguishes a failed attempt from a neutral revert
+    (capacity re-check lost the race) — capacity is pacing, not failure, and
+    must not start a streak."""
+    sink_state.return_backfill_claim_to_pending(
+        state_id,
+        error=error,
+        record_failure=record_failure,
+    )
 
 
-def _plan_one(state: DuckgresSinkSchemaState) -> None:
+def _has_inflight_replace_run(conn: psycopg.Connection[Any], *, team_id: int, schema_id: str) -> bool:
+    """A replace-head live run that Delta accepted but duckgres has not finished.
+
+    Batch 0 replace-shaped and delta-succeeded, with no terminal Delta failure,
+    duckgres-succeeded final marker (completion), or duckgres-failed batch for
+    the run. Planning must wait these out: the snapshot would cover the run's
+    head and orphan its tail (see the guard in _plan_one).
+    """
+    row = conn.execute(
+        f"""
+        SELECT 1
+        FROM {BATCH_TABLE} h
+        JOIN v_latest_source_batch_status hds ON hds.batch_id = h.id
+        WHERE h.team_id = %(team_id)s
+            AND h.schema_id = %(schema_id)s
+            AND h.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND h.batch_index = 0
+            AND h.is_final_batch = false
+            AND h.is_resume = false
+            AND (h.sync_type = 'full_refresh' OR (h.sync_type = 'incremental' AND h.is_first_ever_sync))
+            AND hds.job_state = 'succeeded'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} x
+                JOIN v_latest_source_batch_status xds ON xds.batch_id = x.id
+                WHERE x.run_uuid = h.run_uuid
+                    AND x.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND xds.job_state = 'failed'
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} f
+                JOIN v_latest_source_batch_duckgres_status fdgs ON fdgs.batch_id = f.id
+                WHERE f.run_uuid = h.run_uuid
+                    AND f.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND f.is_final_batch = true
+                    AND fdgs.job_state = 'succeeded'
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} x
+                JOIN v_latest_source_batch_duckgres_status xdgs ON xdgs.batch_id = x.id
+                WHERE x.run_uuid = h.run_uuid
+                    AND x.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND xdgs.job_state = 'failed'
+            )
+        LIMIT 1
+        """,
+        {"team_id": team_id, "schema_id": schema_id},
+    ).fetchone()
+    return row is not None
+
+
+def _plan_one(state: DuckgresSinkStateRecord) -> None:
     """Runs only on the pod that won the lease claim.
 
     Ordering is crash-safety-critical:
@@ -406,34 +539,58 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
     A crash after step 2 is healed by _reconcile_one (replay 3-4 from the
     stored plan); a crash before it is healed by the planning lease.
     """
-    schema = ExternalDataSchema.objects.select_related("source", "team").get(id=state.schema_id)
+    schema = (
+        ExternalDataSchema.objects.select_related("source", "team").filter(deleted=False, id=state.schema_id).first()
+    )
+    if schema is None:
+        # Soft-deleted (or vanished) schema: its chunks would be unclaimable and
+        # the row would pin a backfill slot forever. The purge sweep in
+        # _reconcile retires the run and removes the state row.
+        logger.warning("duckgres_backfill_plan_skipped_deleted_schema", schema_id=str(state.schema_id))
+        return
 
-    with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+    with psycopg.connect(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        autocommit=True,
+        # These run inline in the consumer fetch path: a half-open connection
+        # must fail in minutes, not the OS TCP timeout (hours).
+        connect_timeout=30,
+        keepalives=1,
+        keepalives_idle=60,
+        keepalives_interval=15,
+        keepalives_count=4,
+    ) as conn:
+        if _has_inflight_replace_run(conn, team_id=schema.team_id, schema_id=str(state.schema_id)):
+            # Planning now would pin a snapshot mid-run and pre-apply the
+            # replace run's head: its post-snapshot tail would then apply into
+            # the doomed pre-swap table (the replace-head gate bypass admits
+            # it), and the swap would silently drop those rows while their
+            # apply markers prevent any re-apply. Defer until the run reaches
+            # a terminal duckgres state; the planner retries every tick.
+            logger.info(
+                "duckgres_backfill_plan_deferred_for_inflight_replace",
+                schema_id=str(state.schema_id),
+                team_id=schema.team_id,
+            )
+            return
         plan = resolve_snapshot_plan(schema)
         snapshot_version = plan.snapshot_version
         chunks = plan.chunks
         if not chunks:
             # Empty Delta table: nothing to prime.
-            DuckgresSinkSchemaState.objects.filter(id=state.id).update(
-                state=DuckgresSinkSchemaState.State.PRIMED, updated_at=timezone.now()
-            )
+            sink_state.mark_empty_backfill_primed(state.id)
             return
 
         run_uuid = backfill_run_uuid(str(state.schema_id), snapshot_version)
 
         # Durable plan claim: only one pod can attach a run to this state row.
-        planned = DuckgresSinkSchemaState.objects.filter(
-            id=state.id,
-            state=DuckgresSinkSchemaState.State.BACKFILLING,
-            backfill_run_uuid__isnull=True,
-        ).update(
-            snapshot_version=snapshot_version,
-            plan_cutoff=None,
-            backfill_run_uuid=run_uuid,
-            chunk_count=len(chunks),
-            chunks_applied=0,
-            last_error=None,
-            updated_at=timezone.now(),
+        planned = sink_state.claim_backfill_plan(
+            state.id,
+            DuckgresSinkBackfillPlanInput(
+                snapshot_version=snapshot_version,
+                backfill_run_uuid=run_uuid,
+                chunk_count=len(chunks),
+            ),
         )
         if not planned:
             return
@@ -465,33 +622,62 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _purge_deleted_schema_states(conn: psycopg.Connection[Any], team_ids: list[int] | None) -> None:
+    """Drop sink state for soft-deleted schemas and retire their runs.
+
+    Schema deletion has no signal into this state machine: a deleted schema's
+    chunks become unclaimable (the eligibility gate excludes deleted schemas),
+    so a BACKFILLING row would sit forever — invisible on the failing gauges
+    (zero failures) while permanently consuming one of the global backfill
+    slots, and its chunks would be re-enqueued after every queue prune. Five
+    routine source deletions would halt all backfill planning fleet-wide.
+    Deleting the row is safe: bootstrap re-creates PENDING_BACKFILL if the
+    schema ever comes back.
+    """
+    states = sink_state.list_sink_backfill_run_references(team_ids)
+    run_by_schema = {state.schema_id: state.backfill_run_uuid for state in states}
+    if not run_by_schema:
+        return
+    deleted_ids = list(
+        ExternalDataSchema.objects.filter(id__in=run_by_schema.keys(), deleted=True).values_list("id", flat=True)
+    )
+    for schema_id in deleted_ids:
+        run_uuid = run_by_schema[schema_id]
+        if run_uuid:
+            retire_backfill_run(conn, run_uuid=run_uuid)
+        sink_state.delete_sink_state(schema_id)
+        logger.warning("duckgres_backfill_state_purged_for_deleted_schema", schema_id=str(schema_id))
+
+
 def _reconcile(team_ids: list[int] | None) -> None:
     """Heal and progress every non-terminal state. Authoritative for PRIMED."""
     # Half-claimed rows (crash between the lease CAS and the plan CAS) carry
     # no run plan; after the lease they return to PENDING for a fresh attempt.
-    lease_deadline = timezone.now() - timedelta(seconds=PLANNING_LEASE_SECONDS)
-    stale = DuckgresSinkSchemaState.objects.filter(
-        state=DuckgresSinkSchemaState.State.BACKFILLING,
-        backfill_run_uuid__isnull=True,
-        updated_at__lt=lease_deadline,
-    )
-    if team_ids is not None:
-        stale = stale.filter(team_id__in=team_ids)
-    reset = stale.update(state=DuckgresSinkSchemaState.State.PENDING_BACKFILL, updated_at=timezone.now())
+    reset = sink_state.reset_stale_backfill_claims(team_ids, lease_seconds=PLANNING_LEASE_SECONDS)
     if reset:
         logger.warning("duckgres_backfill_stale_claims_reset", count=reset)
 
-    backfilling = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.BACKFILLING)
-    needs_resync = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.NEEDS_RESYNC)
-    if team_ids is not None:
-        backfilling = backfilling.filter(team_id__in=team_ids)
-        needs_resync = needs_resync.filter(team_id__in=team_ids)
-    rows = [s for s in backfilling if s.backfill_run_uuid]
-    resync_rows = list(needs_resync)
-    if not rows and not resync_rows:
-        return
+    rows = sink_state.list_reconciling_backfill_states(team_ids)
+    resync_rows = sink_state.list_needs_resync_sink_states(team_ids)
 
-    with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+    with psycopg.connect(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        autocommit=True,
+        # These run inline in the consumer fetch path: a half-open connection
+        # must fail in minutes, not the OS TCP timeout (hours).
+        connect_timeout=30,
+        keepalives=1,
+        keepalives_idle=60,
+        keepalives_interval=15,
+        keepalives_count=4,
+    ) as conn:
+        try:
+            _purge_deleted_schema_states(conn, team_ids)
+        except Exception as e:
+            logger.exception("duckgres_backfill_deleted_schema_purge_failed")
+            capture_exception(e)
+        if not rows and not resync_rows:
+            return
         for state in rows:
             try:
                 _reconcile_one(conn, state)
@@ -506,8 +692,9 @@ def _reconcile(team_ids: list[int] | None) -> None:
                 capture_exception(e)
 
 
-def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState) -> None:
+def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkStateRecord) -> None:
     run_uuid = state.backfill_run_uuid
+    assert run_uuid is not None
     applied_row = conn.execute(
         "SELECT count(DISTINCT batch_index) FROM sourcebatchduckgresapply WHERE run_uuid = %s", [run_uuid]
     ).fetchone()
@@ -516,11 +703,13 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
     if state.chunk_count and applied >= state.chunk_count:
         # Full application proves the swap committed (the last chunk's apply
         # marker shares the swap's transaction). CAS so a stale pass can never
-        # resurrect a state another pod already advanced.
-        DuckgresSinkSchemaState.objects.filter(id=state.id, state=DuckgresSinkSchemaState.State.BACKFILLING).update(
-            state=DuckgresSinkSchemaState.State.PRIMED,
+        # resurrect a state another pod already advanced — pinned to the run
+        # the applied-count evidence was gathered for, so a replan that swapped
+        # generations mid-pass cannot be promoted on the old run's counts.
+        sink_state.mark_backfill_completed(
+            state.id,
+            backfill_run_uuid=run_uuid,
             chunks_applied=applied,
-            updated_at=timezone.now(),
         )
         return
 
@@ -546,17 +735,27 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
             # later exhausts retries. Park in NEEDS_RESYNC so the resync path
             # promotes to PRIMED only once the replace run's final marker reaches
             # duckgres-succeeded (the same completion proof every PRIMED requires).
-            DuckgresSinkSchemaState.objects.filter(id=state.id, state=DuckgresSinkSchemaState.State.BACKFILLING).update(
-                state=DuckgresSinkSchemaState.State.NEEDS_RESYNC, last_error=None, updated_at=timezone.now()
-            )
+            sink_state.mark_backfill_superseded(state.id)
             logger.info(
                 "duckgres_backfill_superseded_by_live_refresh",
                 schema_id=str(state.schema_id),
                 run_uuid=run_uuid,
             )
-        elif state.last_error != reason:
-            DuckgresSinkSchemaState.objects.filter(id=state.id).update(
-                last_error=reason[:2000], chunks_applied=applied, updated_at=timezone.now()
+        elif (
+            state.last_error != reason
+            or state.consecutive_failures < FAILING_THRESHOLD
+            or state.first_failed_at is None
+        ):
+            # Mid-backfill wedge: a duckgres 'failed' status is terminal, so this
+            # run will never progress on its own — classify the schema failing
+            # immediately (jump the streak to threshold rather than drip one per
+            # tick), else its backlog sits in the pageable healthy bucket forever.
+            # The condition gates re-writes so a steady wedge stops churning the row.
+            sink_state.record_terminal_backfill_failure(
+                state.id,
+                error=reason,
+                chunks_applied=applied,
+                failing_threshold=FAILING_THRESHOLD,
             )
         return
 
@@ -591,10 +790,15 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
             )
 
     if applied != state.chunks_applied:
-        DuckgresSinkSchemaState.objects.filter(id=state.id).update(chunks_applied=applied, updated_at=timezone.now())
+        # Chunks are landing again, so forward progress ends the failure streak.
+        sink_state.record_backfill_progress(
+            state.id,
+            chunks_applied=applied,
+            reset_failure_streak=applied > state.chunks_applied,
+        )
 
 
-def _reconcile_needs_resync(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState) -> None:
+def _reconcile_needs_resync(conn: psycopg.Connection[Any], state: DuckgresSinkStateRecord) -> None:
     """Flip NEEDS_RESYNC to PRIMED only when a replace run has FULLY applied.
 
     Replace-head runs bypass the blocked gate (jobs_db), so a user-triggered
@@ -632,14 +836,18 @@ def _reconcile_needs_resync(conn: psycopg.Connection[Any], state: DuckgresSinkSc
     if done is None:
         return
 
-    flipped = DuckgresSinkSchemaState.objects.filter(
-        id=state.id, state=DuckgresSinkSchemaState.State.NEEDS_RESYNC
-    ).update(state=DuckgresSinkSchemaState.State.PRIMED, last_error=None, updated_at=timezone.now())
+    flipped = sink_state.mark_resync_completed(state.id)
     if flipped:
         logger.info("duckgres_backfill_resync_completed", schema_id=str(state.schema_id))
 
 
 def _emit_state_gauge() -> None:
-    counts = dict(DuckgresSinkSchemaState.objects.values_list("state").annotate(n=Count("id")))
-    for state_value, _label in DuckgresSinkSchemaState.State.choices:
-        BACKFILL_SCHEMAS_GAUGE.labels(state=state_value).set(counts.get(state_value, 0))
+    stats = sink_state.get_sink_state_gauge_stats(failing_threshold=FAILING_THRESHOLD)
+    for state in DuckgresSinkState:
+        BACKFILL_SCHEMAS_GAUGE.labels(state=state.value).set(stats.counts.get(state, 0))
+
+    # Derived from the state table, not batches, so a stuck schema stays visible
+    # past queue retention — the durable "backfill owed since" high-watermark.
+    STUCK_BACKFILL_GAUGE.set(stats.failing_count)
+    oldest = stats.oldest_failure_at
+    STUCK_BACKFILL_OLDEST_AGE_GAUGE.set((timezone.now() - oldest).total_seconds() if oldest else 0.0)

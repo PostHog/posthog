@@ -18,7 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import (
     get_property_key,
     get_property_operator,
@@ -26,17 +26,31 @@ from posthog.hogql.property import (
     get_property_value,
     property_to_expr,
 )
+from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.settings.data_stores import is_web_analytics_events_prefilter_team
+from posthog.models.filters.mixins.utils import cached_property
 
-from products.web_analytics.backend.hogql_queries.events_prefilter import PrefilterHogQLHasMorePaginator
+from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
+    FIRST_PAGEVIEW_BREAKDOWNS,
+    INITIAL_TO_FIRST_PAGEVIEW,
+    first_pageview_filter_value_expr,
+    first_pageview_prop,
+    first_pageview_properties_expr,
+)
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
     ChannelTypeStrategy,
+    FirstPageviewAttributionStrategy,
     FrustrationMetricsStrategy,
+    NoJoinPathBounceAvgTimeStrategy,
+    NoJoinPathBounceStrategy,
+    NoJoinSimpleBreakdownStrategy,
     PathBounceAvgTimeStrategy,
     PathBounceStrategy,
+    SessionIdSetPathBounceAvgTimeStrategy,
+    SessionIdSetPathBounceStrategy,
     SimpleBreakdownStrategy,
     StatsTableQueryStrategy,
 )
@@ -87,36 +101,30 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", None)
         self.use_v2_tables = team_version == "v2" if team_version is not None else use_v2_tables
         self.used_preaggregated_tables = False
+        # None = not yet checked (e.g. EXPLAIN paths); set by `_calculate` before execution.
+        self._session_id_set_selectivity_ok: Optional[bool] = None
 
         limit = self.query.limit if self.query.limit else None
         offset = self.query.offset if self.query.offset else None
-        if is_web_analytics_events_prefilter_team(self.team.pk):
-            date_from, date_to = self._events_prefilter_date_bounds()
-            self.paginator = PrefilterHogQLHasMorePaginator.create(
-                limit_context=LimitContext.QUERY,
-                team_id=self.team.pk,
-                date_from=date_from,
-                date_to=date_to,
-                limit=limit,
-                offset=offset,
-            )
-        else:
-            self.paginator = HogQLHasMorePaginator.from_limit_context(
-                limit_context=LimitContext.QUERY,
-                limit=limit,
-                offset=offset,
-            )
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=LimitContext.QUERY,
+            limit=limit,
+            offset=offset,
+        )
 
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
-    def _resolve_strategy(self) -> ResolvedStatsTableStrategy:
-        if (
+    def _can_serve_preaggregated(self) -> bool:
+        return bool(
             self.modifiers
             and self.modifiers.useWebAnalyticsPreAggregatedTables
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
             and not self.query.includeAvgTimeOnPage
             and not self.query.conversionGoal
-        ):
+        )
+
+    def _resolve_strategy(self) -> ResolvedStatsTableStrategy:
+        if self._can_serve_preaggregated():
             if self.query.breakdownBy == WebStatsBreakdown.PAGE:
                 return ResolvedStatsTableStrategy(
                     strategy="stats_table_preaggregated_path_breakdown",
@@ -155,6 +163,16 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     def _strategy_name(self, strategy: StatsTableQueryStrategy) -> str:
         if isinstance(strategy, FrustrationMetricsStrategy):
             return "stats_table_frustration_metrics"
+        # Session-id-set variants first: they subclass the no-join strategies.
+        if isinstance(strategy, SessionIdSetPathBounceAvgTimeStrategy):
+            return "stats_table_session_id_set_path_bounce_and_avg_time"
+        if isinstance(strategy, SessionIdSetPathBounceStrategy):
+            return "stats_table_session_id_set_path_bounce"
+        # No-join variants next: they don't subclass the join strategies.
+        if isinstance(strategy, NoJoinPathBounceAvgTimeStrategy):
+            return "stats_table_no_join_path_bounce_and_avg_time"
+        if isinstance(strategy, NoJoinPathBounceStrategy):
+            return "stats_table_no_join_path_bounce"
         if isinstance(strategy, PathBounceAvgTimeStrategy):
             return "stats_table_path_bounce_and_avg_time"
         if isinstance(strategy, PathBounceStrategy):
@@ -162,6 +180,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         # ChannelTypeStrategy must be checked before SimpleBreakdownStrategy since it's a subclass.
         if isinstance(strategy, ChannelTypeStrategy):
             return "stats_table_channel_type"
+        if isinstance(strategy, FirstPageviewAttributionStrategy):
+            return "stats_table_first_pageview_attribution"
+        # NoJoinSimpleBreakdownStrategy is also a SimpleBreakdownStrategy subclass.
+        if isinstance(strategy, NoJoinSimpleBreakdownStrategy):
+            return "stats_table_no_join_simple_breakdown"
 
         if (
             isinstance(strategy, SimpleBreakdownStrategy)
@@ -172,23 +195,61 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         return "stats_table_simple_breakdown"
 
+    def _effective_breakdown(self) -> WebStatsBreakdown:
+        remapped = INITIAL_TO_FIRST_PAGEVIEW.get(self.query.breakdownBy)
+        if remapped is not None and self._first_pageview_attribution_enabled:
+            return remapped
+        return self.query.breakdownBy
+
+    def get_cache_key(self) -> str:
+        # The remap changes results for the same query, so remapped and
+        # entry-attributed runs must not share cache entries — and rolling the
+        # flag back to 0% must instantly serve the old key again.
+        original = super().get_cache_key()
+        effective_breakdown = self._effective_breakdown()
+        if effective_breakdown != self.query.breakdownBy:
+            return f"{original}_{effective_breakdown.value}"
+        return original
+
     def _get_strategy(self) -> StatsTableQueryStrategy:
-        if self.query.breakdownBy == WebStatsBreakdown.FRUSTRATION_METRICS:
+        breakdown = self._effective_breakdown()
+
+        if breakdown == WebStatsBreakdown.FRUSTRATION_METRICS:
             return FrustrationMetricsStrategy(self)
 
-        if self.query.breakdownBy == WebStatsBreakdown.PAGE:
+        if breakdown == WebStatsBreakdown.PAGE:
             if self.query.conversionGoal:
                 return SimpleBreakdownStrategy(self)
             if self.query.includeAvgTimeOnPage:
+                if self.should_skip_session_join:
+                    return NoJoinPathBounceAvgTimeStrategy(self)
+                if self.should_use_session_id_set and self._session_id_set_selectivity_ok is not False:
+                    return SessionIdSetPathBounceAvgTimeStrategy(self)
                 return PathBounceAvgTimeStrategy(self)
             if self.query.includeBounceRate:
+                if self.should_skip_session_join:
+                    return NoJoinPathBounceStrategy(self)
+                if self.should_use_session_id_set and self._session_id_set_selectivity_ok is not False:
+                    return SessionIdSetPathBounceStrategy(self)
                 return PathBounceStrategy(self)
 
-        if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
+        if breakdown == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
             return SimpleBreakdownStrategy(self, breakdown_override=self._bounce_entry_pathname_breakdown())
 
-        if self.query.breakdownBy == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+        if breakdown == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
             return ChannelTypeStrategy(self)
+
+        if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
+            return FirstPageviewAttributionStrategy(self)
+
+        # Simple breakdowns whose displayed columns are all event-derived don't
+        # need the events↔sessions join at all — the join only supplies the
+        # session grouping key and start timestamp, both recoverable from the
+        # UUIDv7 session id. Session-entry breakdowns (Initial*),
+        # session-property filters, and bounce/conversion variants keep
+        # the join.
+        if self.query.conversionGoal is None and not self.query.includeBounceRate and not self._uses_session_fields():
+            return NoJoinSimpleBreakdownStrategy(self)
 
         return SimpleBreakdownStrategy(self)
 
@@ -292,6 +353,25 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
         )
 
+    def _uses_session_fields(self) -> bool:
+        """True when the breakdown value or any filter reads a `session.*`
+        field. Those queries need the events↔sessions join — Initial* entry
+        breakdowns for the value itself, session-property filters for the
+        predicate. Routing them to the no-join strategy would make HogQL
+        silently re-add the lazy join, mislabeling the query tag."""
+        found = False
+
+        class Visitor(TraversingVisitor):
+            def visit_field(self, node: ast.Field) -> None:
+                nonlocal found
+                if node.chain and node.chain[0] == "session":
+                    found = True
+
+        visitor = Visitor()
+        visitor.visit(self._counts_breakdown_value())
+        visitor.visit(self.all_properties())
+        return found
+
     def _period_comparison_tuple(self, column, alias, function_name):
         return ast.Alias(
             alias=alias,
@@ -326,12 +406,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         )
 
     def _event_properties(self) -> ast.Expr:
-        properties = [
+        # Each path-bounce events scan gets its own WHERE, so the rewritten
+        # predicates repeat across the bounce and scroll variants below.
+        properties: list = [
             p
-            for p in self.query.properties + self._test_account_filters
+            for p in self.effective_query_properties + self._test_account_filters
             if get_property_type(p) in ["event", "person", "cohort"]
         ]
-        return property_to_expr(properties, team=self.team, scope="event")
+        return property_to_expr([*properties, *self.first_pageview_filter_exprs], team=self.team, scope="event")
 
     def _event_properties_for_scroll(self) -> ast.Expr:
         def map_scroll_property(property: Union[EventPropertyFilter, PersonPropertyFilter]):
@@ -343,12 +425,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 )
             return property
 
-        properties = [
+        properties: list = [
             map_scroll_property(p)
-            for p in self.query.properties + self._test_account_filters
+            for p in self.effective_query_properties + self._test_account_filters
             if get_property_type(p) in ["event", "person", "cohort"]
         ]
-        return property_to_expr(properties, team=self.team, scope="event")
+        return property_to_expr([*properties, *self.first_pageview_filter_exprs], team=self.team, scope="event")
 
     def _event_properties_for_bounce_rate(self) -> ast.Expr:
         # Exclude pathname filters for bounce rate calculation
@@ -358,22 +440,87 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         # bounce rates calculations but since we group them by entry_pathname, the results could be misleading
         # as the events would be filtered by a IN(pathname) and the bounce shown would be for the first pathname
         # which users are not necessarily expecting to see.
-        properties = [
+        properties: list = [
             p
-            for p in self.query.properties + self._test_account_filters
+            for p in self.effective_query_properties + self._test_account_filters
             if not (get_property_type(p) == "event" and get_property_key(p) == "$pathname")
         ]
-        return property_to_expr(properties, team=self.team, scope="event")
+        return property_to_expr([*properties, *self.first_pageview_filter_exprs], team=self.team, scope="event")
 
-    def _session_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
+    @cached_property
+    def should_use_session_id_set(self) -> bool:
+        """Whether a filtered paths query can run as the two-scan no-join shape
+        linked by a session-id set (see `_session_id_set_common_eligibility`).
+        Only the PAGE bounce strategies support the shape; anything else keeps
+        the join path.
+        """
+        if self.query.breakdownBy != WebStatsBreakdown.PAGE:
+            return False
+        if not (self.query.includeBounceRate or self.query.includeAvgTimeOnPage):
+            return False
+        if self.should_skip_session_join:
+            return False
+        return self._session_id_set_common_eligibility()
+
+    @cached_property
+    def _session_id_set_bounce_properties(
+        self,
+    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, dict, ast.Expr]]:
+        # The bounce side mirrors the join path's `_event_properties_for_bounce_rate`
+        # semantics: pathname filters are excluded, because bounce is attributed to
+        # the session's ENTRY path — restricting the id collection by the viewed
+        # pathname would compute each entry path's bounce rate over the wrong
+        # session population.
+        return [
+            *(
+                p
+                for p in self.effective_query_properties + self._test_account_filters
+                if not (get_property_type(p) == "event" and get_property_key(p) == "$pathname")
+            ),
+            *self.first_pageview_filter_exprs,
         ]
-        return property_to_expr(properties, team=self.team, scope="event")
 
-    def _all_properties(self) -> ast.Expr:
-        properties = self.query.properties + self._test_account_filters
-        return property_to_expr(properties, team=self.team)
+    def _session_id_set_bounce_filter(self) -> ast.Expr:
+        if not self._session_id_set_bounce_properties:
+            # Only-`$pathname` filters: nothing constrains session membership on
+            # the bounce side, so it stays a plain unfiltered sessions scan.
+            return ast.Constant(value=True)
+        matching_session_ids = parse_select(
+            """
+SELECT DISTINCT events.$session_id_uuid AS session_id_uuid
+FROM events
+WHERE and(
+    events.$session_id_uuid IS NOT NULL,
+    or(events.event = '$pageview', events.event = '$screen'),
+    {inside_timestamp_periods},
+    {filters},
+)
+            """,
+            placeholders={
+                "inside_timestamp_periods": self._periods_expression("timestamp"),
+                "filters": property_to_expr(self._session_id_set_bounce_properties, team=self.team, scope="event"),
+            },
+        )
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["sessions", "session_id_v7"]),
+            right=matching_session_ids,
+        )
+
+    def _check_session_id_set_selectivity(self) -> bool:
+        if not self._session_id_set_bounce_properties:
+            # No id set will be built (only-`$pathname` filters) — nothing to bound.
+            return True
+        return self._run_session_id_set_preflight(
+            filters=property_to_expr(self._session_id_set_bounce_properties, team=self.team, scope="event"),
+            query_type="stats_table_session_id_set_preflight",
+        )
+
+    def _lazy_precompute_stale(self) -> Optional[bool]:
+        # The lazy modules mark serve-stale reads via tag_queries(precompute_stale=True)
+        # before executing the read; surfacing it on the response lets clients (and the
+        # frontend's 'query completed' telemetry) see it too. None when served fresh.
+        return True if get_query_tag_value("precompute_stale") else None
 
     def get_lazy_precomputed_result(self) -> Optional[LazyStatsResult]:
         if not can_use_lazy_precompute(self):
@@ -408,6 +555,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self._lazy_precompute_stale(),
             hasMore=result.has_more,
             limit=self.paginator.limit,
             offset=self.paginator.offset,
@@ -434,6 +582,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             offset=offset,
         )
         if rows is None:
+            # The lazy module may have tagged precompute_stale before its read failed;
+            # clear it so the fallback response (and its query_log rows) are not
+            # mislabeled as stale-served.
+            clear_tag("precompute_stale")
             return None
         return self._build_response_from_lazy_rows(rows, limit=limit, offset=offset)
 
@@ -496,6 +648,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self._lazy_precompute_stale(),
             hasMore=has_more,
             limit=limit,
             offset=offset,
@@ -554,6 +707,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self._lazy_precompute_stale(),
             hasMore=has_more,
             limit=limit,
             offset=offset,
@@ -595,6 +749,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if lazy_result is not None:
             return self._build_response_from_lazy(lazy_result)
 
+        # Preflight only when the live query will actually run as the id-set
+        # shape — pre-aggregated serving must not pay a discarded events scan.
+        if self.should_use_session_id_set and not self._can_serve_preaggregated():
+            self._session_id_set_selectivity_ok = self._check_session_id_set_selectivity()
+
         query = self.to_query()
 
         # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
@@ -603,6 +762,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if self.used_preaggregated_tables:
             modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
             modifiers.convertToProjectTimezone = False
+        elif self.query_strategy().startswith("stats_table_session_id_set"):
+            # The id-set shape relies on `build_direct_session_id_in_pushdown`
+            # rewriting the bounce side's id filter below the sessions GROUP BY;
+            # that rewrite is gated on the sessionIdPushdown modifier.
+            modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            modifiers.sessionIdPushdown = True
 
         response = self.paginator.execute_hogql_query(
             query_type=self.clickhouse_query_type(),
@@ -621,14 +786,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results,
             {
                 0: self._join_with_aggregation_value,  # breakdown_value
-                1: lambda tuple, row: (  # Views (tuple)
-                    self._unsample(tuple[0], row),
-                    self._unsample(tuple[1], row),
-                ),
-                2: lambda tuple, row: (  # Visitors (tuple)
-                    self._unsample(tuple[0], row),
-                    self._unsample(tuple[1], row),
-                ),
             },
         )
 
@@ -684,8 +841,52 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             ],
         )
 
+    def _source_medium_campaign_expr(
+        self, source: ast.Expr, referring_domain: ast.Expr, medium: ast.Expr, campaign: ast.Expr
+    ) -> ast.Expr:
+        # The source part uses a prefix so the frontend can distinguish
+        # whether the value came from utm_source or the referring domain.
+        source_expr = ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="isNotNull", args=[source]),
+                source,
+                ast.Call(
+                    name="if",
+                    args=[
+                        ast.Call(name="isNotNull", args=[referring_domain]),
+                        ast.Call(name="concat", args=[ast.Constant(value=BREAKDOWN_REFERRER_PREFIX), referring_domain]),
+                        ast.Constant(value=BREAKDOWN_NULL_DISPLAY),
+                    ],
+                ),
+            ],
+        )
+        return ast.Call(
+            name="concatWithSeparator",
+            args=[
+                ast.Constant(value=" / "),
+                source_expr,
+                coalesce_with_null_display(medium),
+                coalesce_with_null_display(campaign),
+            ],
+        )
+
+    def _first_pageview_properties_expr(self) -> ast.Expr:
+        return first_pageview_properties_expr(self._effective_breakdown())
+
+    def _first_pageview_prop(self, key: str) -> ast.Expr:
+        return first_pageview_prop(self._effective_breakdown(), key)
+
+    def _first_pageview_utm_source_medium_campaign(self) -> ast.Expr:
+        return self._source_medium_campaign_expr(
+            source=self._first_pageview_prop("utm_source"),
+            referring_domain=self._first_pageview_prop("$referring_domain"),
+            medium=self._first_pageview_prop("utm_medium"),
+            campaign=self._first_pageview_prop("utm_campaign"),
+        )
+
     def _counts_breakdown_value(self):
-        match self.query.breakdownBy:
+        match self._effective_breakdown():
             case WebStatsBreakdown.PAGE:
                 path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
                 if self.query.includeHost:
@@ -752,44 +953,17 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return ast.Field(chain=["session", "$channel_type"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN:
-                # The source part uses a prefix so the frontend can distinguish
-                # whether the value came from $entry_utm_source or $entry_referring_domain
-                source_expr = ast.Call(
-                    name="if",
-                    args=[
-                        ast.Call(
-                            name="isNotNull",
-                            args=[ast.Field(chain=["session", "$entry_utm_source"])],
-                        ),
-                        ast.Field(chain=["session", "$entry_utm_source"]),
-                        ast.Call(
-                            name="if",
-                            args=[
-                                ast.Call(
-                                    name="isNotNull",
-                                    args=[ast.Field(chain=["session", "$entry_referring_domain"])],
-                                ),
-                                ast.Call(
-                                    name="concat",
-                                    args=[
-                                        ast.Constant(value=BREAKDOWN_REFERRER_PREFIX),
-                                        ast.Field(chain=["session", "$entry_referring_domain"]),
-                                    ],
-                                ),
-                                ast.Constant(value=BREAKDOWN_NULL_DISPLAY),
-                            ],
-                        ),
-                    ],
+                return self._source_medium_campaign_expr(
+                    source=ast.Field(chain=["session", "$entry_utm_source"]),
+                    referring_domain=ast.Field(chain=["session", "$entry_referring_domain"]),
+                    medium=ast.Field(chain=["session", "$entry_utm_medium"]),
+                    campaign=ast.Field(chain=["session", "$entry_utm_campaign"]),
                 )
-                return ast.Call(
-                    name="concatWithSeparator",
-                    args=[
-                        ast.Constant(value=" / "),
-                        source_expr,
-                        coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_medium"])),
-                        coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_campaign"])),
-                    ],
-                )
+            case WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE_MEDIUM_CAMPAIGN:
+                return self._first_pageview_utm_source_medium_campaign()
+            case breakdown if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
+                # Same expression the rewritten filter compares against, by construction.
+                return first_pageview_filter_value_expr(breakdown, modifiers=self.modifiers, timings=self.timings)
             case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:
@@ -843,7 +1017,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 raise NotImplementedError("Aggregation value not exists")
 
     def outer_where_breakdown(self) -> ast.Expr | None:
-        match self.query.breakdownBy:
+        match self._effective_breakdown():
             case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
                 # Country (element 1) must be present; region/city (element 2) may be NULL when
                 # GeoIP can't resolve the subdivision/city — those rows surface in the UI as
@@ -871,9 +1045,15 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 | WebStatsBreakdown.INITIAL_UTM_MEDIUM
                 | WebStatsBreakdown.INITIAL_UTM_TERM
                 | WebStatsBreakdown.INITIAL_UTM_CONTENT
+                | WebStatsBreakdown.FIRST_PAGEVIEW_REFERRING_DOMAIN
+                | WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE
+                | WebStatsBreakdown.FIRST_PAGEVIEW_UTM_CAMPAIGN
+                | WebStatsBreakdown.FIRST_PAGEVIEW_UTM_MEDIUM
+                | WebStatsBreakdown.FIRST_PAGEVIEW_UTM_TERM
+                | WebStatsBreakdown.FIRST_PAGEVIEW_UTM_CONTENT
             ):
                 return None
-            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE | WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE:
                 return parse_expr(
                     "`context.columns.breakdown_value` IS NOT NULL AND `context.columns.breakdown_value` != ''"
                 )  # we need to check for empty strings as well due to how the left join works
@@ -884,6 +1064,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))
         if self.query.includeHost:
             return self._prepend_host(ast.Field(chain=["events", "properties", "$host"]), path)
+        return path
+
+    def _bounce_entry_pathname_breakdown_sessions(self):
+        """Same as `_bounce_entry_pathname_breakdown`, but with field chains resolving
+        against the sessions table directly (no-join strategies query FROM sessions)."""
+        path = self._apply_path_cleaning(ast.Field(chain=["$entry_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["$entry_hostname"]), path)
         return path
 
     def _bounce_entry_pathname_breakdown(self):

@@ -82,6 +82,27 @@ def clickhouse_error_type(e: Exception) -> str:
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
 
 
+STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
+
+CORRUPTED_PARQUET_METADATA_MESSAGE = (
+    "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
+    "This usually means the file wasn't written correctly during import. Re-sync the source (or "
+    "re-upload the file if you manage it yourself), and contact support if it keeps happening."
+)
+
+
+def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
+    match = STORAGE_FILE_URI_PATTERN.search(err.message)
+    file_uri = match.group(1) if match else "unknown file"
+    return CHQueryErrorS3FileChangedDuringRead(
+        f"A file backing a data warehouse table changed while the query was reading it ({file_uri}). "
+        "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
+        "upload new files and delete old ones instead.",
+        code=err.code,
+        code_name="s3_file_changed_during_read",
+    )
+
+
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if not isinstance(err, ServerException):
@@ -101,7 +122,12 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
     elif name == "MEMORY_LIMIT_EXCEEDED":
-        return ClickHouseQueryMemoryLimitExceeded()
+        memory_error = ClickHouseQueryMemoryLimitExceeded()
+        # Match the known per-query phrasings ("Memory limit (for query) exceeded" before
+        # ClickHouse 26, "Query memory limit exceeded" since). Anything else - "(total)",
+        # "(for user)", or a future rewording - counts as transient cluster pressure.
+        memory_error.is_per_query_limit = "(for query)" in err.message or "Query memory limit exceeded" in err.message
+        return memory_error
     elif (
         name == "SYNTAX_ERROR" and "query size exceeded" in err.message
     ):  # Handle syntax error when "max query size exceeded" in the message
@@ -115,7 +141,22 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
             detail=f"{detail} Try reducing its scope by changing the time range."
         )
     elif name == "S3_ERROR":
+        if "The requested range is not satisfiable" in err.message:
+            return _wrap_storage_file_changed_error(err)
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
+    elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
+        return _wrap_storage_file_changed_error(err)
+    elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
+        # A Parquet file with corrupted or oversized thrift metadata (e.g.
+        # "Couldn't deserialize thrift: TProtocolException: Exceeded size limit").
+        # ClickHouse surfaces this as a raw STD_EXCEPTION (code 1001), so translate it
+        # into an actionable message instead of leaking the internals.
+        return CHQueryErrorCorruptedParquetMetadata(
+            CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code, code_name="corrupted_parquet_metadata"
+        )
+    elif name == "TABLE_IS_READ_ONLY":
+        # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
+        return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
@@ -140,6 +181,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorTooManyBytes(err.message, code=err.code, code_name="too_many_bytes")
     elif name == "CANNOT_PARSE_UUID":
         return CHQueryErrorCannotParseUuid(err.message, code=err.code, code_name="cannot_parse_uuid")
+    elif name == "CANNOT_PARSE_BOOL":
+        return CHQueryErrorCannotParseBool(err.message, code=err.code, code_name="cannot_parse_bool")
     elif name == "UNSUPPORTED_METHOD":
         return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
     elif name == "INVALID_JOIN_ON_EXPRESSION":
@@ -189,15 +232,23 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
 
 # Specific error classes we need
 # These exist here and are not dynamically created because they are used in the codebase.
-class CHQueryErrorTooManySimultaneousQueries(InternalCHQueryError):
-    pass
-
-
-class CHQueryErrorCannotScheduleTask(InternalCHQueryError):
-    pass
-
-
 class CHQueryErrorS3Error(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
+    """A file backing a warehouse table was overwritten or deleted while ClickHouse was reading it."""
+
+    pass
+
+
+class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
+    """A Parquet file backing a warehouse table has corrupted or oversized thrift metadata."""
+
     pass
 
 
@@ -226,7 +277,7 @@ class CHQueryErrorIllegalAggregation(ExposedCHQueryError):
     pass
 
 
-class CHQueryErrorNumberOfArgumentsDoesntMatch(InternalCHQueryError):
+class CHQueryErrorNumberOfArgumentsDoesntMatch(ExposedCHQueryError):
     pass
 
 
@@ -238,7 +289,11 @@ class CHQueryErrorTooManyBytes(ExposedCHQueryError):
     pass
 
 
-class CHQueryErrorCannotParseUuid(InternalCHQueryError):
+class CHQueryErrorCannotParseUuid(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorCannotParseBool(ExposedCHQueryError):
     pass
 
 
@@ -319,15 +374,15 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),
-    34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION", category=QueryErrorCategory.USER_ERROR),
-    35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION", category=QueryErrorCategory.USER_ERROR),
+    34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION", user_safe=True),
+    35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION", user_safe=True),
     36: ErrorCodeMeta("BAD_ARGUMENTS", user_safe=True),
     37: ErrorCodeMeta("UNKNOWN_ELEMENT_IN_AST"),
     38: ErrorCodeMeta("CANNOT_PARSE_DATE", user_safe=True),
     39: ErrorCodeMeta("TOO_LARGE_SIZE_COMPRESSED"),
     40: ErrorCodeMeta("CHECKSUM_DOESNT_MATCH"),
     41: ErrorCodeMeta("CANNOT_PARSE_DATETIME", user_safe=True),
-    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", category=QueryErrorCategory.USER_ERROR),
+    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", user_safe=True),
     43: ErrorCodeMeta("ILLEGAL_TYPE_OF_ARGUMENT", user_safe=True),
     44: ErrorCodeMeta(
         "ILLEGAL_COLUMN", category=QueryErrorCategory.USER_ERROR
@@ -464,9 +519,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     203: ErrorCodeMeta("NO_FREE_CONNECTION", category=QueryErrorCategory.RATE_LIMITED),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
     206: ErrorCodeMeta("ALIAS_REQUIRED"),
-    207: ErrorCodeMeta(
-        "AMBIGUOUS_IDENTIFIER", category=QueryErrorCategory.USER_ERROR
-    ),  # identifier resolves to multiple columns or aliases
+    207: ErrorCodeMeta("AMBIGUOUS_IDENTIFIER", user_safe=True),  # identifier resolves to multiple columns or aliases
     208: ErrorCodeMeta("EMPTY_NESTED_TABLE"),
     209: ErrorCodeMeta("SOCKET_TIMEOUT"),
     210: ErrorCodeMeta("NETWORK_ERROR"),
@@ -500,8 +553,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     239: ErrorCodeMeta("CANNOT_MUNMAP"),
     240: ErrorCodeMeta("CANNOT_MREMAP"),
     241: ErrorCodeMeta(
+        # Code 241 short-circuits to ClickHouseQueryMemoryLimitExceeded in wrap_clickhouse_query_error,
+        # so the user-facing copy lives on that exception's default_detail, not on user_safe here.
         "MEMORY_LIMIT_EXCEEDED",
-        user_safe="Query exceeds memory limits. Try reducing its scope by changing the time range.",
         category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
     ),
     242: ErrorCodeMeta("TABLE_IS_READ_ONLY"),
@@ -581,7 +635,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     346: ErrorCodeMeta("CANNOT_CONVERT_CHARSET"),
     347: ErrorCodeMeta("CANNOT_LOAD_CONFIG"),
     349: ErrorCodeMeta("CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN", user_safe=True),
-    352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME", category=QueryErrorCategory.USER_ERROR),
+    352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME", user_safe=True),
     353: ErrorCodeMeta("INDEX_OF_POSITIONAL_ARGUMENT_IS_OUT_OF_RANGE", user_safe=True),
     354: ErrorCodeMeta("ZLIB_INFLATE_FAILED"),
     355: ErrorCodeMeta("ZLIB_DEFLATE_FAILED"),
@@ -968,4 +1022,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
-CH_TRANSIENT_ERRORS = (CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error)
+# Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
+CH_TRANSIENT_ERRORS = (
+    CHQueryErrorS3Error,
+    CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorTableIsReadOnly,
+    ClickHouseAtCapacity,
+)

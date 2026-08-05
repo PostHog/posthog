@@ -43,6 +43,8 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import str_to_bool
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
@@ -65,7 +67,7 @@ from products.product_analytics.backend.models.insight import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
@@ -128,6 +130,73 @@ class DashboardExportInsightsField(serializers.Field):
         return data
 
 
+class AIWindowConfigSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=Subscription.AIWindowMode.choices,
+        default=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        help_text=(
+            "What the report analyzes each run:\n"
+            "* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n"
+            "* `last_n_days` — a fixed trailing window of start_days_ago days\n"
+            "* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago"
+        ),
+    )
+    start_days_ago = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text=(
+            "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' "
+            "(the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+        ),
+    )
+    end_days_ago = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=365,
+        help_text=(
+            "Upper bound of the analysis window, in days before the run (0 = now). Required for "
+            "'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict:
+        return Subscription.normalize_ai_window(instance)
+
+    def validate(self, attrs: dict) -> dict:
+        mode = attrs.get("mode") or Subscription.AIWindowMode.SINCE_LAST_SENT
+        start = attrs.get("start_days_ago")
+        end = attrs.get("end_days_ago")
+
+        if mode == Subscription.AIWindowMode.SINCE_LAST_SENT:
+            # Day bounds are meaningless here; normalise them away so a later mode switch starts clean.
+            attrs["start_days_ago"] = None
+            attrs["end_days_ago"] = None
+            return attrs
+        if not start:
+            raise ValidationError({"start_days_ago": [f"Required when mode is '{mode}'."]})
+        if mode == Subscription.AIWindowMode.LAST_N_DAYS:
+            attrs["end_days_ago"] = None
+            return attrs
+        # DAYS_AGO_RANGE
+        if end is None:
+            raise ValidationError({"end_days_ago": [f"Required when mode is '{mode}'."]})
+        if end >= start:
+            raise ValidationError(
+                {"end_days_ago": ["Must be less than start_days_ago (the window must end after it starts)."]}
+            )
+        return attrs
+
+
+class AIPromptConfigSerializer(serializers.Serializer):
+    window = AIWindowConfigSerializer(
+        required=False,
+        help_text="Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -148,6 +217,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Optional message included in the invitation email when adding new recipients.",
     )
+    send_test_now = serializers.BooleanField(
+        required=False,
+        write_only=True,
+        help_text=(
+            "Whether to immediately deliver the subscription once on save so the editor can confirm "
+            "it looks right. Defaults to true on create. When omitted on update, a delivery is sent "
+            "only if the edit changed what gets delivered (recipient, channel, source) or re-enabled "
+            "the subscription. The recurring schedule is unaffected."
+        ),
+    )
     integration_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -155,7 +234,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     )
     dashboard_export_insights = DashboardExportInsightsField(
         required=False,
-        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.",
+    )
+    ai_prompt_config = AIPromptConfigSerializer(
+        required=False,
+        help_text=(
+            "Configuration for AI report subscriptions (analysis window, future knobs). Only valid "
+            "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+        ),
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
@@ -181,6 +267,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "resource_name",
             "dashboard_export_insights",
             "prompt",
+            "ai_prompt_config",
             "target_type",
             "target_value",
             "frequency",
@@ -199,6 +286,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "next_delivery_date",
             "integration_id",
             "invite_message",
+            "send_test_now",
             "summary_enabled",
             "summary_prompt_guide",
         ]
@@ -234,7 +322,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 ),
             },
             "byweekday": {
-                "help_text": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+                "help_text": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
             },
             "bysetpos": {
                 "help_text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."
@@ -357,6 +445,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # diagnosable, an unhandled KeyError surfaces as a 500.
         if validate_for_resource_type is None:
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
+        if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
+            raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
@@ -527,29 +617,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
-    def _capture_update_delivery_decision(
-        self, instance: Subscription, *, delivery_triggered: bool, re_enabled: bool
-    ) -> None:
-        try:
-            posthoganalytics.capture(
-                distinct_id=self._caller_distinct_id(),
-                event="subscription_update_delivery_decision",
-                properties={
-                    "subscription_id": instance.id,
-                    "team_id": instance.team_id,
-                    "resource_type": instance.resource_type,
-                    "target_type": instance.target_type,
-                    "delivery_triggered": delivery_triggered,
-                    "reason": "re_enabled"
-                    if re_enabled
-                    else ("delivery_field_changed" if delivery_triggered else "no_delivery_relevant_change"),
-                },
-                groups=groups(None, instance.team),
-            )
-        except Exception as e:
-            # Telemetry must never block the update.
-            capture_exception(e)
-
     def _evaluate_feature_flag(self, flag_key: str) -> bool:
         """Evaluate a feature flag for the caller's organization.
 
@@ -604,9 +671,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insights:
             selected_ids = set(dashboard_export_insights)
 
-            if len(selected_ids) > DEFAULT_MAX_ASSET_COUNT:
+            if len(selected_ids) > MAX_INSIGHTS:
                 raise ValidationError(
-                    {"dashboard_export_insights": [f"Cannot select more than {DEFAULT_MAX_ASSET_COUNT} insights."]}
+                    {"dashboard_export_insights": [f"Cannot select more than {MAX_INSIGHTS} insights."]}
                 )
 
             # Ensure all selected insights belong to the team
@@ -644,6 +711,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         )
 
         invite_message = validated_data.pop("invite_message", "")
+        # The immediate confirmation delivery (SUBSCRIPTION_CHANGE below) is separate from the
+        # recurring schedule, which the scheduler drives off next_delivery_date. Creators
+        # can opt out of that first send via send_test_now; the schedule is unaffected.
+        send_test_now = validated_data.pop("send_test_now", True)
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         with attribute_subscription_saves(get_request_analytics_properties(request)):
             instance: Subscription = super().create(validated_data)
@@ -656,10 +727,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
-        # Skip the workflow trigger when the new subscription is created in a disabled
-        # state — mirrors the equivalent guard in `update()`. Avoids firing a delivery
-        # for a subscription that won't fire on its schedule either.
-        if not instance.enabled:
+        if not instance.enabled or not send_test_now:
             return instance
 
         with slo_operation(
@@ -697,9 +765,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         distinct_id=str(instance.created_by.distinct_id)
                         if instance.created_by
                         else str(instance.team_id),
+                        previous_target_value="",
                         previous_value="",
                         invite_message=invite_message,
-                        trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
                         resource_type=instance.resource_type,
                     ),
                     id=workflow_id,
@@ -711,18 +780,21 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         request = self.context["request"]
-        previous_value = instance.target_value
+        previous_target_value = instance.target_value
         was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
+        # None means "not provided" — the delivery decision then falls back to inferring from
+        # what the edit changed, matching the long-standing default behavior.
+        send_test_now: bool | None = validated_data.pop("send_test_now", None)
         # Track payload PRESENCE, not truthiness: an empty list (clearing all exports) is delivery-relevant
         # too, so `bool(ids)` would miss it. Pop loses presence, so capture it first.
         export_insights_in_payload = "dashboard_export_insights" in validated_data
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         analytics_props = get_request_analytics_properties(request)
 
-        # Snapshot delivery-relevant scalar values before the write so we can tell, after,
-        # whether the edit actually changed what gets delivered. Only snapshot the
+        # Snapshot delivery-relevant values before the write so the inferred path can tell,
+        # after, whether the edit actually changed what gets delivered. Only snapshot the
         # dashboard_export_insights M2M when the payload carries it — that's the only case
         # `.set()` can mutate the relation, so a schedule/meta-only edit pays no M2M query.
         old_delivery_values = {field: getattr(instance, field) for field in self.FIELDS_THAT_TRIGGER_REDELIVERY}
@@ -764,56 +836,99 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # Re-enabling clears the stale next_delivery_date that was frozen while
         # disabled. Without this, the scheduler picks the sub up on its next tick
         # (the past date matches `next_delivery_date__lte=now`) and fires a second
-        # SCHEDULED delivery right after the immediate TARGET_CHANGE confirmation.
+        # SCHEDULED delivery right after the immediate SUBSCRIPTION_CHANGE confirmation.
         if is_re_enabling:
             instance.set_next_delivery_date()
             instance.save(update_fields=["next_delivery_date"])
 
-        # Skip the workflow trigger when the resulting state is disabled. No delivery
-        # should fire for a disabled subscription regardless of whether it was just
-        # disabled or already disabled.
-        if not instance.enabled:
-            return instance
-
-        # Only fire the immediate confirmation delivery when the edit changed *what*
-        # gets delivered, or when re-enabling (`enabled: false → true`) — the user
-        # expects a confirmation delivery in both cases. A schedule/meta-only edit
-        # (frequency, interval, title, summary_*, …) re-saves next_delivery_date via
-        # the model's save() but must not push a fresh delivery.
-        delivery_target_changed = any(
+        delivery_content_changed = any(
             getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
         ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
 
-        # The "<kind> subscription updated" event fires from the post_save signal before this decision is
-        # made, so it can't tell an edit that fired a confirmation from one that intentionally skipped.
-        # Emit the decision explicitly so a regression that silently suppressed deliveries stays observable.
-        delivery_triggered = is_re_enabling or delivery_target_changed
-        self._capture_update_delivery_decision(
-            instance, delivery_triggered=delivery_triggered, re_enabled=is_re_enabling
+        # Explicit send_test_now wins. When omitted, infer: send when the edit changed what
+        # gets delivered, or on re-enable — a schedule/meta-only edit must not push a fresh
+        # delivery. Disabled subscriptions never fire regardless.
+        wants_delivery = send_test_now if send_test_now is not None else (is_re_enabling or delivery_content_changed)
+        delivery_triggered = wants_delivery and instance.enabled
+
+        # Explicit observability for the delivery decision on edits — the canonical
+        # "subscription updated" event fires from the post_save signal before this decision
+        # exists, so a regression that silently suppressed deliveries would be invisible there.
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_update_delivery_intent",
+            properties={
+                **analytics_props,
+                "subscription_id": instance.id,
+                "team_id": instance.team_id,
+                "resource_type": instance.resource_type,
+                "send_test_now": send_test_now,
+                "delivery_triggered": delivery_triggered,
+                "re_enabled": is_re_enabling,
+                "subscription_enabled": instance.enabled,
+            },
+            groups=groups(None, instance.team),
         )
+
         if not delivery_triggered:
             return instance
 
         temporal = sync_connect()
-        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        asyncio.run(
-            temporal.start_workflow(
-                "handle-subscription-value-change",
-                ProcessSubscriptionWorkflowInputs(
-                    subscription_id=instance.id,
-                    team_id=instance.team_id,
-                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
-                    previous_value=previous_value,
-                    invite_message=invite_message,
-                    trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
-                    resource_type=instance.resource_type,
-                ),
-                id=workflow_id,
-                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        if send_test_now:
+            # Explicit ask: deterministic ID so a caller spamming send_test_now dedupes to one
+            # in-flight delivery per subscription instead of fanning out real sends. Kept distinct
+            # from the test-delivery action's ID family so the two flows stay tellable apart.
+            workflow_id = f"send-test-now-subscription-{instance.id}"
+        else:
+            # Inferred delivery (recipient/target change, re-enable): unique ID so two legitimate
+            # consecutive edits both deliver instead of the second silently deduping.
+            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+        try:
+            asyncio.run(
+                temporal.start_workflow(
+                    "handle-subscription-value-change",
+                    ProcessSubscriptionWorkflowInputs(
+                        subscription_id=instance.id,
+                        team_id=instance.team_id,
+                        distinct_id=str(instance.created_by.distinct_id)
+                        if instance.created_by
+                        else str(instance.team_id),
+                        previous_target_value=previous_target_value,
+                        previous_value=previous_target_value,
+                        invite_message=invite_message,
+                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
+                        resource_type=instance.resource_type,
+                    ),
+                    id=workflow_id,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
             )
-        )
+        except WorkflowAlreadyStartedError:
+            # A delivery for this subscription is already in flight; the update itself
+            # succeeded, so skip the duplicate send rather than failing the request.
+            pass
 
         return instance
+
+
+def _parse_int_param(value: str, param: str) -> int:
+    try:
+        return int(value.strip())
+    except ValueError:
+        raise ValidationError({param: ["Must be an integer ID."]}) from None
+
+
+def _parse_int_list_param(value: str, param: str) -> list[int]:
+    # int() (not str.isdigit) so exotic digits like "²" fail as a 400 here instead of a 500,
+    # and invalid tokens reject the request instead of being silently dropped.
+    tokens = [token.strip() for token in value.split(",") if token.strip()]
+    try:
+        ids = [int(token) for token in tokens]
+    except ValueError:
+        ids = []
+    if not ids:
+        raise ValidationError({param: ["Must be a comma-separated list of integer insight IDs."]})
+    return ids
 
 
 def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool:
@@ -828,6 +943,7 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
 
 @extend_schema_view(
     list=extend_schema(
+        extensions={"x-product": "subscriptions"},
         parameters=[
             OpenApiParameter(
                 name="created_by",
@@ -860,16 +976,34 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 description="Filter by insight ID.",
             ),
             OpenApiParameter(
+                name="insights",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by a comma-separated list of insight IDs.",
+            ),
+            OpenApiParameter(
                 name="dashboard",
                 type=int,
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Filter by dashboard ID.",
             ),
+            OpenApiParameter(
+                name="dashboard_tiles",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to subscriptions on insights that are tiles of the given dashboard ID.",
+            ),
         ],
     ),
+    create=extend_schema(extensions={"x-product": "subscriptions"}),
+    retrieve=extend_schema(extensions={"x-product": "subscriptions"}),
+    partial_update=extend_schema(extensions={"x-product": "subscriptions"}),
+    destroy=extend_schema(extensions={"x-product": "subscriptions"}),
 )
-@extend_schema(tags=["subscriptions"])
+@extend_schema(tags=["subscriptions"], extensions={"x-product": "subscriptions"})
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "subscription"
     queryset = Subscription.objects.all()
@@ -922,6 +1056,15 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         pk = view.kwargs.get("pk")
         return bool(pk) and _subscription_is_ai_prompt(pk, self.team_id)
 
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        # An update that requests send_test_now enqueues a real email/Slack delivery — the same
+        # blast radius as the test-delivery action — so it shares that team-wide throttle.
+        data = self.request.data
+        if self.action in ("update", "partial_update") and isinstance(data, dict) and data.get("send_test_now"):
+            throttles.append(SubscriptionTestDeliveryThrottle())
+        return throttles
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
 
@@ -963,16 +1106,40 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 queryset = queryset.filter(target_type=target_type_filter)
 
         for key in request_params:
-            if key == "insight":
-                queryset = queryset.filter(insight_id=request_params["insight"])
+            if key in ("insight", "insights"):
+                # `insight` (single ID) and `insights` (comma-separated IDs) share one filter:
+                # both are parsed as an ID list so behavior and validation stay identical.
+                queryset = queryset.filter(insight_id__in=_parse_int_list_param(request_params[key], key))
+            elif key == "dashboard_tiles":
+                # Subscriptions on insights that are live tiles of the given dashboard, resolved server-side
+                # so the overview's "Insights" tab never depends on which tiles the client happens to have
+                # loaded into memory. The default DashboardTile manager skips deleted tiles/dashboards; we
+                # also drop soft-deleted insights and scope to the team, matching the tile set the sibling
+                # dashboard-export validation resolves.
+                dashboard_id = _parse_int_param(request_params["dashboard_tiles"], "dashboard_tiles")
+                # Require view access to the dashboard itself: without it a project member could pass any
+                # dashboard ID and enumerate which subscribed insights are tiles on a dashboard they can't see.
+                dashboard = Dashboard.objects.filter(id=dashboard_id, team_id=self.team_id).first()
+                if dashboard is None:
+                    raise ValidationError({"dashboard_tiles": ["Dashboard not found."]})
+                if not self.user_access_control.check_access_level_for_object(dashboard, "viewer"):
+                    raise exceptions.PermissionDenied("You do not have access to this dashboard.")
+                tile_insight_ids = DashboardTile.objects.filter(
+                    dashboard_id=dashboard_id,
+                    dashboard__team_id=self.team_id,
+                    insight_id__isnull=False,
+                    insight__deleted=False,
+                ).values_list("insight_id", flat=True)
+                queryset = queryset.filter(insight_id__in=tile_insight_ids)
             elif key == "dashboard":
-                queryset = queryset.filter(dashboard_id=request_params["dashboard"])
+                queryset = queryset.filter(dashboard_id=_parse_int_param(request_params["dashboard"], "dashboard"))
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request_params["deleted"]))
 
         return queryset
 
     @extend_schema(
+        extensions={"x-product": "subscriptions"},
         request=None,
         responses={
             200: OpenApiResponse(
@@ -1019,6 +1186,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         return Response(payload)
 
     @extend_schema(
+        extensions={"x-product": "subscriptions"},
         request=None,
         responses={202: OpenApiResponse(description="Test delivery workflow started")},
     )
@@ -1053,6 +1221,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                         distinct_id=str(subscription.created_by.distinct_id)
                         if subscription.created_by
                         else str(subscription.team_id),
+                        previous_target_value=None,
                         previous_value=None,
                         invite_message=None,
                         trigger_type=SubscriptionTriggerType.MANUAL,
@@ -1116,6 +1285,11 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     # nullable). Single source of truth — keep in sync when adding AI-derived delivery fields.
     # ai_report_prompt is user-authored (not query-derived) and already readable on the parent
     # subscription, so it is intentionally not scrubbed.
+    # recipient_results is also intentionally not scrubbed: its human_readable_error values are
+    # audience-independent delivery failure reasons (auto-disable causes, prompt rejections, Slack
+    # thread-failure counts) that carry no query-derived data. New producers of
+    # recipient_results[].human_readable_error must keep that invariant — never route a
+    # query/executor-derived message through it, since query-restricted viewers can read it.
     AI_REPORT_SCRUBBED: ClassVar[dict[str, object | None]] = {
         "content_snapshot": {},
         "change_summary": None,
@@ -1163,7 +1337,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "subscription": {"help_text": "Parent subscription id."},
             "temporal_workflow_id": {"help_text": "Temporal workflow id for this delivery run."},
             "idempotency_key": {"help_text": "Dedupes activity retries for the same logical run."},
-            "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, target_change)."},
+            "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, subscription update)."},
             "scheduled_at": {"help_text": "Planned send time when applicable."},
             "target_type": {"help_text": "Channel snapshot at send time (email or slack)."},
             "target_value": {"help_text": "Destination snapshot at send time (emails, channel id, URL)."},
@@ -1241,6 +1415,7 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
 
 @extend_schema_view(
     list=extend_schema(
+        extensions={"x-product": "subscriptions"},
         summary="List subscription deliveries",
         description="Paginated delivery history for a subscription. Requires premium subscriptions.",
         parameters=[
@@ -1256,12 +1431,13 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
         responses={200: OpenApiResponse(response=SubscriptionDeliverySerializer(many=True))},
     ),
     retrieve=extend_schema(
+        extensions={"x-product": "subscriptions"},
         summary="Retrieve subscription delivery",
         description="Fetch one delivery row by id.",
         responses={200: SubscriptionDeliverySerializer},
     ),
 )
-@extend_schema(tags=["subscriptions"])
+@extend_schema(tags=["subscriptions"], extensions={"x-product": "subscriptions"})
 class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "subscription"
     queryset = SubscriptionDelivery.objects.all()

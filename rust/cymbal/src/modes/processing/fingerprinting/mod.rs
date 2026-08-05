@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::sync::OnceLock;
 
 use crate::frames::Frame;
-use crate::modes::processing::rules::grouping::GroupingRule;
 use crate::types::{Exception, ExceptionList, Stacktrace};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -60,14 +59,6 @@ impl FingerprintBuilder {
 }
 
 impl Fingerprint {
-    pub fn from_rule(rule: GroupingRule) -> Self {
-        let content = format!("custom-rule:{}", rule.id);
-        Fingerprint {
-            value: content,
-            record: vec![FingerprintRecordPart::Custom { rule_id: rule.id }],
-        }
-    }
-
     pub fn from_exception_list(exception_list: &ExceptionList) -> Fingerprint {
         FingerprintVersion::V1
             .strategy()
@@ -82,6 +73,13 @@ impl Fingerprint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FingerprintVersion {
+    // Legacy-order twins of V1/V2: the same strategies computed over the pre-flip wire order
+    // of SDKs whose ordering the pipeline normalizes (see `normalization::legacy_wire_order`).
+    // They exist so issues keyed before wire-order normalization stay addressable; being
+    // non-newest, they can never create issues — they only match existing ones. Delete them
+    // once legacy-keyed traffic decays (watch `$exception_fingerprint_version`).
+    V1Legacy,
+    V2Legacy,
     // The historical algorithm — bit-for-bit (guarded by tests/fingerprint_golden.rs).
     V1,
     // Normalizing strategy: hashes all frames of every chain entry, drops unresolved
@@ -94,14 +92,35 @@ impl FingerprintVersion {
     // All registered versions, ascending. Order is meaningful: selection keeps the newest
     // already-used fingerprint, and new issues are created under the last (newest) entry.
     pub fn all() -> &'static [FingerprintVersion] {
-        &[FingerprintVersion::V1, FingerprintVersion::V2]
+        // Each legacy twin sits immediately below its canonical version, so the
+        // newest-first selection walk prefers V2, then V2's legacy order, then
+        // V1, then V1's — an event matching both a V2-era legacy row and an
+        // older V1 row stays on the newer issue. The last entry (the new-issue
+        // fallback) must never be a legacy version.
+        &[
+            FingerprintVersion::V1Legacy,
+            FingerprintVersion::V1,
+            FingerprintVersion::V2Legacy,
+            FingerprintVersion::V2,
+        ]
     }
 
     pub fn as_str(&self) -> &'static str {
         match self {
+            FingerprintVersion::V1Legacy => "v1_legacy",
+            FingerprintVersion::V2Legacy => "v2_legacy",
             FingerprintVersion::V1 => "v1",
             FingerprintVersion::V2 => "v2",
         }
+    }
+
+    // Legacy versions hash the reconstructed pre-flip order instead of the canonical list;
+    // the grouping stage supplies the right list per version.
+    pub fn is_legacy(&self) -> bool {
+        matches!(
+            self,
+            FingerprintVersion::V1Legacy | FingerprintVersion::V2Legacy
+        )
     }
 
     pub fn compute(&self, exception_list: &ExceptionList) -> Fingerprint {
@@ -110,8 +129,8 @@ impl FingerprintVersion {
 
     pub fn strategy(&self) -> FingerprintStrategy {
         match self {
-            FingerprintVersion::V1 => FingerprintStrategy::default(),
-            FingerprintVersion::V2 => FingerprintStrategy {
+            FingerprintVersion::V1 | FingerprintVersion::V1Legacy => FingerprintStrategy::default(),
+            FingerprintVersion::V2 | FingerprintVersion::V2Legacy => FingerprintStrategy {
                 frame_selection: FrameSelection::AllFrames,
                 // `Last` scores better offline (holdout F1 0.55 vs 0.40) but SDKs disagree on
                 // chain order — current SDKs put the root cause last, the legacy python SDK put
@@ -194,14 +213,21 @@ impl Normalization {
             }
         }
         if self.strip_hashed_chunks {
-            // Build hashes are long alphanumeric runs containing at least one digit (the digit
-            // constraint lives in the replacer because the regex crate has no lookahead).
+            // Build hashes are long alphanumeric runs. Most bundler hash alphabets include
+            // digits, but esbuild's can land on an all-letter token (chunk-SURMLCAQ.js), so a
+            // digit-only test misses those and mints a fresh fingerprint every time the hash
+            // happens to roll all-letter. All-uppercase is the second signal: real identifiers
+            // that end up in a path (words, camelCase names) are essentially never all-uppercase,
+            // so treat "has a digit" OR "every letter is uppercase" as a build hash. (The regex
+            // crate has no lookahead, so both checks live in the replacer.)
             let re = HASHED_CHUNK_TOKEN
                 .get_or_init(|| Regex::new(r"[A-Za-z0-9]{8,}").expect("valid regex"));
             out = re
                 .replace_all(&out, |caps: &regex::Captures| {
                     let token = &caps[0];
-                    if token.chars().any(|c| c.is_ascii_digit()) {
+                    let looks_like_hash = token.chars().any(|c| c.is_ascii_digit())
+                        || token.chars().all(|c| c.is_ascii_uppercase());
+                    if looks_like_hash {
                         "*".to_string()
                     } else {
                         token.to_string()
@@ -463,7 +489,6 @@ mod test {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
             synthetic: false,
             suspicious: false,
             module: None,
@@ -689,6 +714,8 @@ mod test {
                 "http://x.com/app.js?v=def456",
             ),
             ("chunk-PGUQKT6S.js", "chunk-Z9XW4B2Q.js"),
+            // esbuild's hash alphabet can roll an all-letter token with no digits at all.
+            ("/static/chunk-SURMLCAQ.js", "/static/chunk-DJSITZHL.js"),
             (
                 "/data/app/8CC63366-D88D/bundle.js",
                 "/data/app/A4CD3A3C-8BE6/bundle.js",

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconArrowLeft, IconBug } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -23,6 +24,7 @@ import { NotActionableTab } from './components/tabs/NotActionableTab'
 import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
+import { captureInboxPanelViewed } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
 import { INBOX_TAB_DESCRIPTION, InboxTabKey, SignalReport, SignalRun } from './types'
@@ -90,6 +92,27 @@ function InboxListView(): JSX.Element {
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
 
+    // Runs and Configuration don't render `InboxReportList`, so `Inbox viewed` never fires for them.
+    // Same once-per-visit guard as the report list: hold Runs until its load settles so the count is real.
+    const panelViewFiredRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (effectiveTab !== 'runs' && effectiveTab !== 'config') {
+            panelViewFiredRef.current = null
+            return
+        }
+        if (effectiveTab === 'runs' && signalRunsLoading) {
+            return
+        }
+        if (panelViewFiredRef.current === effectiveTab) {
+            return
+        }
+        panelViewFiredRef.current = effectiveTab
+        captureInboxPanelViewed({
+            panel: effectiveTab,
+            itemCount: effectiveTab === 'runs' ? signalRuns.length : null,
+        })
+    }, [effectiveTab, signalRunsLoading, signalRuns.length])
+
     return (
         <div ref={widthRef} className="flex min-h-0 flex-1">
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
@@ -134,7 +157,8 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
 
     return (
         <div className="flex flex-col min-h-0 flex-1 overflow-auto">
-            <ReportDetail report={report} tab={activeTab} />
+            {/* Key on the report so per-report detail state (e.g. the active diff tab) resets on navigation. */}
+            <ReportDetail key={report.id} report={report} tab={activeTab} />
         </div>
     )
 }
@@ -183,6 +207,19 @@ export function InboxScene(): JSX.Element {
     // instead of remounting and resetting to the first page at the top.
     const showDetail = !!selectedReportId || !!selectedScoutSkillName || isScratchpadOpen || isFindingsOpen
 
+    // The two scout panels replace the list without going through any tab, so they'd otherwise leave
+    // no trace at all. The scout detail reports itself (it has the config to describe).
+    useEffect(() => {
+        if (isFindingsOpen) {
+            captureInboxPanelViewed({ panel: 'findings' })
+        }
+    }, [isFindingsOpen])
+    useEffect(() => {
+        if (isScratchpadOpen) {
+            captureInboxPanelViewed({ panel: 'scratchpad' })
+        }
+    }, [isScratchpadOpen])
+
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
@@ -192,7 +229,7 @@ export function InboxScene(): JSX.Element {
                     // In the onboarding takeover the tabs are locked, so keep the overall pitch.
                     description={
                         onboardingMode === 'takeover'
-                            ? 'Self-driving for your product. Look through work done by PostHog agents – code changes and reports.'
+                            ? 'Self-driving for your product. Look through code changes and reports from PostHog agents.'
                             : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}

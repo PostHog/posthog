@@ -28,7 +28,7 @@ def ensure_person_join_for_team(team_id: int) -> None:
 
 def ensure_person_join(team_id: int, table_prefix: str | None = None) -> None:
     prefix = table_prefix or ""
-    DataWarehouseJoin.objects.get_or_create(
+    DataWarehouseJoin.create_if_missing(
         team_id=team_id,
         deleted=False,
         source_table_name=get_customer_revenue_view_name(prefix),

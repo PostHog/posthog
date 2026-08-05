@@ -7,14 +7,13 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
+from posthog.models.integration import Integration
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -23,25 +22,66 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
+    MetaAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
+    SHRINK_EXHAUSTED_ERROR_MESSAGE,
+    MetaAdsAuthError,
+    MetaAdsRateLimitError,
     MetaAdsResumeConfig,
+    MetaAdsTokenRefreshError,
+    get_integration_by_id,
+    list_ad_accounts,
     meta_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Meta's numeric `account_status`, as the Ads Manager labels it. 201/202 (ANY_ACTIVE, ANY_CLOSED)
+# are query filters rather than states an account is ever returned in, so they're absent here.
+ACCOUNT_STATUS_LABELS = {
+    1: "Active",
+    2: "Disabled",
+    3: "Unsettled",
+    7: "Pending risk review",
+    8: "Pending settlement",
+    9: "In grace period",
+    100: "Pending closure",
+    101: "Closed",
+}
+
+
+def _status_badges(account: dict) -> tuple[str, ...]:
+    status = account.get("account_status")
+    label = ACCOUNT_STATUS_LABELS.get(status) if status is not None else None
+    return (label,) if label else ()
+
 
 @SourceRegistry.register
-class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
+class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supported_versions = ("v25.0",)
+    default_version = "v25.0"
+    api_docs_url = "https://developers.facebook.com/docs/graph-api/changelog"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -91,7 +131,22 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
             # both paths shrink the per-page limit 500 → 100 → 50); if it still escapes after those
             # fallbacks are exhausted, retrying the whole job won't help.
             "Please reduce the amount of data you're asking for": None,
+            # Raised by `meta_ads._raise_shrink_exhausted_error` once both ladders
+            # have bottomed out. The next attempt would re-issue the identical
+            # single-day, smallest-page request that just failed, so the only thing
+            # left is for the user to narrow the sync window.
+            SHRINK_EXHAUSTED_ERROR_MESSAGE: (
+                "Meta couldn't return this data even at the smallest request size. Lower the sync "
+                "history for insights in your Meta Ads source settings, then run the sync again."
+            ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Meta error codes 1 ("API Unknown") and 2 ("API Service") are momentary backend blips
+        # Meta's own docs recommend simply retrying. `meta_ads._raise_meta_api_error` tags them
+        # with this marker once `_get_with_transient_retry`'s in-process retries are exhausted, so
+        # the eventual Temporal-level retry doesn't page us as a bug.
+        return {"Meta API request failed (retryable)"}
 
     def get_schemas(
         self,
@@ -100,22 +155,9 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MetaAdsResumeConfig]:
         return ResumableSourceManager[MetaAdsResumeConfig](inputs, MetaAdsResumeConfig)
@@ -145,30 +187,29 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
             name=SchemaExternalDataSourceType.META_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
-            keywords=["facebook ads", "instagram ads"],
+            keywords=["facebook ads", "instagram ads", "facebook", "instagram", "fb"],
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
             iconPath="/static/services/meta-ads.png",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="account_id",
-                        label="Account ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="",
-                        secret=False,
-                    ),
                     SourceFieldOauthConfig(
                         name="meta_ads_integration_id",
                         label="Meta Ads account",
                         required=True,
                         kind="meta-ads",
                     ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="account_id",
+                        label="Account ID",
+                        integrationField="meta_ads_integration_id",
+                        integrationKind="meta-ads",
+                        required=True,
+                    ),
                     SourceFieldInputConfig(
                         name="sync_lookback_days",
-                        label="Sync history for insights (days) - applies to AdStats, AdsetStats, CampaignStats",
+                        label="Sync history for insights (days) - applies to every stats table",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
                         placeholder="90",
@@ -188,3 +229,38 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
                 ),
             ],
         )
+
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # A Meta user's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
+        try:
+            integration = get_integration_by_id(integration_id, team_id)
+        except Integration.DoesNotExist as e:
+            raise IntegrationAccountListingError(
+                "The linked Meta Ads integration could not be found. Please reconnect your Meta Ads integration."
+            ) from e
+        except MetaAdsTokenRefreshError as e:
+            raise IntegrationAccountListingError(str(e)) from e
+
+        try:
+            accounts = list_ad_accounts(integration)
+        except MetaAdsAuthError as e:
+            raise IntegrationAccountListingError(
+                f"{META_AUTH_ERROR_MESSAGE} Make sure the connected account can access your ad accounts."
+            ) from e
+        except MetaAdsRateLimitError as e:
+            # Throttling is not a bug: surface it as an actionable 400 the user can retry, rather
+            # than a 500 that pages us.
+            raise IntegrationAccountListingError(str(e)) from e
+
+        return [
+            IntegrationAccount(
+                # Bare id, as the Ads Manager shows it; the pipeline's `_clean_account_id` adds the
+                # `act_` prefix the Graph API wants.
+                value=account["account_id"],
+                display_name=account.get("name") or "Unnamed account",
+                badges=_status_badges(account),
+            )
+            for account in accounts
+        ]

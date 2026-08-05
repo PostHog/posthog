@@ -8,7 +8,10 @@ use posthog_rs::CaptureExceptionOptions;
 use serde::Deserialize;
 use tracing::debug;
 
-use crate::{api::client::ClientError, invocation_context::current_telemetry_command_name};
+use crate::{
+    api::client::ClientError, api_proxy::ApiProxyError,
+    invocation_context::current_telemetry_command_name,
+};
 
 pub struct CapturedError {
     pub inner: Error,
@@ -50,6 +53,9 @@ struct ErrorTelemetryMetadata {
     api_error_code: Option<String>,
     is_timeout: Option<bool>,
     is_connect: Option<bool>,
+    proxy_error_kind: Option<&'static str>,
+    proxy_step: Option<&'static str>,
+    io_error_kind: Option<String>,
 }
 
 impl ErrorTelemetryMetadata {
@@ -58,50 +64,54 @@ impl ErrorTelemetryMetadata {
             current_telemetry_command_name().unwrap_or_else(|| "unknown".to_string());
         let chain_depth = error.chain().count();
 
+        let mut metadata = Self {
+            error_kind: "other",
+            command_name,
+            chain_depth,
+            http_status: None,
+            api_error_code: None,
+            is_timeout: None,
+            is_connect: None,
+            proxy_error_kind: None,
+            proxy_step: None,
+            io_error_kind: None,
+        };
+
+        if let Some(proxy_error) = error
+            .chain()
+            .find_map(|source| source.downcast_ref::<ApiProxyError>())
+        {
+            metadata.error_kind = "proxy_launch_error";
+            metadata.proxy_error_kind = Some(proxy_error.telemetry_kind());
+            metadata.proxy_step = proxy_error.telemetry_step();
+            metadata.io_error_kind = proxy_error.telemetry_io_error_kind();
+            return metadata;
+        }
+
         let Some(client_error) = error
             .chain()
             .find_map(|source| source.downcast_ref::<ClientError>())
         else {
-            return Self {
-                error_kind: "other",
-                command_name,
-                chain_depth,
-                http_status: None,
-                api_error_code: None,
-                is_timeout: None,
-                is_connect: None,
-            };
+            return metadata;
         };
 
         match client_error {
-            ClientError::ApiError(status, _, body) => Self {
-                error_kind: "api_error",
-                command_name,
-                chain_depth,
-                http_status: Some(*status),
-                api_error_code: safe_api_error_code(body),
-                is_timeout: None,
-                is_connect: None,
-            },
-            ClientError::RequestError(err) => Self {
-                error_kind: "request_error",
-                command_name,
-                chain_depth,
-                http_status: None,
-                api_error_code: None,
-                is_timeout: Some(err.is_timeout()),
-                is_connect: Some(err.is_connect()),
-            },
-            ClientError::InvalidUrl(_) => Self {
-                error_kind: "invalid_url",
-                command_name,
-                chain_depth,
-                http_status: None,
-                api_error_code: None,
-                is_timeout: None,
-                is_connect: None,
-            },
+            ClientError::ApiError(status, _, body) => {
+                metadata.error_kind = "api_error";
+                metadata.http_status = Some(*status);
+                metadata.api_error_code = safe_api_error_code(body);
+            }
+            ClientError::RequestError(err) => {
+                metadata.error_kind = "request_error";
+                metadata.is_timeout = Some(err.is_timeout());
+                metadata.is_connect = Some(err.is_connect());
+            }
+            ClientError::InvalidUrl(_) => {
+                metadata.error_kind = "invalid_url";
+            }
         }
+
+        metadata
     }
 
     fn fingerprint(&self) -> String {
@@ -110,6 +120,18 @@ impl ErrorTelemetryMetadata {
             self.command_name.clone(),
             self.error_kind.to_string(),
         ];
+
+        if let Some(proxy_error_kind) = self.proxy_error_kind {
+            parts.push(proxy_error_kind.to_string());
+        }
+
+        if let Some(proxy_step) = self.proxy_step {
+            parts.push(proxy_step.to_string());
+        }
+
+        if let Some(io_error_kind) = &self.io_error_kind {
+            parts.push(io_error_kind.clone());
+        }
 
         if let Some(status) = self.http_status {
             parts.push(status.to_string());
@@ -196,7 +218,92 @@ fn capture_exception(metadata: ErrorTelemetryMetadata) {
         };
     }
 
+    if let Some(proxy_error_kind) = metadata.proxy_error_kind {
+        options = match options.property("proxy_error_kind", proxy_error_kind) {
+            Ok(options) => options,
+            Err(err) => {
+                debug!("Failed to attach exception proxy error kind: {err:?}");
+                return;
+            }
+        };
+    }
+
+    if let Some(proxy_step) = metadata.proxy_step {
+        options = match options.property("proxy_step", proxy_step) {
+            Ok(options) => options,
+            Err(err) => {
+                debug!("Failed to attach exception proxy step: {err:?}");
+                return;
+            }
+        };
+    }
+
+    if let Some(io_error_kind) = metadata.io_error_kind {
+        options = match options.property("io_error_kind", io_error_kind) {
+            Ok(options) => options,
+            Err(err) => {
+                debug!("Failed to attach exception io error kind: {err:?}");
+                return;
+            }
+        };
+    }
+
     if let Err(err) = posthog_rs::capture_exception_with(&SanitizedCliError, options) {
         debug!("Failed to capture exception: {err:?}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api_proxy::{ApiProxyError, MaterializeStep};
+
+    #[test]
+    fn proxy_launch_errors_produce_structured_telemetry() {
+        let error = anyhow::Error::new(ApiProxyError::MaterializeFailed {
+            step: MaterializeStep::Write,
+            path: "/home/user/.posthog/api-cli".to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+        })
+        .context("wrapped for good measure");
+
+        let metadata = ErrorTelemetryMetadata::from_error(&error);
+
+        assert_eq!(metadata.error_kind, "proxy_launch_error");
+        assert_eq!(metadata.proxy_error_kind, Some("materialize_failed"));
+        assert_eq!(metadata.proxy_step, Some("write"));
+        assert_eq!(metadata.io_error_kind.as_deref(), Some("PermissionDenied"));
+        // command_name comes from mutable global telemetry state, so only pin
+        // the parts of the fingerprint this test controls.
+        assert!(metadata.fingerprint().starts_with("posthog-cli:"));
+        assert!(metadata
+            .fingerprint()
+            .ends_with(":proxy_launch_error:materialize_failed:write:PermissionDenied"));
+    }
+
+    #[test]
+    fn bundle_not_embedded_has_no_io_details() {
+        let error = anyhow::Error::new(ApiProxyError::BundleNotEmbedded);
+
+        let metadata = ErrorTelemetryMetadata::from_error(&error);
+
+        assert_eq!(metadata.error_kind, "proxy_launch_error");
+        assert_eq!(metadata.proxy_error_kind, Some("bundle_not_embedded"));
+        assert_eq!(metadata.proxy_step, None);
+        assert_eq!(metadata.io_error_kind, None);
+        assert!(metadata
+            .fingerprint()
+            .ends_with(":proxy_launch_error:bundle_not_embedded"));
+    }
+
+    #[test]
+    fn unclassified_errors_stay_other() {
+        let error = anyhow::anyhow!("something else entirely");
+
+        let metadata = ErrorTelemetryMetadata::from_error(&error);
+
+        assert_eq!(metadata.error_kind, "other");
+        assert_eq!(metadata.proxy_error_kind, None);
+        assert!(metadata.fingerprint().ends_with(":other"));
     }
 }

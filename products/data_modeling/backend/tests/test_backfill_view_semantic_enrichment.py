@@ -10,7 +10,6 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
-from products.data_modeling.backend.logic import enrich_view_semantics as enrich
 from products.data_modeling.backend.logic.enrich_view_semantics import compute_enrichment_hash
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -42,11 +41,8 @@ def _saved_query(team: Team, **extra: Any) -> DataWarehouseSavedQuery:
     )
 
 
-def _run(*, enabled: bool = True, **options: Any) -> tuple[Any, str]:
-    with (
-        patch.object(enrich, "enrichment_enabled", return_value=enabled),
-        patch(DISPATCH) as dispatch,
-    ):
+def _run(**options: Any) -> tuple[Any, str]:
+    with patch(DISPATCH) as dispatch:
         out = StringIO()
         call_command(COMMAND, sleep=0, stdout=out, **options)
     return dispatch, out.getvalue()
@@ -100,15 +96,14 @@ class TestBackfillViewSemanticEnrichment:
 
     @parameterized.expand(
         [
-            ("flag_disabled", False, {}),
-            ("deleted", True, {"deleted": True}),
-            ("is_test", True, {"is_test": True}),
-            ("empty_columns", True, {"columns": {}}),
-            ("already_enriched", True, {"enriched": True}),
-            ("managed_viewset", True, {"managed": True}),
+            ("deleted", {"deleted": True}),
+            ("is_test", {"is_test": True}),
+            ("empty_columns", {"columns": {}}),
+            ("already_enriched", {"enriched": True}),
+            ("managed_viewset", {"managed": True}),
         ]
     )
-    def test_skips_gated_or_ineligible_views(self, _name, enabled, mods):
+    def test_skips_gated_or_ineligible_views(self, _name, mods):
         team = _team()
         if mods.pop("managed", False):
             mods["managed_viewset"] = DataWarehouseManagedViewSet.objects.create(
@@ -121,6 +116,6 @@ class TestBackfillViewSemanticEnrichment:
                 semantic_enrichment_hash=compute_enrichment_hash(sq)
             )
 
-        dispatch, _ = _run(team_ids=[team.id], live_run=True, enabled=enabled)
+        dispatch, _ = _run(team_ids=[team.id], live_run=True)
 
         dispatch.assert_not_called()

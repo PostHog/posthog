@@ -22,6 +22,7 @@ from django.utils.html import escape
 from django.views.decorators.http import require_http_methods
 
 import jwt
+import pydantic
 import requests
 import structlog
 import posthoganalytics
@@ -43,7 +44,9 @@ from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-from posthog.api.email_verification import EmailVerifier
+from posthog.schema import UserUIConfiguration
+
+from posthog.api.email_verification import EmailVerifier, email_verification_token_generator
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -78,8 +81,14 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
-from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.middleware import (
+    IMPERSONATION_REASON_SESSION_KEY,
+    get_impersonated_session_expires_at,
+    is_read_only_impersonation,
+)
 from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
+from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -99,6 +108,7 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
 )
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session.activity import (
     list_user_sessions,
     revoke_other_sessions,
@@ -196,6 +206,9 @@ class UserSerializer(serializers.ModelSerializer):
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
     is_impersonated_read_only = serializers.SerializerMethodField()
+    is_impersonated_reason = serializers.SerializerMethodField(
+        help_text="The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating."
+    )
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
@@ -225,6 +238,15 @@ class UserSerializer(serializers.ModelSerializer):
         ),
     )
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
+    ui_configuration = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers "
+            "sidebar section and item visibility. Send the complete object: it replaces the stored value "
+            "wholesale. Null means no customization; absent keys mean the element is shown."
+        ),
+    )
     anonymize_data = ClassicBehaviorBooleanFieldSerializer(
         help_text="Whether PostHog should anonymize events captured for this user when identified."
     )
@@ -277,6 +299,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated",
             "is_impersonated_until",
             "is_impersonated_read_only",
+            "is_impersonated_reason",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -298,6 +321,7 @@ class UserSerializer(serializers.ModelSerializer):
             "role_at_organization",
             "passkeys_enabled_for_2fa",
             "hide_mcp_hints",
+            "ui_configuration",
             "onboarding_skipped_at",
             "onboarding_skipped_reason",
             "onboarding_skipped_organization_id",
@@ -321,6 +345,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated",
             "is_impersonated_until",
             "is_impersonated_read_only",
+            "is_impersonated_reason",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -371,6 +396,11 @@ class UserSerializer(serializers.ModelSerializer):
         if not is_impersonated_session(self.context["request"]):
             return None
         return is_read_only_impersonation(self.context["request"])
+
+    def get_is_impersonated_reason(self, _) -> Optional[str]:
+        if "request" not in self.context or not is_impersonated_session(self.context["request"]):
+            return None
+        return self.context["request"].session.get(IMPERSONATION_REASON_SESSION_KEY) or None
 
     def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
         if "request" not in self.context:
@@ -505,6 +535,12 @@ class UserSerializer(serializers.ModelSerializer):
         try:
             organization = Organization.objects.get(id=value)
             if organization.memberships.filter(user=self.context["request"].user).exists():
+                # A member the org no longer admits can't point their session back at it — this
+                # endpoint is on the enforcement whitelist, so it must refuse on its own.
+                if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+                    self.context["request"].user.email, organization
+                ):
+                    raise serializers.ValidationError(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
                 return organization
         except Organization.DoesNotExist:
             pass
@@ -612,6 +648,20 @@ class UserSerializer(serializers.ModelSerializer):
 
         return cast(Notifications, current_settings)
 
+    def validate_ui_configuration(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if value is None:
+            return None
+        try:
+            UserUIConfiguration.model_validate(value)
+        except pydantic.ValidationError as e:
+            errors = "; ".join(
+                f"{'.'.join(str(part) for part in error['loc']) or 'root'}: {error['msg']}" for error in e.errors()
+            )
+            raise serializers.ValidationError(
+                f"Does not match the UserUIConfiguration schema: {errors}", code="invalid_input"
+            )
+        return value
+
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
     ) -> Optional[str]:
@@ -708,9 +758,19 @@ class UserSerializer(serializers.ModelSerializer):
                     "You can't change your email to a domain where SSO is enforced.",
                     code="sso_enforced_new_email",
                 )
-            instance.pending_email = validated_data.pop("email", None)
-            instance.save()
-            EmailVerifier.create_token_and_send_email_verification(instance)
+            validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
+            # Serialize concurrent email changes for this user under a row lock so the token is
+            # minted against one consistent pending_email. Without it, interleaved requests can
+            # bind a token to one address but deliver its verification email to another.
+            with transaction.atomic():
+                User.objects.select_for_update().get(pk=instance.pk)
+                instance.pending_email = new_email
+                instance.save(update_fields=["pending_email"])
+                token = email_verification_token_generator.make_token(instance)
+            # Send after the transaction commits (never inside the atomic block), pinning the
+            # recipient to the captured address so a later pending_email change can't redirect
+            # this token's verification email.
+            EmailVerifier.send_verification_email(instance, token, target_email=new_email)
 
         if validated_data.get("notification_settings"):
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
@@ -919,6 +979,7 @@ class UserViewSet(
         "has_seen_product_intro_for",
         "events_column_config",
         "role_at_organization",
+        "ui_configuration",
     ]
     time_sensitive_exclude_actions = [
         "hedgehog_config",
@@ -1081,6 +1142,10 @@ class UserViewSet(
         # must not become a password-backend login path around the IdP. The user logs in via SSO.
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
             return Response({"success": True, "token": token, "requires_sso": True})
+
+        # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+        if not resolve_login_organization(user):
+            return Response({"success": True, "token": token, "requires_login": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)
@@ -1441,6 +1506,11 @@ class UserViewSet(
 # Toolbar
 
 
+def _user_can_access_toolbar(user: User, team: Team) -> bool:
+    """Whether the user is allowed to launch the toolbar for this team."""
+    return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+
+
 @require_http_methods(["GET"])
 def toolbar_oauth_authorize(request):
     """
@@ -1461,6 +1531,9 @@ def toolbar_oauth_authorize(request):
     team = request.user.team
     if not team:
         return HttpResponse("No project found", status=400)
+
+    if not _user_can_access_toolbar(request.user, team):
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
 
     try:
         app_url = normalize_and_validate_app_url(team, redirect_url)
@@ -1545,6 +1618,9 @@ def toolbar_oauth_callback(request):
     if not team:
         return HttpResponse("No project found", status=400)
 
+    if not _user_can_access_toolbar(request.user, team):
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
+
     try:
         state_payload = validate_and_consume_toolbar_oauth_state(
             signed_state=state,
@@ -1554,6 +1630,13 @@ def toolbar_oauth_callback(request):
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
     except ToolbarOAuthError as exc:
         return HttpResponse(exc.detail, status=exc.status_code)
+
+    # The first-party auto-approval path issues this grant with an org-wide
+    # scoped_teams=[] (unrestricted across every team in the org), since the generic
+    # /oauth/authorize/ view has no notion of which team a toolbar launch was verified
+    # for. Narrow it to the verified team here, before the client can exchange the code,
+    # so the resulting tokens can't be replayed against a team where toolbar access is denied.
+    OAuthGrant.objects.filter(code=code, application=oauth_app, user=request.user).update(scoped_teams=[team.id])
 
     # Re-validate app_url from the signed state against the team's allowlist.
     # validate_and_consume_toolbar_oauth_state already does this, but repeating
@@ -1611,6 +1694,23 @@ class ToolbarOAuthRefreshView(APIView):
                 {"code": "invalid_request", "detail": "refresh_token and client_id are required"}, status=400
             )
 
+        # Re-check current toolbar access here: the token itself is the only credential on this
+        # AllowAny endpoint, so a user whose access was revoked after the token was issued must
+        # not be able to keep minting fresh tokens with it. Check against the token's own scoped
+        # team, not the user's current team - the user can switch their active team to one they
+        # still have access to while continuing to refresh a token scoped to a different, revoked
+        # project.
+        token_record = find_oauth_refresh_token(refresh_token)
+        if token_record:
+            scoped_team_ids = token_record.scoped_teams or []
+            team = Team.objects.filter(pk__in=scoped_team_ids).first() if len(scoped_team_ids) == 1 else None
+            if not team or not _user_can_access_toolbar(token_record.user, team):
+                logger.warning("toolbar_oauth_refresh_denied", reason="access_revoked")
+                return JsonResponse(
+                    {"code": "forbidden", "detail": "You don't have access to the toolbar for this project."},
+                    status=403,
+                )
+
         try:
             token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
         except ToolbarOAuthError as exc:
@@ -1653,6 +1753,9 @@ def get_toolbar_preloaded_flags(request):
         )
         return JsonResponse({"error": "Unauthorized"}, status=403)
 
+    if not _user_can_access_toolbar(request.user, request.user.team):
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
     feature_flags = cache_data.get("feature_flags", {})
 
     return JsonResponse({"featureFlags": feature_flags})
@@ -1677,6 +1780,9 @@ def prepare_toolbar_preloaded_flags(request):
         if not team:
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
+
+        if not _user_can_access_toolbar(request.user, team):
+            return JsonResponse({"error": "Unauthorized"}, status=403)
 
         # Use Rust flags service. Pass the internal token so this Django -> Rust
         # call bypasses the team's billing limiter and isn't counted as customer
@@ -1719,12 +1825,19 @@ def redirect_to_site(request):
     # Consider removing this in favor of building the redirect URL client-side.
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
+    if not team:
+        return HttpResponse(status=404)
+
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
     if not app_url:
         return HttpResponse(status=404)
 
-    if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
+    if not _user_can_access_toolbar(request.user, team):
+        REDIRECT_TO_SITE_FAILED_COUNTER.inc()
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
+
+    if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
         parsed_app_url = urllib.parse.urlparse(app_url)
         hostname = parsed_app_url.hostname or app_url
@@ -1812,6 +1925,7 @@ def redirect_to_website(request):
                 "lastName": request.user.last_name,
             },
             headers={"Content-Type": "application/json"},
+            timeout=10,
         )
 
         if response.status_code == 200:

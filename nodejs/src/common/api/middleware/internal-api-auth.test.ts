@@ -188,6 +188,18 @@ describe('createInternalApiAuthMiddleware', () => {
             expect(res.status).not.toHaveBeenCalled()
         })
 
+        it('should skip auth for scoped-JWT routes, which authenticate in their handler', () => {
+            const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
+            const req = mockRequest('/api/projects/1/hog_flows/some-uuid/reschedule_parked', {})
+            const res = mockResponse()
+            const next = jest.fn()
+
+            middleware(req, res, next)
+
+            expect(next).toHaveBeenCalled()
+            expect(res.status).not.toHaveBeenCalled()
+        })
+
         it('should allow custom excluded path prefixes', () => {
             const middleware = createInternalApiAuthMiddleware({
                 secret: 'test-secret',

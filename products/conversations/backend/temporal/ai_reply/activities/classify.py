@@ -33,12 +33,13 @@ Classify the ticket into exactly one type and propose search queries to start re
 
 ticket_type — one of:
 - how_to: any question the customer wants answered that can be addressed from documentation or the team's knowledge base — product usage ("how do I X"), as well as questions about the company, its policies, security/vulnerability reporting, legal/terms, pricing info, and similar. When in doubt between how_to and unactionable, choose how_to.
-- diagnostic: the customer reports something broken, failing, or behaving unexpectedly for their account; answering it requires investigating their actual data.
+- diagnostic: something looks wrong for this customer specifically, and answering it requires investigating their own data or configuration.
+- bug: the customer reports the product itself misbehaving in a way that looks like a defect for anyone, not just them - a hang, a crash, wrong output, or something that used to work and stopped. Choose bug over diagnostic when the described behavior is not what the product is supposed to do at all.
 - account_billing: a question about the customer's plan, usage, limits, invoices, or billing.
 - unactionable: ONLY spam, bare feedback/thanks with no question, or automated noise. If the customer is asking anything they want answered, do NOT use this type.
 
 Return a JSON object with these keys:
-- ticket_type: one of how_to | diagnostic | account_billing | unactionable.
+- ticket_type: one of how_to | diagnostic | account_billing | bug | unactionable.
 - needs_diagnostics: boolean — true only when answering requires looking at the customer's own data (typically diagnostic tickets).
 - seed_queries: list of 2-4 concise search queries (strings) that would find relevant docs/knowledge; empty list for unactionable.
 

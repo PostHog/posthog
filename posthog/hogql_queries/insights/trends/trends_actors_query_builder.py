@@ -38,6 +38,9 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models import Team
 
 from products.actions.backend.models.action import Action
+from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
+    first_pageview_aware_properties_to_expr,
+)
 
 
 class TrendsActorsQueryBuilder:
@@ -311,6 +314,7 @@ class TrendsActorsQueryBuilder:
             *self._entity_where_expr(),
             *self._prop_where_expr(),
             *(self._date_where_expr() if with_date_range_expr else []),
+            *self._day_of_week_where_expr(),
             *(self._breakdown_where_expr() if with_breakdown_expr else []),
             *self._filter_empty_actors_expr(),
         ]
@@ -320,6 +324,12 @@ class TrendsActorsQueryBuilder:
         if exprs:
             return ast.And(exprs=exprs)
         return None
+
+    def _day_of_week_where_expr(self) -> list[ast.Expr]:
+        # Applied unconditionally (like in TrendsQueryBuilder) so the actors list matches the
+        # chart's counts even for multi-day buckets and total-value/active-user aggregations
+        day_of_week_filter = self.trends_date_range.day_of_week_filter_expr(ast.Field(chain=["timestamp"]))
+        return [day_of_week_filter] if day_of_week_filter is not None else []
 
     def _ratio_expr(self) -> ast.RatioExpr | None:
         if self.trends_query.samplingFactor is None:
@@ -377,7 +387,18 @@ class TrendsActorsQueryBuilder:
 
         # Properties
         if self.trends_query.properties is not None and self.trends_query.properties != []:
-            conditions.append(property_to_expr(self.trends_query.properties, self.team))
+            conditions.append(
+                first_pageview_aware_properties_to_expr(
+                    self.trends_query.properties,
+                    team=self.team,
+                    modifiers=self.modifiers,
+                    # Mirrors `_date_where_expr`: on the previous-period side the
+                    # session's first pageview has to be looked for in that
+                    # period, or the modal drops actors the graph point counted.
+                    date_range=self.trends_previous_date_range if self.is_compare_previous else self.trends_date_range,
+                    timings=self.timings,
+                )
+            )
 
         return conditions
 

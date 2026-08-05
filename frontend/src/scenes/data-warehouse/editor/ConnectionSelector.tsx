@@ -3,14 +3,13 @@ import { router } from 'kea-router'
 
 import { IconGear } from '@posthog/icons'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import {
-    ADD_MYSQL_DIRECT_CONNECTION,
-    ADD_POSTGRES_DIRECT_CONNECTION,
-    ADD_SNOWFLAKE_DIRECT_CONNECTION,
+    ADD_DIRECT_CONNECTION_PREFIX,
     CONFIGURE_SOURCES,
     type ConnectionSelectOption,
     POSTHOG_WAREHOUSE,
@@ -32,7 +31,12 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
     const { sourceQuery, selectedConnectionId } = useValues(logic)
     const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
         useValues(connectionSelectorLogic())
+    const { maybeLoadConnectionOptions } = useActions(connectionSelectorLogic())
     const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
+
+    useOnMountEffect(() => {
+        maybeLoadConnectionOptions()
+    })
     const connectionSelectorValue = getConnectionSelectorValue(
         connectionOptions,
         connectionOptionsLoading,
@@ -48,7 +52,11 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
         <LemonSelect
             size="small"
             fullWidth
-            className="flex-1"
+            // min-w-0 lets the flex item shrink past the label's min-content width, and
+            // truncateText ellipsizes the label — a long source name (e.g. "managed_warehouse
+            // (DuckDB)") otherwise wraps and spills out of the narrow database-tree sidebar.
+            className="flex-1 min-w-0"
+            truncateText={{ maxWidthClass: 'max-w-full' }}
             value={connectionSelectorValue}
             onChange={(nextValue) => {
                 if (!nextValue || nextValue === POSTHOG_WAREHOUSE) {
@@ -64,18 +72,9 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                     return
                 }
 
-                if (nextValue === ADD_POSTGRES_DIRECT_CONNECTION) {
-                    router.actions.push(urls.dataWarehouseSourceNew('Postgres', undefined, undefined, 'direct'))
-                    return
-                }
-
-                if (nextValue === ADD_MYSQL_DIRECT_CONNECTION) {
-                    router.actions.push(urls.dataWarehouseSourceNew('MySQL', undefined, undefined, 'direct'))
-                    return
-                }
-
-                if (nextValue === ADD_SNOWFLAKE_DIRECT_CONNECTION) {
-                    router.actions.push(urls.dataWarehouseSourceNew('Snowflake', undefined, undefined, 'direct'))
+                if (nextValue.startsWith(ADD_DIRECT_CONNECTION_PREFIX)) {
+                    const sourceType = nextValue.slice(ADD_DIRECT_CONNECTION_PREFIX.length)
+                    router.actions.push(urls.dataWarehouseSourceNew(sourceType, undefined, undefined, 'direct'))
                     return
                 }
 
@@ -84,6 +83,8 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                     return
                 }
 
+                // sqlEditorLogic's selectedConnectionId subscription re-enables raw SQL mode
+                // for raw-only (supports_hogql=false) connections.
                 setSourceQuery({
                     ...sourceQueryWithoutLegacyConnectionId,
                     source: {

@@ -1,11 +1,10 @@
 import { createHogChartTooltip, type HogChartTooltip } from '@posthog/quill-charts/testing'
 
 /** Insight-flavored tooltip accessor. Extends the generic hog-charts tooltip
- *  with helpers for reading a per-series tooltip. Dual-mode: trends-family charts
- *  render hog-charts' `DefaultTooltip` (`hog-chart-tooltip-*` rows), while funnel
- *  and retention still render the legacy `InsightTooltip` table (`<th>` header,
- *  `<tr>` rows with `.datum-column` / `.datum-counts-column`). The accessor reads
- *  whichever is present so a single helper covers both during the migration. */
+ *  with helpers for reading a per-series tooltip. Insight charts render hog-charts'
+ *  `DefaultTooltip` (`hog-chart-tooltip-*` rows); the legacy `InsightTooltip` table
+ *  branch (`<th>` header, `<tr>` rows with `.datum-column` / `.datum-counts-column`)
+ *  is retained for any remaining table-based tooltip readers. */
 export interface InsightTooltipAccessor extends HogChartTooltip {
     /** Header text — typically the hovered date (e.g. "Wednesday, 12 Jun (UTC)"). */
     title(): string
@@ -30,8 +29,12 @@ export function createInsightTooltipAccessor(element: HTMLElement): InsightToolt
 
         row(label: string): string | undefined {
             if (isDefaultTooltip()) {
+                // The series label mixes non-breaking spaces (e.g. the compare separator) with regular
+                // ones, so normalize whitespace before matching against the caller's plain-space label.
+                const normalize = (text: string | null | undefined): string => (text ?? '').replace(/\s+/g, ' ').trim()
+                const needle = normalize(label)
                 const row = defaultRows().find((r) =>
-                    r.querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent?.includes(label)
+                    normalize(r.querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent).includes(needle)
                 )
                 return row?.querySelector('[data-attr="hog-chart-tooltip-value"]')?.textContent ?? undefined
             }

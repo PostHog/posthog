@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "label_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "prompt_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "version": {
+            "description": "Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.",
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["label_name", "prompt_name", "version"],
+    "type": "object"
+}

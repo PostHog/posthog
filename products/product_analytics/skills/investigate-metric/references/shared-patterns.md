@@ -2,6 +2,20 @@
 
 Recipes used across playbooks.
 
+## Contents
+
+- When to reach for HogQL
+- HogQL insights
+- HogQL quantile template
+- Property discovery
+- Related-metrics sweep
+- Breakdown dimensions
+- Interpreting breakdown results
+- Interval zoom
+- Actor drilldown
+- Session recordings
+- Error / logs cross-check
+
 ## When to reach for HogQL
 
 Use the typed query tools by default. Use `posthog:execute-sql` only when the question

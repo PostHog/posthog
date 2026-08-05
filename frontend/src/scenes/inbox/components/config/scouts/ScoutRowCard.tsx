@@ -8,10 +8,21 @@ import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { SignalScoutConfig, SignalScoutConfigUpdate } from '../../../types'
-import { formatRunIntervalShort, prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import type {
+    PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
+    SignalScoutConfigApi as SignalScoutConfig,
+} from 'products/signals/frontend/generated/api.schemas'
+
+import { captureScoutAction } from '../../../inboxAnalytics'
+import {
+    dailyCronToTime,
+    formatRunIntervalShort,
+    prettifyScoutSkillName,
+    ScoutRollup,
+} from '../../../utils/scoutRunsWindow'
+import { scoutTags } from '../../../utils/scoutTags'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
-import { ScoutOriginBadge } from './ScoutBadges'
+import { ScoutLifecycleBadge, ScoutOriginBadge, ScoutTagBadge } from './ScoutBadges'
 import { ScoutConfigForm, ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 
@@ -25,6 +36,7 @@ export function ScoutRowCard({
     onUpdate,
     onDelete,
     deleting = false,
+    updating = false,
     asHeader = false,
 }: {
     config: SignalScoutConfig
@@ -35,12 +47,16 @@ export function ScoutRowCard({
     onDelete?: (configId: string) => void
     /** True while this scout's delete request is in flight — disables the delete button. */
     deleting?: boolean
+    /** True while this scout's config update request is in flight. */
+    updating?: boolean
     /** When rendered as the scout detail header the name is plain text (the row IS the page). */
     asHeader?: boolean
 }): JSX.Element {
     const [settingsOpen, setSettingsOpen] = useState(false)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
     const displayName = prettifyScoutSkillName(config.skill_name)
+    // The same card is both a fleet row and the detail page header, and the two read very differently.
+    const surface = asHeader ? 'scout_detail' : 'fleet_list'
 
     // What the scout investigates, from the skill frontmatter — surfaced on hover over the name.
     const description = config.description?.trim()
@@ -53,7 +69,10 @@ export function ScoutRowCard({
                 !config.enabled && 'opacity-65'
             )}
         >
-            <div className="flex items-center gap-4">
+            {/* On narrow (mobile) widths the row wraps: the run boxes drop to their own
+                full-width line so they can't collide with the name and controls. From `sm`
+                up the row is forced back onto a single line — the original layout. */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap">
                 {/* Name + badges on top, cadence/emitted as a muted subtitle below — keeps the
                     metadata off the main row so the sparkline and controls have room to breathe. */}
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
@@ -99,33 +118,63 @@ export function ScoutRowCard({
                                     subtle
                                     className="text-muted"
                                     aria-label={`Open the ${config.skill_name} skill`}
+                                    onClick={() =>
+                                        captureScoutAction({
+                                            actionType: 'open_skill_in_posthog',
+                                            surface,
+                                            skillName: config.skill_name,
+                                        })
+                                    }
                                 >
                                     <IconArrowUpRight className="size-3.5" />
                                 </Link>
                             </Tooltip>
                             <ScoutOriginBadge origin={config.scout_origin} />
+                            <ScoutLifecycleBadge config={config} />
                         </div>
                     </div>
-                    <div className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">
-                        <span>{formatRunIntervalShort(config.run_interval_minutes)}</span>
+                    <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted">
+                        {/* A cron schedule overrides the rolling interval, so the badge shows it instead. */}
+                        <span>
+                            {config.run_cron_schedule
+                                ? dailyCronToTime(config.run_cron_schedule)
+                                    ? `daily at ${dailyCronToTime(config.run_cron_schedule)}`
+                                    : config.run_cron_schedule
+                                : formatRunIntervalShort(config.run_interval_minutes)}
+                        </span>
                         {rollup && rollup.emittedCount > 0 ? (
                             <span>· {pluralize(rollup.emittedCount, 'signal')} emitted</span>
                         ) : null}
+                        {scoutTags(config).map((tag) => (
+                            <ScoutTagBadge key={tag} tag={tag} />
+                        ))}
                     </div>
                 </div>
                 {/* The sparkline is the flexible region: it shrinks and clips the oldest runs
-                    off the left so it can never push the controls column off the row. */}
-                <div className="flex min-w-0 overflow-hidden">
-                    <ScoutRunBoxes runs={rollup?.runs ?? []} />
-                </div>
+                    off the left so it can never push the controls column off the row. When the
+                    row wraps (mobile) it goes order-last + full-width so it lands on its own
+                    line; the wrapper is skipped entirely when there are no runs so an empty
+                    scout doesn't reserve a blank wrapped line. */}
+                {(rollup?.runs?.length ?? 0) > 0 ? (
+                    <div className="order-last flex w-full min-w-0 overflow-hidden sm:order-none sm:w-auto">
+                        <ScoutRunBoxes runs={rollup?.runs ?? []} />
+                    </div>
+                ) : null}
                 <div className="flex items-center gap-2 shrink-0">
-                    <ScoutEnabledSwitch config={config} onUpdate={onUpdate} />
+                    <ScoutEnabledSwitch config={config} onUpdate={onUpdate} updating={updating} />
                     <Tooltip title="Scout settings">
                         <LemonButton
                             size="small"
                             icon={<IconGear />}
                             active={settingsOpen}
-                            onClick={() => setSettingsOpen((value) => !value)}
+                            onClick={() => {
+                                captureScoutAction({
+                                    actionType: settingsOpen ? 'close_settings' : 'open_settings',
+                                    surface,
+                                    skillName: config.skill_name,
+                                })
+                                setSettingsOpen((value) => !value)
+                            }}
                             aria-label={`${config.skill_name} settings`}
                         />
                     </Tooltip>
@@ -133,7 +182,13 @@ export function ScoutRowCard({
             </div>
             {settingsOpen ? (
                 <div className="mt-3 border-t border-primary pt-3">
-                    <ScoutConfigForm config={config} onUpdate={onUpdate} onDelete={onDelete} deleting={deleting} />
+                    <ScoutConfigForm
+                        config={config}
+                        onUpdate={onUpdate}
+                        onDelete={onDelete}
+                        deleting={deleting}
+                        updating={updating}
+                    />
                 </div>
             ) : null}
         </div>

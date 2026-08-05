@@ -47,19 +47,29 @@ from posthog.api.oauth.cimd import (
     get_or_create_cimd_application,
     is_cimd_client_id,
 )
+from posthog.api.oauth.client_auth import verify_client_secret
+from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
-from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken, revoke_oauth_session
+from posthog.models.oauth import (
+    OAuthApplicationAccessLevel,
+    OAuthGrant,
+    OAuthRefreshToken,
+    TokenEndpointAuthMethod,
+    revoke_oauth_session,
+)
 from posthog.scopes import (
     ALWAYS_ALLOWED_SCOPES,
+    clamp_scopes_to_ceiling,
     downgrade_scopes_to_read_only,
     effective_ceiling,
     get_oauth_scopes_supported,
     get_scope_descriptions,
+    grantable_ceiling,
     narrow_scopes_to_ceiling,
+    resolve_ceiling,
     scopes_outside_ceiling,
-    scopes_within_ceiling,
 )
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
@@ -284,6 +294,16 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def _check_secret(self, provided_secret, stored_secret):
+        """Reject a blank secret, which the library's own implementation accepts.
+
+        An application registered for ``private_key_jwt`` is confidential but holds no
+        secret, so its column stores ``make_password("")``. The library compares with a bare
+        ``check_password``, which returns True for an empty input against that hash, so such
+        a client would authenticate here having presented no credential at all.
+        """
+        return verify_client_secret(provided_secret, stored_secret)
+
     def _is_dynamic_client(self, request) -> bool:
         """Check if the client was registered dynamically (DCR or CIMD)."""
         if hasattr(request, "client") and request.client:
@@ -430,23 +450,41 @@ class OAuthValidator(OAuth2Validator):
         return False
 
     def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
-        """Enforce the per-application scope ceiling from the app's grantable set.
+        """Clamp the requested scopes to the per-application ceiling.
 
         The ceiling is `scopes` plus `optional_scopes` (`ceiling_scopes`), so an app
         using the required/optional split can request its optional scopes too.
-        Delegates the ceiling resolution to `scopes_within_ceiling` so `/authorize`
-        and the hand-rolled provisioning mint paths share one implementation. The
-        only `/authorize`-specific bit kept here is mutating `request.scopes` when
-        the client omits `scope=`, so oauthlib doesn't fall back to just `["openid"]`
-        from `DEFAULT_SCOPES`. `*` is accepted under an empty ceiling here (legacy
-        PostHog Code CLI) but not on the provisioning paths — see the flag.
+        Resolution lives in `clamp_scopes_to_ceiling`. The agentic-provisioning mint
+        paths still reject out-of-ceiling scopes via `scopes_within_ceiling`: they mint
+        for a partner against scopes that partner declared, so a mismatch there is a
+        misconfiguration worth failing on, not a client with a stale pinned list.
+
+        A request naming scopes outside the ceiling is granted the part that is
+        inside rather than rejected outright, so one ungrantable scope no longer
+        costs the user the whole authorization. The clamped set is written back to
+        `request.scopes`, which is what oauthlib grants and reports in the token
+        response. Two `/authorize`-specific cases resolve here as well:
+        - the client omitting `scope=`, so oauthlib doesn't fall back to just
+          `["openid"]` from `DEFAULT_SCOPES`.
+        - a `*` request against a *seeded* (non-empty) ceiling, which resolves to
+          the ceiling rather than staying a wildcard.
+
+        `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
+        Desktop CLI) but never on the provisioning paths — see the flag.
+
+        This never returns `False`. `/authorize` does not reject on scope grounds:
+        scopes are retired and renamed routinely, and a client pinning a hardcoded
+        list cannot see that coming, so an ungrantable scope must not cost the user
+        their sign-in. A request with nothing grantable yields an identity-only
+        token whose resource calls 403; `oauth_scopes_clamped` is what surfaces it.
         """
         app_scopes = getattr(client, "ceiling_scopes", None) or []
         requested = set(scopes or [])
         if not requested:
             request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
             return True
-        return scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+        request.scopes = clamp_scopes_to_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+        return True
 
     def get_original_scopes(self, refresh_token, request, *args, **kwargs):
         """Cap refreshed scopes at the application's current ceiling.
@@ -465,6 +503,9 @@ class OAuthValidator(OAuth2Validator):
           without emptying it, so we reject the refresh (`invalid_grant`) — the client
           re-authorizes and gets a token within the current ceiling, rather than
           silently keeping out-of-ceiling access.
+        - a token that never held any scope refreshes as an empty grant instead.
+          Rejecting that one would loop, since re-authorizing returns the same empty
+          grant; its 403s by scope are where the client should find out.
 
         An empty `ceiling_scopes` (no ceiling) is a no-op. Refresh never enforces the
         required floor — a token consented below a later-declared required set keeps
@@ -894,6 +935,48 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return "cimd"
         return "dcr" if application.is_dcr_client else "manual"
 
+    def _capture_scopes_clamped(self, request, application: OAuthApplication, submitted_scope: str) -> None:
+        """Report scopes `validate_scopes` dropped from an issued grant.
+
+        Called at each point a grant is actually minted rather than when the request
+        arrives, so an abandoned or denied authorization is not counted. Since
+        `/authorize` no longer fails on scope grounds, this is the only signal that a
+        client is asking for scopes it cannot have. `*` is excluded because
+        `oauth_wildcard_scopes_narrowed` already owns that case.
+
+        Both counts derive from `submitted_scope`, the set the grant was minted from,
+        so `granted_scope_count` is what the token carries rather than what was asked
+        for.
+        """
+        submitted = submitted_scope.split()
+        dropped_scopes = [
+            scope
+            for scope in scopes_outside_ceiling(
+                submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+            )
+            if scope != "*"
+        ]
+        if not dropped_scopes:
+            return
+
+        granted = clamp_scopes_to_ceiling(
+            submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+        )
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_scopes_clamped",
+            properties={
+                "client_name": application.name,
+                "app_id": str(application.pk),
+                "registration_type": self._registration_type(application),
+                "is_verified": application.is_verified,
+                "is_first_party": application.is_first_party,
+                "dropped_scopes": dropped_scopes,
+                "granted_scope_count": len(granted),
+                **(get_region_info() or {}),
+            },
+        )
+
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
@@ -952,6 +1035,26 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             },
         )
 
+        # `validate_scopes` narrows a `*` request to the app's ceiling instead of rejecting it
+        # (only when the ceiling is seeded); track that volume so `*` can be retired once it drains.
+        if (
+            "*" in (request.query_params.get("scope") or "").split()
+            and resolve_ceiling(application.ceiling_scopes) is not None
+        ):
+            posthoganalytics.capture(
+                distinct_id=str(request.user.distinct_id),
+                event="oauth_wildcard_scopes_narrowed",
+                properties={
+                    "client_name": application.name,
+                    "app_id": str(application.pk),
+                    "registration_type": registration_type,
+                    "is_verified": application.is_verified,
+                    "is_first_party": application.is_first_party,
+                    "narrowed_scope_count": len(scopes),
+                    **(get_region_info() or {}),
+                },
+            )
+
         impersonator_id = _impersonator_id_for_request(request)
         credentials["impersonated_by_id"] = impersonator_id
 
@@ -971,6 +1074,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
                 )
+                self._capture_scopes_clamped(request, application, scope_str)
                 return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
@@ -1001,29 +1105,37 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )
+                        self._capture_scopes_clamped(request, application, scope_str)
                         return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
-        return render_template(
-            "index.html",
-            request,
-            context={
-                "oauth_application": {
-                    "name": application.name,
-                    "client_id": application.client_id,
-                    "is_verified": application.is_verified,
-                    "logo_uri": application.logo_uri,
-                    "required_scopes": application.required_scopes,
-                    # The read-only form of a `*` grant, computed from the same ceiling
-                    # resolution `validate_scopes` enforces — the frontend's scope list
-                    # drifts from the server's (both over- and under-granting otherwise).
-                    "wildcard_read_scopes": sorted(
-                        scope for scope in effective_ceiling(application.ceiling_scopes) if scope.endswith(":read")
-                    ),
-                }
-            },
-        )
+        template_context: dict[str, object] = {
+            "oauth_application": {
+                "name": application.name,
+                "client_id": application.client_id,
+                "is_verified": application.is_verified,
+                "logo_uri": application.logo_uri,
+                "required_scopes": application.required_scopes,
+                # The read-only form of a `*` grant, computed from the same ceiling
+                # resolution `validate_scopes` enforces — the frontend's scope list
+                # drifts from the server's (both over- and under-granting otherwise).
+                "wildcard_read_scopes": sorted(
+                    scope for scope in grantable_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+                ),
+                # The same resolution `validate_scopes` clamps against, so the consent screen
+                # can drop requested scopes the grant will not include instead of promising them.
+                "grantable_scopes": sorted(grantable_ceiling(application.ceiling_scopes)),
+            }
+        }
+
+        requested_scope = (request.query_params.get("scope") or "").strip()
+        if not requested_scope:
+            oauth_mcp_consent = build_oauth_mcp_consent_context(request.query_params.get("resource"))
+            if oauth_mcp_consent is not None:
+                template_context["oauth_mcp_consent"] = oauth_mcp_consent
+
+        return render_template("index.html", request, context=template_context)
 
     def post(self, request, *args, **kwargs):
         serializer = OAuthAuthorizationSerializer(data=request.data, context={"user": request.user})
@@ -1110,6 +1222,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         logger.debug("Success url for the request: %s", uri)
 
+        if serializer.validated_data["allow"]:
+            self._capture_scopes_clamped(request, application, scopes)
+
         redirect = self.redirect(uri, application)
 
         return Response(
@@ -1136,33 +1251,6 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         error details or providing an error response
         """
         redirect, error_response = super().error_response(error, **kwargs)
-
-        # Surface scope-ceiling rejections so on-call can alert on /authorize failing with invalid_scope.
-        if getattr(error_response["error"], "error", None) == "invalid_scope" and application is not None:
-            distinct_id = getattr(getattr(self.request, "user", None), "distinct_id", None) or application.client_id
-            # invalid_scope only reaches error_response from the GET authorize request, where
-            # oauthlib raises it pre-consent (the consent POST returns it as a redirect, not a
-            # raise), so the requested scope is always in the query string here.
-            requested_scope = self.request.query_params.get("scope") or ""
-            rejected_scopes = scopes_outside_ceiling(
-                requested_scope.split(),
-                application.ceiling_scopes,
-                allow_wildcard_under_empty_ceiling=True,
-            )
-            posthoganalytics.capture(
-                distinct_id=str(distinct_id),
-                event="oauth_authorization_rejected",
-                properties={
-                    "reason": "invalid_scope",
-                    "client_name": application.name,
-                    "app_id": str(application.pk),
-                    "registration_type": self._registration_type(application),
-                    "is_verified": application.is_verified,
-                    "is_first_party": application.is_first_party,
-                    "requested_scopes": requested_scope,
-                    "rejected_scopes": rejected_scopes,
-                },
-            )
 
         if redirect:
             if no_redirect:
@@ -1322,12 +1410,12 @@ class OAuthTokenView(TokenView):
                     scoped_teams = list(access_token.scoped_teams or [])
                     scoped_organizations = list(access_token.scoped_organizations or [])
 
-                    # First-party clients (PostHog Code) read scoped_teams from /oauth/token
+                    # First-party clients (PostHog Desktop) read scoped_teams from /oauth/token
                     # to populate the project selector. When the app is org-scoped only,
                     # access_token.scoped_teams is empty in the DB by design — derive teams
                     # from scoped_organizations so clients keep working without weakening
                     # the stored token scope.
-                    # TODO(@charlesvien): remove this after a migration period in PostHog Code.
+                    # TODO(@charlesvien): remove this after a migration period in PostHog Desktop.
                     if (
                         not scoped_teams
                         and scoped_organizations
@@ -1589,7 +1677,12 @@ class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
                 id_jag.JWT_BEARER_GRANT_TYPE,
             ],
             "authorization_grant_profiles_supported": [id_jag.ID_JAG_GRANT_PROFILE],
-            "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
+            # private_key_jwt is deliberately absent: it is implemented on the agentic token
+            # endpoint, not on the endpoint this document describes.
+            "token_endpoint_auth_methods_supported": [
+                TokenEndpointAuthMethod.NONE.value,
+                TokenEndpointAuthMethod.CLIENT_SECRET_POST.value,
+            ],
             "code_challenge_methods_supported": ["S256"],
             # Service documentation
             "service_documentation": "https://posthog.com/docs/api",

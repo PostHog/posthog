@@ -7,22 +7,22 @@ import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
-// The batch step (processPersonlessDistinctIdsBatchStep) and the per-event step
+// The chunk step (processPersonlessDistinctIdsChunkStep) and the per-event step
 // (processPersonlessStep) are coupled through the module-level LRU in
-// personless-distinct-id-cache: the batch step pre-inserts the posthog_personlessdistinctid
+// personless-distinct-id-cache: the chunk step pre-inserts the posthog_personlessdistinctid
 // row and marks the LRU, so the per-event step finds a hit and skips its own single-row
 // insert. Both steps are dynamically imported after resetModules so they share one fresh LRU.
-describe('flag-called personless batching: batch step → per-event step', () => {
+describe('flag-called personless batching: chunk step → per-event step', () => {
     let mockPersonsStore: jest.Mocked<PersonsStoreForBatch>
     let team: Team
-    let processPersonlessDistinctIdsBatchStep: typeof import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep').processPersonlessDistinctIdsBatchStep
+    let processPersonlessDistinctIdsChunkStep: typeof import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsChunkStep').processPersonlessDistinctIdsChunkStep
     let createProcessPersonlessStep: typeof import('~/ingestion/common/steps/event-processing/process-personless-step').createProcessPersonlessStep
 
     beforeEach(async () => {
         jest.resetModules()
-        processPersonlessDistinctIdsBatchStep = (
-            await import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep.js')
-        ).processPersonlessDistinctIdsBatchStep
+        processPersonlessDistinctIdsChunkStep = (
+            await import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsChunkStep.js')
+        ).processPersonlessDistinctIdsChunkStep
         createProcessPersonlessStep = (
             await import('~/ingestion/common/steps/event-processing/process-personless-step.js')
         ).createProcessPersonlessStep
@@ -62,7 +62,7 @@ describe('flag-called personless batching: batch step → per-event step', () =>
         const event = flagCalledEvent('user-1')
 
         // Batch step inserts the personless distinct ID and marks the shared LRU.
-        await processPersonlessDistinctIdsBatchStep(
+        await processPersonlessDistinctIdsChunkStep(
             true,
             '*'
         )([{ event, team, personsStoreForBatch: mockPersonsStore }])

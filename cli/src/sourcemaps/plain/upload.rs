@@ -1,6 +1,7 @@
 use std::{path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
@@ -18,7 +19,7 @@ use crate::{
     },
     invocation_context::context,
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs, UploadConflictArgs},
+        args::{FileSelectionArgs, ReleaseArgs, UploadConcurrencyArgs, UploadConflictArgs},
         content::MinifiedSourceFile,
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
@@ -52,6 +53,9 @@ pub struct Args {
 
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
+
+    #[clap(flatten)]
+    pub upload_concurrency: UploadConcurrencyArgs,
 
     /// DEPRECATED - this flag is a no-op. Use top-level `--skip-ssl-verification` instead.
     #[arg(long)]
@@ -126,8 +130,10 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     }
     let empty_skipped = empty_pairs.len();
 
+    // Payload preparation (serialization + zstd compression) is CPU-bound,
+    // so spread it across cores.
     let uploads = valid_pairs
-        .into_iter()
+        .into_par_iter()
         .map(TryInto::try_into)
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;
@@ -147,12 +153,13 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     );
 
     let started_at = Instant::now();
-    let upload_result = symbol_sets::upload_with_retry(
+    let (summary, upload_result) = symbol_sets::upload_with_retry_and_concurrency(
         uploads,
         args.batch_size,
         args.release.skip_release_on_fail,
         args.conflict.force,
         args.conflict.skip_on_conflict,
+        args.upload_concurrency.concurrency,
     );
     let duration_ms = started_at.elapsed().as_millis();
 
@@ -163,6 +170,7 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         ("duration_ms", json!(duration_ms)),
         ("success", json!(upload_result.is_ok())),
     ];
+    props.extend(summary.telemetry_props());
     if let Err(ref e) = upload_result {
         props.push(("error", json!(format!("{:#}", e))));
     }

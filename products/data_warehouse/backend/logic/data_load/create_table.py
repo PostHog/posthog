@@ -98,7 +98,9 @@ async def create_table_from_saved_query(
         assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
         # TODO: handle dlt columns schemas. Need to refactor dag pipeline to pass through schema or propagate from upstream tables
-        table_created.columns = await sync_to_async(table_created.get_columns)()
+        # set_columns records the DESCRIBE column order (which follows the view's SELECT order for
+        # materialized backing tables) alongside `columns`, since jsonb loses key order.
+        table_created.set_columns(await sync_to_async(table_created.get_columns)())
         table_created.row_count = await database_sync_to_async(table_created.get_count)()
         await asave_datawarehousetable(table_created)
 

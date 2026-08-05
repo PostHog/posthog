@@ -61,6 +61,20 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Google Ads API v21 sunsets 2026-08-05 (VERSION_SUNSET). Bump v19-v23 destinations to v24
+            # so the v21 majority keeps working past the sunset. v18 is deliberately excluded: Google
+            # has already removed it, so those destinations 404 today; bumping them would abruptly
+            # revive dormant-but-enabled dead destinations and resume conversions into customers'
+            # Google Ads accounts without warning. Reviving v18 (and older v17) destinations is handled
+            # separately with customer awareness. Destinations carry whatever version the template
+            # pinned at creation; only one matches per destination, and a v24 no-op is skipped.
+            "google-ads-api-version-update": {
+                "template_id": "template-google-ads",
+                "replacements": [
+                    {"from_string": f"googleads.googleapis.com/v{v}/", "to_string": "googleads.googleapis.com/v24/"}
+                    for v in range(19, 24)
+                ],
+            },
             # Microsoft migrated Teams/Power Automate HTTP triggers to environment.api.powerplatform.com.
             # The current template accepts that host, but functions created earlier keep their frozen code
             # and reject the new URL. These swap the stale validation block for the current one: the
@@ -71,11 +85,28 @@ class Command(BaseCommand):
                 "replacements": [
                     {
                         "from_string": "not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+')) {\n    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), or Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...)')",
-                        "to_string": "not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+') and\n    not match(inputs.webhookUrl, '^https://[^/]+.environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/workflows/.*')) {\n    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...), or Power Platform environment format (https://<tenant>.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/...)')",
+                        "to_string": "not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+') and\n    not match(inputs.webhookUrl, '^https://[^/]+.environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/(.*/)?workflows/.*')) {\n    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...), or Power Platform environment format (https://<tenant>.environment.api.powerplatform.com:443/powerautomate/automations/direct/[<cluster>/]workflows/...)')",
                     },
                     {
                         "from_string": "if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*')) {\n    throw Error('Invalid URL. The URL should match the format: https://<region>.logic.azure.com:443/workflows/<workflowId>/triggers/manual/paths/invoke?...')\n}",
-                        "to_string": "if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*') and\n    not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+') and\n    not match(inputs.webhookUrl, '^https://[^/]+.powerautomate.com/[^/]+') and\n    not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+') and\n    not match(inputs.webhookUrl, '^https://[^/]+.environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/workflows/.*')) {\n    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...), or Power Platform environment format (https://<tenant>.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/...)')\n}",
+                        "to_string": "if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*') and\n    not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+') and\n    not match(inputs.webhookUrl, '^https://[^/]+.powerautomate.com/[^/]+') and\n    not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+') and\n    not match(inputs.webhookUrl, '^https://[^/]+.environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/(.*/)?workflows/.*')) {\n    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...), or Power Platform environment format (https://<tenant>.environment.api.powerplatform.com:443/powerautomate/automations/direct/[<cluster>/]workflows/...)')\n}",
+                    },
+                ],
+            },
+            # Real Power Platform environment webhook URLs carry an extra cluster segment (e.g.
+            # `/cu/11`) between `.../automations/direct/` and `/workflows/`, so the original
+            # `direct/workflows/` regex rejected valid URLs. Widen the path to allow those segments
+            # on functions already deployed with the stale pattern.
+            "microsoft-teams-powerplatform-cu-path": {
+                "template_id": "template-microsoft-teams",
+                "replacements": [
+                    {
+                        "from_string": "automations/direct/workflows/.*')",
+                        "to_string": "automations/direct/(.*/)?workflows/.*')",
+                    },
+                    {
+                        "from_string": "automations/direct/workflows/...)')",
+                        "to_string": "automations/direct/[<cluster>/]workflows/...)')",
                     },
                 ],
             },

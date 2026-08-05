@@ -3,14 +3,9 @@ from dataclasses import dataclass, field
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.utils import asyncify
+from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
-from products.tasks.backend.exceptions import (
-    CredentialUnavailableError,
-    SandboxNotFoundError,
-    SandboxNotRunningError,
-    TaskNotFoundError,
-)
+from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxNotFoundError, SandboxNotRunningError
 from products.tasks.backend.logic.services.agent_command import send_refresh_session
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.sandbox import Sandbox
@@ -20,6 +15,11 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
     build_sandbox_credentials,
+)
+from products.tasks.backend.temporal.process_task.utils import (
+    get_actor_distinct_id,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -34,10 +34,14 @@ def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refr
     try:
         task_run = TaskRun.objects.get(id=ctx.run_id)
         auth_token = None
-        created_by = task.created_by
-        if created_by and created_by.id:
-            distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-            auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        if is_slack_interaction_state(ctx.state) and actor_user is None:
+            logger.warning("sandbox_credentials_refresh_notify_missing_slack_actor", run_id=ctx.run_id)
+            return
+        if actor_user and actor_user.id:
+            auth_token = create_sandbox_connection_token(
+                task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
+            )
         authorship = (ctx.state or {}).get("pr_authorship_mode")
         send_refresh_session(
             task_run, [], auth_token=auth_token, refreshed_credentials=refreshed_kinds, authorship=authorship
@@ -63,6 +67,10 @@ class RefreshSandboxCredentialsOutput:
     sandbox_gone: bool = False
     orphaned_kinds: list[str] = field(default_factory=list)
     no_credentials_left: bool = False
+    # Task rows were hard-deleted mid-run (team deletion cascade); the loop should stop.
+    # A flag rather than an error so old histories (which decode the missing field as
+    # False) replay unchanged, per the workflow-versioning rules.
+    task_gone: bool = False
 
 
 @activity.defn
@@ -83,11 +91,27 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         **ctx.to_log_context(),
     ):
         try:
-            task = Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
-                id=ctx.task_id
+            # The early connect-time read goes through retry_on_db_connection_drop: the
+            # long-lived worker pools connections via pgbouncer, so a pool recycle / failover
+            # / transient DNS blip can leave a stale pooled connection that raises
+            # OperationalError on first use. Retrying once on a fresh connection keeps a
+            # transient blip from escaping as error-tracking noise (Temporal still retries
+            # the activity if the DB is genuinely degraded).
+            task = retry_on_db_connection_drop(
+                lambda: Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
+                    id=ctx.task_id
+                )
             )
-        except Task.DoesNotExist as e:
-            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+        except Task.DoesNotExist:
+            logger.info(
+                "sandbox_credentials_refresh_stopped_task_gone",
+                sandbox_id=input.sandbox_id,
+                run_id=ctx.run_id,
+                task_id=ctx.task_id,
+            )
+            return RefreshSandboxCredentialsOutput(
+                next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS, refreshed_kinds=[], task_gone=True
+            )
 
         refreshed_kinds: list[str] = []
         orphaned_kinds: list[str] = []

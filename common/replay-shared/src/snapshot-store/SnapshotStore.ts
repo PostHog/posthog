@@ -23,6 +23,11 @@ export class SnapshotStore {
             const existing = source.blob_key ? existingByKey.get(source.blob_key) : undefined
             if (existing) {
                 existing.index = index
+                // An ongoing recording's tail blob can extend under a stable blob_key — refresh the
+                // metadata or already-loaded data past the stale endMs renders as "not buffered yet".
+                existing.source = source
+                existing.startMs = source.start_timestamp ? new Date(source.start_timestamp).getTime() : 0
+                existing.endMs = source.end_timestamp ? new Date(source.end_timestamp).getTime() : 0
                 return existing
             }
             return {
@@ -258,9 +263,10 @@ export class SnapshotStore {
     }
 
     // Deliberately does not bump(): consumers should keep their memoized view, since only loaded-state metadata stays meaningful and fetched entries keep their still-unprocessed raw data.
-    clearSnapshotData(): void {
+    // `excludeIndexes` keeps raw data for sources that must be re-processable (e.g. meta patched once viewport data arrives).
+    clearSnapshotData(excludeIndexes?: Set<number>): void {
         for (const entry of this.entries) {
-            if (entry.state === 'loaded') {
+            if (entry.state === 'loaded' && !excludeIndexes?.has(entry.index)) {
                 entry.processedSnapshots = null
             }
         }

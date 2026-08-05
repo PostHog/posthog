@@ -225,6 +225,7 @@ MYSQL_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toString": _make_cast_handler("CHAR"),
     "toInt": _make_cast_handler("SIGNED"),
     "toIntOrZero": _make_cast_handler("SIGNED"),
+    "toIntOrDefault": _make_cast_handler("SIGNED"),
     "toFloat": _make_cast_handler("DOUBLE"),
     "toFloatOrZero": _make_cast_handler("DOUBLE"),
     # MySQL backend intentionally drops the default arg — the handler only uses args[0],

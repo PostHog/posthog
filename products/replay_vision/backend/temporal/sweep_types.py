@@ -22,6 +22,12 @@ class FindScannerCandidatesInputs(BaseModel, frozen=True):
 
 class CountInFlightAppliesInputs(BaseModel, frozen=True):
     scanner_id: UUID
+    team_id: int
+
+
+class InFlightApplyCounts(BaseModel, frozen=True):
+    scanner: int
+    team: int
 
 
 class CandidateSessionPayload(BaseModel, frozen=True):
@@ -32,6 +38,9 @@ class CandidateSessionPayload(BaseModel, frozen=True):
 class FindScannerCandidatesOutput(BaseModel, frozen=True):
     candidates: list[CandidateSessionPayload]
     saturated: bool
+    # Settle horizon the query covered; None on short-circuit paths and pre-deploy histories,
+    # which keeps replays deterministic since the empty-sweep advance is gated on it.
+    swept_through: dt.datetime | None = None
 
 
 class RefreshPromptSuggestionInputs(BaseModel, frozen=True):

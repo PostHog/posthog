@@ -23,12 +23,11 @@ const baseSchema: ExternalDataSourceSyncSchema = {
 
 describe('SyncMethodForm', () => {
     it.each([
-        ['flag on + available', { xmin_available: true }, true, true],
-        ['flag off', { xmin_available: true }, false, false],
-        ['not available', { xmin_available: false }, true, false],
-        ['webhook-only table', { xmin_available: true, webhook_only: true }, true, false],
-    ])('offers xmin: %s', (_, overrides, flagEnabled, expected) => {
-        expect(shouldOfferXmin({ ...baseSchema, ...overrides }, flagEnabled)).toBe(expected)
+        ['available', { xmin_available: true }, true],
+        ['not available', { xmin_available: false }, false],
+        ['webhook-only table', { xmin_available: true, webhook_only: true }, false],
+    ])('offers xmin: %s', (_, overrides, expected) => {
+        expect(shouldOfferXmin({ ...baseSchema, ...overrides })).toBe(expected)
     })
 
     it('exposes a label for the xmin sync type', () => {

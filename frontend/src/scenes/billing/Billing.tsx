@@ -6,10 +6,11 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { HedgehogJudge } from '@posthog/brand/hoggies'
+import * as judge from '@posthog/brand/hoggies/png/judge'
 import { IconDocument } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { StarHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -38,6 +39,8 @@ import { CodeSeatsSection } from './CodeSeatsSection'
 import { CreditCTAHero } from './CreditCTAHero'
 import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
+
+const HedgehogJudge = pngHoggie(judge)
 
 export const scene: SceneExport = {
     component: Billing,
@@ -263,14 +266,14 @@ export function Billing(): JSX.Element {
                                 <div className="flex gap-x-2">
                                     <div>{getProductIcon('IconTerminal', { className: 'text-2xl shrink-0' })}</div>
                                     <div>
-                                        <h3 className="font-bold mb-0">Code</h3>
-                                        <div>Seat-based billing for PostHog Code.</div>
+                                        <h3 className="font-bold mb-0">PostHog Desktop</h3>
+                                        <div>Manage existing PostHog Desktop seats.</div>
                                     </div>
                                 </div>
                                 <LemonButton
                                     icon={<IconDocument />}
                                     size="small"
-                                    to="https://posthog.com/docs/posthog-code"
+                                    to="https://posthog.com/docs/posthog-desktop"
                                     tooltip="Read the docs"
                                 />
                             </div>

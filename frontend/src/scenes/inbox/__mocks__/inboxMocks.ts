@@ -81,7 +81,7 @@ export const reportTabReports: SignalReport[] = [
     makeReport({
         title: 'feat(onboarding): Users drop off at the SDK install step',
         summary:
-            'A large share of new projects never send a first event – most stall on the SDK install step of onboarding.',
+            'A large share of new projects never send a first event. Most stall on the SDK install step of onboarding.',
         status: SignalReportStatus.READY,
         priority: 'P3',
         actionability: 'requires_human_input',
@@ -287,7 +287,7 @@ export function mockArtefacts(reportId: string): { results: any[]; count: number
             content: {
                 actionability: 'immediately_actionable',
                 already_addressed: false,
-                explanation: 'The failing endpoint and validation gap are clearly identified in the findings.',
+                explanation: 'The failing endpoint and validation gap are clearly identified in the report.',
             },
             created_at: BASE_DATE,
         },
@@ -555,4 +555,14 @@ export const mockAutonomy = {
     autostart_priority: 'P1',
     slack_notification_channel: null,
     slack_notification_min_priority: null,
+}
+
+export const mockTeamConfig = {
+    id: 'team-cfg-1',
+    autostart_enabled: true,
+    default_autostart_priority: 'P2',
+    default_slack_notification_channel: null,
+    autostart_base_branches: {},
+    created_at: BASE_DATE,
+    updated_at: BASE_DATE,
 }

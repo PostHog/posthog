@@ -41,6 +41,7 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
 )
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
@@ -105,6 +106,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
 
         # Sort 'changes' lists for order-insensitive comparison
@@ -360,6 +363,24 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
+
+    @parameterized.expand(
+        [
+            # A group with none of properties/action_id/event_id used to raise an uncaught
+            # ValueError from Group.__init__ and surface as a 500.
+            ("missing_all_keys", [{"days": 5}], "properties or action_id or event_id"),
+            # A falsy-but-non-list value used to slip past validation and get persisted as-is.
+            ("empty_string", "", "must be a list"),
+            ("non_dict_entry", ["not-a-dict"], "must be an object"),
+        ]
+    )
+    def test_creating_cohort_with_malformed_groups_returns_400(self, _name, groups, expected_detail):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": groups},
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn(expected_detail, response.json()["detail"])
 
     def test_static_cohort_csv_upload_end_to_end(self):
         """Test CSV upload end-to-end with actual celery task execution"""
@@ -1873,11 +1894,43 @@ email@example.org,
         self.assertIn("filters", full)
 
         basic = self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true").json()["results"][0]
-        for dropped in ("filters", "query", "groups"):
+        # `last_error_message` and `experiment_set` are dropped too — basic callers don't read
+        # them, and keeping `last_error_message` would force the per-row CohortCalculationHistory
+        # subquery back onto the hot path.
+        for dropped in ("query", "groups", "last_error_message", "experiment_set"):
             self.assertNotIn(dropped, basic)
-        # The fields pickers actually read are still present.
-        for kept in ("id", "name", "count"):
+        # `filters` stays: the feature-flag intent warning reads it off the basic list to flag
+        # behavioral cohorts. `is_calculating` drives the 5s repoll and `is_static` drives the
+        # static-cohort flag warning — both now read only from the basic payload, so trimming
+        # any of these silently breaks a feature. Guard them here.
+        for kept in ("id", "name", "count", "filters", "is_calculating", "is_static"):
             self.assertIn(kept, basic)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_basic_list_skips_error_and_experiment_queries(self, patch_capture):
+        # The basic payload drops `last_error_message` and `experiment_set`, so it must not run
+        # the per-row CohortCalculationHistory subquery or the experiment prefetch. Asserting on
+        # the emitted SQL (not query count) is what catches it: the correlated subquery splices
+        # into the enclosing SELECT rather than issuing its own, so a count wouldn't move. The
+        # full path is the positive control, so a table rename can't make the negatives pass for
+        # the wrong reason.
+        Cohort.objects.create(
+            team=self.team,
+            name="some cohort",
+            filters={"properties": {"type": "OR", "values": [{"type": "person", "key": "email", "value": "a@b.com"}]}},
+        )
+
+        with capture_db_queries() as full_ctx:
+            self.client.get(f"/api/projects/{self.team.id}/cohorts")
+        full_sql = " ".join(q["sql"] for q in full_ctx.captured_queries)
+        self.assertIn("posthog_cohortcalculationhistory", full_sql)
+        self.assertIn("posthog_experiment", full_sql)
+
+        with capture_db_queries() as basic_ctx:
+            self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true")
+        basic_sql = " ".join(q["sql"] for q in basic_ctx.captured_queries)
+        self.assertNotIn("posthog_cohortcalculationhistory", basic_sql)
+        self.assertNotIn("posthog_experiment", basic_sql)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_is_ignored_on_detail_fetch(self, patch_capture):
@@ -5336,6 +5389,7 @@ email@example.org,
                 "source": {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "$pageview",
                             "properties": [{"type": "cohort", "value": cohort_id}],
                         }
@@ -6411,6 +6465,78 @@ class TestCohortTypeIntegration(APIBaseTest):
         # cohort_type is auto-computed for realtime-capable filters
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertEqual(response.data["cohort_type"], "realtime")
+        # condition_type is auto-computed from the filter shape, independent of realtime eligibility
+        expected_condition_type = {
+            "person_properties": True,
+            "behavioral": False,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+        self.assertEqual(cohort.condition_type, expected_condition_type)
+        self.assertEqual(response.data["condition_type"], expected_condition_type)
+
+    def test_filter_test_accounts_persists_and_forces_batch_calculation(self):
+        # Forced off the realtime path because realtime bytecode can't see the injected test account filters.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "Real users only",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "person",
+                                "key": "email",
+                                "operator": "icontains",
+                                "value": "@posthog.com",
+                            }
+                        ],
+                    },
+                    "filterTestAccounts": True,
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        cohort = Cohort.objects.get(id=response.data["id"])
+        assert cohort.filters is not None
+        self.assertIs(cohort.filters.get("filterTestAccounts"), True)
+        self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
+
+    def test_filter_test_accounts_patch_toggles_realtime_routing(self):
+        person_property_filters = {
+            "type": "AND",
+            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+        }
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "Real users only", "filters": {"properties": person_property_filters}},
+            format="json",
+        )
+        self.assertEqual(create.status_code, 201, create.data)
+        cohort_id = create.data["id"]
+        self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
+        turn_on = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+            {"filters": {"properties": person_property_filters, "filterTestAccounts": True}},
+            format="json",
+        )
+        self.assertEqual(turn_on.status_code, 200, turn_on.data)
+        cohort = Cohort.objects.get(id=cohort_id)
+        assert cohort.filters is not None
+        self.assertIs(cohort.filters.get("filterTestAccounts"), True)
+        self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
+
+        turn_off = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+            {"filters": {"properties": person_property_filters, "filterTestAccounts": False}},
+            format="json",
+        )
+        self.assertEqual(turn_off.status_code, 200, turn_off.data)
+        self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
 
     def test_person_metadata_cohort_not_classified_realtime(self):
         """person_metadata cohorts must route to the non-realtime path: the realtime
@@ -6443,8 +6569,10 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
 
     def test_api_response_includes_cohort_type(self):
-        """API responses should include the cohort_type field"""
+        """API responses should include the cohort_type and condition_type fields"""
 
+        # condition_type is intentionally not passed here: it's derived from filters on
+        # save (even for a direct ORM create, not just through the API serializer).
         cohort = Cohort.objects.create(
             team=self.team,
             name="Test Cohort",
@@ -6478,6 +6606,14 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertIn("cohort_type", response.data)
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+        self.assertIn("condition_type", response.data)
+        expected_condition_type = {
+            "person_properties": False,
+            "behavioral": True,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+        self.assertEqual(response.data["condition_type"], expected_condition_type)
 
         # Test LIST request
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
@@ -6487,6 +6623,8 @@ class TestCohortTypeIntegration(APIBaseTest):
         cohort_data = next(c for c in response.data["results"] if c["id"] == cohort.id)
         self.assertIn("cohort_type", cohort_data)
         self.assertEqual(cohort_data["cohort_type"], CohortType.BEHAVIORAL)
+        self.assertIn("condition_type", cohort_data)
+        self.assertEqual(cohort_data["condition_type"], expected_condition_type)
 
     def test_explicit_cohort_type_validation_success(self):
         """Should accept valid explicit cohort types"""

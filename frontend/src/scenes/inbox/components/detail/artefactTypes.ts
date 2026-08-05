@@ -1,5 +1,5 @@
 // Pure (no-React) artefact helpers shared by the detail logic and the activity-log renderers.
-// Mirrors the PostHog Code inbox's artefact-log domain helpers. Content shapes stay loose
+// Mirrors the PostHog Desktop inbox's artefact-log domain helpers. Content shapes stay loose
 // (`Record<string, any>` on the artefact) and are read through these typed accessors so legacy
 // rows with extra/missing keys never crash a render.
 
@@ -58,6 +58,29 @@ export interface DismissalContent {
     note?: string
 }
 
+export interface RepoSelectionContent {
+    repository?: string | null
+    reason?: string
+}
+
+export interface RelatedToContent {
+    report_id?: string
+}
+
+export interface CodeReviewContent {
+    repository?: string
+    head_sha?: string
+    head_branch?: string
+    outcome?: 'published' | 'stored' | 'failed'
+    pr_url?: string | null
+    review_url?: string | null
+    counts?: {
+        must_fix?: number
+        should_fix?: number
+        consider?: number
+    }
+}
+
 export interface TitleChangeContent {
     old_title?: string | null
     new_title: string
@@ -87,6 +110,8 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     video_segment: 'Video segment',
     title_change: 'Title edited',
     summary_change: 'Summary edited',
+    related_to: 'Related report',
+    code_review: 'Code review',
 }
 
 export function artefactTypeLabel(type: string): string {
@@ -118,17 +143,10 @@ export function artefactLocationLabel(artefact: SignalReportArtefact): string | 
     return null
 }
 
-/**
- * Attribution byline source: "{first name or email}" for a human write, "agent" for a
- * task-attributed write, or null for a system/pipeline write (no byline). Only one of
- * `created_by` / `task_id` is set per row.
- */
+/** The human responsible for an activity, when there is one. */
 export function artefactAttributionLabel(artefact: SignalReportArtefact): string | null {
     if (artefact.created_by) {
         return artefact.created_by.first_name?.trim() || artefact.created_by.email
-    }
-    if (artefact.task_id) {
-        return 'agent'
     }
     return null
 }
@@ -163,11 +181,14 @@ export function deriveTaskPurpose(content: TaskRunArtefactContent): DerivedPurpo
         if (content.type === 'repo_selection') {
             return null
         }
-        return { purpose: 'other', purposeLabel: `Signals — ${identifierToHuman(content.type)}` }
+        if (content.type === 'scout') {
+            return { purpose: 'other', purposeLabel: 'Scout' }
+        }
+        return { purpose: 'other', purposeLabel: `Signals: ${identifierToHuman(content.type)}` }
     }
     return {
         purpose: 'other',
-        purposeLabel: `${identifierToHuman(content.product)} — ${identifierToHuman(content.type)}`,
+        purposeLabel: `${identifierToHuman(content.product)}: ${identifierToHuman(content.type)}`,
     }
 }
 
@@ -182,6 +203,7 @@ export function taskRunTypeLabel(content: TaskRunArtefactContent): string {
             research: 'Research',
             implementation: 'Implementation',
             repo_selection: 'Repo selection',
+            scout: 'Scout',
         }
         return labels[content.type] ?? identifierToHuman(content.type)
     }

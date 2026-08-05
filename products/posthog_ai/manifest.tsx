@@ -1,7 +1,9 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'PostHog AI',
@@ -40,5 +42,17 @@ export const manifest: ProductManifest = {
         },
     },
     treeItemsNew: [],
-    treeItemsProducts: [],
+    treeItemsProducts: [
+        {
+            path: 'Tasks',
+            intents: [ProductKey.TASKS],
+            category: ProductItemCategory.TOOLS,
+            type: 'task',
+            iconType: 'task',
+            iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
+            href: urls.taskTracker(),
+            sceneKey: 'TaskTracker',
+            flag: FEATURE_FLAGS.TASKS,
+        },
+    ],
 }

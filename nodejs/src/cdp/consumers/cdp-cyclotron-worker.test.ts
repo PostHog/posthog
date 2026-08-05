@@ -139,7 +139,7 @@ describe('CdpCyclotronWorker', () => {
             const nativeExecutorSpy = jest.spyOn(processor['nativeDestinationExecutorService'], 'execute')
             const pluginExecutorSpy = jest.spyOn(processor['pluginDestinationExecutorService'], 'execute')
             const segmentExecutorSpy = jest.spyOn(processor['segmentDestinationExecutorService'], 'execute')
-            const hogExecutorSpy = jest.spyOn(processor['hogExecutor'], 'executeWithAsyncFunctions')
+            const hogExecutorSpy = jest.spyOn(processor['hogExecutorAsync'], 'executeWithAsyncFunctions')
 
             const invocations = [
                 createExampleInvocation(nativeFn, globals),
@@ -257,6 +257,23 @@ describe('CdpCyclotronWorker', () => {
             expect(results).toEqual([])
             expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
         })
+
+        it.each([['project'], ['event']] as const)(
+            'should DLQ a malformed invocation whose globals is missing %s instead of crashing',
+            async (field) => {
+                const dequeueInvocationsSpy = jest
+                    .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
+                    .mockResolvedValue(undefined)
+
+                const malformed = createExampleInvocation(fn, globals)
+                delete (malformed.state.globals as any)[field]
+
+                const results = await processor['loadHogFunctions']([malformed])
+
+                expect(results).toEqual([])
+                expect(dequeueInvocationsSpy).toHaveBeenCalledWith([malformed])
+            }
+        )
 
         it('should skip a loaded function if it is disabled', async () => {
             const fn2 = await insertHogFunction(
@@ -457,7 +474,7 @@ describe('CdpCyclotronWorker', () => {
                     })
                 )
 
-                processor.hogExecutor['config'].hogCostTimingUpperMs = blockTime
+                processor.hogExecutorAsync.hogExecutor['config'].executionTimeoutMs = blockTime
 
                 const numberToTest = 5
                 const invocations = Array.from({ length: numberToTest }, () =>

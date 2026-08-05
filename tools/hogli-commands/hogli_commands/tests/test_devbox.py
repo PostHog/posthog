@@ -1551,6 +1551,23 @@ class TestDevboxCommands:
             "start_app": "None",
         }
 
+    def test_devbox_start_forwards_larger_disk_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Guards that --disk 200 is an accepted choice and reaches create_workspace;
+        # regresses if the choice list drifts from the Coder template's disk_size options.
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", "--disk", "200"])
+
+        assert result.exit_code == 0, result.output
+        assert captured["disk_size"] == "200"
+
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, str | None] = {}
 

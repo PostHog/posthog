@@ -1,6 +1,7 @@
-from .cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
+from .cleanup_sandbox import CleanupSandboxInput, CompleteRunStreamInput, cleanup_sandbox, complete_run_stream
 from .create_resume_snapshot import CreateResumeSnapshotInput, CreateResumeSnapshotOutput, create_resume_snapshot
 from .emit_progress_activity import EmitProgressInput, emit_progress_activity
+from .enforce_self_driving_quota import EnforceSelfDrivingRunQuotaInput, enforce_self_driving_run_quota
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .forward_pending_message import forward_pending_user_message
 from .get_sandbox_for_repository import (
@@ -34,9 +35,21 @@ from .refresh_sandbox_credentials import (
     RefreshSandboxCredentialsOutput,
     refresh_sandbox_credentials,
 )
-from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .relay_sandbox_events import (
+    RelaySandboxEventsInput,
+    relay_sandbox_events,
+    relay_sandbox_events_deferred_completion,
+)
 from .run_wizard import RunWizardInput, run_wizard
-from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .send_followup_to_sandbox import STEER_DECLINED_OUTCOME, SendFollowupToSandboxInput, send_followup_to_sandbox
+from .send_permission_response_to_sandbox import (
+    PostPermissionDeliveryFailureInput,
+    SendPermissionDenialGuidanceInput,
+    SendPermissionResponseToSandboxInput,
+    post_permission_delivery_failure_notice,
+    send_permission_denial_guidance,
+    send_permission_response_to_sandbox,
+)
 from .slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .start_agent_server import (
     MarkRepoReadyInput,
@@ -52,6 +65,7 @@ from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_st
 
 __all__ = [
     "CleanupSandboxInput",
+    "CompleteRunStreamInput",
     "CreateResumeSnapshotInput",
     "CreateResumeSnapshotOutput",
     "EmitProgressInput",
@@ -82,15 +96,26 @@ __all__ = [
     "UpdateTaskRunStatusInput",
     "RelayAgentDesignSignalsInput",
     "RelaySandboxEventsInput",
+    "PostPermissionDeliveryFailureInput",
+    "SendPermissionDenialGuidanceInput",
+    "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
+    "STEER_DECLINED_OUTCOME",
     "cleanup_sandbox",
+    "complete_run_stream",
     "create_resume_snapshot",
     "create_sandbox_for_repository",
     "emit_progress_activity",
+    "EnforceSelfDrivingRunQuotaInput",
+    "enforce_self_driving_run_quota",
     "execute_task_in_sandbox",
     "forward_pending_user_message",
     "relay_agent_design_signals",
     "relay_sandbox_events",
+    "relay_sandbox_events_deferred_completion",
+    "post_permission_delivery_failure_notice",
+    "send_permission_denial_guidance",
+    "send_permission_response_to_sandbox",
     "send_followup_to_sandbox",
     "get_sandbox_for_repository",
     "get_task_processing_context",

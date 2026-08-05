@@ -61,7 +61,9 @@ pub(crate) struct HandleInner {
 
 impl Handle {
     /// Future that resolves when shutdown begins for this handle's tier.
-    /// Standard handles: resolves when global shutdown begins.
+    /// Standard handles: resolves when global shutdown begins — or, for a
+    /// component registered with `with_shutdown_phase(n)` for n > 0, once
+    /// every earlier phase's components have finished.
     /// Observability handles: resolves after all standard components finish.
     /// Use in `tokio::select!` to break out of work loops.
     pub fn shutdown_recv(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {

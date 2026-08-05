@@ -1,42 +1,27 @@
-import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
-
 import { Meta, StoryObj } from '@storybook/react'
 
-import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
+import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory'
 
-import { mswDecorator } from '~/mocks/browser'
+import __trendsRegionMap from '~/mocks/fixtures/api/projects/team_id/insights/trendsRegionMap.json'
 
-import __trendsRegionMap from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsRegionMap.json'
+import { RegionMap } from './RegionMap'
 
 type Story = StoryObj<{}>
+
 const meta: Meta = {
-    title: 'Scenes-App/Insights/RegionMap',
+    title: 'Insights/RegionMap',
+    component: RegionMap,
     parameters: {
-        layout: 'fullscreen',
+        layout: 'centered',
+        mockDate: '2022-04-05',
         testOptions: {
             snapshotBrowsers: ['chromium'],
-            viewport: {
-                width: 1300,
-                height: 720,
-            },
+            waitForSelector: '.RegionMap',
         },
-        viewMode: 'story',
-        mockDate: '2022-04-05',
     },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/environments/:team_id/persons/retention': sampleRetentionPeopleResponse,
-                '/api/environments/:team_id/persons/properties': samplePersonProperties,
-                '/api/projects/:team_id/groups_types': [],
-            },
-            post: {
-                '/api/projects/:team_id/cohorts/': { id: 1 },
-            },
-        }),
-    ],
 }
 export default meta
 
-export const Default: Story = createInsightStory(__trendsRegionMap as any)
-Default.parameters = { testOptions: { waitForSelector: '.RegionMap' } }
+export const Default: Story = {
+    render: () => <InsightVizStory insight={__trendsRegionMap as any} />,
+}

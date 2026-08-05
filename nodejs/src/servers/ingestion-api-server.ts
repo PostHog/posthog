@@ -20,6 +20,7 @@ import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { GeoIPService } from '~/common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { PubSub } from '~/common/utils/pubsub'
@@ -35,8 +36,13 @@ import {
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { createOkContext } from '~/ingestion/framework/helpers'
+import {
+    FlushBatchStoresOutputs,
+    createGroupProducePromises,
+} from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
+import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import {
@@ -56,6 +62,7 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
+import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
@@ -64,6 +71,7 @@ import { MainLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/
 import { OverflowLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '../ingestion/common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '../ingestion/common/overflow-redirect/overflow-redis-repository'
+import { createAnalyticsOverflowStrategies } from '../ingestion/common/overflow-redirect/overflow-strategy'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -99,6 +107,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
@@ -164,6 +173,10 @@ export class IngestionApiServer implements NodeServer {
     private pubsub?: PubSub
     private personsStore?: BatchWritingPersonsStore
     private groupStore?: BatchWritingGroupStore
+    // Held so shutdown cleanup can produce ClickHouse messages returned by a
+    // bare groupStore.flush() — the store itself no longer holds outputs
+    // (moved to caller-side production so create and flush share one path).
+    private ingestionOutputs?: FlushBatchStoresOutputs
 
     private joinedPipeline!: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
@@ -171,6 +184,8 @@ export class IngestionApiServer implements NodeServer {
     private promiseScheduler = new PromiseScheduler()
     private hogTransformer!: HogTransformerService
     private topHog!: TopHog
+    // Set in startServices when INGESTION_API_FEED_ORDER_SENTINEL_ENABLED.
+    private feedOrderSentinel?: FeedOrderSentinel
 
     // Latched on the first unexpected pipeline error. The joinedPipeline is a
     // single long-lived instance shared across all requests; a throw can leave
@@ -222,7 +237,7 @@ export class IngestionApiServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const teamManager = new TeamManager(this.postgres)
+        const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -272,13 +287,16 @@ export class IngestionApiServer implements NodeServer {
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
 
-        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager, {
+            loaderRetry: DEFAULT_LOADER_RETRY,
+        })
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
         this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
             this.config
         )
         const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
+        this.ingestionOutputs = ingestionOutputs
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
         const topicFailures = await ingestionOutputs.checkTopics()
@@ -294,7 +312,6 @@ export class IngestionApiServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
-            teamManager,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()
@@ -306,19 +323,22 @@ export class IngestionApiServer implements NodeServer {
         })
 
         let overflowRedirectService: OverflowRedirectService | undefined
-        if (this.overflowEnabled()) {
+        if (this.config.INGESTION_OVERFLOW_MODE === 'redirect') {
             overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
-                replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+                strategies: createAnalyticsOverflowStrategies({
+                    eventBucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                    eventReplenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                    mergeEventBucketCapacity: this.config.MERGE_EVENT_OVERFLOW_BUCKET_CAPACITY,
+                    mergeEventReplenishRate: this.config.MERGE_EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                }),
                 overflowType: 'events',
             })
         }
 
         let overflowLaneTTLRefreshService: OverflowRedirectService | undefined
-        if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+        if (this.config.INGESTION_OVERFLOW_MODE === 'consume') {
             overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 overflowType: 'events',
@@ -345,7 +365,9 @@ export class IngestionApiServer implements NodeServer {
         })
         const personsStore: PersonsStore = this.personsStore
 
-        this.groupStore = new BatchWritingGroupStore(ingestionOutputs, groupRepository, clickhouseGroupRepository, {
+        this.groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
+            useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
+            useBatchCreates: this.config.GROUP_BATCH_WRITING_USE_BATCH_CREATES,
             maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
@@ -362,21 +384,27 @@ export class IngestionApiServer implements NodeServer {
         // 7. Create the ingestion pipeline
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
-            cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
+            groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
             outputs: ingestionOutputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
-                PERSON_MERGE_EVENTS_ENABLED: this.config.PERSON_MERGE_EVENTS_ENABLED,
+                PERSON_MERGE_EVENTS_ENABLED: effectivePersonMergeEventsEnabled(this.config),
                 PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
+                PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
+                PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
+                PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
+                PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: this.config.PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST,
+                PERSONLESS_WRITES_DISABLED_TEAMS: this.config.PERSONLESS_WRITES_DISABLED_TEAMS,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+                EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: this.config.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
@@ -393,7 +421,11 @@ export class IngestionApiServer implements NodeServer {
             aiSubpipelineFactory: createAiEventSubpipeline,
             eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
-            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),
+            // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
+            // failure can surface as an unhandled rejection and restart the worker.
+            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres, {
+                loaderRetry: DEFAULT_LOADER_RETRY,
+            }),
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService,
             overflowLaneTTLRefreshService,
@@ -406,6 +438,9 @@ export class IngestionApiServer implements NodeServer {
         this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
 
         // 8. Register the ingest endpoint and service
+        if (this.config.INGESTION_API_FEED_ORDER_SENTINEL_ENABLED) {
+            this.feedOrderSentinel = new FeedOrderSentinel(this.config.INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS)
+        }
         this.lifecycle.expressApp.post('/ingest', async (req, res) => {
             await this.handleIngestRequest(req, res)
         })
@@ -429,7 +464,7 @@ export class IngestionApiServer implements NodeServer {
             status: (code: number) => { json: (body: IngestBatchResponse) => void }
         }
     ): Promise<void> {
-        const { batch_id, messages: serializedMessages } = req.body
+        const { batch_id, messages: serializedMessages, consumer_id, replay } = req.body
 
         if (!serializedMessages || serializedMessages.length === 0) {
             res.status(400).json({ batch_id: batch_id ?? '', status: 'error', accepted: 0, error: 'Empty batch' })
@@ -445,7 +480,14 @@ export class IngestionApiServer implements NodeServer {
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
 
-            const batch = messages.map((message) => createOkContext({ message }, { message }))
+            const batch = messages.map((message) =>
+                createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
+            )
+            // Per-key order check, synchronously adjacent to feed() so check
+            // order equals feed order across concurrent requests. The grouping
+            // stage processes each key in feed order, so this measures the
+            // "processed in order per distinct_id" invariant.
+            this.feedOrderSentinel?.check(serializedMessages, consumer_id ?? 'unknown', replay ?? false)
             const feedResult = await this.joinedPipeline.feed(batch)
             if (!feedResult.ok) {
                 // Capacity rejection should not happen under correct consumer
@@ -479,11 +521,11 @@ export class IngestionApiServer implements NodeServer {
             batchesInFlight.inc()
             inFlight = true
 
+            // The pipeline handles its own side effects (scheduling them on
+            // the promise scheduler), so draining results is all that's left
+            // to do.
             let result = await this.joinedPipeline.next()
             while (result !== null) {
-                for (const sideEffect of result.sideEffects ?? []) {
-                    void this.promiseScheduler.schedule(sideEffect)
-                }
                 result = await this.joinedPipeline.next()
             }
 
@@ -529,13 +571,6 @@ export class IngestionApiServer implements NodeServer {
         return new HealthCheckResultOk()
     }
 
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-            this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.config.INGESTION_CONSUMER_CONSUME_TOPIC
-        )
-    }
-
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
@@ -552,7 +587,15 @@ export class IngestionApiServer implements NodeServer {
                     await this.personsStore.shutdown()
                 }
                 if (this.groupStore) {
-                    await this.groupStore.flush()
+                    const groupFlushResults = await this.groupStore.flush()
+                    // flush() returns messages for the caller to produce (it no
+                    // longer awaits ClickHouse delivery inline) — mirror
+                    // personsStore.flushAndProduceMessages() so a drain at
+                    // shutdown doesn't write Postgres but silently drop the
+                    // corresponding ClickHouse row.
+                    if (groupFlushResults.length > 0 && this.ingestionOutputs) {
+                        await Promise.all(createGroupProducePromises(groupFlushResults, this.ingestionOutputs))
+                    }
                     await this.groupStore.shutdown()
                 }
                 this.cookielessManager?.shutdown()
