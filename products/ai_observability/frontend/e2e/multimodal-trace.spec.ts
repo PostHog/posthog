@@ -46,6 +46,8 @@ test.describe('AI observability multimodal trace', () => {
                             event: FIXTURE.event,
                             distinct_id: distinctId,
                             timestamp: new Date().toISOString(),
+                            // Overriding the fixture's baked-in $ai_trace_id is load-bearing: the poll below
+                            // and the trace URL both key off this per-run traceId, not the fixture's value.
                             properties: { ...FIXTURE.properties, $ai_trace_id: traceId },
                         },
                     ],
@@ -83,6 +85,9 @@ test.describe('AI observability multimodal trace', () => {
         })
 
         await test.step('open the trace and assert the image decoded', async () => {
+            // createWorkspace is API-only and sets no session cookies on `page`; the trace view is
+            // session-authenticated, so without this login page.goto lands unauthenticated and nothing renders.
+            await playwrightSetup.login(page, workspace)
             await page.goto(`/ai-observability/traces/${traceId}`)
 
             const image = page.locator('[data-attr="ai-message-image"]').first()
