@@ -58,6 +58,7 @@ import {
     EXPOSURE_FEATURE_FLAG_PROPERTY,
     EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
     featureFlagVariantProperty,
+    resolvedExposureEvent,
 } from './exposureContract'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
@@ -274,10 +275,11 @@ export function getViewRecordingFiltersForVariant(
         return [createExposureFilter(exposureConfig, experiment.feature_flag_key, variantKeys)]
     }
 
+    const exposureEvent = resolvedExposureEvent(experiment)
     return [
         {
-            id: EXPOSURE_DEFAULT_EVENT,
-            name: EXPOSURE_DEFAULT_EVENT,
+            id: exposureEvent,
+            name: exposureEvent,
             type: 'events',
             properties: [
                 variantPropertyFilter(EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY, variantKeys),
@@ -412,35 +414,32 @@ export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFilt
 }
 
 export const NOT_A_FUNNEL_REASON =
-    'This filter compares a funnel’s first and last step, so it needs a funnel metric with at least two steps that can be matched to recordings.'
+    "This filter shows sessions that didn't finish a funnel, so it needs a funnel metric."
 
-export const FUNNEL_SERVER_SIDE_BOUNDARY_REASON =
-    "This filter compares a funnel's first and last step. One of them is captured server-side without a session ID, so recordings can't be matched."
+export const FUNNEL_SERVER_SIDE_COMPLETION_REASON =
+    "This filter reads a funnel's last step. This one is captured server-side without a session ID, so recordings can't be matched."
 
-export const FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON =
-    "This filter compares a funnel's first and last step. One of them is measured in the data warehouse, which has no session events to match recordings on."
+export const FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON =
+    "This filter reads a funnel's last step. This one is measured in the data warehouse, which has no session events to match recordings on."
 
 /**
- * Why drop-off can't be asked of this metric, or null when it can. It compares the funnel's first
- * step against its last, so both of those have to be matchable — which the whole-metric
- * linkability check can't stand in for, since a funnel stays matchable on the steps between them.
- * Mirrors the `session_buckets` endpoint, which refuses the same shapes rather than counting a
- * completion no recording can show as zero in every session.
+ * Why drop-off can't be asked of this metric, or null when it can. An experiment funnel's first
+ * step is always the exposure event (the analysis prepends it), so drop-off reads only the
+ * funnel's last step, and that step alone has to be matchable. The whole-metric linkability
+ * check can't stand in for this, since a funnel stays matchable on its other steps. Mirrors the
+ * `session_buckets` endpoint, which refuses the same shapes rather than counting a completion no
+ * recording can show as zero in every session.
  */
 export function getFunnelDropoffReason(metric: ExperimentMetric, unlinkableEventNames: Set<string>): string | null {
-    if (!isExperimentFunnelMetric(metric) || getMetricSessionFilters(metric).length < 2) {
+    if (!isExperimentFunnelMetric(metric) || metric.series.length === 0) {
         return NOT_A_FUNNEL_REASON
     }
-    const boundaries = [metric.series[0], metric.series[metric.series.length - 1]]
-    if (boundaries.some((step) => step.kind === NodeKind.ExperimentDataWarehouseNode)) {
-        return FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON
+    const completion = metric.series[metric.series.length - 1]
+    if (completion.kind === NodeKind.ExperimentDataWarehouseNode) {
+        return FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON
     }
-    if (
-        boundaries.some(
-            (step) => step.kind === NodeKind.EventsNode && step.event && unlinkableEventNames.has(step.event)
-        )
-    ) {
-        return FUNNEL_SERVER_SIDE_BOUNDARY_REASON
+    if (completion.kind === NodeKind.EventsNode && completion.event && unlinkableEventNames.has(completion.event)) {
+        return FUNNEL_SERVER_SIDE_COMPLETION_REASON
     }
     return null
 }
@@ -479,7 +478,7 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
             eventNames.add(exposureConfig.event)
         }
     } else {
-        eventNames.add(EXPOSURE_DEFAULT_EVENT)
+        eventNames.add(resolvedExposureEvent(experiment))
     }
 
     const metrics = [

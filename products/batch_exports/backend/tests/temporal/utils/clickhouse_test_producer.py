@@ -19,16 +19,16 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.service import BackfillDetails, BatchExportField
-from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
-from products.batch_exports.backend.temporal.spmc import (
-    RecordBatchQueue,
-    compose_filters_clause,
+from products.batch_exports.backend.temporal.filters import compose_filters_clause
+from products.batch_exports.backend.temporal.pipeline.producer import slice_record_batch
+from products.batch_exports.backend.temporal.pipeline.query_ranges import (
     generate_query_ranges,
     is_5_min_batch_export,
-    slice_record_batch,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue
+from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
 from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,

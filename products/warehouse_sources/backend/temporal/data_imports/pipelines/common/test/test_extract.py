@@ -12,12 +12,17 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
     resolve_primary_keys,
+    validate_incremental_sync,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MissingPrimaryKeysException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
@@ -436,3 +441,41 @@ class TestHandleResetOrFullRefresh:
         helper.reset_table.assert_awaited_once()
         schema.refresh_from_db()
         assert "reset_pipeline" not in schema.sync_type_config
+
+
+class TestValidateIncrementalSync:
+    @parameterized.expand(
+        [
+            # The failure this guard exists for: a keyless incremental table can never merge into
+            # the Delta table that an earlier run already wrote.
+            ("keyless_incremental_after_first_sync_raises", True, False, None, True),
+            # The first run writes the whole table, so it doesn't need a merge key. Raising here
+            # would break every initial sync of a keyless table.
+            ("keyless_incremental_first_sync_allowed", True, True, None, False),
+            # Full refresh overwrites, so it never merges on a key.
+            ("keyless_full_refresh_allowed", False, False, None, False),
+            ("incremental_with_key_allowed", True, False, ["id"], False),
+        ]
+    )
+    def test_missing_primary_keys(
+        self,
+        _name: str,
+        is_incremental: bool,
+        is_first_sync: bool,
+        primary_keys: list[str] | None,
+        expect_raise: bool,
+    ):
+        resource = MagicMock(primary_keys=primary_keys, has_duplicate_primary_keys=False)
+
+        if not expect_raise:
+            validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
+            return
+
+        with pytest.raises(MissingPrimaryKeysException):
+            validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
+
+    def test_message_stays_classified_as_non_retryable(self):
+        # The message is what pauses the schema: without a matching Any_Source_Errors entry the
+        # run is retried on every schedule even though only the user can resolve it.
+        message = str(MissingPrimaryKeysException())
+        assert [key for key in Any_Source_Errors if key in message]

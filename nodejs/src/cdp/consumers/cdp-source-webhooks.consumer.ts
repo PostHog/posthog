@@ -234,7 +234,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
 
-            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+            const globalsWithInputs = await this.hogExecutorAsync.hogExecutor.buildInputsWithGlobals(
+                hogFunction,
+                globals
+            )
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 
             // Slightly different handling for hog flows
@@ -345,7 +348,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
-            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+            const globalsWithInputs = await this.hogExecutorAsync.hogExecutor.buildInputsWithGlobals(
+                hogFunction,
+                globals
+            )
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 
             if (hogFunctionState?.state === HogWatcherState.degraded) {
@@ -377,7 +383,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
             } else {
                 // Run the initial step - this allows functions not using fetches to respond immediately
-                result = await this.hogExecutor.execute(invocation)
+                result = await this.hogExecutorAsync.execute(invocation)
 
                 // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
                 if (!result.finished) {

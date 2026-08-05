@@ -59,13 +59,20 @@ function getCurrentLocationLink(): string {
 
 // The recording lives in PostHog's own telemetry project, which the reporting user is not a member
 // of, so this link is for PostHog staff triaging the ticket/issue — never the user. We rewrite to the
-// internal http://go/session/ golink to make that explicit.
+// internal http://go/session/ golink to make that explicit. posthog-js returns a project-scoped path
+// (`/project/<token>/replay/<id>`), so pull the session id out of the `/replay/` segment rather than
+// assuming the URL starts with the current origin.
 function getSessionReplayLink(): string {
     const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
     if (!replayUrl) {
         return ''
     }
-    return `\nSession: ${replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/')}`
+    const match = replayUrl.match(/\/replay\/([^/?#]+)([?#].*)?$/)
+    if (!match) {
+        return ''
+    }
+    const [, sessionId, queryAndHash] = match
+    return `\nSession: http://go/session/${sessionId}${queryAndHash ?? ''}`
 }
 
 function getErrorTrackingLink(uuid?: string): string {
