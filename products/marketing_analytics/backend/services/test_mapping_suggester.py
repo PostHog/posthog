@@ -158,3 +158,47 @@ class TestSuggestUtmMappings(APIBaseTest):
         raw_values = [s.raw_utm_source for s in response.source_suggestions]
         assert raw_values.count("paidsocial") == 1
         assert response.source_suggestions[0].suggested_target == "meta_ads"
+
+    @pytest.mark.asyncio
+    async def test_injected_attribution_skips_the_internal_query(self):
+        # The setup plan needs attribution health for its own readiness block, so it
+        # hands the result in rather than paying for the aggregation twice.
+        sample = _sample("facebook_paid", 120, "meta_ads")
+        injected = AttributionHealthResponse(
+            lookback_days=90,
+            integrations=[_entry_with_samples("meta_ads", [sample])],
+            total_events_with_utm=120,
+            total_events_matched_to_any_integration=0,
+            total_events_unmatched=120,
+            sample_globally_unmatched=[sample],
+        )
+
+        response = await suggest_utm_mappings(self.team, attribution=injected)
+
+        self.mock_attribution.assert_not_called()
+        assert [s.raw_utm_source for s in response.source_suggestions] == ["facebook_paid"]
+
+    @pytest.mark.asyncio
+    async def test_injected_attribution_window_wins_over_the_argument(self):
+        # Reporting the caller's `lookback_days` would misdescribe data derived from a
+        # different window, so the reported window comes off the injected response.
+        injected = AttributionHealthResponse(
+            lookback_days=7,
+            integrations=[],
+            total_events_with_utm=0,
+            total_events_matched_to_any_integration=0,
+            total_events_unmatched=0,
+            sample_globally_unmatched=[],
+        )
+
+        response = await suggest_utm_mappings(self.team, lookback_days=365, attribution=injected)
+
+        assert response.lookback_days_used == 7
+
+    @pytest.mark.asyncio
+    async def test_runs_its_own_query_when_attribution_is_absent(self):
+        response = await suggest_utm_mappings(self.team, lookback_days=45)
+
+        self.mock_attribution.assert_awaited_once_with(self.team, lookback_days=45)
+        # Still reported off the response, which the mock pins at 30.
+        assert response.lookback_days_used == 30
