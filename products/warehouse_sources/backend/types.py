@@ -1318,6 +1318,11 @@ class ExternalDataSourceType(models.TextChoices):
     ODOO = "Odoo", "Odoo"
     AIRBRIDGE = "Airbridge", "Airbridge"
     SNOVIO = "Snovio", "Snovio"
+    GOOGLEMERCHANTCENTER = "GoogleMerchantCenter", "GoogleMerchantCenter"
+    RAISELY = "Raisely", "Raisely"
+    WINDSORAI = "WindsorAi", "WindsorAi"
+    WIX = "Wix", "Wix"
+    SEVALLA = "Sevalla", "Sevalla"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

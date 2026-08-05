@@ -12,11 +12,13 @@ from parameterized import parameterized
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import MetricQuality, PRLifecycleEventKind, PRState
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _issue_event_row,
     _pr_row,
     _run_row,
     connect_github_source_without_data,
@@ -110,6 +112,35 @@ class TestPRLifecycleMapping(BaseTest):
         assert [e.kind for e in lifecycle.events] == [PRLifecycleEventKind.OPENED, PRLifecycleEventKind.CLOSED]
 
 
+class TestPRLifecycleTransitionsMapping(BaseTest):
+    """The lifecycle path with the issue-events schema linked; the side_effect order pins the
+    header -> transitions -> runs issuance order."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        connect_github_source_without_data(self.team, include_issue_events=True)
+
+    def test_interleaves_transitions_with_actor_detail(self) -> None:
+        header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
+        transitions = [
+            ("convert_to_draft", _dt("2026-01-10T10:00:00"), "alice"),
+            ("ready_for_review", _dt("2026-01-11T08:00:00"), "bob"),
+        ]
+        runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(transitions), _resp(runs)]):
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+
+        assert lifecycle is not None
+        assert [(e.kind, e.detail) for e in lifecycle.events] == [
+            (PRLifecycleEventKind.OPENED, None),
+            (PRLifecycleEventKind.CONVERTED_TO_DRAFT, "alice"),
+            (PRLifecycleEventKind.READY_FOR_REVIEW, "bob"),
+            (PRLifecycleEventKind.CI_STARTED, "CI"),
+            (PRLifecycleEventKind.CI_FINISHED, "CI: success"),
+            (PRLifecycleEventKind.MERGED, None),
+        ]
+
+
 class TestPullRequestEndpointMapping(BaseTest):
     """Row mapping for the aggregate endpoints (the query method mocked, no warehouse).
     A GitHub source is connected (ORM only) so the resolver succeeds before the mocked
@@ -136,6 +167,7 @@ class TestPullRequestEndpointMapping(BaseTest):
             "open",
             False,
             _dt("2026-01-10T09:00:00"),
+            None,
             None,
             None,
             ["bug", "p1"],
@@ -165,6 +197,7 @@ class TestPullRequestEndpointMapping(BaseTest):
         assert item.state == PRState.OPEN
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
+        assert item.ready_to_merge_seconds is None
         assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
         assert item.ci.failing_workflows == ["E2E CI"]
         assert (item.pushes, item.rerun_cycles) == (5, 2)
@@ -188,6 +221,7 @@ class TestPullRequestEndpointMapping(BaseTest):
             "open",
             False,
             _dt("2026-01-10T09:00:00"),
+            None,
             None,
             None,
             ["bug"],
@@ -264,6 +298,8 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
         assert by_number[12].pushes == 0  # no runs attributed to this PR
         assert by_number[10].estimated_cost_usd is None  # no jobs source seeded here → no cost figure
+        # No issue-events source seeded: the column degrades to NULL (never 0) and the query still runs.
+        assert by_number[14].merged_at is not None and by_number[14].ready_to_merge_seconds is None
 
     def test_pull_request_list_includes_cost_when_jobs_synced(self) -> None:
         # With the jobs source synced, the list carries per-PR cost + billable minutes.
@@ -285,6 +321,62 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         item = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 70)
         assert item.estimated_cost_usd is not None and item.estimated_cost_usd > 0
         assert item.billable_minutes is not None and item.billable_minutes > 0
+
+    def test_ready_to_merge_semantics(self) -> None:
+        # PR 20: only the LAST ready counts. PR 21: no transitions, whole life inside the window ->
+        # open-to-merge fallback. PR 22: created pre-window -> NULL. PR 23: re-drafted -> NULL.
+        # PR 24: same-second flip, the event id breaks the tie -> the higher-id ready wins.
+        # PR 25: merged past the window end (events not synced yet) -> NULL, never a wrong number.
+        # One clock base for every row: _ago re-reads the clock per call, so the seconds-exact
+        # dateDiff assertions below would drift by 1 whenever table-creation I/O straddles a
+        # second boundary between the PR seed and the events seed.
+        base = timezone.now()
+
+        def ago(days: int) -> str:
+            return (base - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(20, "alice", "closed", 0, ago(10), merged_at=ago(1), head_sha="sha20"),
+                _pr_row(21, "alice", "closed", 0, ago(5), merged_at=ago(1), head_sha="sha21"),
+                _pr_row(22, "alice", "closed", 0, ago(40), merged_at=ago(1), head_sha="sha22"),
+                _pr_row(23, "alice", "open", 1, ago(6), head_sha="sha23"),
+                _pr_row(24, "alice", "closed", 0, ago(10), merged_at=ago(1), head_sha="sha24"),
+                _pr_row(25, "alice", "closed", 0, ago(5), merged_at=ago(0), head_sha="sha25"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9500, "CI", "sha20", "completed", "success", ago(1), ago(1), pr_number=20)],
+        )
+        self._create_table(
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
+            [
+                # The window must come from the WHOLE table, not the filtered transitions view.
+                _issue_event_row(5000, "labeled", 20, ago(20)),
+                _issue_event_row(5001, "ready_for_review", 20, ago(9)),
+                _issue_event_row(5002, "convert_to_draft", 20, ago(8)),
+                _issue_event_row(5003, "ready_for_review", 20, ago(2)),
+                _issue_event_row(5004, "ready_for_review", 23, ago(4)),
+                _issue_event_row(5005, "convert_to_draft", 23, ago(3)),
+                _issue_event_row(5006, "convert_to_draft", 24, ago(2)),
+                _issue_event_row(5007, "ready_for_review", 24, ago(2)),
+                # PR 21's merge event: proves the window covers its merge, arming the fallback.
+                _issue_event_row(5008, "merged", 21, ago(1)),
+            ],
+        )
+        by_number = {item.number: item for item in api.list_pull_requests(team=self.team).items}
+        day = 86400
+        assert by_number[20].ready_to_merge_seconds == day
+        assert by_number[21].ready_to_merge_seconds == by_number[21].open_to_merge_seconds == 4 * day
+        assert by_number[22].ready_to_merge_seconds is None
+        assert by_number[23].ready_to_merge_seconds is None
+        assert by_number[24].ready_to_merge_seconds == day
+        assert by_number[25].ready_to_merge_seconds is None
 
     def test_pr_cost_sums_all_jobs_past_the_default_row_cap(self) -> None:
         # A PR with more jobs than HogQL's default 100-row cap: the detail cost must sum every job, not

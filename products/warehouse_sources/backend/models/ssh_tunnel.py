@@ -184,7 +184,15 @@ class SSHTunnel:
 
         return True, ""
 
-    def get_tunnel(self, remote_host: str, remote_port: int) -> SSHTunnelForwarder:
+    def get_tunnel(self, remote_host: str, remote_port: int, *, ssh_host: str) -> SSHTunnelForwarder:
+        """Open a forwarder to `ssh_host`, which is the address `self.host` resolved to.
+
+        `ssh_host` is required rather than defaulted to `self.host` so that a caller cannot
+        skip the SSRF check by omitting it: see `resolve_safe_host` for why the checked address
+        and the connected address have to be the same one. Passing an IP does not weaken the
+        SSH connection, because `ssh_host_key` is left unset and paramiko therefore verifies no
+        host key against the name either way.
+        """
         if not self.is_auth_valid()[0]:
             raise Exception("SSHTunnel auth is not valid")
 
@@ -193,7 +201,7 @@ class SSHTunnel:
 
         if self.auth_type == "password":
             return SSHTunnelForwarder(
-                (self.host, int(self.port)),
+                (ssh_host, int(self.port)),
                 ssh_username=self.username,
                 ssh_password=self.password,
                 remote_bind_address=(remote_host, remote_port),
@@ -201,7 +209,7 @@ class SSHTunnel:
             )
         else:
             return SSHTunnelForwarder(
-                (self.host, int(self.port)),
+                (ssh_host, int(self.port)),
                 ssh_username=self.username,
                 ssh_pkey=self.parse_private_key(),
                 ssh_private_key_password=self.passphrase,

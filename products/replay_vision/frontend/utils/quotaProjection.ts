@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { VisionQuotaApi } from '../generated/api.schemas'
-import { formatCreditCount } from './credits'
+import { billableCredits, formatCreditCount } from './credits'
 
 export const QUOTA_WARN_THRESHOLD = 0.85
 
@@ -22,6 +22,8 @@ export interface QuotaProjection {
     resetsOn: string | null
     /** Actual spend as a percentage of the limit; `QuotaMeterBar` clamps for display. */
     usedPct: number
+    /** The slice of `usedPct` covered by non-billable credits, so the meter can shade it separately. */
+    usedFreePct: number
     /** Projected additional spend as a percentage of the limit, unclamped. */
     projectedPct: number
 }
@@ -33,6 +35,7 @@ const EMPTY: QuotaProjection = {
     percentLabel: 0,
     resetsOn: null,
     usedPct: 0,
+    usedFreePct: 0,
     projectedPct: 0,
 }
 
@@ -40,6 +43,30 @@ const EMPTY: QuotaProjection = {
 export function hasCreditLimit(quota: VisionQuotaApi | null): quota is VisionQuotaApi & { credit_limit: number } {
     // 0 is a real (fully blocking) limit; only null means uncapped.
     return !!quota && quota.credit_limit !== null
+}
+
+/**
+ * True when spending credits can actually produce a bill, so the `≈ $` conversions mean something.
+ * An org whose whole limit is the free allocation can never be charged — it just stops scanning at the cap —
+ * so those surfaces speak in credits only. Unknown quota keeps the dollars rather than flickering them away.
+ */
+export function hasBillableSpend(quota: VisionQuotaApi | null): boolean {
+    if (!hasCreditLimit(quota)) {
+        return true
+    }
+    return billableCredits(quota.credit_limit, quota.free_monthly_credits) > 0
+}
+
+/**
+ * True when the org's whole limit is the free allocation, so it is on the free plan rather than
+ * capped by choice. A zero limit is excluded: that is a deliberate spend cap, not a free plan.
+ * Drives copy, where "you ran out of free credits" and "you hit your limit" are different messages.
+ */
+export function isFreeAllocationOnly(quota: VisionQuotaApi | null): boolean {
+    if (!hasCreditLimit(quota) || quota.credit_limit <= 0) {
+        return false
+    }
+    return billableCredits(quota.credit_limit, quota.free_monthly_credits) === 0
 }
 
 /**
@@ -82,8 +109,10 @@ export function projectQuota(
     const capReachDate = combinedDailyRate > 0 && used < cap ? now.add((cap - used) / combinedDailyRate, 'day') : null
     const capReachInPeriod = !!(capReachDate && periodEnd && capReachDate.isBefore(periodEnd))
 
+    // `used >= cap` without `exhausted`: a display clamp (startup cap) lowered the limit below spend,
+    // so the backend isn't blocking yet. Being over the limit must not read quieter than approaching it.
     const status: QuotaStatus =
-        quota.exhausted || capReachInPeriod
+        quota.exhausted || capReachInPeriod || used >= cap
             ? 'danger'
             : projectedPeriodEndRatio >= QUOTA_WARN_THRESHOLD
               ? 'warning'
@@ -96,6 +125,7 @@ export function projectQuota(
         percentLabel: Math.round(projectedPeriodEndRatio * 100),
         resetsOn,
         usedPct: (used / cap) * 100,
+        usedFreePct: (Math.min(used, quota.free_monthly_credits) / cap) * 100,
         projectedPct: (projectedAdditional / cap) * 100,
     }
 }
@@ -122,7 +152,11 @@ export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string
         return {}
     }
     if (state.kind === 'exhausted') {
-        return { disabledReason: `Monthly Replay vision spend limit reached. Resets ${state.resetsOn}.` }
+        return {
+            disabledReason: isFreeAllocationOnly(quota)
+                ? `You've used all your free Replay vision credits. Resets ${state.resetsOn}.`
+                : `Monthly Replay vision spend limit reached. Resets ${state.resetsOn}.`,
+        }
     }
     return {
         tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this month (resets ${state.resetsOn})`,

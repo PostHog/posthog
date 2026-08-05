@@ -3,6 +3,7 @@ import sys
 import uuid
 import fnmatch
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -499,9 +500,18 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     def _save_sync_type_config(self) -> None:
+        # temporalio at module scope would put the Temporal client on the django.setup() path —
+        # this is a models module (see external_data_source.reload_schemas for the same pattern).
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
         # Internal bookkeeping write — skip the activity-log SELECT (see save()) since these run
         # inside the sync/repartition activity where a dropped pooler connection would fail the run.
-        self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        # These fire once per batch across every schema sync, so a transient pooler wait_timeout
+        # (the pool momentarily out of free backend connections) is worth one retry rather than
+        # losing the write silently.
+        retry_on_db_connection_drop(
+            lambda: self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        )
 
     def record_partition_measurement(self, max_partition_bytes: int) -> None:
         self.sync_type_config["max_partition_bytes"] = max_partition_bytes
@@ -990,6 +1000,12 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
             schema.save(update_fields=["label", "updated_at"])
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SchemaSyncResult:
+    created: list[str]
+    deleted: list[str]
+
+
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None],
     source_id: str,
@@ -997,7 +1013,7 @@ def sync_old_schemas_with_new_schemas(
     descriptions: dict[str, str | None] | None = None,
     strict_name_match: bool = False,
     schema_metadata_by_name: dict[str, dict] | None = None,
-) -> tuple[list[str], list[str]]:
+) -> SchemaSyncResult:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
@@ -1090,7 +1106,7 @@ def sync_old_schemas_with_new_schemas(
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 
-    return actually_created, deleted_schemas
+    return SchemaSyncResult(created=actually_created, deleted=deleted_schemas)
 
 
 def schema_name_matches_auto_sync_patterns(name: str, patterns: list[str] | None) -> bool:

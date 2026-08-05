@@ -1,5 +1,12 @@
 import { ThreadMessage } from './maxLogic'
-import { appendTicketMetadata, composeTicketBody, getTicketSummaryData, parseTicketTargetArea } from './ticketUtils'
+import {
+    appendTicketMetadata,
+    composeTicketBody,
+    formatTicketConfirmationMessage,
+    getTicketSummaryData,
+    isTicketConfirmationMessage,
+    parseTicketTargetArea,
+} from './ticketUtils'
 
 const human = (content: string): ThreadMessage => ({ type: 'human', content }) as unknown as ThreadMessage
 const ai = (content: string): ThreadMessage => ({ type: 'ai', content }) as unknown as ThreadMessage
@@ -46,6 +53,29 @@ describe('ticketUtils', () => {
                 messageIndex: 3,
                 targetArea: 'session_replay',
             })
+        })
+    })
+
+    describe('formatTicketConfirmationMessage', () => {
+        it('promises the response time the plan covers', () => {
+            expect(formatTicketConfirmationMessage('4321', '48 hours')).toBe(
+                "I've created a support ticket for you.\nYour ticket ID is #4321.\nOur support team aims to get back to you within 48 hours."
+            )
+        })
+
+        it('promises no response time when the plan has none', () => {
+            const message = formatTicketConfirmationMessage('4321', null)
+            expect(message).toBe(
+                "I've created a support ticket for you.\nYour ticket ID is #4321.\nOur support team will get back to you soon!"
+            )
+            expect(message).not.toContain('within')
+        })
+
+        it.each([
+            ['with a response time', '48 hours'],
+            ['without a response time', null],
+        ])('stays detectable as a confirmation %s', (_name, responseTime) => {
+            expect(isTicketConfirmationMessage(ai(formatTicketConfirmationMessage('4321', responseTime)))).toBe(true)
         })
     })
 

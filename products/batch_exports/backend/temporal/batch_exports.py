@@ -38,9 +38,9 @@ from products.batch_exports.backend.service import (
     update_batch_export_run,
 )
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
+from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import use_distributed_events_recent_table
-from products.batch_exports.backend.temporal.sql import (
+from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,

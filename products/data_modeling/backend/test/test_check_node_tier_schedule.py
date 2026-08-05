@@ -4,14 +4,55 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
+from products.data_modeling.backend.logic.tier_membership import EPHEMERAL_SKIPPED, SCHEDULED, LiveTier, classify_node
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node, NodeType
 
 TEMPORAL_READ = "products.data_modeling.backend.management.commands.check_node_tier_schedule.Command._read_live_tiers"
+
+
+class TestClassifyNodeEphemeral(SimpleTestCase):
+    def _tier(self, node_id: str, seconds: int = 900) -> LiveTier:
+        return LiveTier(
+            schedule_id=f"dag:{seconds}",
+            interval_seconds=seconds,
+            covers_whole_dag=False,
+            node_ids=frozenset({node_id}),
+        )
+
+    def _classify(self, *, node_type: str, has_backing_table: bool) -> str:
+        return classify_node(
+            node_id="n1",
+            name="rep_sales_events",
+            node_type=node_type,
+            dag_id="d1",
+            dag_name="Default",
+            live_tiers=[self._tier("n1")],
+            expected_interval=900,
+            has_backing_table=has_backing_table,
+        ).verdict
+
+    def test_view_node_over_a_live_table_is_not_reported_as_scheduled(self):
+        # It sits in exactly the tier reconcile wants, so every tier comparison says "scheduled" —
+        # but execute_dag classes a view node ephemeral and skips it, so it never materializes.
+        assert self._classify(node_type=NodeType.VIEW, has_backing_table=True) == EPHEMERAL_SKIPPED
+
+    @parameterized.expand(
+        [
+            # a view with no table is a real ephemeral view, working as intended
+            ("ephemeral_view_without_table", NodeType.VIEW, False),
+            ("matview_with_table", NodeType.MAT_VIEW, True),
+        ]
+    )
+    def test_healthy_nodes_stay_scheduled(self, _name, node_type, has_backing_table):
+        assert self._classify(node_type=node_type, has_backing_table=has_backing_table) == SCHEDULED
 
 
 class TestCheckNodeTierScheduleGuards(BaseTest):

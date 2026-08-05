@@ -1,1 +1,1 @@
-1280_alter_integration_kind
+1286_cleanup_orphaned_identity_provider_configs
