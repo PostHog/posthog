@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Verifies the blessed multimodal AI ingestion path end to end at the data layer:
+# capture-ai -> Kafka -> ingestion-ai (blob offload) -> ClickHouse ai_events.
+# Exits non-zero with a diagnostic if any hop is broken.
+set -euo pipefail
+
+PROXY="${PROXY:-http://localhost:8010}"
+API_KEY="${API_KEY:?set API_KEY to a project api_token}"
+TRACE_ID="verify-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+
+# 25000 base64 chars, comfortably over AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH (20480),
+# so the offload step is guaranteed to engage.
+BLOB="$(head -c 18750 /dev/urandom | base64 | tr -d '\n' | head -c 25000)"
+
+echo "Posting \$ai_generation with trace_id=$TRACE_ID"
+curl -sS -f -X POST "$PROXY/i/v0/ai/batch/" \
+    -H 'Content-Type: application/json' \
+    -d "{\"api_key\":\"$API_KEY\",\"batch\":[{
+          \"event\":\"\$ai_generation\",
+          \"distinct_id\":\"verify-user\",
+          \"properties\":{
+            \"\$ai_trace_id\":\"$TRACE_ID\",
+            \"\$ai_model\":\"gpt-4o-mini\",
+            \"\$ai_provider\":\"openai\",
+            \"\$ai_input\":[{\"role\":\"user\",\"content\":[
+              {\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,$BLOB\"}}
+            ]}]
+          }}]}" >/dev/null
+
+CID="$(docker ps -q -f name=clickhouse | head -1)"
+for _ in $(seq 1 30); do
+    INPUT="$(docker exec "$CID" clickhouse-client -q \
+        "SELECT input FROM posthog.ai_events WHERE trace_id = '$TRACE_ID' LIMIT 1" 2>/dev/null || true)"
+    if [ -n "$INPUT" ]; then
+        case "$INPUT" in
+            *phaiblob://*) echo "PASS: offloaded to a blob pointer"; exit 0 ;;
+            *) echo "FAIL: row landed but was not offloaded (no phaiblob:// pointer):"; echo "$INPUT" | head -c 300; exit 1 ;;
+        esac
+    fi
+    sleep 2
+done
+echo "FAIL: no ai_events row for trace_id=$TRACE_ID after 60s"
+exit 1
