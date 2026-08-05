@@ -23,6 +23,7 @@ import { template as posthogCaptureTemplate } from './_destinations/posthog_capt
 import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
 import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
 import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
+import { template as posthogRecordTicketEmailTemplate } from './_destinations/posthog_conversations/posthog-record-ticket-email.template'
 import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
 import { template as posthogCreateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-create-account.template'
 import { template as posthogGetAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-get-account.template'
@@ -85,6 +86,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogUpdatePersonPropertiesTemplate,
     posthogSetHogflowVariableTemplate,
     posthogGetTicketTemplate,
+    posthogRecordTicketEmailTemplate,
     posthogUpdateTicketTemplate,
     posthogCreateAccountTemplate,
     posthogGetAccountTemplate,

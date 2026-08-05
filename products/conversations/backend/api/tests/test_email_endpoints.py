@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import transaction
 from django.test import Client
 from django.utils import timezone
 
@@ -921,8 +922,8 @@ class TestEmailInboundContent(BaseTest):
         assert reply.content == "Thanks, that worked"
 
 
-class TestWidgetAckThreading(BaseTest):
-    """The receipt exists so a reply sent before any agent response threads correctly."""
+class TestWidgetEmailThreading(BaseTest):
+    """A customer reply to widget ticket email has to land on the ticket, not open a second one."""
 
     def setUp(self):
         super().setUp()
@@ -954,21 +955,15 @@ class TestWidgetAckThreading(BaseTest):
             item_context={"author_type": "customer", "is_private": False},
         )
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    @patch("products.conversations.backend.services.email_delivery.send_mime")
-    def test_reply_to_ack_lands_on_the_same_ticket(self, mock_send_mime: MagicMock, _mock_sig: MagicMock):
-        from products.conversations.backend.services.email_delivery import send_widget_ack_email
-
-        assert send_widget_ack_email(self.ticket) is True
-        ack_message_id = EmailMessageMapping.objects.get(ticket=self.ticket).message_id
-
+    def _inbound_reply(self, thread_header: str, message_id: str) -> None:
         response = self.client.post(
             "/api/conversations/v1/email/inbound",
             {
                 "recipient": "team-acc0ffee00001111@mg.posthog.com",
                 "from": "customer@test.com",
-                "Message-Id": "<customer-reply@test.com>",
-                "In-Reply-To": ack_message_id,
+                "Message-Id": message_id,
+                **({"In-Reply-To": thread_header} if thread_header.startswith("<") else {}),
+                "References": thread_header,
                 "subject": "Re: Dashboards are broken",
                 "stripped-text": "It's still happening on Safari",
                 "X-Mailgun-Spf": "pass",
@@ -977,12 +972,49 @@ class TestWidgetAckThreading(BaseTest):
         )
         assert response.status_code == 200
 
-        # No second ticket: the reply threaded onto the original via the ack's mapping.
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.tasks.send_mime")
+    def test_reply_to_an_agent_reply_lands_on_the_same_ticket(self, mock_send_mime: MagicMock, _mock_sig: MagicMock):
+        from products.conversations.backend.tasks import send_email_reply
+
+        # The agent's emailed reply is the thread anchor once it sends.
+        with patch.object(transaction, "on_commit", side_effect=lambda func: func()):
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content="Can you try a hard refresh?",
+                created_by=self.user,
+                item_context={"author_type": "support", "is_private": False},
+            )
+        outbox = EmailOutboxMessage.objects.get(ticket=self.ticket)
+        send_email_reply(str(outbox.id))
+        mock_send_mime.assert_called_once()
+        sent_message_id = EmailMessageMapping.objects.get(ticket=self.ticket).message_id
+
+        self._inbound_reply(sent_message_id, "<customer-reply@test.com>")
+
         assert Ticket.objects.filter(team=self.team).count() == 1
         reply = Comment.objects.get(
             team=self.team, item_id=str(self.ticket.id), content="It's still happening on Safari"
         )
         assert (reply.item_context or {}).get("author_type") == "customer"
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_reply_referencing_the_thread_anchor_lands_on_the_same_ticket(self, _mock_sig: MagicMock):
+        # A workflow email (CSAT, acknowledgment) carries the anchor in References rather than
+        # being sent by us at all — a reply to it still has to thread onto the ticket.
+        from products.conversations.backend.services.email_delivery import get_or_create_email_thread_anchor
+
+        anchor = get_or_create_email_thread_anchor(self.ticket)
+        assert anchor is not None
+
+        self._inbound_reply(f"<unrelated-workflow-send@ses.amazonaws.com> {anchor}", "<customer-reply@test.com>")
+
+        assert Ticket.objects.filter(team=self.team).count() == 1
+        assert Comment.objects.filter(
+            team=self.team, item_id=str(self.ticket.id), content="It's still happening on Safari"
+        ).exists()
 
 
 class TestSendEmailReplyMultiConfig(BaseTest):

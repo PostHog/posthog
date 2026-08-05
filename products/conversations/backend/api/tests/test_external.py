@@ -7,9 +7,10 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import ActivityLog, Team
+from posthog.models.comment import Comment
 from posthog.models.utils import generate_random_token_secret
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import EmailChannel, EmailMessageMapping, Ticket
 from products.conversations.backend.models.constants import Priority, Status
 
 
@@ -708,3 +709,123 @@ class TestExternalTicketAPI(BaseTest):
             ).count(),
             1,
         )
+
+    # -- Thread anchor ----------------------------------------------------
+
+    def _prepare_email_channel(self) -> None:
+        EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="extanchor0001",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            is_default=True,
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Dashboards are broken",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+
+    def test_get_exposes_a_stable_thread_anchor(self):
+        self._prepare_email_channel()
+
+        first = self.client.get(self.url, **self._auth_headers()).json()["email_thread_anchor"]
+        second = self.client.get(self.url, **self._auth_headers()).json()["email_thread_anchor"]
+
+        assert first is not None
+        self.assertEqual(first, second)
+        self.assertEqual(EmailMessageMapping.objects.filter(ticket=self.ticket, message_id=first).count(), 1)
+
+    def test_get_returns_no_anchor_without_a_verified_channel(self):
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Dashboards are broken",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+
+        response = self.client.get(self.url, **self._auth_headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["email_thread_anchor"])
+        self.assertFalse(EmailMessageMapping.objects.filter(ticket=self.ticket).exists())
+
+    # -- Workflow email activity ------------------------------------------
+
+    def test_email_activity_records_a_workflow_attributed_entry(self):
+        flow_id = "0191d3e0-0000-7000-8000-000000000009"
+        response = self.client.post(
+            f"{self.url}/email-activity",
+            {"recipient": "customer@external.com", "subject": "We got your ticket"},
+            content_type="application/json",
+            **self._workflow_headers(flow_id=flow_id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        change = activity.detail["changes"][0]
+        self.assertEqual(change["field"], "workflow_email")
+        self.assertEqual(change["after"], {"recipient": "customer@external.com", "subject": "We got your ticket"})
+        self.assertEqual(activity.detail["trigger"]["job_id"], flow_id)
+
+    def test_email_activity_records_without_a_subject(self):
+        response = self.client.post(
+            f"{self.url}/email-activity",
+            {"recipient": "customer@external.com"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        self.assertIsNone(activity.detail["changes"][0]["after"]["subject"])
+        self.assertIsNone(activity.detail["trigger"])
+
+    @parameterized.expand(
+        [
+            ("missing_recipient", {}, status.HTTP_400_BAD_REQUEST),
+            ("invalid_recipient", {"recipient": "not-an-email"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_email_activity_rejects_bad_payloads(self, _name, payload, expected_status):
+        response = self.client.post(
+            f"{self.url}/email-activity",
+            payload,
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, expected_status)
+        self.assertFalse(
+            ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id)).exists()
+        )
+
+    def test_email_activity_requires_auth(self):
+        response = self.client.post(
+            f"{self.url}/email-activity",
+            {"recipient": "customer@external.com"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_email_activity_rejects_another_teams_ticket(self):
+        other_team = Team.objects.create(
+            organization=self.organization,
+            name="Other team",
+            conversations_enabled=True,
+            secret_api_token=generate_random_token_secret(),
+        )
+
+        response = self.client.post(
+            f"{self.url}/email-activity",
+            {"recipient": "customer@external.com"},
+            content_type="application/json",
+            **self._auth_headers(token=other_team.secret_api_token),
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

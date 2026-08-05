@@ -13,7 +13,13 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
-import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
+import {
+    EmailService,
+    buildThreadingHeaders,
+    parseAddressList,
+    sanitizeEmailSubject,
+    sanitizeMessageIdList,
+} from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
@@ -61,6 +67,34 @@ describe('parseAddressList', () => {
         expect(parseAddressList(undefined)).toBeUndefined()
         expect(parseAddressList('')).toBeUndefined()
         expect(parseAddressList(',')).toBeUndefined()
+    })
+})
+
+describe('buildThreadingHeaders', () => {
+    it('emits both threading headers when supplied', () => {
+        expect(buildThreadingHeaders({ inReplyTo: '<a@x.com>', references: '<root@x.com> <a@x.com>' })).toEqual([
+            { Name: 'In-Reply-To', Value: '<a@x.com>' },
+            { Name: 'References', Value: '<root@x.com> <a@x.com>' },
+        ])
+    })
+
+    it.each([
+        ['no values', {}],
+        ['empty strings', { inReplyTo: '', references: '' }],
+        ['values with no message ids', { inReplyTo: 'not-an-id', references: 'also nothing' }],
+    ])('emits nothing for %s', (_name, params) => {
+        expect(buildThreadingHeaders(params)).toEqual([])
+    })
+
+    it.each([
+        // The workflow author templates these values, so an injected header or a stray
+        // fragment must not survive into the outgoing message.
+        ['header injection attempt', '<a@x.com>\r\nBcc: attacker@evil.com', '<a@x.com>'],
+        ['surrounding junk', 'Re: hello <a@x.com> thanks', '<a@x.com>'],
+        ['keeps multiple ids in order', '<one@x.com> junk <two@x.com>', '<one@x.com> <two@x.com>'],
+    ])('sanitizes %s', (_name, input, expected) => {
+        expect(sanitizeMessageIdList(input)).toEqual(expected)
+        expect(buildThreadingHeaders({ references: input })).toEqual([{ Name: 'References', Value: expected }])
     })
 })
 

@@ -138,6 +138,11 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     preheader: z.string().optional(),
     text: z.string(),
     html: z.string(),
+    // Threading headers, so an email can join an existing mail thread it didn't start. A reply
+    // to it then carries these IDs onward, which is what lets conversations match the reply to
+    // the ticket the thread belongs to.
+    inReplyTo: z.string().optional(),
+    references: z.string().optional(),
 })
 
 export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.object({

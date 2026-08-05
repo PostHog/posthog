@@ -67,6 +67,7 @@ registerAsyncFunction('postHogGetTicket', {
                 email_subject: null,
                 email_from: null,
                 email_to: null,
+                email_thread_anchor: null,
                 cc_participants: [],
                 tags: [],
             },
@@ -126,6 +127,67 @@ registerAsyncFunction('postHogUpdateTicket', {
             level: 'info',
             timestamp: DateTime.now(),
             message: `postHogUpdateTicket(${JSON.stringify(args[0], null, 2)})`,
+        })
+
+        return {
+            status: 200,
+            body: { ok: true },
+        }
+    },
+})
+
+registerAsyncFunction('postHogRecordTicketEmail', {
+    execute: async (args, context, result) => {
+        const [opts] = args as [Record<string, any> | undefined]
+        const ticketId = opts?.ticket_id
+        const recipient = opts?.recipient
+
+        if (!ticketId || typeof ticketId !== 'string') {
+            throw new Error("[HogFunction] - postHogRecordTicketEmail call missing 'ticket_id' property")
+        }
+        if (!recipient || typeof recipient !== 'string') {
+            throw new Error("[HogFunction] - postHogRecordTicketEmail call missing 'recipient' property")
+        }
+
+        const recordTeam = await context.teamManager.getTeam(context.invocation.teamId)
+        if (!recordTeam) {
+            throw new Error(`Team ${context.invocation.teamId} not found`)
+        }
+        if (!recordTeam.secret_api_token) {
+            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
+        }
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${recordTeam.secret_api_token}`,
+        }
+
+        // Same attribution as postHogUpdateTicket: forward only the workflow id so the ticket
+        // activity entry links back to the workflow that sent the email.
+        const recordHogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
+        if (recordHogFlow?.id) {
+            headers['X-PostHog-Hog-Flow-Id'] = recordHogFlow.id
+        }
+
+        result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
+            type: 'fetch',
+            url: `${context.siteUrl}/api/conversations/external/ticket/${ticketId}/email-activity`,
+            method: 'POST',
+            body: JSON.stringify({ recipient, subject: opts?.subject }),
+            headers,
+        })
+    },
+
+    mock: (args, logs) => {
+        logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `Async function 'postHogRecordTicketEmail' was mocked with arguments:`,
+        })
+        logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `postHogRecordTicketEmail(${JSON.stringify(args[0], null, 2)})`,
         })
 
         return {

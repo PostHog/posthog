@@ -130,7 +130,33 @@ describe('ticketActivityDescriber', () => {
         expect(text).not.toContain('reopened')
     })
 
-    it('describes the acknowledgment receipt with its recipient', () => {
+    it('describes a workflow-sent email with its recipient and subject', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                detail: {
+                    merge: null,
+                    trigger: { job_type: 'hog_flow', job_id: 'flow-1', payload: {} },
+                    name: 'Ticket #2043',
+                    changes: [
+                        {
+                            type: ActivityScope.TICKET,
+                            action: 'created',
+                            field: 'workflow_email',
+                            before: null,
+                            after: { recipient: 'customer@external.com', subject: 'We got your ticket' },
+                        },
+                    ],
+                },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('sent an email to customer@external.com')
+        expect(text).toContain('We got your ticket')
+        // Attributed to the workflow that sent it, not the generic system actor.
+        expect(text).toContain('workflow-actor:flow-1')
+    })
+
+    it('describes a workflow-sent email with no subject', () => {
         const result = ticketActivityDescriber(
             ticketLogItem({
                 detail: {
@@ -141,15 +167,16 @@ describe('ticketActivityDescriber', () => {
                         {
                             type: ActivityScope.TICKET,
                             action: 'created',
-                            field: 'acknowledgment_email',
+                            field: 'workflow_email',
                             before: null,
-                            after: 'customer@external.com',
+                            after: { recipient: 'customer@external.com', subject: null },
                         },
                     ],
                 },
             })
         )
         const text = getTextContent(result)
-        expect(text).toContain('sent an acknowledgment email to customer@external.com')
+        expect(text).toContain('sent an email to customer@external.com')
+        expect(text).not.toContain('with subject')
     })
 })

@@ -128,11 +128,18 @@ const ticketActionsMapping: Record<
             ],
         }
     },
-    acknowledgment_email: function onAcknowledgmentEmail(change) {
+    workflow_email: function onWorkflowEmail(change) {
+        const sent = (change?.after ?? {}) as { recipient?: string; subject?: string | null }
         return {
             description: [
                 <>
-                    sent an acknowledgment email to <strong className="ph-no-capture">{change?.after as string}</strong>
+                    sent an email to <strong className="ph-no-capture">{sent.recipient}</strong>
+                    {sent.subject ? (
+                        <>
+                            {' '}
+                            with subject <strong className="ph-no-capture">{sent.subject}</strong>
+                        </>
+                    ) : null}
                 </>,
             ],
         }

@@ -762,7 +762,6 @@ export interface ConversationsSettings {
     widget_placeholder_text?: string
     widget_position?: 'bottom_left' | 'bottom_right' | 'top_left' | 'top_right'
     widget_email_replies_enabled?: boolean
-    widget_email_ack_text?: string
     slack_enabled?: boolean
     slack_team_id?: string | null
     slack_channel_id?: string | null

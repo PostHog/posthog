@@ -102,6 +102,34 @@ export function sanitizeEmailSubject(subject: string): string {
         .trim()
 }
 
+/**
+ * Message-ID lists for In-Reply-To / References, keeping only `<...>` tokens.
+ *
+ * These values are templated by the workflow author, so an unfiltered value could inject
+ * arbitrary headers. Anything that isn't a bracketed message id is dropped rather than
+ * escaped: a malformed id has no threading value, so there is nothing to preserve.
+ */
+export function sanitizeMessageIdList(value: string | undefined): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined
+    }
+    const ids = value.match(/<[^<>\s]+>/g)
+    return ids?.length ? ids.join(' ') : undefined
+}
+
+export function buildThreadingHeaders(params: { inReplyTo?: string; references?: string }): MessageHeader[] {
+    const headers: MessageHeader[] = []
+    const inReplyTo = sanitizeMessageIdList(params.inReplyTo)
+    const references = sanitizeMessageIdList(params.references)
+    if (inReplyTo) {
+        headers.push({ Name: 'In-Reply-To', Value: inReplyTo })
+    }
+    if (references) {
+        headers.push({ Name: 'References', Value: references })
+    }
+    return headers
+}
+
 // Splits a comma-separated address list and extracts the bare email from any RFC-822
 // `"Name" <email@x>` entries. Used by the pre-send suppression check to normalize cc/bcc entries
 // before matching against the suppression list (which stores bare, lower-cased addresses).
@@ -584,7 +612,11 @@ export class EmailService {
                       identifier: params.to.email,
                   })
                 : []
-            sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader]
+            sendEmailParams.Content.Simple.Headers = [
+                ...unsubscribeHeaders,
+                trackingHeader,
+                ...buildThreadingHeaders(params),
+            ]
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)

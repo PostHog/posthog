@@ -16,9 +16,7 @@ Anonymous users are controlled by widget_session_id. Verified users are controll
 
 import uuid
 import logging
-from typing import Any, cast
 
-from django.db import transaction
 from django.db.models import F, Q
 
 from prometheus_client import Counter
@@ -57,7 +55,6 @@ from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.email_delivery import widget_email_replies_enabled
 from products.conversations.backend.services.identity import verify_identity_email_hash, verify_identity_hash
-from products.conversations.backend.tasks import send_widget_ticket_ack
 
 logger = logging.getLogger(__name__)
 
@@ -374,12 +371,6 @@ class WidgetMessageView(APIView):
         # via transaction.on_commit (see signals.py). Only unread_count needs
         # explicit invalidation here since the signal doesn't cover it.
         invalidate_unread_count_cache(team.id)
-
-        if not ticket_id and verified_email is not None and widget_email_replies_enabled(team):
-            new_ticket_id = str(ticket.id)
-            transaction.on_commit(
-                lambda: cast(Any, send_widget_ticket_ack).delay(ticket_id=new_ticket_id, team_id=team.id)
-            )
 
         return Response(
             {

@@ -58,7 +58,6 @@ export interface supportSettingsLogicValues {
     conversationsEnabledLoading: boolean
     domainInputValue: string
     editingDomainIndex: number | null
-    emailAckTextValue: string | null
     emailConfigs: EmailConfigStatus[]
     emailConnected: boolean
     emailConnecting: boolean
@@ -362,9 +361,6 @@ export interface supportSettingsLogicActions {
         editingIndex: number | null
         value: string
     }
-    saveEmailAckText: () => {
-        value: true
-    }
     saveGreetingText: () => {
         value: true
     }
@@ -433,9 +429,6 @@ export interface supportSettingsLogicActions {
     }
     setEditingDomainIndex: (index: number | null) => {
         index: number | null
-    }
-    setEmailAckTextValue: (value: string | null) => {
-        value: string | null
     }
     setGithubRepos: (repos: string[]) => {
         repos: string[]
@@ -598,8 +591,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         cancelDomainEdit: true,
         setGreetingInputValue: (value: string | null) => ({ value }),
         saveGreetingText: true,
-        setEmailAckTextValue: (value: string | null) => ({ value }),
-        saveEmailAckText: true,
         // Identification form settings
         setIdentificationFormTitleValue: (value: string | null) => ({ value }),
         saveIdentificationFormTitle: true,
@@ -725,12 +716,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             null as string | null,
             {
                 setGreetingInputValue: (_, { value }) => value,
-            },
-        ],
-        emailAckTextValue: [
-            null as string | null,
-            {
-                setEmailAckTextValue: (_, { value }) => value,
             },
         ],
         identificationFormTitleValue: [
@@ -1259,18 +1244,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
-        saveEmailAckText: () => {
-            const trimmedValue = values.emailAckTextValue?.trim()
-            if (!trimmedValue) {
-                return
-            }
-            actions.updateCurrentTeam({
-                conversations_settings: {
-                    ...values.currentTeam?.conversations_settings,
-                    widget_email_ack_text: trimmedValue,
-                },
-            })
-        },
         saveIdentificationFormTitle: () => {
             const trimmedValue = values.identificationFormTitleValue?.trim()
             if (!trimmedValue) {
@@ -1674,7 +1647,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         updateCurrentTeamSuccess: () => {
             actions.setGreetingInputValue(null)
-            actions.setEmailAckTextValue(null)
             actions.setIdentificationFormTitleValue(null)
             actions.setIdentificationFormDescriptionValue(null)
             actions.setPlaceholderTextValue(null)

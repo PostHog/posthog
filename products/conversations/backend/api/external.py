@@ -31,6 +31,7 @@ from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
+from products.conversations.backend.services.email_delivery import get_or_create_email_thread_anchor
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
 logger = structlog.get_logger(__name__)
@@ -242,6 +243,7 @@ class ExternalTicketView(APIView):
                 "email_subject": ticket.email_subject,
                 "email_from": ticket.email_from,
                 "email_to": ticket.email_config.from_email if ticket.email_config else None,
+                "email_thread_anchor": get_or_create_email_thread_anchor(ticket),
                 "cc_participants": ticket.cc_participants,
                 "tags": tags,
             }
@@ -461,5 +463,77 @@ class ExternalTicketView(APIView):
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
                 return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"ok": True})
+
+
+class ExternalTicketEmailActivitySerializer(serializers.Serializer):
+    recipient = serializers.EmailField(help_text="Address the email was sent to")
+    subject = serializers.CharField(required=False, allow_blank=True, max_length=500, help_text="Subject line sent")
+
+
+class ExternalTicketEmailActivityView(APIView):
+    """
+    POST /api/conversations/external/ticket/<ticket_id>/email-activity
+
+    Record that a first-party email about this ticket was sent by something other than
+    conversations, so agents can see it on the ticket. Workflows send their own mail through
+    a separate transport, so this is a report rather than a delivery receipt: conversations
+    knows what the caller claims it sent, not whether it arrived.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ExternalTicketBurstThrottle, ExternalTicketSustainedThrottle]
+
+    def post(self, request: Request, ticket_id: str) -> Response:
+        team, error = _authenticate_team(request)
+        if error:
+            return error
+
+        assert team is not None
+
+        workflow_trigger = _workflow_trigger_from_request(request)
+
+        if error := _validate_ticket_id(ticket_id):
+            return error
+
+        serializer = ExternalTicketEmailActivitySerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            ticket = Ticket.objects.get(id=ticket_id, team_id=team.id)
+        except Ticket.DoesNotExist:
+            return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=None,
+                was_impersonated=False,
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=f"Ticket #{ticket.ticket_number}",
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="workflow_email",
+                            action="created",
+                            after={
+                                "recipient": serializer.validated_data["recipient"],
+                                "subject": serializer.validated_data.get("subject") or None,
+                            },
+                        )
+                    ],
+                    trigger=workflow_trigger,
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+            return Response({"error": "Failed to record email activity"}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"ok": True})

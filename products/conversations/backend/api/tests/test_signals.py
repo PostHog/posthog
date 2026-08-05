@@ -581,16 +581,14 @@ class TestWidgetEmailLegSignal(BaseTest):
         assert self.ticket.email_config_id is None
 
 
-class TestWidgetAckEmail(BaseTest):
-    SEND_MIME = "products.conversations.backend.services.email_delivery.send_mime"
+class TestEmailThreadAnchor(BaseTest):
+    """The anchor lets first-party email we don't send (workflow acks, CSAT) thread onto a ticket."""
 
     def setUp(self):
         super().setUp()
-        self.team.conversations_settings = {"email_enabled": True, "widget_email_replies_enabled": True}
-        self.team.save()
         self.config = EmailChannel.objects.create(
             team=self.team,
-            inbound_token="widgetack001",
+            inbound_token="anchor000001",
             from_email="support@example.com",
             from_name="Support",
             domain="example.com",
@@ -603,7 +601,6 @@ class TestWidgetAckEmail(BaseTest):
             widget_session_id=str(uuid.uuid4()),
             distinct_id="verified-distinct-id",
             identity_verified=True,
-            email_from="customer@external.com",
         )
         Comment.objects.create(
             team=self.team,
@@ -613,107 +610,54 @@ class TestWidgetAckEmail(BaseTest):
             item_context={"author_type": "customer", "is_private": False},
         )
 
-    def _send(self):
-        from products.conversations.backend.services.email_delivery import send_widget_ack_email
+    def _anchor(self) -> str | None:
+        from products.conversations.backend.services.email_delivery import get_or_create_email_thread_anchor
 
         self.ticket.refresh_from_db()
-        return send_widget_ack_email(self.ticket)
+        return get_or_create_email_thread_anchor(self.ticket)
 
-    def test_ack_sends_replyable_receipt_without_creating_a_message(self):
-        self.ticket.refresh_from_db()
-        stats_before = (self.ticket.message_count, self.ticket.unread_customer_count, self.ticket.last_message_text)
+    def test_anchor_is_minted_and_mapped_to_the_ticket(self):
+        anchor = self._anchor()
 
-        with patch(self.SEND_MIME) as mock_send_mime:
-            assert self._send() is True
+        assert anchor is not None
+        assert anchor.startswith("<") and anchor.endswith(">")
+        mapping = EmailMessageMapping.objects.get(team=self.team, message_id=anchor)
+        assert mapping.ticket_id == self.ticket.id
 
-        mock_send_mime.assert_called_once()
-        args, kwargs = mock_send_mime.call_args
-        assert args[0] == "example.com"
-        assert kwargs["recipients"] == ["customer@external.com"]
-        mime = args[1]
-        assert b"Dashboards are broken" in mime
-        assert b"Reply to this email" in mime
+    def test_anchor_is_stable_across_calls(self):
+        first = self._anchor()
 
-        # The receipt is a delivery artifact, not a ticket message: it adds no comment
-        # and leaves ticket stats untouched, so it can't stomp the agent list preview,
-        # inflate message_count, or fire the message events workflows trigger on.
-        assert Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).count() == 1
-        self.ticket.refresh_from_db()
-        assert (
-            self.ticket.message_count,
-            self.ticket.unread_customer_count,
-            self.ticket.last_message_text,
-        ) == stats_before
+        assert self._anchor() == first
+        assert EmailMessageMapping.objects.filter(ticket=self.ticket).count() == 1
 
-        # The mapping is what makes a reply to the receipt thread onto this ticket.
-        mapping = EmailMessageMapping.objects.get(ticket=self.ticket, team=self.team)
-        assert mapping.message_id in mime.decode()
+    def test_anchor_reuses_an_existing_mapping(self):
+        # An email-channel ticket already has the customer's own message mapped: threading
+        # onto that is both correct and avoids minting an ID nothing ever sent.
+        existing = EmailMessageMapping.objects.create(
+            message_id="<customer-original@example.com>",
+            team=self.team,
+            ticket=self.ticket,
+            comment=Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).first(),
+        )
 
-    def test_ack_uses_custom_text_when_configured(self):
-        self.team.conversations_settings = {
-            **self.team.conversations_settings,
-            "widget_email_ack_text": "Got it, we are on the case.",
-        }
-        self.team.save()
-
-        with patch(self.SEND_MIME) as mock_send_mime:
-            assert self._send() is True
-
-        mime = mock_send_mime.call_args[0][1]
-        assert b"Got it, we are on the case." in mime
-        assert b"Reply to this email" not in mime
+        assert self._anchor() == existing.message_id
+        assert EmailMessageMapping.objects.filter(ticket=self.ticket).count() == 1
 
     @parameterized.expand(
         [
-            ("setting_disabled", {"email_enabled": True}, {}, {}),
-            ("setting_non_bool", {"email_enabled": True, "widget_email_replies_enabled": "false"}, {}, {}),
-            ("identity_unverified", None, {"identity_verified": False}, {}),
-            ("channel_not_default", None, {}, {"is_default": False}),
-            ("channel_unverified", None, {}, {"domain_verified": False}),
-            ("no_attested_email", None, {"email_from": None}, {}),
+            ("no_verified_channel", "channel", None),
+            ("no_customer_message", "comments", None),
         ]
     )
-    def test_ack_not_sent(self, _name, settings_override, ticket_override, channel_override):
-        if settings_override is not None:
-            self.team.conversations_settings = settings_override
-            self.team.save()
-        if ticket_override:
-            for field, field_value in ticket_override.items():
-                setattr(self.ticket, field, field_value)
-            self.ticket.save(update_fields=[*ticket_override, "updated_at"])
-        if channel_override:
-            for field, field_value in channel_override.items():
-                setattr(self.config, field, field_value)
-            self.config.save(update_fields=list(channel_override))
+    def test_no_anchor_without(self, _name, missing, _unused):
+        if missing == "channel":
+            self.config.domain_verified = False
+            self.config.save(update_fields=["domain_verified"])
+        else:
+            Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).delete()
 
-        with patch(self.SEND_MIME) as mock_send_mime:
-            assert self._send() is False
-
-        mock_send_mime.assert_not_called()
+        assert self._anchor() is None
         assert not EmailMessageMapping.objects.filter(ticket=self.ticket).exists()
-
-    def test_ack_is_idempotent_once_a_thread_anchor_exists(self):
-        with patch(self.SEND_MIME) as mock_send_mime:
-            assert self._send() is True
-            assert self._send() is False
-
-        mock_send_mime.assert_called_once()
-        assert EmailMessageMapping.objects.filter(ticket=self.ticket).count() == 1
-
-    def test_ack_send_logs_ticket_activity(self):
-        from posthog.models.activity_logging.activity_log import ActivityLog
-
-        from products.conversations.backend.tasks import send_widget_ticket_ack
-
-        with patch(self.SEND_MIME):
-            send_widget_ticket_ack(ticket_id=str(self.ticket.id), team_id=self.team.id)
-
-        entry = ActivityLog.objects.get(team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id))
-        assert entry.user is None
-        assert entry.activity == "updated"
-        changes = entry.detail["changes"]
-        assert changes[0]["field"] == "acknowledgment_email"
-        assert changes[0]["after"] == "customer@external.com"
 
 
 class TestIsOutboundReply:

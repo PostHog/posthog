@@ -9,7 +9,6 @@ import {
     LemonInput,
     LemonSelect,
     LemonSwitch,
-    LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
 
@@ -18,10 +17,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { supportSettingsLogic } from './supportSettingsLogic'
-
-/** Mirrors DEFAULT_ACK_TEXT in products/conversations/backend/services/email_delivery.py. */
-const DEFAULT_EMAIL_ACK_TEXT =
-    "Thanks for your message! We've received it and will get back to you soon. Reply to this email to add more details."
 
 export function WidgetSection(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -37,8 +32,6 @@ export function WidgetSection(): JSX.Element {
         saveIdentificationFormDescription,
         setPlaceholderTextValue,
         savePlaceholderText,
-        setEmailAckTextValue,
-        saveEmailAckText,
     } = useActions(supportSettingsLogic)
     const {
         widgetEnabledLoading,
@@ -47,7 +40,6 @@ export function WidgetSection(): JSX.Element {
         identificationFormDescriptionValue,
         placeholderTextValue,
         hasVerifiedDefaultEmailChannel,
-        emailAckTextValue,
     } = useValues(supportSettingsLogic)
 
     return (
@@ -122,40 +114,6 @@ export function WidgetSection(): JSX.Element {
                         }
                     />
                 </div>
-
-                {currentTeam?.conversations_settings?.widget_email_replies_enabled === true && (
-                    <div className="flex items-start gap-4 justify-between pl-4">
-                        <div>
-                            <label className="w-40 shrink-0 font-medium">Acknowledgment email</label>
-                            <p className="text-xs text-muted-alt">
-                                Sent as soon as a ticket is created, so customers can reply straight away without
-                                waiting for your first response. Their own message is quoted below this text.
-                            </p>
-                        </div>
-                        <div className="flex gap-2 flex-1 max-w-[420px]">
-                            <LemonTextArea
-                                value={
-                                    emailAckTextValue ??
-                                    currentTeam?.conversations_settings?.widget_email_ack_text ??
-                                    DEFAULT_EMAIL_ACK_TEXT
-                                }
-                                placeholder={DEFAULT_EMAIL_ACK_TEXT}
-                                onChange={setEmailAckTextValue}
-                                minRows={3}
-                                maxLength={2000}
-                            />
-                            <LemonButton
-                                type="primary"
-                                onClick={saveEmailAckText}
-                                disabledReason={
-                                    !emailAckTextValue?.trim() ? 'Enter an acknowledgment message' : undefined
-                                }
-                            >
-                                Save
-                            </LemonButton>
-                        </div>
-                    </div>
-                )}
 
                 {currentTeam?.conversations_settings?.widget_enabled && (
                     <>

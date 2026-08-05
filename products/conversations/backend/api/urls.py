@@ -11,7 +11,7 @@ from .email_settings import (
     EmailStatusView,
     EmailVerifyDomainView,
 )
-from .external import ExternalTicketView
+from .external import ExternalTicketEmailActivityView, ExternalTicketView
 from .github_setup import (
     GithubConnectView,
     GithubCreateIssueView,
@@ -69,4 +69,9 @@ urlpatterns = [
     re_path(r"^v1/github/select-repos/?$", GithubSelectReposView.as_view(), name="github-select-repos"),
     re_path(r"^v1/github/create-issue/?$", GithubCreateIssueView.as_view(), name="github-create-issue"),
     path("external/ticket/<uuid:ticket_id>", ExternalTicketView.as_view(), name="external-ticket"),
+    path(
+        "external/ticket/<uuid:ticket_id>/email-activity",
+        ExternalTicketEmailActivityView.as_view(),
+        name="external-ticket-email-activity",
+    ),
 ]
