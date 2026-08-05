@@ -484,7 +484,7 @@ the row lists both.
 | picqer                           | HTTP                        | requests                                                        | ✅                          |
 | pingdom                          | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads                    | HTTP                        | requests                                                        | ✅                          |
-| pipedrive                        | HTTP                        | requests                                                        | ✅                          |
+| pipedrive                        | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | pipeliner                        | HTTP                        | requests                                                        | ✅                          |
 | plain                            | HTTP                        | requests                                                        | ✅                          |
 | planhat                          | HTTP                        | requests                                                        | ✅                          |
