@@ -111,6 +111,18 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert len(results) == 2
 
+    def test_historical_before_anchors_default_lookback(self):
+        """A `before` older than the default lookback anchors the window instead of producing an impossible interval."""
+        old_timestamp = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        self.create_log_for_function(level="info", message="recent log")
+        self.create_log_for_function(level="info", message="old log", timestamp=old_timestamp)
+
+        before = (datetime.now(UTC) - timedelta(days=29)).isoformat()
+        results = self.get_log_entries({"before": before}).json()["results"]
+
+        assert len(results) == 1
+        assert results[0]["message"] == "old log"
+
     def test_filters_log_entries_by_level(self):
         """Test the simple case of fetching a log entry."""
         self.create_log_for_function(level="info")

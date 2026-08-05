@@ -100,8 +100,10 @@ def fetch_log_entries(
 
     if after is None:
         # Always bound the query: unbounded reads scan all partitions, including those
-        # tiered to object storage. See LOG_ENTRIES_DEFAULT_LOOKBACK_DAYS.
-        after = datetime.now(UTC) - timedelta(days=LOG_ENTRIES_DEFAULT_LOOKBACK_DAYS)
+        # tiered to object storage. Anchor the window to `before` when provided so a
+        # historical `before` doesn't produce an impossible interval.
+        # See LOG_ENTRIES_DEFAULT_LOOKBACK_DAYS.
+        after = (before or datetime.now(UTC)) - timedelta(days=LOG_ENTRIES_DEFAULT_LOOKBACK_DAYS)
 
     if instance_id:
         clickhouse_where_parts.append("instance_id = %(instance_id)s")
