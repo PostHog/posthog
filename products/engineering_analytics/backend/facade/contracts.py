@@ -117,6 +117,10 @@ class BrokenTestState(StrEnum):
 
     - ``breaking_master``: has failed on the default branch and that job's latest completed run
       is still red — trunk is broken by this right now.
+    - ``blocking_merge_queue``: failed on a merge-queue gate branch and never on the default
+      branch — it stopped a merge on a commit that had already passed the PR's own CI, which is
+      the semantic-conflict class a merge queue exists to catch. Trunk is still green, so this
+      ranks below ``breaking_master``, but it is holding up landings right now.
     - ``novel_burst``: first seen within the last day and already spreading across several PR
       branches, not on the default branch yet — a new failure catching on.
     - ``potentially_resolved``: hit the default branch but that job's latest run is green again —
@@ -127,6 +131,7 @@ class BrokenTestState(StrEnum):
     """
 
     BREAKING_MASTER = "breaking_master"
+    BLOCKING_MERGE_QUEUE = "blocking_merge_queue"
     NOVEL_BURST = "novel_burst"
     POTENTIALLY_RESOLVED = "potentially_resolved"
     FLAKY = "flaky"

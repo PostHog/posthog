@@ -151,6 +151,7 @@ export enum NodeKind {
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
+    MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
@@ -229,6 +230,7 @@ export type AnyDataNode =
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
     | MarketingAnalyticsAttributionQuery
+    | MarketingAnalyticsAttributionPathsQuery
     | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
@@ -334,6 +336,7 @@ export type QuerySchema =
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
     | MarketingAnalyticsAttributionQuery
+    | MarketingAnalyticsAttributionPathsQuery
     | NonIntegratedConversionsTableQuery
 
     // Interface nodes
@@ -3583,6 +3586,9 @@ export interface LogMessage {
 /** Field to break down sparkline data by */
 export type LogsSparklineBreakdownBy = 'severity' | 'service'
 
+/** Metric the sparkline ranks breakdown values by before collapsing the tail into an "other" bucket */
+export type LogsSparklineRankBy = 'count' | 'bytes'
+
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
@@ -3615,6 +3621,12 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     after?: string
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
+    /**
+     * Metric used to rank breakdown values before the tail is collapsed into a single "other"
+     * bucket, so the returned row count stays bounded (used only by sparkline endpoint).
+     * Defaults to ranking by log count.
+     */
+    sparklineRankBy?: LogsSparklineRankBy
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
@@ -6422,6 +6434,11 @@ export interface MarketingAnalyticsAttributionQuery extends Omit<
      */
     excludeDirectTraffic?: boolean
     /**
+     * Drop touchpoints whose current breakdown value is empty or unknown — the "(none)" row — before
+     * weights are computed, so the remaining touchpoints renormalize to full credit.
+     */
+    excludeUnattributed?: boolean
+    /**
      * How many days before each conversion a touchpoint can earn credit, overriding the team's
      * configured attribution window for this query only.
      */
@@ -6493,6 +6510,75 @@ export interface MarketingAnalyticsAttributionQueryResponse extends AnalyticsQue
 
 export type CachedMarketingAnalyticsAttributionQueryResponse =
     CachedQueryResponse<MarketingAnalyticsAttributionQueryResponse>
+
+export interface MarketingAnalyticsAttributionPathsQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsAttributionPathsQueryResponse>,
+    'orderBy' | 'compareFilter'
+> {
+    kind: NodeKind.MarketingAnalyticsAttributionPathsQuery
+    /** Path step dimension. Defaults to channel. */
+    breakdownBy?: MarketingAnalyticsAttributionBreakdown
+    /** conversion_goal_id of the goal whose conversions the paths lead to. */
+    conversionGoalId: string
+    /** Drop direct sessions from every path, mirroring the attribution table's option. */
+    excludeDirectTraffic?: boolean
+    /** Drop touchpoints whose breakdown value is empty or unknown — the "(none)" steps. */
+    excludeUnattributed?: boolean
+    /**
+     * How many days before each conversion a touchpoint can be part of its path, overriding the
+     * team's configured attribution window for this query only.
+     */
+    lookbackWindowDays?: integer
+    /** Whether one person converting repeatedly contributes one path or one per conversion. Null follows the goal's math. */
+    allowMultipleConversionsPerVisitor?: boolean
+    /** Only paths with at least this many touchpoints, counted before truncation. */
+    minTouchpoints?: integer
+    /** Only paths with at most this many touchpoints, counted before truncation. */
+    maxTouchpoints?: integer
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+}
+
+export interface MarketingAnalyticsAttributionPathRow {
+    /**
+     * Breakdown values in touch order, oldest first. Consecutive repeats are preserved — collapsing
+     * them to "×N" is a display concern. Truncated to the most recent steps when the journey is
+     * longer than the grouping cap.
+     */
+    path: string[]
+    /** Conversions whose in-window touchpoints form exactly this path. */
+    conversions: integer
+    /** Null unless the goal is revenue-bearing. */
+    conversionValue: number | null
+    /** True when at least one grouped conversion had more touchpoints than the path shows. */
+    pathTruncated: boolean
+}
+
+export interface MarketingAnalyticsAttributionPathsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsAttributionPathRow[]
+    /** All conversions in range, before the touchpoint-count filter. */
+    totalConversions: integer
+    /**
+     * Conversions with at least one in-window touchpoint. The share denominator — deliberately
+     * unfiltered by min/maxTouchpoints so shares stay comparable across filter values.
+     */
+    attributedConversions: integer
+    /** The attribution window actually used, for the tooltips. */
+    attributionWindowDays: integer
+    /** Whether the goal is revenue-bearing, which gates the value column. */
+    hasValue: boolean
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedMarketingAnalyticsAttributionPathsQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsAttributionPathsQueryResponse>
 
 /** Columns for non-integrated conversions table */
 export enum NonIntegratedConversionsColumnsSchemaNames {
@@ -8353,6 +8439,7 @@ export const externalDataSources = [
     'Raisely',
     'WindsorAi',
     'Wix',
+    'Sevalla',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
