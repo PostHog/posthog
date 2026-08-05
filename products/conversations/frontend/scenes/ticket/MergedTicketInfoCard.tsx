@@ -62,6 +62,14 @@ export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?
                         </span>
                     </div>
                 )}
+                {ticket.updated_at && (
+                    <div className="flex justify-between">
+                        <span className="text-muted-alt">Updated</span>
+                        <span>
+                            <TZLabel time={ticket.updated_at} />
+                        </span>
+                    </div>
+                )}
             </div>
         </LemonCard>
     )
