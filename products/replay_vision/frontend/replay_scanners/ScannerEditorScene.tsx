@@ -232,7 +232,7 @@ function ConfigureStep(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <LemonField name="name" label="Name">
-                <LemonInput placeholder="e.g. Confused checkout flow" />
+                <LemonInput placeholder="e.g. Checkout friction" />
             </LemonField>
 
             <LemonField
