@@ -415,6 +415,37 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(searchedFor).toBe('user')
     })
 
+    it.each([
+        ['a search that matches nothing', 'nope', true],
+        ['a cleared search', '', false],
+    ])('keeps the empty-catalog flag intact across %s', async (_name, search, expectedAfterEmpty) => {
+        let emptyResponse = false
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [WAREHOUSE_TABLES_URL]: () =>
+                    emptyResponse
+                        ? [200, { count: 0, next: null, results: [] }]
+                        : [200, { count: 1, results: [buildTable()] }],
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.hasSyncedWarehouseTables).toBe(true)
+
+        // A searched load that comes back empty must not read as "this project has no synced tables"
+        // — that would collapse the whole person editor into the empty-state banner, search box and all.
+        emptyResponse = true
+        await expectLogic(logic, () => logic.actions.loadWarehouseTables({ search })).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseTables).toEqual([])
+        expect(logic.values.hasSyncedWarehouseTables).toBe(expectedAfterEmpty)
+    })
+
     it('locks the target type when the modal is opened from a profile settings page', async () => {
         useMocks(defaultMocks())
         mountLogic()
@@ -424,6 +455,62 @@ describe('customPropertyDefinitionsLogic', () => {
         // Opening the generic "New custom property" flow leaves the switch available again.
         logic.actions.openCreateModal()
         expect(logic.values.targetTypeLocked).toBe(false)
+    })
+
+    it('keeps polling a triggered backfill until its run finishes', async () => {
+        // The workflow creates the run row after the trigger call returns, so the first refreshes see
+        // no run at all. The poll has to survive that instead of reading it as already settled and
+        // leaving the row stuck on "Awaiting first sync" until a manual page refresh.
+        const runPerCall: (Record<string, string> | null)[] = [
+            null,
+            null,
+            { id: 'run-1', status: 'running' },
+            { id: 'run-1', status: 'completed' },
+        ]
+        let call = 0
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [DEFINITIONS_URL]: () => {
+                    const latestRun = runPerCall[Math.min(call++, runPerCall.length - 1)]
+                    return [
+                        200,
+                        {
+                            count: 1,
+                            results: [
+                                buildDefinition({
+                                    target_type: 'person',
+                                    source: buildSource({
+                                        latest_run: latestRun,
+                                        last_synced_at:
+                                            latestRun?.status === 'completed' ? '2026-01-03T00:00:00Z' : null,
+                                    } as Partial<CustomPropertySourceApi>),
+                                }),
+                            ],
+                        },
+                    ]
+                },
+            },
+            post: { ...defaultMocks().post, [`${SOURCE_URL}backfill/`]: { status: 'started', already_running: false } },
+        })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsSuccess'])
+
+        jest.useFakeTimers()
+        try {
+            await expectLogic(logic, () => logic.actions.triggerBackfill({ sourceId: 'src-1' })).toDispatchActions([
+                'pollRunsStatus',
+            ])
+            // Three rounds: no run yet, no run yet, running — none of which may stop the poll.
+            for (let round = 0; round < 3; round++) {
+                await jest.advanceTimersByTimeAsync(3000)
+            }
+            expect(logic.values.definitions[0].source?.latest_run?.status).toBe('completed')
+            expect(logic.values.definitions[0].source?.last_synced_at).toBe('2026-01-03T00:00:00Z')
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('hydrates per-mapping descriptions when editing a person source', async () => {

@@ -35,7 +35,7 @@ const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 const TOP_N = 10
 const CANDIDATE_POOL = 40
 const CLUSTER_MIN_TESTS = 5
-const REPORT_RUNNER = 'pytest'
+const REPORT_RUNNERS = ['pytest']
 const PARKED_NAMES_SHOWN = 5
 
 // The endpoint's quarantine signal only covers `.test_quarantine.json`, where the pytest adapter
@@ -96,17 +96,17 @@ function endpointUrl(action, params = {}) {
 
 const AUTH_HEADERS = { Authorization: `Bearer ${API_KEY}` }
 
-function flakyTestsUrl() {
+function flakyTestsUrl(runner) {
     return endpointUrl('flaky_tests', {
         date_from: '-7d',
         limit: 100,
         repo: GITHUB_REPOSITORY,
-        runner: REPORT_RUNNER,
+        runner,
     })
 }
 
-function fetchFlakyTests() {
-    return withRetry(() => request(flakyTestsUrl(), { headers: AUTH_HEADERS }, 'flaky_tests'))
+function fetchFlakyTests(runner) {
+    return withRetry(() => request(flakyTestsUrl(runner), { headers: AUTH_HEADERS }, 'flaky_tests'))
 }
 
 // `values` bind through HogQL's {placeholder} syntax, escaped server-side — never
@@ -136,8 +136,17 @@ function isMasterBurst(item) {
     )
 }
 
-function selectReportCandidates(items) {
-    return items.filter((item) => item.runner === REPORT_RUNNER && !isMasterBurst(item)).slice(0, CANDIDATE_POOL)
+function selectReportCandidates(items, runner) {
+    return items.filter((item) => item.runner === runner && !isMasterBurst(item)).slice(0, CANDIDATE_POOL)
+}
+
+async function fetchCandidatePools(runners, fetchTests = fetchFlakyTests) {
+    return Promise.all(
+        runners.map(async (runner) => {
+            const result = await fetchTests(runner)
+            return { runner, candidates: selectReportCandidates(result.items || [], runner) }
+        })
+    )
 }
 
 // Product suites run from their product dir, so a selector path may be repo- or
@@ -288,7 +297,7 @@ const TRUNK_QUARANTINED_QUERY = `
 
 // Uploads off, a missing table, or a query error all degrade to a report without Trunk state,
 // never to a failed run or an empty table.
-async function fetchTrunkQuarantined(runHogql = hogql, enabled = TRUNK_UPLOADS_ON) {
+async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_UPLOADS_ON) {
     const none = () => null
     if (!enabled) {
         return none
@@ -296,7 +305,7 @@ async function fetchTrunkQuarantined(runHogql = hogql, enabled = TRUNK_UPLOADS_O
     let rows = []
     try {
         const result = await runHogql(TRUNK_QUARANTINED_QUERY.replace('__TRUNK_TABLE__', TRUNK_TABLE), {
-            runner: REPORT_RUNNER,
+            runner,
         })
         rows = result.results || []
     } catch (err) {
@@ -333,8 +342,8 @@ function partitionParked(items, trunkFor, masksCi = TRUNK_MASKS_CI) {
 // Parking has to happen before clustering: a cluster's selector is a bare file path, which can
 // never match a Trunk node id, so collapsing first buries quarantined tests in a row that then
 // ranks as if CI still failed on them.
-function buildQueue(items, trunkFor, masksCi = TRUNK_MASKS_CI) {
-    const { queue, parked } = partitionParked(selectReportCandidates(items), trunkFor, masksCi)
+function buildQueue(candidates, trunkFor, masksCi = TRUNK_MASKS_CI) {
+    const { queue, parked } = partitionParked(candidates, trunkFor, masksCi)
     return { queue: collapseClusters(queue), parked }
 }
 
@@ -498,9 +507,9 @@ async function main() {
         return
     }
     const now = new Date()
-    const result = await fetchFlakyTests()
-    const trunkFor = await fetchTrunkQuarantined()
-    const { queue, parked } = buildQueue(result.items || [], trunkFor)
+    const [{ runner, candidates }] = await fetchCandidatePools(REPORT_RUNNERS)
+    const trunkFor = await fetchTrunkQuarantined(runner)
+    const { queue, parked } = buildQueue(candidates, trunkFor)
     const extrasFor = await enrich(queue.filter((item) => !item.cluster_size))
     // Rescued runs first (the strongest per-test signal), clusters and the rest by volume.
     const flaky = queue
@@ -539,8 +548,10 @@ export {
     buildQueue,
     CLUSTER_MIN_TESTS,
     enrich,
+    fetchCandidatePools,
     fetchTrunkQuarantined,
     flakyTestsUrl,
+    REPORT_RUNNERS,
     selectReportCandidates,
     tableRows,
 }

@@ -29,6 +29,8 @@ from django.utils import timezone
 
 import requests
 import structlog
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
@@ -142,38 +144,62 @@ CONFIG_LEGACY_OAUTH_CLIENT = "oauth_uses_legacy_client"
 CONFIG_PUSH_IDENTITY_VERIFICATION = "push_identity_verification"
 PUSH_IDENTITY_VERIFICATION_MODES = ("disabled", "optional", "required")
 
+# `config` key holding the customer's EC (P-256) public key(s) used to verify ES256 identity tokens.
+# Public halves only — the private key stays on the customer's backend. At most two, so a key can be
+# rotated (register the new one, cut over, drop the old) without a gap, mirroring the secret's
+# primary/backup pair.
+CONFIG_PUSH_IDENTITY_PUBLIC_KEYS = "push_identity_public_keys"
+MAX_PUSH_IDENTITY_PUBLIC_KEYS = 2
+
+
+def _validate_push_identity_public_keys(public_keys: list[str]) -> None:
+    if not isinstance(public_keys, list) or not all(isinstance(key, str) for key in public_keys):
+        raise ValidationError("push_identity_public_keys must be a list of PEM-encoded public key strings")
+    if len(public_keys) > MAX_PUSH_IDENTITY_PUBLIC_KEYS:
+        raise ValidationError(f"push_identity_public_keys accepts at most {MAX_PUSH_IDENTITY_PUBLIC_KEYS} keys")
+    for key in public_keys:
+        try:
+            loaded = serialization.load_pem_public_key(key.encode())
+        except Exception:
+            raise ValidationError("Each push_identity_public_key must be a valid PEM-encoded public key")
+        # ES256 is defined over P-256 specifically. Accepting another curve (P-384/P-521) would store a
+        # key the verifier can't use — jwt.decode raises InvalidKeyError against it — so reject it here.
+        if not isinstance(loaded, ec.EllipticCurvePublicKey) or not isinstance(loaded.curve, ec.SECP256R1):
+            raise ValidationError("push_identity_public_keys must be P-256 (secp256r1) EC public keys for ES256")
+
 
 def preserved_push_config(
     team_id: int,
     kind: str,
     integration_id: str,
     push_identity_verification: str | None,
+    push_identity_public_keys: list[str] | None = None,
 ) -> dict:
     """Config keys a push credential upsert must carry over rather than drop.
 
     Connecting a push integration is an upsert, and the provider helpers rebuild `config` from the
-    credentials they were handed. Anything they don't know about would be lost, so rotating a
-    Firebase key or APNs .p8 would silently reset an enabled identity verification policy back to
-    disabled, reopening the device takeover it exists to prevent. Carry the existing value forward
-    unless the caller explicitly sets a new one.
+    credentials they were handed. Anything they don't know about would be lost, so rotating a Firebase
+    key or APNs .p8 would silently reset an enabled identity verification policy (its mode and its
+    registered public keys) back to nothing, reopening the device takeover it exists to prevent. Carry
+    each existing value forward unless the caller explicitly sets a new one; pass an empty list to
+    clear the public keys.
     """
     if push_identity_verification is not None and push_identity_verification not in PUSH_IDENTITY_VERIFICATION_MODES:
         raise ValidationError(
             f"push_identity_verification must be one of: {', '.join(PUSH_IDENTITY_VERIFICATION_MODES)}"
         )
+    if push_identity_public_keys is not None:
+        _validate_push_identity_public_keys(push_identity_public_keys)
 
     # Serialize concurrent setup of this one integration for the rest of the caller's transaction.
     # `select_for_update` alone only locks a row that already exists, so two first-time setups could
     # both read "no policy" and the later write would clobber a policy the earlier one had just set.
     # An advisory lock covers the not-yet-created case too, keyed on the integration's identity so it
     # only serializes writers racing for the same integration. Every writer takes it, including one
-    # setting an explicit mode — otherwise it could slip its row in between a preserving writer's read
+    # setting explicit values — otherwise it could slip its row in between a preserving writer's read
     # and write, and have its policy dropped.
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, f"{kind}:{integration_id}"])
-
-    if push_identity_verification is not None:
-        return {CONFIG_PUSH_IDENTITY_VERIFICATION: push_identity_verification}
 
     existing = (
         Integration.objects.select_for_update()
@@ -181,13 +207,29 @@ def preserved_push_config(
         .only("config")
         .first()
     )
-    existing_mode = (existing.config or {}).get(CONFIG_PUSH_IDENTITY_VERIFICATION) if existing else None
-    # Drop a stored value we don't recognize rather than carrying it forward. The push endpoint already
-    # treats an unknown mode as disabled, so preserving it would keep dead data alive indefinitely, and
-    # raising here would leave a corrupted integration unable to rotate its credentials.
-    if existing_mode not in PUSH_IDENTITY_VERIFICATION_MODES:
-        return {}
-    return {CONFIG_PUSH_IDENTITY_VERIFICATION: existing_mode} if existing_mode else {}
+    existing_config = (existing.config or {}) if existing else {}
+    result: dict = {}
+
+    if push_identity_verification is not None:
+        result[CONFIG_PUSH_IDENTITY_VERIFICATION] = push_identity_verification
+    else:
+        # Drop a stored mode we don't recognize rather than carrying it forward. The push endpoint
+        # already treats an unknown mode as disabled, so preserving it would keep dead data alive, and
+        # raising here would leave a corrupted integration unable to rotate its credentials.
+        existing_mode = existing_config.get(CONFIG_PUSH_IDENTITY_VERIFICATION)
+        if existing_mode in PUSH_IDENTITY_VERIFICATION_MODES:
+            result[CONFIG_PUSH_IDENTITY_VERIFICATION] = existing_mode
+
+    if push_identity_public_keys is not None:
+        # A non-empty list sets/replaces; an empty list clears (omit the key entirely).
+        if push_identity_public_keys:
+            result[CONFIG_PUSH_IDENTITY_PUBLIC_KEYS] = push_identity_public_keys
+    else:
+        existing_keys = existing_config.get(CONFIG_PUSH_IDENTITY_PUBLIC_KEYS)
+        if isinstance(existing_keys, list) and existing_keys:
+            result[CONFIG_PUSH_IDENTITY_PUBLIC_KEYS] = existing_keys
+
+    return result
 
 
 # Values for the counter's `reason` label, bucketed from the OAuth error response.
@@ -888,7 +930,15 @@ class OauthIntegration:
                     # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
                     # crm.objects.leads.read is Sales Hub Pro+/Enterprise only — requesting it as a
                     # mandatory scope would fail the whole authorization for portals that lack it.
-                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write crm.objects.leads.read"
+                    # The owners/commerce/product scopes are the same story: the data warehouse
+                    # source offers those tables, but the objects only exist on portals with the
+                    # matching hub, so they stay optional and their tables start deselected.
+                    "optional_scope": (
+                        "analytics.behavioral_events.send behavioral_events.event_definitions.read_write "
+                        "crm.objects.leads.read crm.objects.owners.read crm.objects.line_items.read "
+                        "crm.objects.products.read crm.objects.invoices.read crm.objects.orders.read "
+                        "crm.objects.subscriptions.read crm.objects.commercepayments.read"
+                    )
                 },
                 id_path="hub_id",
                 name_path="hub_domain",
@@ -2023,7 +2073,7 @@ class SlackIntegration:
         return config
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class SlackRequestSignature:
     signature: str
     timestamp: str
@@ -2487,6 +2537,7 @@ class FirebaseIntegration:
         team_id: int,
         created_by: User | None = None,
         push_identity_verification: str | None = None,
+        push_identity_public_keys: list[str] | None = None,
     ) -> "Integration":
         scope = "https://www.googleapis.com/auth/firebase.messaging"
 
@@ -2508,7 +2559,9 @@ class FirebaseIntegration:
                 integration_id=project_id,
                 defaults={
                     "config": {
-                        **preserved_push_config(team_id, "firebase", project_id, push_identity_verification),
+                        **preserved_push_config(
+                            team_id, "firebase", project_id, push_identity_verification, push_identity_public_keys
+                        ),
                         "project_id": project_id,
                         "expires_in": credentials.expiry.timestamp() - int(time.time()),
                         "refreshed_at": int(time.time()),
@@ -2601,6 +2654,7 @@ class ApplePushIntegration:
         created_by: User | None = None,
         environment: str = "production",
         push_identity_verification: str | None = None,
+        push_identity_public_keys: list[str] | None = None,
     ) -> "Integration":
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
@@ -2617,7 +2671,9 @@ class ApplePushIntegration:
                 integration_id=integration_id,
                 defaults={
                     "config": {
-                        **preserved_push_config(team_id, "apns", integration_id, push_identity_verification),
+                        **preserved_push_config(
+                            team_id, "apns", integration_id, push_identity_verification, push_identity_public_keys
+                        ),
                         "team_id": team_id_apple,
                         "bundle_id": bundle_id,
                         "key_id": key_id,

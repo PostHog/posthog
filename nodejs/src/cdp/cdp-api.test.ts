@@ -1706,7 +1706,7 @@ describe('CDP API', () => {
             // Stub EmailService so the test doesn't depend on a running maildev SMTP. The spy
             // captures whether the inline path was taken — that's the assertion that proves the fix.
             emailSpy = jest
-                .spyOn(api['hogExecutor']['emailService'], 'executeSendEmail')
+                .spyOn(api['hogExecutorAsync']['deps'].emailService, 'executeSendEmail')
                 .mockImplementation((invocation: any) =>
                     Promise.resolve({
                         invocation,

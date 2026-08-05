@@ -66,7 +66,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     get_json_stream_transformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (

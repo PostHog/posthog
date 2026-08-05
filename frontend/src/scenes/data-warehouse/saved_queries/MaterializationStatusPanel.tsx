@@ -4,7 +4,6 @@ import { IconRefresh, IconRevert, IconX } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -13,7 +12,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
@@ -30,6 +28,7 @@ import {
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
+import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
@@ -413,23 +412,12 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                         {
                             title: 'Updated',
                             dataIndex: 'last_run_at',
-                            render: (_, { last_run_at }: DataModelingJob) => humanFriendlyDetailedTime(last_run_at),
+                            render: (_, { last_run_at }: DataModelingJob) =>
+                                last_run_at ? humanFriendlyDetailedTime(last_run_at) : '-',
                         },
                         {
                             title: 'Duration',
-                            render: (_, job: DataModelingJob) => {
-                                if (job.status === 'Running') {
-                                    return 'In progress'
-                                }
-                                const start = new Date(job.created_at).getTime()
-                                const end = new Date(job.last_run_at).getTime()
-
-                                if (start > end) {
-                                    return 'N/A'
-                                }
-
-                                return humanFriendlyDuration((end - start) / 1000)
-                            },
+                            render: (_, job: DataModelingJob) => computeJobDuration(job),
                         },
                     ]}
                     expandable={
@@ -446,15 +434,8 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                               hideLevelsFilter
                                               hideInstanceIdColumn
                                               defaultFilters={{
-                                                  instanceId: job.workflow_run_id,
-                                                  dateFrom: dayjsUtcToTimezone(job.created_at, timezone).format(
-                                                      'YYYY-MM-DD HH:mm:ss'
-                                                  ),
-                                                  dateTo: job.last_run_at
-                                                      ? dayjsUtcToTimezone(job.last_run_at, timezone)
-                                                            .add(1, 'hour')
-                                                            .format('YYYY-MM-DD HH:mm:ss')
-                                                      : undefined,
+                                                  instanceId: job.workflow_run_id ?? undefined,
+                                                  ...jobLogsWindow(job, timezone),
                                                   levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
                                               }}
                                           />
