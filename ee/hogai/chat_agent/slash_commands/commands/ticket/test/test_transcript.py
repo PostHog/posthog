@@ -11,7 +11,7 @@ from ee.hogai.chat_agent.slash_commands.commands.ticket.transcript import (
     unverifiable_quotes,
 )
 
-TWO_TURNS = ["I accidently merged a PR that was reversed", "I accidenty connected it to my issue tracker"]
+TWO_TURNS = ["the nightly job finished succesfully last week", "the nightly job ran sucessfully again today"]
 
 
 class TestCustomerTurns(TestCase):
@@ -49,25 +49,25 @@ class TestStripUnverifiableQuotes(TestCase):
             ("exact match is kept", 'They said "the sync is failing" today', True),
             ("collapsed whitespace is kept", 'They said "the  sync is  failing" today', True),
             ("added trailing period is kept", 'They said "the sync is failing." today', True),
-            ("nested double quote written as single is kept", "They said \"on the 'Overview' tab\" today", True),
+            ("nested double quote written as single is kept", "They said \"on the 'Reports' page\" today", True),
             ("changed wording is stripped", 'They said "the sync is broken" today', False),
             ("short span is left alone", 'They said "sync" today', True),
         ]
     )
     def test_cosmetic_drift_survives_but_wording_changes_do_not(self, _name, summary, should_keep):
-        turns = ['the sync is failing on the "Overview" tab']
+        turns = ['the sync is failing on the "Reports" page']
         result = strip_unverifiable_quotes(summary, turns)
         self.assertEqual('"' in result, should_keep)
 
     def test_quote_assembled_from_two_messages_is_stripped(self):
-        summary = 'The customer "accidently connected" their issue tracker'
+        summary = 'The customer said it finished "succesfully again"'
         self.assertEqual(
             strip_unverifiable_quotes(summary, TWO_TURNS),
-            "The customer accidently connected their issue tracker",
+            "The customer said it finished succesfully again",
         )
 
     def test_quote_from_a_single_message_is_kept(self):
-        summary = 'The customer "accidenty connected" their issue tracker'
+        summary = 'The customer said it ran "sucessfully again"'
         self.assertEqual(strip_unverifiable_quotes(summary, TWO_TURNS), summary)
 
     def test_only_the_unverifiable_span_loses_its_marks(self):
