@@ -32,6 +32,8 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.hogql import ast
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
@@ -557,10 +559,35 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
     @freeze_time("2022-01-10T12:11:00")
-    def test_last_seen_candidate_selection_covers_requested_page(self):
+    def test_last_seen_candidate_selection_applies_offset_before_enrichment(self):
         response = self._calculate(orderBy="last_seen", limit=1, offset=1)
 
         self.assertEqual(response["results"][0]["id"], self.issue_id_two)
+        self.assertEqual(response["offset"], 1)
+        self.assertTrue(response["hasMore"])
+
+    def test_last_seen_candidate_selection_uses_stable_issue_id_tiebreaker(self):
+        builder = ErrorTrackingQueryBuilder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="-7d"),
+                orderBy="last_seen",
+                volumeResolution=1,
+            ),
+            team=self.team,
+            date_from=datetime(2022, 1, 3, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+            candidate_limit=11,
+            candidate_offset=20,
+        )
+
+        candidate_query = builder.build_candidate_query()
+
+        assert candidate_query is not None
+        self.assertEqual(candidate_query.limit, ast.Constant(value=11))
+        self.assertEqual(candidate_query.offset, ast.Constant(value=20))
+        self.assertEqual(candidate_query.order_by[-1].expr, ast.Field(chain=["fp_state", "issue_id"]))
+        self.assertEqual(candidate_query.order_by[-1].order, "ASC")
 
     @freeze_time("2022-01-10T12:11:00")
     def test_status(self):

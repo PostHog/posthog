@@ -17,19 +17,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE and(isNotNull(fp_state.issue_id), ifNull(equals(fp_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_correctly_counts_persons.1
@@ -86,7 +87,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE and(isNotNull(fp_state.issue_id), ifNull(equals(fp_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -240,19 +242,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_empty_search_query.1
@@ -309,7 +312,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -433,19 +437,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_group_key_filter.1
@@ -485,7 +490,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -519,19 +525,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_group_key_filter.3
@@ -571,7 +578,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -605,19 +613,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_group_key_filter.5
@@ -657,7 +666,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -691,19 +701,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_group_key_filter.7
@@ -743,7 +754,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -794,19 +806,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_hogql_filters.1
@@ -863,7 +876,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -942,19 +956,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE and(isNotNull(fp_state.issue_id), ifNull(equals(fp_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_issue_grouping.1
@@ -1011,7 +1026,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE and(isNotNull(fp_state.issue_id), ifNull(equals(fp_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1045,19 +1061,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_only_returns_exception_events.1
@@ -1097,7 +1114,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1131,19 +1149,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_ordering.1
@@ -1183,7 +1202,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1236,7 +1256,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY first_seen ASC
+  ORDER BY first_seen ASC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1306,7 +1327,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY occurrences DESC
+  ORDER BY occurrences DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1347,19 +1369,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_person_id_filter.1
@@ -1406,7 +1429,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1457,19 +1481,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_person_properties.1
@@ -1526,7 +1551,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1577,19 +1603,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_query.1
@@ -1656,7 +1683,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1707,19 +1735,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_query_with_multiple_search_items.1
@@ -1786,7 +1815,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1820,19 +1850,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE and(isNotNull(fp_state.issue_id), ifNull(equals(fp_state.issue_id, 'e9ac529f-ac1c-4a96-bd3a-102334368d64'), 0))
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_volume_aggregation_advanced.1
@@ -1889,7 +1920,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE and(isNotNull(fp_state.issue_id), ifNull(equals(fp_state.issue_id, 'e9ac529f-ac1c-4a96-bd3a-102334368d64'), 0))
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1923,19 +1955,20 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY fp_state.issue_id
-  ORDER BY max(ev.last_seen_fp) DESC
-  LIMIT 101 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  ORDER BY max(ev.last_seen_fp) DESC, fp_state.issue_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_volume_aggregation_simple.1
@@ -1992,7 +2025,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
