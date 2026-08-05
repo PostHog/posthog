@@ -717,18 +717,22 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
-                                          properties: any[]
-                                      }
-                                      type: 'batch'
-                                  }
-                                | {
-                                      filters: {
                                           actions?: any[] | undefined
                                           events?: any[] | undefined
                                           filter_test_accounts?: boolean | undefined
                                           properties?: any[] | undefined
                                       }
                                       type: 'event'
+                                  }
+                                | {
+                                      filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          properties: any[]
+                                          tag_names?: string[] | undefined
+                                      }
+                                      type: 'batch'
                                   }
                                 | {
                                       filters: {
@@ -855,18 +859,22 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
-                                properties: any[]
-                            }
-                            type: 'batch'
-                        }
-                      | {
-                            filters: {
                                 actions?: any[] | undefined
                                 events?: any[] | undefined
                                 filter_test_accounts?: boolean | undefined
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
+                                properties: any[]
+                                tag_names?: string[] | undefined
+                            }
+                            type: 'batch'
                         }
                       | {
                             filters: {
@@ -1503,18 +1511,22 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
-                                          properties: any[]
-                                      }
-                                      type: 'batch'
-                                  }
-                                | {
-                                      filters: {
                                           actions?: any[] | undefined
                                           events?: any[] | undefined
                                           filter_test_accounts?: boolean | undefined
                                           properties?: any[] | undefined
                                       }
                                       type: 'event'
+                                  }
+                                | {
+                                      filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          properties: any[]
+                                          tag_names?: string[] | undefined
+                                      }
+                                      type: 'batch'
                                   }
                                 | {
                                       filters: {
@@ -1641,18 +1653,22 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
-                                properties: any[]
-                            }
-                            type: 'batch'
-                        }
-                      | {
-                            filters: {
                                 actions?: any[] | undefined
                                 events?: any[] | undefined
                                 filter_test_accounts?: boolean | undefined
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
+                                properties: any[]
+                                tag_names?: string[] | undefined
+                            }
+                            type: 'batch'
                         }
                       | {
                             filters: {

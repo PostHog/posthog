@@ -38,6 +38,13 @@ _ANALYTICS_COLUMNS = {
 }
 
 
+# Breakdown columns shared by every targeting analytics endpoint.
+_TARGETING_COLUMNS = {
+    "targeting_type": "The targeting dimension the row is broken down by (AGE_BUCKET, GENDER, APPTYPE, PLACEMENT, COUNTRY, REGION).",
+    "targeting_value": "The value within the targeting dimension, such as '45-49', 'female', 'iphone', or 'US'.",
+}
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "campaigns": {
         "description": "A Pinterest advertising campaign that groups ad groups under a single objective and budget.",
@@ -108,5 +115,91 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Daily performance metrics (spend, impressions, clicks, conversions) per ad.",
         "docs_url": "https://developers.pinterest.com/docs/api/v5/ads-analytics/",
         "columns": {"ad_id": "ID of the ad the metrics are for.", **_ANALYTICS_COLUMNS},
+    },
+    "ad_accounts": {
+        "description": "The configured Pinterest ad account, including the currency and time zone every spend figure is reported in.",
+        "docs_url": "https://developers.pinterest.com/docs/api/v5/ad_accounts-get/",
+        "columns": {
+            "id": "Unique identifier for the ad account.",
+            "name": "The ad account's name.",
+            "owner": "The user account that owns the ad account.",
+            "country": "Country the ad account is registered in.",
+            "currency": "Currency the ad account is billed and reported in, as a three-letter code.",
+            "permissions": "Permissions the connected account holds on this ad account.",
+            "time_zone": "Time zone of the ad account, in IANA format (for example America/Los_Angeles).",
+            "created_time": "Time at which the ad account was created, as a Unix timestamp.",
+            "updated_time": "Time at which the ad account was last updated, as a Unix timestamp.",
+        },
+    },
+    "audiences": {
+        "description": "Targetable audiences owned by the ad account, such as customer lists, engagement audiences, and actalike audiences.",
+        "docs_url": "https://developers.pinterest.com/docs/api/v5/audiences-list/",
+        "columns": {
+            "id": "Unique identifier for the audience.",
+            "ad_account_id": "ID of the ad account that owns the audience.",
+            "name": "The audience's name.",
+            "description": "The audience's description.",
+            "audience_type": "How the audience was built (for example CUSTOMER_LIST, VISITOR, ENGAGEMENT, ACTALIKE).",
+            "rule": "The rule the audience is built from, such as the source customer list or engagement filter.",
+            "size": "Number of Pinterest users currently in the audience.",
+            "status": "Whether the audience is usable for targeting (READY, INITIALIZING, TOO_SMALL, UPLOADING).",
+            "is_nca": "Whether the audience derives from a new customer acquisition customer list.",
+            "created_by_company_name": "Company that created the audience.",
+            "created_timestamp": "Time at which the audience was created, as a Unix timestamp.",
+            "updated_timestamp": "Time at which the audience was last updated, as a Unix timestamp.",
+        },
+    },
+    "conversion_tags": {
+        "description": "Pinterest tags (pixels) installed for the ad account, which report the conversion events that campaigns optimize against.",
+        "docs_url": "https://developers.pinterest.com/docs/api/v5/conversion_tags-list/",
+        "columns": {
+            "id": "Unique identifier for the conversion tag.",
+            "name": "The conversion tag's name.",
+            "version": "Version number of the tag.",
+            "configs": "Tag configuration, including whether automatic enhanced match is enabled.",
+            "enhanced_match_status": "Status of enhanced match for the tag.",
+            "last_fired_time_ms": "Time the tag last fired an event, in milliseconds since the epoch.",
+            "code_snippet": "The tag's code snippet.",
+        },
+    },
+    "keywords": {
+        "description": "Keyword targets defined on the ad account's campaigns and ad groups, used to resolve keyword targeting back to the term that was bid on.",
+        "docs_url": "https://developers.pinterest.com/docs/api/v5/keywords-get/",
+        "columns": {
+            "id": "Unique identifier for the keyword.",
+            "value": "The keyword term itself.",
+            "match_type": "How the term is matched (for example BROAD, EXACT, PHRASE, NEGATIVE_BROAD).",
+            "parent_id": "ID of the entity the keyword is attached to.",
+            "parent_type": "Type of entity the keyword is attached to (advertiser, campaign, or ad group).",
+            "archived": "Whether the keyword is archived.",
+            "bid": "Deprecated by Pinterest and always returned as null.",
+        },
+    },
+    "campaign_targeting_analytics": {
+        "description": "Daily campaign performance broken down by targeting dimension (age, gender, device, placement, country, region).",
+        "docs_url": "https://developers.pinterest.com/docs/api/v5/campaign_targeting_analytics-get/",
+        "columns": {
+            "campaign_id": "ID of the campaign the metrics are for.",
+            **_TARGETING_COLUMNS,
+            **_ANALYTICS_COLUMNS,
+        },
+    },
+    "ad_group_targeting_analytics": {
+        "description": "Daily ad group performance broken down by targeting dimension (age, gender, device, placement, country, region).",
+        "docs_url": "https://developers.pinterest.com/docs/api/v5/ad_group_targeting_analytics-get/",
+        "columns": {
+            "ad_group_id": "ID of the ad group the metrics are for.",
+            **_TARGETING_COLUMNS,
+            **_ANALYTICS_COLUMNS,
+        },
+    },
+    "ad_targeting_analytics": {
+        "description": "Daily ad performance broken down by targeting dimension (age, gender, device, placement, country, region).",
+        "docs_url": "https://developers.pinterest.com/docs/api/v5/ad_targeting_analytics-get/",
+        "columns": {
+            "ad_id": "ID of the ad the metrics are for.",
+            **_TARGETING_COLUMNS,
+            **_ANALYTICS_COLUMNS,
+        },
     },
 }

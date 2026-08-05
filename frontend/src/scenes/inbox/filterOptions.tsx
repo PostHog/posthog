@@ -8,6 +8,7 @@ import {
     IconCompass,
     IconDatabase,
     IconEye,
+    IconGear,
     IconGithub,
     IconGraph,
     IconList,
@@ -90,6 +91,11 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
     { value: 'conversations', label: 'Support', icon: <IconSupport /> },
     { value: 'pganalyze', label: 'pganalyze', icon: <IconDatabase /> },
     { value: 'analytics', label: 'Product analytics', icon: <IconGraph /> },
+    {
+        value: 'engineering_analytics',
+        label: 'Engineering analytics',
+        icon: <IconGear />,
+    },
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
 ]
 

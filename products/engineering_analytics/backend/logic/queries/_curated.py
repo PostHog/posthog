@@ -14,6 +14,7 @@ into these fragments.
 """
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLQueryResponse
@@ -28,6 +29,7 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
 from products.engineering_analytics.backend.logic.views import (
+    issue_events,
     job_costs,
     pull_requests,
     team_members,
@@ -37,6 +39,14 @@ from products.engineering_analytics.backend.logic.views import (
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
+
+
+@dataclass(frozen=True, kw_only=True)
+class IssueEventsWindow:
+    """The observed issue-event range's edges as scalar subquery strings."""
+
+    start: str
+    end: str
 
 
 class CuratedGitHubSource:
@@ -108,6 +118,49 @@ class CuratedGitHubSource:
         if not self._tables.team_members:
             return None
         return f"({team_members.build_query(self._tables.team_members)})"
+
+    def issue_events_source(self) -> str | None:
+        """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
+        issue-events table isn't synced."""
+        if not self._tables.issue_events:
+            return None
+        return f"({issue_events.build_query(self._tables.issue_events)})"
+
+    def issue_events_window(self) -> "IssueEventsWindow | None":
+        """Scalar subqueries bounding the observed issue-event range, or None when the table
+        isn't synced. The desc walk lands a contiguous range, so the min and max landed
+        timestamps are its edges; both are NULL over an empty table, so comparisons against
+        them are never-true."""
+        if not self._tables.issue_events:
+            return None
+        return IssueEventsWindow(
+            start=f"({issue_events.build_window_start_query(self._tables.issue_events)})",
+            end=f"({issue_events.build_window_end_query(self._tables.issue_events)})",
+        )
+
+    def ready_by_pr_cte(self) -> str | None:
+        """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
+
+        Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
+        that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
+        event id breaks same-second ties (GitHub timestamps are second-coarse). Keyed on
+        ``pr_number`` alone, unlike ``runs_by_pr``: a run's association can list the fork network's
+        PRs (which is why that rollup needs the repo qualifier), whereas every row of a resolved
+        issue-events table belongs to that one repo by table construction.
+        """
+        source = self.issue_events_source()
+        if source is None:
+            return None
+        return f"""
+            ready_by_pr AS (
+                SELECT
+                    pr_number,
+                    argMax(event, tuple(created_at, id)) = '{issue_events.READY_FOR_REVIEW_EVENT}' AS last_is_ready,
+                    max(created_at) AS last_transition_at
+                FROM {source} AS se
+                GROUP BY pr_number
+            )
+        """
 
     def job_cost_source(self) -> str | None:
         """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``
@@ -209,8 +262,14 @@ class CuratedGitHubSource:
         """
 
     def pr_list_rollup_query(self, select: str) -> str:
-        """``pr_rollup_query`` plus the per-PR runs rollup (pushes / re-run cycles)."""
-        return self._compose_pr_query([self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()], select)
+        """``pr_rollup_query`` plus the per-PR runs rollup and, when the issue-events table is
+        synced, the ``ready_by_pr`` rollup; reference it only when ``issue_events_source()``
+        is non-None."""
+        ctes = [self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()]
+        ready_cte = self.ready_by_pr_cte()
+        if ready_cte is not None:
+            ctes.append(ready_cte)
+        return self._compose_pr_query(ctes, select)
 
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""

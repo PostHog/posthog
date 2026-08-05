@@ -8,6 +8,7 @@ const { mockTrackToolCall, mockTrackExecuteSqlGeneration } = vi.hoisted(() => ({
 vi.mock('@/hono/analytics', () => ({
     trackToolCall: mockTrackToolCall,
     trackExecuteSqlGeneration: mockTrackExecuteSqlGeneration,
+    trackToolSpan: vi.fn(),
 }))
 
 vi.mock('@/resources/internals', () => ({

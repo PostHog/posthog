@@ -894,6 +894,12 @@ class EnterpriseExperimentsViewSet(
         metric per selected template, each scoped to the prompt's $ai_prompt_name.
         Resulting experiment is in draft state.
         """
+        # Scope checks alone don't cover resource-level access controls: this action runs on the
+        # experiment viewset, so AccessControlPermission only verifies experiment access. Check
+        # prompt access explicitly before validation queries LLMPrompt and leaks which names exist.
+        if not self.user_access_control.check_access_level_for_resource("llm_prompt", required_level="viewer"):
+            raise PermissionDenied("Creating an experiment from a prompt requires LLM analytics access.")
+
         serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -1439,7 +1445,7 @@ class EnterpriseExperimentsViewSet(
         """Session recordings of this experiment matching a bucket.
 
         Answers the questions a recordings query can't express on its own — "fired any of these
-        metrics", "fired none of them", "entered the funnel but never completed it in this
+        metrics", "fired none of them", "was exposed but never completed the funnel in this
         session" — by returning a bounded, most-recent-first list of session IDs to pass back as
         a recordings query's session_ids. POST because the metric list doesn't fit a query
         string; the endpoint only reads.

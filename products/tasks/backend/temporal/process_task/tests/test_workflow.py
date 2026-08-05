@@ -3,6 +3,7 @@ import json
 import uuid
 import random
 import asyncio
+import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
@@ -566,6 +567,16 @@ class TestProcessTaskFollowupDispatch:
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
+        # Research / repo-selection sessions run as SIGNAL_REPORT-origin tasks with
+        # create_pr=False; scheduling the recheck for them would let the quota gate cancel
+        # in-flight research.
+        wf = ProcessTaskWorkflow()
+        wf._context = dataclasses.replace(
+            _build_context(github_integration_id=None), origin_product="signal_report", create_pr=False
+        )
+        assert wf._self_driving_quota_recheck_scheduled() is False
+
     async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch):
         cleanup_inputs: list[CleanupSandboxInput] = []
 

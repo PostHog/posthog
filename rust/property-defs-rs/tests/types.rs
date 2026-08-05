@@ -427,6 +427,77 @@ fn test_bare_utm_properties_still_string() {
     }
 }
 
+// Case normalization is what makes each special-case branch in detect_property_type match. Only
+// the DATETIME-keyword branch had mixed-case coverage before (the "TIMESTAMP" assertion in
+// test_property_timestamp_detection); the utm, feature-flag and survey cases are all spelled
+// lowercase everywhere else. Each case here pairs a mixed-case key with a lowercase twin and a
+// value that would classify differently if the key were left as-is, so dropping the conversion
+// fails this instead of silently mistyping properties. The last case is non-ASCII, covering the
+// owning fallback rather than the borrow.
+#[rstest]
+#[case(
+    "UTM_Source",
+    "utm_source",
+    Value::Number(Number::from(12345)),
+    PropertyValueType::String
+)]
+#[case(
+    "$Initial_UTM_Campaign",
+    "$initial_utm_campaign",
+    Value::from("2023-12-13"),
+    PropertyValueType::String
+)]
+#[case(
+    "$FEATURE/My-Flag",
+    "$feature/my-flag",
+    Value::Bool(true),
+    PropertyValueType::String
+)]
+#[case(
+    "$Feature_Flag_Response",
+    "$feature_flag_response",
+    Value::Bool(true),
+    PropertyValueType::String
+)]
+#[case(
+    "$Survey_Response_2",
+    "$survey_response_2",
+    Value::Number(Number::from(7)),
+    PropertyValueType::String
+)]
+// A numeric value only reads as a timestamp when the key carries a DATETIME keyword, so this is
+// the case where normalizing "_At" to "_at" is the whole decision. The epoch is computed rather
+// than fixed because the value-side check only accepts the last six months.
+#[case(
+    "Created_At",
+    "created_at",
+    Value::Number(Number::from(Utc::now().timestamp())),
+    PropertyValueType::DateTime
+)]
+#[case(
+    "UTM_Sourceǅ",
+    "utm_sourceǅ",
+    Value::Number(Number::from(12345)),
+    PropertyValueType::String
+)]
+fn test_property_type_detection_normalizes_key_case(
+    #[case] mixed_case: &str,
+    #[case] lower_case: &str,
+    #[case] value: Value,
+    #[case] expected: PropertyValueType,
+) {
+    assert_eq!(
+        detect_property_type(mixed_case, &value),
+        Some(expected.clone()),
+        "expected {expected:?} for mixed-case key={mixed_case}, value={value}"
+    );
+    assert_eq!(
+        detect_property_type(lower_case, &value),
+        Some(expected.clone()),
+        "expected {expected:?} for lowercase key={lower_case}, value={value}"
+    );
+}
+
 #[test]
 fn test_property_keys_are_sanitized_of_null_bytes() {
     // Property keys with embedded null bytes must be sanitized before reaching Postgres,
