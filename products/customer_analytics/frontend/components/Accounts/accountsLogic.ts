@@ -212,8 +212,8 @@ export interface accountsLogicValues {
     savingRoles: Record<string, true>
     searchInput: string
     searchQuery: string
-    sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
     sortOrder: AccountSortOrder
+    sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
     tagsFilter: string[]
     viewUrlState: AccountsViewUrlState
 }
