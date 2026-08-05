@@ -88,3 +88,4 @@ apps/mobile/ROADMAP.md
 # to the PostHog Visual Review product; the committed baseline is the signed
 # hash manifest apps/code/snapshots.yml.
 apps/code/.storybook/__snapshots__/
+dump.rdb

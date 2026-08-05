@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional, Union
 
 from django.utils import timezone
@@ -44,24 +45,52 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
 )
 from products.experiments.backend.hogql_queries.experiment_ratio_query_builder import RatioQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_retention_query_builder import RetentionQueryBuilder
-from products.experiments.backend.hogql_queries.exposure_query_logic import normalize_to_exposure_criteria
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    normalize_to_exposure_criteria,
+    resolve_default_exposure_event,
+)
 from products.experiments.backend.hogql_queries.funnel_step_builder import FunnelStepBuilder
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 
+def resolve_exposure_config_for_builder(
+    exposure_config: ExperimentEventExposureConfig | ActionsNode,
+    team: Team,
+    start_date: Optional[datetime],
+) -> ExperimentEventExposureConfig | ActionsNode:
+    if isinstance(exposure_config, ExperimentEventExposureConfig) and exposure_config.event == DEFAULT_EXPOSURE_EVENT:
+        return exposure_config.model_copy(update={"event": resolve_default_exposure_event(team, start_date)})
+    return exposure_config
+
+
 def get_exposure_config_params_for_builder(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
+    team: Team,
+    start_date: Optional[datetime],
 ) -> tuple[ExperimentEventExposureConfig | ActionsNode, MultipleVariantHandling, bool]:
     """Returns exposure-related parameters required by the query builder."""
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     if criteria is None:
-        exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+        exposure_config = ExperimentEventExposureConfig(
+            event=resolve_default_exposure_event(team, start_date), properties=[]
+        )
         filter_test_accounts = True
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if criteria.exposure_config is None:
-            exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+            exposure_config = ExperimentEventExposureConfig(
+                event=resolve_default_exposure_event(team, start_date), properties=[]
+            )
+        elif (
+            isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
+            and criteria.exposure_config.event == DEFAULT_EXPOSURE_EVENT
+        ):
+            # A config naming $feature_flag_called explicitly is the default exposure, not a
+            # custom one (same convention as get_exposure_event_and_property), so it follows
+            # the same event resolution while keeping its property filters.
+            exposure_config = resolve_exposure_config_for_builder(criteria.exposure_config, team, start_date)
         else:
             exposure_config = criteria.exposure_config
         filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else True
@@ -655,12 +684,13 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().precomputation_query()
 
-    def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+    def get_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
         Returns the SELECT query that the lazy computation system wraps in an
-        INSERT INTO experiment_metric_events_preaggregated. This is the write
-        path — it scans the events table and stores one row per matching event
-        with step indicators packed into an Array(UInt8).
+        INSERT INTO experiment_metric_events_preaggregated, dispatched by metric
+        type. This is the write path — it scans the events table and stores one
+        row per matching event: funnel metrics pack step indicators into an
+        Array(UInt8), mean metrics store the per-event value in numeric_value.
 
         The query uses {time_window_min} and {time_window_max} placeholders filled
         by the lazy computation system for each daily bucket.
@@ -668,6 +698,16 @@ class ExperimentQueryBuilder:
         Returns:
             Tuple of (query_string, placeholders_dict)
         """
+        match self.metric:
+            case ExperimentFunnelMetric():
+                return self._funnel_query_builder().get_funnel_metric_events_query_for_precomputation()
+            case ExperimentMeanMetric():
+                return self._mean_query_builder().get_mean_metric_events_query_for_precomputation()
+            case _:
+                raise NotImplementedError(f"Metric-events precomputation is not supported for {type(self.metric)}")
+
+    def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+        """Funnel-specific write query; prefer get_metric_events_query_for_precomputation()."""
         return self._funnel_query_builder().get_funnel_metric_events_query_for_precomputation()
 
     def _build_variant_expr_for_mean(self) -> ast.Expr:

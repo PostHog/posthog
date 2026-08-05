@@ -5,8 +5,16 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
+import { StartupProgramLabel } from '~/types'
 
-import type { ObservationStatsApi, ReplayScannerApi, UserBasicApi, VisionQuotaApi } from '../generated/api.schemas'
+import type {
+    ObservationStatsApi,
+    ReplayScannerApi,
+    ScannerStatsResponseApi,
+    UserBasicApi,
+    VisionQuotaApi,
+} from '../generated/api.schemas'
 
 const alice: UserBasicApi = {
     id: 1,
@@ -98,8 +106,20 @@ const quota: VisionQuotaApi = {
     remaining: 7600,
     exhausted: false,
     projected_monthly_credits: 5200,
+    free_monthly_credits: 2500,
     period_start: '2026-05-01T00:00:00Z',
     period_end: '2026-06-01T00:00:00Z',
+}
+
+const scannerStats: ScannerStatsResponseApi = {
+    total: 4,
+    enabled: 3,
+    by_type: {
+        monitor: { total: 1, enabled: 1 },
+        classifier: { total: 1, enabled: 0 },
+        scorer: { total: 1, enabled: 1 },
+        summarizer: { total: 1, enabled: 1 },
+    },
 }
 
 const summarizerScanner = scanners.results[2]
@@ -204,6 +224,20 @@ export const SummarizerOverview: StoryObj = {
             },
             post: {
                 '/api/environments/:team_id/query/:query_kind/': observationsTrend,
+            },
+        }),
+    ],
+}
+
+// Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
+export const StartupProgramCap: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': scanners,
+                '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
+                '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },
+                '/api/billing/': { ...billingJson, startup_program_label: StartupProgramLabel.YC },
             },
         }),
     ],

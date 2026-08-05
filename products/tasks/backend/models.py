@@ -29,9 +29,6 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
-from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -76,6 +73,19 @@ class Channel(TeamScopedRootMixin):
         PERSONAL = "personal", "Personal"
 
     PERSONAL_CHANNEL_NAME = "me"
+
+    @classmethod
+    def visible_to_q(cls, user_id: int | None, *, relation: str = "") -> models.Q:
+        """The channel-visibility rule as a queryset filter: a personal channel is
+        visible only to its creator. ``relation`` names the join to ``Channel`` when
+        filtering another model's queryset (e.g. ``"channel"``); empty filters
+        ``Channel`` rows directly."""
+        prefix = f"{relation}__" if relation else ""
+        if user_id is None:
+            return ~models.Q(**{f"{prefix}channel_type": cls.ChannelType.PERSONAL})
+        return ~models.Q(**{f"{prefix}channel_type": cls.ChannelType.PERSONAL}) | models.Q(
+            **{f"{prefix}created_by_id": user_id}
+        )
 
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -133,7 +143,11 @@ PR_READY_EMAIL_SENT_AT_STATE_KEY = "pr_ready_email_sent_at"
 PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 
-class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
+class TaskClientProvenance(models.TextChoices):
+    POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
+
+
+class Task(DeletedMetaFields, models.Model):
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
         PI = "pi", "Pi"
@@ -178,6 +192,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct)
+    client_provenance = models.CharField(
+        max_length=32,
+        choices=TaskClientProvenance,
+        null=True,
+        blank=True,
+        editable=False,
+    )
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -326,32 +347,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         expected_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(self.origin_product)
         marker = (self.state or {}).get(MCP_BUILT_IN_AGENT_STATE_KEY)
         return expected_key if marker == expected_key else None
-
-    @classmethod
-    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> models.QuerySet["Task"]:
-        # Tasks live only on the desktop surface, never the web app tree.
-        if surface != DESKTOP_SURFACE:
-            return cls.objects.none()
-        base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="task", ref_field="id", surface=surface)
-
-    def get_file_system_representation(self, folder: str | None = None) -> FileSystemRepresentation:
-        # Tasks live only on the desktop surface, never the web app tree. They land in
-        # Unfiled/Tasks/<title> on first save (via FileSystemSyncMixin) and stay there
-        # unless filed into another folder — e.g. a canvas channel.
-        return FileSystemRepresentation(
-            base_folder=folder or self._get_assigned_folder("Unfiled/Tasks"),
-            type="task",
-            ref=str(self.id),
-            name=self.title or "Untitled",
-            href=f"/tasks/{self.id}",
-            meta={
-                "created_at": str(self.created_at),
-                "created_by": self.created_by_id,
-            },
-            should_delete=bool(self.deleted),
-            surface=DESKTOP_SURFACE,
-        )
 
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
@@ -555,6 +550,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+        client_provenance: TaskClientProvenance | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -585,6 +581,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         task_stub = Task(
             team=team,
             origin_product=origin_product,
+            client_provenance=client_provenance,
             created_by=created_by,
             repository=repository,
             github_integration=github_integration,
@@ -637,6 +634,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             title=title,
             description=description,
             origin_product=origin_product,
+            client_provenance=client_provenance,
             created_by=created_by,
             github_integration=github_integration,
             github_user_integration=github_user_integration,
@@ -777,6 +775,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         model: str | None = None,
         initial_permission_mode: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+        client_provenance: TaskClientProvenance | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -802,6 +801,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             model=model,
             initial_permission_mode=initial_permission_mode,
             mcp_builtin_agent_key=mcp_builtin_agent_key,
+            client_provenance=client_provenance,
         )
         return task
 
@@ -1224,6 +1224,88 @@ class ChannelFeedMessage(TeamScopedRootMixin):
         return f"Feed message {self.id} on channel {self.channel_id}"
 
 
+class ChannelInstructions(TeamScopedRootMixin):
+    """A versioned markdown instructions blob (CONTEXT.md) attached to a channel.
+
+    Each edit publishes a new row (incrementing ``version``, flipping the previous
+    ``is_latest`` off) so history is preserved and auditable. A channel with no
+    rows simply has no instructions yet — readers present that as a blank
+    version 0."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="instruction_versions")
+
+    # The markdown instructions describing the channel's context.
+    content = models.TextField()
+
+    version = models.PositiveIntegerField(default=1)
+    is_latest = models.BooleanField(default=True)
+    deleted = models.BooleanField(default=False)
+
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_channel_instructions"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["channel", "version"],
+                condition=models.Q(deleted=False),
+                name="unique_channel_instructions_version",
+            ),
+            models.UniqueConstraint(
+                fields=["channel"],
+                condition=models.Q(deleted=False, is_latest=True),
+                name="unique_channel_instructions_latest",
+            ),
+        ]
+
+
+class ChannelContextGeneration(TeamScopedRootMixin):
+    """Tracks which Task is currently generating a channel's CONTEXT.md.
+
+    Project-shared, per-channel marker so any user sees the in-progress state.
+    ``task_id`` is a plain UUID (same app, but kept soft to match the canvas
+    product's generation pointer). Cleared automatically when a new
+    instructions version is published."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.OneToOneField(Channel, on_delete=models.CASCADE, related_name="context_generation")
+
+    task_id = models.UUIDField(null=True, blank=True)
+
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_channel_context_generation"
+
+
+class ChannelStar(TeamScopedRootMixin):
+    """A user's star on a channel (the sidebar pin). Per-user, per-channel."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="stars")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_channel_star"
+        constraints = [
+            models.UniqueConstraint(fields=["channel", "user"], name="unique_channel_star_per_user"),
+        ]
+
+
 class TaskAutomationManager(models.Manager):
     def get_queryset(self):
         return (
@@ -1405,6 +1487,13 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
         choices=Task.OriginProduct.choices,
         default=Task.OriginProduct.USER_CREATED,
         help_text="Which product or flow created this loop.",
+    )
+    client_provenance = models.CharField(
+        max_length=32,
+        choices=TaskClientProvenance,
+        null=True,
+        blank=True,
+        editable=False,
     )
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_run_status = models.CharField(max_length=32, null=True, blank=True)
@@ -2356,6 +2445,13 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         null=True,
         blank=True,
         help_text="Task origin at provision time, denormalized for per-origin aggregation",
+    )
+    client_provenance = models.CharField(
+        max_length=32,
+        choices=TaskClientProvenance,
+        null=True,
+        blank=True,
+        editable=False,
     )
     prewarmed = models.BooleanField(default=False, help_text="Sandbox was provisioned ahead of any user demand")
     vm_runtime = models.BooleanField(

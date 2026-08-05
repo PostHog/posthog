@@ -1,4 +1,8 @@
-import { mirrorCall, mirrorCallWithPrimary } from './mirror-call'
+import { logger } from '~/common/utils/logger'
+
+import { mirrorCall, mirrorCompare } from './mirror-call'
+
+jest.mock('~/common/utils/logger', () => ({ logger: { warn: jest.fn() } }))
 
 describe('mirrorCall', () => {
     it('resolves when the call resolves in time', async () => {
@@ -27,18 +31,32 @@ describe('mirrorCall', () => {
         expect(elapsed).toBeLessThan(200)
     })
 
-    it('returns the primary result after running the mirror', async () => {
-        const mirror = jest.fn().mockResolvedValue('shadow')
-        await expect(mirrorCallWithPrimary('test.pair', () => Promise.resolve('primary'), mirror)).resolves.toBe(
-            'primary'
-        )
-        expect(mirror).toHaveBeenCalledTimes(1)
+    it('returns the primary result when mirror results match', async () => {
+        await expect(
+            mirrorCompare(
+                'test.compare',
+                () => Promise.resolve({ state: 'healthy' }),
+                () => Promise.resolve({ state: 'healthy' })
+            )
+        ).resolves.toEqual({ state: 'healthy' })
+        expect(logger.warn).not.toHaveBeenCalledWith('🪞', '[mirror:test.compare] result mismatch')
+    })
+
+    it('reports a mismatch without changing the primary result', async () => {
+        await expect(
+            mirrorCompare(
+                'test.compare',
+                () => Promise.resolve({ state: 'healthy' }),
+                () => Promise.resolve({ state: 'degraded' })
+            )
+        ).resolves.toEqual({ state: 'healthy' })
+        expect(logger.warn).toHaveBeenCalledWith('🪞', '[mirror:test.compare] result mismatch')
     })
 
     it('returns the primary result when the mirror fails', async () => {
         await expect(
-            mirrorCallWithPrimary(
-                'test.pair',
+            mirrorCompare(
+                'test.compare',
                 () => Promise.resolve('primary'),
                 () => Promise.reject(new Error('boom'))
             )

@@ -329,10 +329,21 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Prepare frontend
               run: bin/turbo --filter=@posthog/frontend prepare
@@ -626,10 +637,21 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/playwright... install --no-frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Prepare frontend
               run: bin/turbo --filter=@posthog/frontend prepare
@@ -660,19 +682,20 @@ jobs:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Run typescript check (tsgo)
-              run: pnpm --filter=@posthog/frontend typescript:check
+            - parallel:
+                  - name: Run typescript check (tsgo)
+                    run: pnpm --filter=@posthog/frontend typescript:check
 
-            - name: Check if schema.json and validators.js are up to date
-              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+                  - name: Check if schema.json and validators.js are up to date
+                    run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
 
-            - name: Check if mobile replay "schema.json" is up to date
-              run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
-              env:
-                  NODE_OPTIONS: --max-old-space-size=8192
+                  - name: Check if mobile replay "schema.json" is up to date
+                    run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
+                    env:
+                        NODE_OPTIONS: --max-old-space-size=8192
 
-            - name: Validate SetupTaskId completions
-              run: node bin/validate-setup-tasks.mjs
+                  - name: Validate SetupTaskId completions
+                    run: node bin/validate-setup-tasks.mjs
 
     jest:
         runs-on: ubuntu-latest
@@ -817,11 +840,23 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             # Full workspace install: the suite's jsdom test environment resolves
             # through the workspace root, not the package's own dependencies, so a
             # filtered install can't run it.
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
+              with:
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Test with Jest
               id: run-jest

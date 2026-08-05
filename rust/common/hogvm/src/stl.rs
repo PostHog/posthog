@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use indexmap::IndexMap;
 use md5::Md5;
@@ -11,6 +12,7 @@ use once_cell::sync::Lazy;
 use rand::Rng;
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value as JsonValue};
+use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -1126,11 +1128,25 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 hash_optional_encoding(vm, &args, "sha256", |data| Sha256::digest(data).to_vec())
             }),
         ),
+        // SHA-1 is only here because vendors sign webhooks with it. Never pick it for new work.
+        (
+            "sha1Hex",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "sha1Hex")?;
+                hash_with_encoding(vm, &args, |data| Sha1::digest(data).to_vec(), "hex")
+            }),
+        ),
+        (
+            "sha1",
+            native_func(|vm, args| {
+                hash_optional_encoding(vm, &args, "sha1", |data| Sha1::digest(data).to_vec())
+            }),
+        ),
         (
             "sha256HmacChainHex",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "sha256HmacChainHex")?;
-                let digest = sha256_hmac_chain(vm, &args[0])?;
+                let digest = hmac_chain::<HmacSha256>(vm, &args[0], "sha256HmacChain")?;
                 Ok(HogLiteral::String(to_hex(&digest)).into())
             }),
         ),
@@ -1142,7 +1158,28 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         "sha256HmacChain takes 1 or 2 arguments".to_string(),
                     ));
                 }
-                let digest = sha256_hmac_chain(vm, &args[0])?;
+                let digest = hmac_chain::<HmacSha256>(vm, &args[0], "sha256HmacChain")?;
+                let encoding = encoding_arg(vm, &args, 1)?;
+                Ok(HogLiteral::String(encode_digest(&digest, &encoding)?).into())
+            }),
+        ),
+        (
+            "sha1HmacChainHex",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "sha1HmacChainHex")?;
+                let digest = hmac_chain::<HmacSha1>(vm, &args[0], "sha1HmacChain")?;
+                Ok(HogLiteral::String(to_hex(&digest)).into())
+            }),
+        ),
+        (
+            "sha1HmacChain",
+            native_func(|vm, args| {
+                if args.is_empty() || args.len() > 2 {
+                    return Err(VmError::NativeCallFailed(
+                        "sha1HmacChain takes 1 or 2 arguments".to_string(),
+                    ));
+                }
+                let digest = hmac_chain::<HmacSha1>(vm, &args[0], "sha1HmacChain")?;
                 let encoding = encoding_arg(vm, &args, 1)?;
                 Ok(HogLiteral::String(encode_digest(&digest, &encoding)?).into())
             }),
@@ -2342,6 +2379,7 @@ fn ip_to_bytes(ip: &str, is_v4: bool) -> Option<Vec<u8>> {
 }
 
 type HmacSha256 = Hmac<Sha256>;
+type HmacSha1 = Hmac<Sha1>;
 
 // Hash `data` with the supplied digest fn, then encode. Used by md5Hex/sha256Hex (fixed "hex").
 // `null` data returns `null`, matching the reference.
@@ -2376,15 +2414,20 @@ fn hash_optional_encoding(
     hash_with_encoding(vm, args, hasher, &encoding)
 }
 
-// sha256HmacChain: HMAC-SHA256 chained across an array of strings, re-keying each step with the
-// previous raw digest. Mirrors common/hogvm/typescript/src/stl/crypto.ts.
-fn sha256_hmac_chain(vm: &HogVM, arg: &HogValue) -> Result<Vec<u8>, VmError> {
+// sha256HmacChain / sha1HmacChain: HMAC chained across an array of strings, re-keying each step
+// with the previous raw digest. A two-element array is a plain HMAC of key and message.
+// Mirrors common/hogvm/typescript/src/stl/crypto.ts.
+fn hmac_chain<M: Mac + KeyInit>(
+    vm: &HogVM,
+    arg: &HogValue,
+    name: &str,
+) -> Result<Vec<u8>, VmError> {
     let arr = match arg.deref(&vm.heap)? {
         HogLiteral::Array(a) => a.clone(),
         _ => {
-            return Err(VmError::NativeCallFailed(
-                "sha256HmacChain expects an array".to_string(),
-            ))
+            return Err(VmError::NativeCallFailed(format!(
+                "{name} expects an array"
+            )))
         }
     };
     if arr.len() < 2 {
@@ -2393,13 +2436,13 @@ fn sha256_hmac_chain(vm: &HogVM, arg: &HogValue) -> Result<Vec<u8>, VmError> {
         ));
     }
     let key0: &str = arr[0].deref(&vm.heap)?.try_as()?;
-    let mut mac = HmacSha256::new_from_slice(key0.as_bytes())
+    let mut mac = <M as Mac>::new_from_slice(key0.as_bytes())
         .map_err(|e| VmError::NativeCallFailed(e.to_string()))?;
     let msg1: &str = arr[1].deref(&vm.heap)?.try_as()?;
     mac.update(msg1.as_bytes());
     let mut digest = mac.finalize().into_bytes().to_vec();
     for elem in &arr[2..] {
-        let mut next = HmacSha256::new_from_slice(&digest)
+        let mut next = <M as Mac>::new_from_slice(&digest)
             .map_err(|e| VmError::NativeCallFailed(e.to_string()))?;
         let msg: &str = elem.deref(&vm.heap)?.try_as()?;
         next.update(msg.as_bytes());
