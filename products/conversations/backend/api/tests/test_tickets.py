@@ -2512,47 +2512,27 @@ class TestTicketMerge(APIBaseTest):
         assert ActivityLog.objects.filter(scope="Ticket", item_id=str(self.source.id), activity="merged").exists()
         assert ActivityLog.objects.filter(scope="Ticket", item_id=str(self.target.id), activity="merged").exists()
 
-        # Both notes default to private, so each links to the other via the internal agent URL.
+        # Each note references the other ticket by plain number — no hyperlink, since a merged
+        # ticket would just redirect back to the master.
         source_comment = self._comment_for(self.source)
         target_comment = self._comment_for(self.target)
         assert f"#{self.target.ticket_number}" in source_comment.content
-        assert f"/support/tickets/{self.target.ticket_number}" in source_comment.content
         assert f"#{self.source.ticket_number}" in target_comment.content
-        assert f"/support/tickets/{self.source.ticket_number}" in target_comment.content
+        assert "](" not in source_comment.content and "http" not in source_comment.content
+        assert "](" not in target_comment.content and "http" not in target_comment.content
 
-    def test_public_note_links_to_github_issue_not_internal_url(self, mock_on_commit):
-        github_target = Ticket.objects.create_with_number(
-            team=self.team,
-            channel_source=Channel.GITHUB,
-            channel_detail=ChannelDetail.GITHUB_ISSUE,
-            widget_session_id="gh-session",
-            distinct_id="customer-a",
-            status=Status.OPEN,
-            github_repo="acme/support",
-            github_issue_number=42,
-        )
+    @parameterized.expand([True, False])
+    def test_merge_note_never_links(self, mock_on_commit, source_is_private):
+        # Neither private nor public notes embed a link (internal or channel URL).
         response = self.client.post(
             self._merge_url(self.source),
-            {"target_ticket_id": str(github_target.id), "source_is_private": False},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_200_OK
-        content = self._comment_for(self.source).content
-        assert "https://github.com/acme/support/issues/42" in content
-        # A customer-facing note must never leak the internal agent URL.
-        assert "/support/tickets/" not in content
-
-    def test_public_note_without_public_url_has_no_link(self, mock_on_commit):
-        # Target is a widget ticket, which has no customer-facing URL.
-        response = self.client.post(
-            self._merge_url(self.source),
-            {"target_ticket_id": str(self.target.id), "source_is_private": False},
+            {"target_ticket_id": str(self.target.id), "source_is_private": source_is_private},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK
         content = self._comment_for(self.source).content
         assert f"#{self.target.ticket_number}" in content
-        assert "/support/tickets/" not in content
+        assert "](" not in content
         assert "http" not in content
 
     @parameterized.expand(

@@ -6,7 +6,6 @@ import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
@@ -1305,22 +1304,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         old_status = source.status
 
-        # Reference to a ticket for embedding in a note. Private (internal) notes link to the
-        # agent UI; customer-facing notes link to the channel URL the customer can actually open
-        # (GitHub/Slack) and fall back to a bare "#N" when the channel has no public URL — never
-        # an internal link the customer would hit a login wall on.
-        def reference(ticket: Ticket, is_private: bool) -> str:
-            if is_private:
-                url = f"{settings.SITE_URL}/project/{self.team_id}/support/tickets/{ticket.ticket_number}"
-                return f"[#{ticket.ticket_number}]({url})"
-            public_url = _public_ticket_url(ticket)
-            return f"[#{ticket.ticket_number}]({public_url})" if public_url else f"#{ticket.ticket_number}"
-
-        source_message = f"Merged into {reference(target, data['source_is_private'])}."
+        # A merged ticket redirects to its master, so a hyperlink to either ticket just routes back
+        # to the ticket you're already on — reference the ticket by plain number instead.
+        source_message = f"Merged into #{target.ticket_number}."
         if data.get("source_note"):
             source_message = f"{source_message}\n\n{data['source_note']}"
 
-        target_message = f"{reference(source, data['target_is_private'])} was merged into this ticket."
+        target_message = f"#{source.ticket_number} was merged into this ticket."
         if data.get("target_note"):
             target_message = f"{target_message}\n\n{data['target_note']}"
 
@@ -1601,19 +1591,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             {"id": str(ticket.id), "ticket_number": ticket.ticket_number},
             status=drf_status.HTTP_201_CREATED,
         )
-
-
-def _public_ticket_url(ticket: Ticket) -> str | None:
-    """Customer-facing URL for a ticket, if its channel exposes one.
-
-    GitHub issues are publicly linkable; Slack threads are reachable by channel members.
-    Email, widget, and Teams tickets have no customer-facing URL, so return None.
-    """
-    if ticket.channel_source == Channel.GITHUB and ticket.github_repo and ticket.github_issue_number:
-        return f"https://github.com/{ticket.github_repo}/issues/{ticket.github_issue_number}"
-    if ticket.channel_source == Channel.SLACK and ticket.slack_channel_id and ticket.slack_thread_ts:
-        return f"https://app.slack.com/archives/{ticket.slack_channel_id}/p{ticket.slack_thread_ts.replace('.', '')}"
-    return None
 
 
 def validate_assignee(assignee) -> None:
