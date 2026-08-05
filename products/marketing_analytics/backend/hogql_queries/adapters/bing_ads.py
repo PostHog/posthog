@@ -28,10 +28,15 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
     `campaign_id` / `campaign_name` (and at ad level, also `ad_id` / `ad_title`)
     directly as columns, so the report is the FROM anchor at every level.
     `_uses_unified_entity_stats` / `_uses_unified_campaign_stats` flip the base
-    FROM/GROUP BY builders onto that path. At AD_GROUP / AD it's genuinely join-free; at
-    CAMPAIGN the campaigns table is still LEFT JOINed, but additively — it supplies the
-    display name and `match_key` without being able to drop a report row, which is what
-    the entity-anchored shape used to do to deleted campaigns' spend.
+    FROM/GROUP BY builders onto that path. The campaigns table is still LEFT JOINed at
+    every level, but additively — it supplies the display name and `match_key` without
+    being able to drop a report row, which is what the entity-anchored shape used to do
+    to deleted campaigns' spend.
+
+    Because those reports are per-day fact tables, every name they carry has more than
+    one value per id once the entity is renamed. So the grain is ids only and the names
+    are aggregates: the campaign name prefers the joined entity table, while the ad-group
+    and ad names — which have no entity table to prefer — take the report's latest value.
 
     `_campaign_pk_column` / `_campaign_name_column` stay unset because the base defaults
     (`id` / `name`) already match Bing's `campaigns` schema — and they're load-bearing for

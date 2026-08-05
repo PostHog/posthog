@@ -707,6 +707,28 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "conversion_rate": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                 },
             ),
+            "bing_ad_group_performance_report": DataConfig(
+                csv_filename="test/bing_ads/ad_group_performance_report.csv",
+                table_name="bingads_ad_group_performance_report",
+                platform="Bing Ads",
+                source_type="BingAds",
+                bucket_suffix="bing_ad_group_performance_report",
+                column_schema={
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "ad_group_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "ad_group_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "clicks": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "impressions": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "spend": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "conversions": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "currency_code": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "time_period": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "average_cpc": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "ctr": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "conversion_rate": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                },
+            ),
             "pinterest_campaigns": DataConfig(
                 csv_filename="test/pinterest_ads/campaigns.csv",
                 table_name="pinterestads_campaigns",
@@ -936,14 +958,18 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         actual_aliases = [col.alias for col in query.select if hasattr(col, "alias")]
         assert actual_aliases == EXPECTED_COLUMN_ALIASES, f"{adapter_name} has incorrect column aliases"
 
-    def _execute_query_and_validate(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[tuple]:
+    def _execute_query_and_validate(
+        self, query: ast.SelectQuery | ast.SelectSetQuery, expected_columns: int = EXPECTED_COLUMN_COUNT
+    ) -> list[tuple]:
+        """Run the query against ClickHouse. `expected_columns` defaults to the campaign-grain
+        column count; AD_GROUP / AD add the four hierarchy columns."""
         hogql_query = query.to_hogql()
         result = execute_hogql_query(hogql_query, self.team)
 
         assert result is not None, "Query execution should not return None"
         assert result.results is not None, "Query results should not be None"
         assert result.columns is not None, "Query columns should not be None"
-        assert len(result.columns) == EXPECTED_COLUMN_COUNT, f"Should have {EXPECTED_COLUMN_COUNT} columns"
+        assert len(result.columns) == expected_columns, f"Should have {expected_columns} columns"
 
         return result.results
 
@@ -1730,6 +1756,87 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            (MarketingAnalyticsDrillDownLevel.AD_GROUP, ["campaign_id", "ad_group_id"]),
+            (MarketingAnalyticsDrillDownLevel.AD, ["campaign_id", "ad_group_id", "ad_id"]),
+        ]
+    )
+    def test_bing_ads_entity_levels_group_by_ids_only(self, level, expected_id_columns):
+        """The ad-group and ad reports are per-day fact tables just like the campaign one, so a
+        renamed ad group (or ad) used to split into a row per name with its spend divided. Ids are
+        the grain at every unified level; every name is an aggregate."""
+        adapter = self._build_hierarchical_adapter_at_level(
+            BingAdsAdapter,
+            BingAdsConfig,
+            "BingAds",
+            {
+                "campaign": "bingads_campaigns",
+                "stats": "bingads_campaign_performance_report",
+                "adset": "bingads_ad_group_performance_report",
+                "adset_stats": "bingads_ad_group_performance_report",
+                "ad": "bingads_ad_performance_report",
+                "ad_stats": "bingads_ad_performance_report",
+            },
+            level,
+        )
+
+        group_by = [expr.to_hogql() for expr in adapter._get_group_by()]
+        assert len(group_by) == len(expected_id_columns), f"only ids may be grouping keys, got {group_by}"
+        for expr, column in zip(group_by, expected_id_columns):
+            assert f".{column}" in expr, f"expected {column} in {expr}"
+        assert not any("argMax" in expr or "any(" in expr for expr in group_by), (
+            "an aggregate in GROUP BY is rejected by ClickHouse"
+        )
+
+        # Every name is an aggregate, so a rename can't split the row...
+        ad_group_name = adapter._get_ad_group_name_field().to_hogql()
+        assert ad_group_name.startswith("toString(argMax("), ad_group_name
+        assert ".ad_group_name" in ad_group_name
+        # ...and the campaign name still prefers the additively joined entity table, exactly as at
+        # campaign grain — the ad-group report carries campaign_name too, and it drifts the same way.
+        campaign_name = adapter._get_campaign_name_field().to_hogql()
+        assert "any(bingads_campaigns.name)" in campaign_name, campaign_name
+        assert campaign_name.startswith("coalesce(nullIf("), campaign_name
+
+        if level == MarketingAnalyticsDrillDownLevel.AD:
+            ad_name = adapter._get_ad_name_field().to_hogql()
+            assert ad_name.startswith("toString(argMax("), ad_name
+            assert ".ad_title" in ad_name
+        else:
+            # `_get_ad_name_field` must stay NULL at AD_GROUP even though the level is unified.
+            assert adapter._get_ad_name_field().to_hogql() == "NULL"
+
+    def test_bing_ads_at_ad_level_without_synced_ad_groups(self):
+        """A unified source whose ad groups aren't synced still resolves the ad-group columns off
+        the ad report, which embeds them — but the unified path dereferences `_level_tables()`,
+        so anything it can't build has to fall through rather than raise."""
+        adapter = self._build_hierarchical_adapter_at_level(
+            BingAdsAdapter,
+            BingAdsConfig,
+            "BingAds",
+            {
+                "campaign": "bingads_campaigns",
+                "stats": "bingads_campaign_performance_report",
+                "ad": "bingads_ad_performance_report",
+                "ad_stats": "bingads_ad_performance_report",
+            },
+            MarketingAnalyticsDrillDownLevel.AD,
+        )
+        assert not adapter.supports_level(MarketingAnalyticsDrillDownLevel.AD_GROUP)
+        assert adapter.supports_level(MarketingAnalyticsDrillDownLevel.AD)
+
+        # The ad report carries ad_group_name itself, so the level is still fully resolvable.
+        assert adapter.build_query() is not None
+        assert ".ad_group_name" in adapter._get_ad_group_name_field().to_hogql()
+
+        # And at a level the source can't serve, the unified branch must stay out of the way
+        # instead of raising out of `_level_tables()`.
+        unsynced = replace(adapter.context, drill_down_level=MarketingAnalyticsDrillDownLevel.AD_GROUP)
+        adapter.context = unsynced
+        assert not adapter._entity_stats_are_unified()
+        assert adapter._get_ad_group_name_field().to_hogql() == "NULL"
+
+    @parameterized.expand(
+        [
             ("total_impression", "_get_impressions_field"),
             ("total_clickthrough", "_get_clicks_field"),
             ("spend_in_dollar", "_get_cost_field"),
@@ -2266,6 +2373,59 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         sources = [row[3] for row in results]
         assert all(source == "bing" for source in sources), "All sources should be 'bing'"
+
+    def test_bing_ads_ad_group_grain_with_real_data(self):
+        """The campaign-grain end-to-end above has an AD_GROUP twin, because the ad-group report
+        is a per-day fact table too and used to put `ad_group_name` straight into the GROUP BY.
+
+        Ad group `700004` is the case that matters: it carries `Awareness-Old` on 2024-01-12 and
+        `Awareness-New` on 2024-01-13 (a mid-period rename), under a campaign that is *itself*
+        renamed across the same two rows. Grouping by either name split one ad group into two
+        dashboard rows with its spend divided between them. Now the grain is (campaign_id,
+        ad_group_id) and both names are aggregates.
+        """
+        campaign_info = self._setup_csv_table("bing_campaigns")
+        stats_info = self._setup_csv_table("bing_campaign_performance_report")
+        ad_group_info = self._setup_csv_table("bing_ad_group_performance_report")
+
+        config = BingAdsConfig(
+            campaign_table=campaign_info.table,
+            stats_table=stats_info.table,
+            # Bing's ad-group report is both the entity table and the stats table.
+            adset_table=ad_group_info.table,
+            adset_stats_table=ad_group_info.table,
+            source_type="BingAds",
+            source_id="bing_ads",
+        )
+        context = replace(self.context, drill_down_level=MarketingAnalyticsDrillDownLevel.AD_GROUP)
+        adapter = BingAdsAdapter(config=config, context=context)
+        assert adapter.supports_level(MarketingAnalyticsDrillDownLevel.AD_GROUP)
+
+        query = adapter.build_query()
+        assert query is not None
+        results = self._execute_query_and_validate(query, expected_columns=EXPECTED_COLUMN_COUNT + 4)
+
+        # Column indices at AD_GROUP: match_key=0, campaign=1, id=2, source=3, ad_group_name=4,
+        # ad_group_id=5, ad_name=6, ad_id=7, impressions=8, clicks=9, cost=10, ...
+        by_ad_group = {row[5]: row for row in results}
+        assert len(results) == 5, f"Expected 5 ad groups, got {len(results)}"
+        assert len(by_ad_group) == 5, "ad_group_id must be the grain — no ad group split across rows"
+
+        renamed = by_ad_group["700004"]
+        assert renamed[4] == "Awareness-New", f"latest ad group name should win, got {renamed[4]!r}"
+        assert renamed[1] == "BrandAwareness", "campaign name still comes from the entity table"
+        assert int(renamed[8]) == 10000, "both days must aggregate into this one ad group"
+        assert int(renamed[9]) == 500
+
+        # An ad group under a campaign the entity table no longer has: its spend survives, and
+        # the campaign name falls back to the report the same way it does at campaign grain.
+        orphan = by_ad_group["700005"]
+        assert orphan[1] == "DeletedCampaign", "campaign name falls back to the report"
+        assert float(orphan[10]) > 0, "spend under a deleted campaign must not be dropped"
+
+        assert all(row[4] for row in results), "no ad group should render with a blank name"
+        assert sum(int(row[8] or 0) for row in results) == 60000
+        assert sum(int(row[9] or 0) for row in results) == 3000
 
     def test_linkedin_ads_adapter_with_real_data(self):
         campaign_info = self._setup_csv_table("linkedin_campaigns")

@@ -1,0 +1,8 @@
+campaign_id,campaign_name,ad_group_id,ad_group_name,clicks,impressions,spend,conversions,currency_code,time_period,average_cpc,ctr,conversion_rate
+123456,SpringSale2024,700001,SpringSale-Brand,600,12000,720.00,60,USD,2024-03-15,1.20,5.00,10.00
+123456,SpringSale2024,700001,SpringSale-Brand,500,10000,600.00,50,USD,2024-03-16,1.20,5.00,10.00
+123456,SpringSale2024,700002,SpringSale-Generic,400,8000,480.00,40,USD,2024-03-15,1.20,5.00,10.00
+123457,SummerPromo2024,700003,SummerPromo-Brand,900,18000,1080.00,90,USD,2024-06-20,1.20,5.00,10.00
+123460,BrandAwareness,700004,Awareness-Old,300,6000,360.00,30,USD,2024-01-12,1.20,5.00,10.00
+123460,BrandAwareness-Renamed,700004,Awareness-New,200,4000,240.00,20,USD,2024-01-13,1.20,5.00,10.00
+999999,DeletedCampaign,700005,DeletedCampaign-Group,100,2000,120.00,10,USD,2024-07-01,1.20,5.00,10.00
