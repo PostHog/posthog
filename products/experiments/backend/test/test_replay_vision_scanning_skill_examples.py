@@ -18,9 +18,10 @@ _SQL_BLOCKS = [(i, body) for i, (lang, body) in enumerate(_BLOCKS) if lang == "s
 
 
 def test_extraction_still_finds_the_examples():
-    # Guards the extractor itself: a fence-style change must not silently skip every block.
-    assert len(_JSON_BLOCKS) >= 3
-    assert len(_SQL_BLOCKS) >= 2
+    # Exact counts, not floors: a new example whose fence the regex can't parse (```JSON,
+    # a trailing space) would ship unvalidated while the old blocks kept a floor green.
+    assert len(_JSON_BLOCKS) == 3
+    assert len(_SQL_BLOCKS) == 2
 
 
 @pytest.mark.parametrize("index,body", _JSON_BLOCKS, ids=[f"json-block-{i}" for i, _ in _JSON_BLOCKS])
