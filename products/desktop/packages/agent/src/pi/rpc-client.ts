@@ -74,6 +74,13 @@ interface RpcClientInternals {
 
 export type PiRuntimeMcpServers = McpConfig["mcpServers"];
 
+export interface PiStdioMcpServer {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Array<{ name: string; value: string }>;
+}
+
 export function createRuntimeMcpServers(
   servers: McpServerConnection[],
 ): PiRuntimeMcpServers {
@@ -92,6 +99,26 @@ export function createRuntimeMcpServers(
         lifecycle: "lazy" as const,
         args: [],
         directTools: false,
+      },
+    ]),
+  );
+}
+
+export function createRuntimeMcpStdioServers(
+  servers: PiStdioMcpServer[],
+): PiRuntimeMcpServers {
+  return Object.fromEntries(
+    servers.map((server) => [
+      server.name,
+      {
+        command: server.command,
+        args: server.args ?? [],
+        env: Object.fromEntries(
+          (server.env ?? []).map((variable) => [variable.name, variable.value]),
+        ),
+        transport: "stdio" as const,
+        lifecycle: "eager" as const,
+        directTools: true,
       },
     ]),
   );

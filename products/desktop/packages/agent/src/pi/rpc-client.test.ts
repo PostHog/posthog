@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createPiRpcClient, createRuntimeMcpServers } from "./rpc-client";
+import {
+  createPiRpcClient,
+  createRuntimeMcpServers,
+  createRuntimeMcpStdioServers,
+} from "./rpc-client";
 
 describe("createRuntimeMcpServers", () => {
   it("maps agent-server HTTP and SSE servers to Harness configuration", () => {
@@ -31,6 +35,28 @@ describe("createRuntimeMcpServers", () => {
       legacy: {
         transport: "sse",
         url: "https://mcp.example/sse",
+      },
+    });
+  });
+
+  it("maps local tools to an eager direct stdio server", () => {
+    expect(
+      createRuntimeMcpStdioServers([
+        {
+          name: "posthog-code-tools",
+          command: process.execPath,
+          args: ["local-tools-mcp-server.js"],
+          env: [{ name: "POSTHOG_LOCAL_TOOLS_ENABLED", value: "finish" }],
+        },
+      ]),
+    ).toEqual({
+      "posthog-code-tools": {
+        command: process.execPath,
+        args: ["local-tools-mcp-server.js"],
+        env: { POSTHOG_LOCAL_TOOLS_ENABLED: "finish" },
+        transport: "stdio",
+        lifecycle: "eager",
+        directTools: true,
       },
     });
   });

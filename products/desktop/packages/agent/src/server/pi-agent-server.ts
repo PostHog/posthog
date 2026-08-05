@@ -12,10 +12,12 @@ import { serializeError } from "@posthog/shared";
 import { Hono } from "hono";
 import { z } from "zod/v4";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import {
   createPiRpcClient,
   createRuntimeMcpServers,
+  createRuntimeMcpStdioServers,
   type PiRpcClient,
 } from "../pi/rpc-client";
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
@@ -492,12 +494,26 @@ export class PiAgentServer {
     this.lastSyncedSessionContent = persistedSessionContent;
     this.sessionContentSha256 = sessionStorage.content_sha256;
 
+    const localTools = buildLocalToolsServer(
+      { cwd },
+      {
+        environment: "cloud",
+        taskId: this.config.taskId,
+        taskRunId: this.config.runId,
+        baseBranch: this.config.baseBranch,
+      },
+    );
+    const runtimeMcpServers = {
+      ...createRuntimeMcpServers(this.config.mcpServers ?? []),
+      ...createRuntimeMcpStdioServers(localTools ? [localTools] : []),
+    };
+
     const client = createPiRpcClient({
       cliPath: this.config.piRpcHostPath,
       cwd,
       model: this.config.model,
       sessionFile: restoredSessionFile,
-      runtimeMcpServers: createRuntimeMcpServers(this.config.mcpServers ?? []),
+      runtimeMcpServers,
       providerOptions: {
         apiKey: this.config.apiKey,
         baseUrl: resolveLlmGatewayUrl(
