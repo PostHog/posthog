@@ -16,7 +16,29 @@ They will be merged into a single Playwright spec once the Node SDK supports AI 
 
 ## Regenerating
 
-    OPENAI_API_KEY=sk-... python common/fixtures/ai-multimodal/record_fixture.py
+Run from the repo root:
+
+    OPENAI_API_KEY="$(op read 'op://General/sbadkrbtbdgev4mjm4xtuirfoy/credential' --account posthog.1password.com)" \
+    OPENAI_BASE_URL="https://api.openai.com/v1" \
+      ./common/ingestion/acceptance_tests/.venv/bin/python common/fixtures/ai-multimodal/record_fixture.py
+
+Both overrides are load-bearing:
+
+- **The interpreter must be the acceptance venv's.** There the SDK is installed under its public
+  name `posthog`; the monorepo's own env installs it as `posthoganalytics`, so a bare `python`
+  fails on `from posthog import Posthog` with `ModuleNotFoundError`. Create the venv with
+  `python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt` in
+  `common/ingestion/acceptance_tests`.
+- **`OPENAI_BASE_URL` must be forced to the real API.** Some local and agent environments set it
+  to a proxy that applies its own model allowlist and rejects the request with a misleading
+  `403 Model 'gpt-4o-mini' not allowed for product 'posthog_code'` — which looks like a key
+  problem but is not.
+
+`.env.local` stores `op://` references rather than literal secrets, hence reading the key through
+`op` above. `op read` needs interactive 1Password approval and intermittently fails with
+`error initializing client: authorization timeout`; retry when that happens. If the fetch fails it
+yields an *empty* key and OpenAI then answers `401 ... You didn't provide an API key`, so check the
+key resolved before blaming the credential.
 
 The screenshot must stay above `AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH` (20480 base64 chars,
 `nodejs/src/ingestion/config.ts:386`). Below that, ingestion leaves the image inline and
