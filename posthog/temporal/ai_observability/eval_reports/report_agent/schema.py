@@ -1,12 +1,12 @@
 """Dataclasses for evaluation report content, metrics, and citations.
 
 The v2 schema splits the report into:
-- `evaluation_target`: the evaluated unit (`generation` or `trace`)
+- `evaluation_target`: the evaluated unit (`generation`, `trace`, or `session`)
 - `metrics`: structured numeric data computed mechanically from ClickHouse,
   the agent cannot fabricate these
 - `title`: the agent's punchline headline (required, one line)
 - `sections`: 1-6 agent-chosen titled markdown sections
-- `citations`: structured target references (generation_id + trace_id + reason)
+- `citations`: structured target references (generation_id + trace_id + session_id + reason)
 
 This separation lets downstream consumers (signals, inbox, coding agents) query
 `metrics` and `citations` without parsing prose, and lets the agent focus on
@@ -81,21 +81,33 @@ def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: bool =
 class Citation:
     """An inspected example cited by the agent to ground a specific finding.
 
-    Generation reports store both IDs so viewers can link to the generation
-    without a runtime lookup. Trace reports leave `generation_id` empty and use
-    `trace_id` as the reference. `reason` is a short free-form category for why
-    the example is interesting.
+    Every citation carries the ID of the unit that was evaluated, plus whatever
+    narrower IDs the agent verified along the way, so a viewer can link straight
+    to it without a runtime lookup. Generation reports fill `generation_id` and
+    `trace_id`; trace reports fill `trace_id`; session reports fill `session_id`
+    and optionally the `trace_id` the agent read inside it. `reason` is a short
+    free-form category for why the example is interesting.
     """
 
-    generation_id: str
-    trace_id: str
-    reason: str
+    generation_id: str = ""
+    trace_id: str = ""
+    reason: str = ""
+    session_id: str = ""
+
+    def cited_id(self) -> str:
+        """The ID of the evaluated unit — what the report text refers to and links to.
+
+        Only a session citation carries `session_id` and only a generation citation carries
+        `generation_id`, so this resolves to the right ID without knowing the target.
+        """
+        return self.session_id or self.generation_id or self.trace_id
 
     def to_dict(self) -> dict:
         return {
             "generation_id": self.generation_id,
             "trace_id": self.trace_id,
             "reason": self.reason,
+            "session_id": self.session_id,
         }
 
     @staticmethod
@@ -104,6 +116,7 @@ class Citation:
             generation_id=data.get("generation_id", ""),
             trace_id=data.get("trace_id", ""),
             reason=data.get("reason", ""),
+            session_id=data.get("session_id", ""),
         )
 
 

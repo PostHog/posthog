@@ -1214,6 +1214,30 @@ class TestPostgresSourceRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Admin-shutdown error should not be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQLSTATE 57P03: connect-time refusal while a smart/fast shutdown is in progress — the
+            # connect-time sibling of the admin-shutdown case above. The offset-chunking reconnect
+            # already retries this in-process (`_SERVER_STARTING_UP_ERROR_SUBSTRINGS` in
+            # postgres.py); this is the whole-activity-retry fallback for when that budget is
+            # exhausted (e.g. a longer maintenance window).
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+            "FATAL:  the database system is shutting down",
+            "OperationalError: the database system is shutting down",
+        ],
+    )
+    def test_server_shutting_down_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Server-shutting-down error should be classified retryable: {error_msg}"
+
+    def test_server_shutting_down_is_not_also_non_retryable(self, source):
+        error_msg = "the database system is shutting down"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Server-shutting-down error should not be non-retryable: {error_msg}"
+
 
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
@@ -1488,6 +1512,7 @@ class TestSetupStatementTimeoutUnsupported:
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(is_setup=False)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=100),
@@ -1670,6 +1695,14 @@ class TestDroppedOrConnectTimeout:
             psycopg.OperationalError(
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  the database system is starting up"
+            ),
+            # The mirror-image 57P03 refusal at shutdown: a smart/fast shutdown in progress refuses
+            # new connections the same way a not-yet-started server does. Transient — the source
+            # accepts connections again once it restarts — so the offset-chunking reconnect must
+            # retry it in-process instead of failing the whole activity.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is shutting down"
             ),
         ],
     )
@@ -2100,9 +2133,10 @@ class TestConnectToPostgresMultiAddressFailover:
         assert connect_mock.call_args.kwargs["hostaddr"] == "203.0.113.5"
 
 
-# Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy)
-# reject the libpq `options` startup parameter we send to pin client_encoding=UTF8. When they do, we
-# drop `options` and retry rather than failing the connection.
+# Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy,
+# Neon's pooled endpoint) reject the libpq `options` startup parameter we send to pin
+# client_encoding=UTF8 and, on the CDC path, server-side timeouts. When they do, we drop `options`
+# and retry rather than failing the connection.
 class TestConnectOptionsStartupParamFallback:
     @pytest.mark.parametrize(
         "message,expected",
@@ -2114,6 +2148,19 @@ class TestConnectOptionsStartupParamFallback:
             (
                 "connection failed: FATAL:  Feature not supported: RDS Proxy currently "
                 "doesn’t support command-line options.",
+                True,
+            ),
+            # Neon names the rejected setting after the colon, so a match on the exact
+            # "parameter: options" wording above misses it and the connection never opens.
+            (
+                'connection to server at "1.2.3.4", port 5432 failed: ERROR:  unsupported startup '
+                "parameter in options: statement_timeout. Please use unpooled connection or remove "
+                "this parameter from the startup package.",
+                True,
+            ),
+            (
+                'connection to server at "1.2.3.4", port 5432 failed: ERROR:  unsupported startup '
+                "parameter in options: idle_in_transaction_session_timeout.",
                 True,
             ),
             ("password authentication failed for user", False),
@@ -2391,6 +2438,7 @@ class TestServerCursorStatementTimeout:
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(raise_on_fetch=False)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=100),
@@ -2513,6 +2561,7 @@ class TestServerCursorCloseStatementTimeout:
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(named=False)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=100),
@@ -2548,6 +2597,110 @@ class TestServerCursorCloseStatementTimeout:
         # QueryTimeoutException should escape teardown.
         gen.close()
         assert connection.closed
+
+
+class TestGetRowsSkipsServerCursorForDuckDB:
+    """DuckDB/duckgres-backed Postgres-wire engines don't implement `DECLARE CURSOR`, nor the
+    `pg_catalog.pg_cursors` check psycopg's ServerCursor runs before it — opening a named cursor
+    against one raises a `Catalog Error: Table with name pg_cursors does not exist!`. `get_rows`
+    must route these connections through the plain-cursor offset-chunking path instead.
+    """
+
+    class _Cursor:
+        def __init__(self, rows: list[tuple[Any, ...]]):
+            self._rows = rows
+            self._fetched = False
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchall(self):
+            if self._fetched:
+                return []
+            self._fetched = True
+            return self._rows
+
+        def fetchmany(self, _n: int):
+            raise AssertionError("a server-side cursor FETCH must not run against a duckdb connection")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, rows: list[tuple[Any, ...]]):
+            self._rows = rows
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+
+        def cursor(self, *args, **kwargs):
+            if "name" in kwargs:
+                raise AssertionError("get_rows must not open a named/server-side cursor against a duckdb connection")
+            return TestGetRowsSkipsServerCursorForDuckDB._Cursor(self._rows)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def test_duckdb_connection_reads_via_offset_chunking(self):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        connection = self._Connection(rows=[(1,)])
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=connection),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(rows=[(1,)])),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=True),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            tables = list(cast(Iterable[Any], response.items()))
+
+        assert len(tables) == 1
+        assert tables[0].to_pylist() == [{"id": 1}]
 
 
 class TestOffsetChunkingConnectRecoveryConflict:
@@ -2665,6 +2818,7 @@ class TestOffsetChunkingConnectRecoveryConflict:
             patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._OffsetCursor()),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=1000),
@@ -2733,6 +2887,7 @@ class TestOffsetChunkingConnectTimeout:
             ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=1000),
@@ -2846,6 +3001,7 @@ class TestOffsetChunkingRecoveryConflictTimeout:
             patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._OffsetCursor()),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=1000),
@@ -7177,6 +7333,7 @@ class TestGetRowsInitialReadDropRetry:
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(batches=[], drop_on_execute=False)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=100),
@@ -7324,6 +7481,7 @@ class TestGetRowsInitialReadLockTimeoutRetry:
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(batches=[], state={"declare_locks_left": 0})),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=100),
@@ -7485,6 +7643,7 @@ class TestPartitionIterationConnectRetry:
             ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=True),
             patch(f"{module}.list_child_partitions", return_value=[child]),

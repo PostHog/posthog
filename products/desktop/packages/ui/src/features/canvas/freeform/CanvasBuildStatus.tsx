@@ -11,11 +11,17 @@ import {
   latestFinishedCanvasBuild,
 } from "@posthog/core/canvas/canvasBuildSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Button } from "@posthog/quill";
+import {
+  Button,
+  Text,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@posthog/quill";
 import type { CanvasDiagnostic } from "@posthog/shared";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
 import { toast } from "@posthog/ui/primitives/toast";
-import { Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
@@ -96,9 +102,12 @@ export function CanvasBuildStatus({
   if (active) {
     const elapsed = formatElapsed(Date.now() - Date.parse(active.createdAt));
     return (
-      <Flex align="center" gap="1" data-testid="canvas-build-active">
+      <div
+        className="flex items-center gap-1"
+        data-testid="canvas-build-active"
+      >
         <SpinnerGapIcon size={14} className="animate-spin text-gray-9" />
-        <Text size="1" className="text-gray-10">
+        <Text size="xs" variant="muted">
           {active.buildStatus === "queued" ? "Queued" : "Building"} · {elapsed}
         </Text>
         {active.buildStatus === "queued" && (
@@ -118,7 +127,7 @@ export function CanvasBuildStatus({
             <XIcon size={14} />
           </Button>
         )}
-      </Flex>
+      </div>
     );
   }
 
@@ -132,24 +141,32 @@ export function CanvasBuildStatus({
   if (latest.buildStatus === "failed") {
     const errors = topErrors(latest.diagnostics);
     return (
-      <Flex align="center" gap="1" data-testid="canvas-build-failed">
-        <Tooltip
-          content={
-            <span className="whitespace-pre-wrap">
-              {[
-                "Latest build failed — the previous version stays live.",
-                ...errors,
-              ].join("\n")}
-            </span>
-          }
-        >
-          <Flex align="center" gap="1">
-            <WarningCircleIcon size={14} className="text-red-9" />
-            <Text size="1" className="text-red-10">
-              Build failed
-            </Text>
-          </Flex>
-        </Tooltip>
+      <div
+        className="flex items-center gap-1"
+        data-testid="canvas-build-failed"
+      >
+        <TooltipProvider delay={0}>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <div className="flex items-center gap-1">
+                  <WarningCircleIcon size={14} className="text-red-9" />
+                  <Text size="xs" className="text-red-10">
+                    Build failed
+                  </Text>
+                </div>
+              }
+            />
+            <TooltipContent>
+              <span className="whitespace-pre-wrap">
+                {[
+                  "Latest build failed. The previous version stays live.",
+                  ...errors,
+                ].join("\n")}
+              </span>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         {onAskAgentToFix && (
           <Button
             size="sm"
@@ -182,35 +199,45 @@ export function CanvasBuildStatus({
         >
           <ArrowClockwiseIcon size={14} />
         </Button>
-      </Flex>
+      </div>
     );
   }
 
   if (lifecycle.publishedBuildId === latest.id) {
     return (
-      <Tooltip content="The live build is up to date.">
-        <Flex align="center" gap="1" data-testid="canvas-build-ready">
-          <CheckCircleIcon size={14} className="text-green-9" />
-          <Button
-            size="icon"
-            variant="default"
-            aria-label={latest.pinned ? "Unpin build" : "Pin build"}
-            disabled={action.isPending}
-            onClick={() =>
-              action.mutate({
-                id: dashboardId,
-                buildId: latest.id,
-                action: latest.pinned ? "unpin" : "pin",
-              })
+      <TooltipProvider delay={0}>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div
+                className="flex items-center gap-1"
+                data-testid="canvas-build-ready"
+              >
+                <CheckCircleIcon size={14} className="text-green-9" />
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label={latest.pinned ? "Unpin build" : "Pin build"}
+                  disabled={action.isPending}
+                  onClick={() =>
+                    action.mutate({
+                      id: dashboardId,
+                      buildId: latest.id,
+                      action: latest.pinned ? "unpin" : "pin",
+                    })
+                  }
+                >
+                  <PushPinIcon
+                    size={14}
+                    weight={latest.pinned ? "fill" : "regular"}
+                  />
+                </Button>
+              </div>
             }
-          >
-            <PushPinIcon
-              size={14}
-              weight={latest.pinned ? "fill" : "regular"}
-            />
-          </Button>
-        </Flex>
-      </Tooltip>
+          />
+          <TooltipContent>The live build is up to date.</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
 
@@ -219,26 +246,38 @@ export function CanvasBuildStatus({
   );
   if (latest.buildStatus === "ready" && published?.pinned) {
     return (
-      <Tooltip content="A newer build is ready, but an older build is pinned live.">
-        <Flex align="center" gap="1" data-testid="canvas-build-pinned-older">
-          <Text size="1">Newer build available</Text>
-          <Button
-            size="icon"
-            variant="default"
-            aria-label="Unpin build"
-            disabled={action.isPending}
-            onClick={() =>
-              action.mutate({
-                id: dashboardId,
-                buildId: published.id,
-                action: "unpin",
-              })
+      <TooltipProvider delay={0}>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div
+                className="flex items-center gap-1"
+                data-testid="canvas-build-pinned-older"
+              >
+                <Text size="xs">Newer build available</Text>
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label="Unpin build"
+                  disabled={action.isPending}
+                  onClick={() =>
+                    action.mutate({
+                      id: dashboardId,
+                      buildId: published.id,
+                      action: "unpin",
+                    })
+                  }
+                >
+                  <PushPinIcon size={14} weight="fill" />
+                </Button>
+              </div>
             }
-          >
-            <PushPinIcon size={14} weight="fill" />
-          </Button>
-        </Flex>
-      </Tooltip>
+          />
+          <TooltipContent>
+            A newer build is ready, but an older build is pinned live.
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
 
