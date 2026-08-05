@@ -240,7 +240,8 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason. Include anything the agent should know about your product or this flow."
+                    placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
+                    caption="Include anything the agent should know about your product or this flow."
                 />
                 <LemonField name="scanner_config.allow_inconclusive">
                     {({ value, onChange }) => (
@@ -265,7 +266,8 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Categorize this session by its primary user intent. Include anything the agent should know about your product or this flow."
+                    placeholder="Categorize this session by its primary user intent."
+                    caption="Include anything the agent should know about your product or this flow."
                 />
                 <ClassifierTagsField scannerId={scannerId} />
                 <LemonField name="scanner_config.multi_label">
@@ -303,7 +305,8 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Rate how frustrated the user appeared during this session. Include anything the agent should know about your product or this flow."
+                    placeholder="Rate how frustrated the user appeared during this session."
+                    caption="Include anything the agent should know about your product or this flow."
                 />
                 <LemonField name="scanner_config.scale">
                     {({ value, onChange, error }) => {
