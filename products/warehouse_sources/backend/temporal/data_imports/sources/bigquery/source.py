@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
+    BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR,
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
@@ -260,6 +261,18 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # source view. Matched on BigQuery's stable wording, not the volatile peak-usage percentage
             # or job id.
             BIGQUERY_RESOURCES_EXCEEDED_ERROR: "BigQuery couldn't run a query for this source because it exceeded the memory allowed for a single query. This is usually caused by heavy sorts or analytic (window) functions over a large table or view. Retrying won't help — please reduce how much data you're syncing (for example add row filters or an incremental field), or simplify the source view, then re-enable the source.",
+            # Raised as a 400 BadRequest from `jobs.getQueryResults` (reason `billingTierLimitExceeded`)
+            # when a query's CPU-second usage relative to the bytes it billed exceeds the ratio the
+            # on-demand pricing model allows, e.g. "Query exceeded resource limits. This query used
+            # <N> CPU seconds but would charge only <M> Analysis bytes. This exceeds the ratio
+            # supported by the on-demand pricing model.". We copy incremental / view / row-filtered
+            # reads into a temp table before reading them (`_run_destination_query_with_job_retry` in
+            # `bigquery.py`), and a CPU-heavy source view or query shape carries this ratio into that
+            # copy. It's a deterministic property of the customer's query shape and billing tier —
+            # retrying the identical query always fails identically, so it just spams error tracking.
+            # BigQuery itself tells the user to move to capacity-based pricing or reduce the workload.
+            # Matched on BigQuery's stable wording, not the volatile CPU-second/byte counts or job id.
+            BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR: "BigQuery couldn't run a query for this source because it used too many CPU seconds relative to the data it billed, which exceeds the ratio the on-demand pricing model allows. Retrying won't help — please move this workload to a capacity-based pricing model, or reduce how much data you're syncing (for example add row filters or an incremental field, or simplify the source view), then re-enable the source.",
             # Raised as a 400 BadRequest from `jobs.getQueryResults` (the poll `_run_destination_query_
             # with_job_retry` / `_query_result_with_job_retry` in `bigquery.py` do while awaiting a query
             # job) when the job's result set holds a NaN in a column typed NUMERIC/BIGNUMERIC — that type
