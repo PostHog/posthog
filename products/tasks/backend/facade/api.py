@@ -959,6 +959,13 @@ def create_and_run_task(
     An id the creator can't file into (see ``_visible_channel``) is ignored rather than
     raising — feed placement must never break task creation.
     """
+    # create_pr=False sessions (research, repo selection, custom agents) can never open the
+    # billable PR, so the quota gate must not block them.
+    if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
+        # Distinct stage from create_task's `manual_create`: the main caller here is the
+        # auto-start pipeline, whose over-quota hits must not pollute the manual-path
+        # dark-launch bucket.
+        enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     task = Task.create_and_run(
         team=team,
@@ -2163,6 +2170,73 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
     transaction.on_commit(lambda: send_wizard_pr_ready_email.delay(str(run.id)))
 
 
+def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> None:
+    """Queue an org-level self-driving quota re-evaluation when a self-driving-origin run records its first
+    PR URL. That write is the report's billable moment (products/signals/backend/billing.py), so
+    re-evaluating now lets the quota limiter flag the org within seconds of the PR that crosses
+    its limit (for runs created the same UTC day; `refresh_org_self_driving_quota` documents the
+    cross-midnight gap); the 15-minute quota cron only re-reads usage on its next tick. Dispatched
+    on commit so the task reads the committed pr_url; best-effort because the cron is the backstop.
+    Never raises: the callers signal workflow completion and run other PR side effects right after,
+    and a refresh hiccup must not abort those or turn an already-committed run write into a 500.
+    """
+    try:
+        if old_pr_url:
+            return
+        new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+        if not new_pr_url or run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+            return
+        # Billing only ever counts GitHub PR URLs (billing.py validates the same prefix), so a
+        # recompute for any other output.pr_url string is a guaranteed no-op; don't let arbitrary
+        # client-written values enqueue org-wide refreshes. Literal kept local because tasks code
+        # must not import signals internals.
+        if not new_pr_url.startswith("https://github.com/"):
+            return
+        organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
+        if organization_id is None:
+            return
+        from ee.tasks.quota_limiting import (
+            refresh_org_self_driving_quota_task,  # noqa: PLC0415 — keep billing deps off the api import path
+        )
+
+        def _dispatch() -> None:
+            try:
+                refresh_org_self_driving_quota_task.delay(str(organization_id))
+            except Exception:
+                logger.warning(
+                    "self_driving_quota_refresh_dispatch_failed", extra={"run_id": str(run.id)}, exc_info=True
+                )
+
+        transaction.on_commit(_dispatch)
+    except Exception:
+        logger.warning("self_driving_quota_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+
+def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
+    """Refuse to create a PR-opening self-driving task while the team's org is over its self-driving
+    credits quota with enforcement on. The implementation task is the step that leads to the
+    billable PR, so the manual create-from-report path must respect the same limit as the pipeline
+    auto-start gate (products/signals/backend/auto_start.py). Emits `signal_report_quota_paused`
+    at ``stage`` whenever the org is limited, so each caller's gate stays measurable during the
+    dark launch like every other gate. Raises ``QuotaLimitExceeded`` (402).
+    """
+    from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
+
+    from products.signals.backend.quota import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        capture_signal_report_quota_paused,
+        self_driving_quota_gate,
+    )
+
+    gate = self_driving_quota_gate(team)
+    if gate.limited:
+        capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=gate.enforced)
+    if gate.enforced:
+        raise QuotaLimitExceeded(
+            "Your organization reached its self-driving pull request limit. "
+            "Increase the limit from the Inbox usage widget, or ask an org admin to do so."
+        )
+
+
 def update_task_run(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -2292,6 +2366,7 @@ def update_task_run(
 
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
+        _refresh_self_driving_quota_for_pr(run, old_pr_url)
         _post_slack_update_for_pr(run)
         _send_wizard_pr_ready_email_for_pr(run)
         post_pr_created_thread_update(run, new_pr_url)
@@ -2338,6 +2413,7 @@ def set_task_run_output(
     merged = merge_pr_output(existing, output)
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
+    _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
@@ -4292,6 +4368,14 @@ def create_task(
         validated_data.setdefault("title_manually_set", False)
     elif title:
         validated_data.setdefault("title_manually_set", True)
+
+    # The write serializer binds the report as `signal_report` (a PK field); direct callers may
+    # pass `signal_report_id`. Either way this is the manual "start work from a report" path.
+    # Gated regardless of the relationship label: the label is client-selected and manually
+    # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
+    report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
+    if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT:
+        enforce_self_driving_pr_quota(team, report_id=str(getattr(report_ref, "id", report_ref)))
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():

@@ -72,6 +72,8 @@ export interface inboxUsageLogicValues {
     percentage: number
     pricePerPrUsd: number | null
     product: BillingProductV2Type | null
+    quotaEnforcementFlagEnabled: boolean
+    quotaLimited: boolean
     refundSummary: SignalReportRefundSummaryResponseApi | null
     refundSummaryLoading: boolean
     refundsFlagEnabled: boolean
@@ -79,6 +81,7 @@ export interface inboxUsageLogicValues {
     showLimitFormErrors: boolean
     spentUsd: number | null
     status: InboxUsageStatus
+    summaryFlagEnabled: boolean
     usedPrs: number
     usedPrsDisplay: number
 }
@@ -163,6 +166,8 @@ export interface inboxUsageLogicActions {
 export interface inboxUsageLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         refundsFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        quotaEnforcementFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        summaryFlagEnabled: (refundsFlagEnabled: boolean, quotaEnforcementFlagEnabled: boolean) => boolean
         product: (billing: BillingType | null) => BillingProductV2Type | null
         isLoading: (
             billing: BillingType | null,
@@ -170,7 +175,7 @@ export interface inboxUsageLogicMeta {
             product: BillingProductV2Type | null,
             refundSummary: SignalReportRefundSummaryResponseApi | null,
             refundSummaryLoading: boolean,
-            refundsFlagEnabled: boolean
+            summaryFlagEnabled: boolean
         ) => boolean
         isSubscribed: (product: BillingProductV2Type | null) => boolean
         creditsPerPr: (product: BillingProductV2Type | null) => number | null
@@ -190,6 +195,7 @@ export interface inboxUsageLogicMeta {
             freePrs: number
         ) => number | null
         status: (usedPrs: number, limitPrs: number | null) => InboxUsageStatus
+        quotaLimited: (refundSummary: SignalReportRefundSummaryResponseApi | null) => boolean
         usedPrsDisplay: (usedPrs: number, limitPrs: number | null) => number
         spentUsd: (usedPrs: number, freePrs: number, pricePerPrUsd: number | null) => number | null
         percentage: (usedPrs: number, limitPrs: number | null, freePrs: number) => number
@@ -245,7 +251,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             null as SignalReportRefundSummaryResponseApi | null,
             {
                 loadRefundSummary: async (): Promise<SignalReportRefundSummaryResponseApi | null> => {
-                    if (!values.featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS] || values.currentTeamId == null) {
+                    if (!values.summaryFlagEnabled || values.currentTeamId == null) {
                         return null
                     }
                     try {
@@ -310,6 +316,19 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
                 !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS],
         ],
+        quotaEnforcementFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.SELF_DRIVING_QUOTA_ENFORCEMENT],
+        ],
+        // The refund summary matters under either flag: refunds needs the netting numbers, quota
+        // enforcement needs quota_limited for the paused banner. The flags roll out independently,
+        // so gating the load on refunds alone would hide the paused state for enforcement-only orgs.
+        summaryFlagEnabled: [
+            (s) => [s.refundsFlagEnabled, s.quotaEnforcementFlagEnabled],
+            (refundsFlagEnabled: boolean, quotaEnforcementFlagEnabled: boolean): boolean =>
+                refundsFlagEnabled || quotaEnforcementFlagEnabled,
+        ],
         product: [
             (s) => [s.billing],
             (billing: null | import('~/types').BillingType): BillingProductV2Type | null =>
@@ -322,7 +341,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 s.product,
                 s.refundSummary,
                 s.refundSummaryLoading,
-                s.refundsFlagEnabled,
+                s.summaryFlagEnabled,
             ],
             (
                 billing: null | import('~/types').BillingType,
@@ -330,7 +349,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 product: BillingProductV2Type | null,
                 refundSummary: SignalReportRefundSummaryResponseApi | null,
                 refundSummaryLoading: boolean,
-                refundsFlagEnabled: boolean
+                summaryFlagEnabled: boolean
             ): boolean => {
                 if (billing === null && billingLoading) {
                     return true
@@ -340,7 +359,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 // show yet. Once billing has rendered a count, a summary load kicked off by the
                 // late-resolving org-keyed flag updates the number in place instead of tearing
                 // the card down into a skeleton and back.
-                return !product && refundsFlagEnabled && refundSummary === null && refundSummaryLoading
+                return !product && summaryFlagEnabled && refundSummary === null && refundSummaryLoading
             },
         ],
         // Free plan can't raise the limit past the free allocation — the widget points to
@@ -425,6 +444,13 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 return 'normal'
             },
         ],
+        // Server truth from the quota limiter: enforcement is actually pausing the pipeline,
+        // as opposed to the widget's own usage math in `status`.
+        quotaLimited: [
+            (s) => [s.refundSummary],
+            (refundSummary: SignalReportRefundSummaryResponseApi | null): boolean =>
+                refundSummary?.quota_limited === true,
+        ],
         // Displayed usage caps at the limit — we never show "53 / 50" when usage runs over.
         usedPrsDisplay: [
             (s) => [s.usedPrs, s.limitPrs],
@@ -486,7 +512,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
     // load alone silently skips the summary on pageloads where flags resolve late, leaving the
     // widget on billing's lagging recorded usage until something else re-triggers the loader.
     subscriptions(({ actions }) => ({
-        refundsFlagEnabled: (enabled: boolean) => {
+        summaryFlagEnabled: (enabled: boolean) => {
             if (enabled) {
                 actions.loadRefundSummary()
             }

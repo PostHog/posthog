@@ -45,6 +45,7 @@ from posthog.api.team import (
     validate_secret_token_generation,
     validate_team_attrs,
 )
+from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -595,7 +596,9 @@ class ProjectBackwardCompatSerializer(
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
             return value
-        return [url for url in value if url]
+        urls = [url for url in value if url]
+        validate_authorized_url_wildcards(urls)
+        return urls
 
     def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -608,6 +611,7 @@ class ProjectBackwardCompatSerializer(
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+            validate_authorized_url_wildcards(value["widget_domains"])
         return value
 
     class Meta:
