@@ -27137,7 +27137,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return true (pass), false (fail), or null for N/A.
+         * Hog source code. Must return true (pass), false (fail), or null for N/A; 1 and 0 are accepted as aliases for true and false.
          * @minLength 1
          */
       source: string;
@@ -27147,11 +27147,24 @@ export namespace Schemas {
     };
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     * How verdicts are labeled in the UI: 'true_false' shows True/False, 'zero_one' shows 1/0. N/A results are labeled N/A either way.
+     */
+    export type EvaluationOutputConfigResultFormat = typeof EvaluationOutputConfigResultFormat[keyof typeof EvaluationOutputConfigResultFormat];
+
+
+    export const EvaluationOutputConfigResultFormat = {
+      TrueFalse: 'true_false',
+      ZeroOne: 'zero_one',
+    } as const;
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, {result_format: 'zero_one'} to label verdicts 1/0 instead of True/False.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
+      /** How verdicts are labeled in the UI: 'true_false' shows True/False, 'zero_one' shows 1/0. N/A results are labeled N/A either way. */
+      result_format?: EvaluationOutputConfigResultFormat;
     };
 
     /**
@@ -27362,7 +27375,7 @@ export namespace Schemas {
        * * `boolean` - Boolean (Pass/Fail)
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, {result_format: 'zero_one'} to label verdicts 1/0 instead of True/False. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -52478,7 +52491,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return true (pass), false (fail), or null for N/A.
+         * Hog source code. Must return true (pass), false (fail), or null for N/A; 1 and 0 are accepted as aliases for true and false.
          * @minLength 1
          */
       source: string;
@@ -52488,11 +52501,24 @@ export namespace Schemas {
     };
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     * How verdicts are labeled in the UI: 'true_false' shows True/False, 'zero_one' shows 1/0. N/A results are labeled N/A either way.
+     */
+    export type PatchedEvaluationOutputConfigResultFormat = typeof PatchedEvaluationOutputConfigResultFormat[keyof typeof PatchedEvaluationOutputConfigResultFormat];
+
+
+    export const PatchedEvaluationOutputConfigResultFormat = {
+      TrueFalse: 'true_false',
+      ZeroOne: 'zero_one',
+    } as const;
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, {result_format: 'zero_one'} to label verdicts 1/0 instead of True/False.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
+      /** How verdicts are labeled in the UI: 'true_false' shows True/False, 'zero_one' shows 1/0. N/A results are labeled N/A either way. */
+      result_format?: PatchedEvaluationOutputConfigResultFormat;
     };
 
     /**
@@ -52560,7 +52586,7 @@ export namespace Schemas {
        * * `boolean` - Boolean (Pass/Fail)
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, {result_format: 'zero_one'} to label verdicts 1/0 instead of True/False. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];

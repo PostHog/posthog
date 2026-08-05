@@ -702,6 +702,17 @@ export const OutputTypeEnumApi = {
     Sentiment: 'sentiment',
 } as const
 
+/**
+ * How verdicts are labeled in the UI: 'true_false' shows True/False, 'zero_one' shows 1/0. N/A results are labeled N/A either way.
+ */
+export type EvaluationApiOutputConfigResultFormat =
+    (typeof EvaluationApiOutputConfigResultFormat)[keyof typeof EvaluationApiOutputConfigResultFormat]
+
+export const EvaluationApiOutputConfigResultFormat = {
+    TrueFalse: 'true_false',
+    ZeroOne: 'zero_one',
+} as const
+
 export type EvaluationConditionApiPropertiesItem = { [key: string]: unknown }
 
 /**
@@ -790,7 +801,7 @@ export type EvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Must return true (pass), false (fail), or null for N/A; 1 and 0 are accepted as aliases for true and false.
            * @minLength 1
            */
           source: string
@@ -801,11 +812,13 @@ export type EvaluationApiEvaluationConfig =
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, {result_format: 'zero_one'} to label verdicts 1/0 instead of True/False.
  */
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** How verdicts are labeled in the UI: 'true_false' shows True/False, 'zero_one' shows 1/0. N/A results are labeled N/A either way. */
+    result_format?: EvaluationApiOutputConfigResultFormat
 }
 
 /**
@@ -875,7 +888,7 @@ export interface EvaluationApi {
      * * `boolean` - Boolean (Pass/Fail)
      * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, {result_format: 'zero_one'} to label verdicts 1/0 instead of True/False. */
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -919,7 +932,7 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Must return true (pass), false (fail), or null for N/A; 1 and 0 are accepted as aliases for true and false.
            * @minLength 1
            */
           source: string
@@ -930,11 +943,24 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * How verdicts are labeled in the UI: 'true_false' shows True/False, 'zero_one' shows 1/0. N/A results are labeled N/A either way.
+ */
+export type PatchedEvaluationApiOutputConfigResultFormat =
+    (typeof PatchedEvaluationApiOutputConfigResultFormat)[keyof typeof PatchedEvaluationApiOutputConfigResultFormat]
+
+export const PatchedEvaluationApiOutputConfigResultFormat = {
+    TrueFalse: 'true_false',
+    ZeroOne: 'zero_one',
+} as const
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, {result_format: 'zero_one'} to label verdicts 1/0 instead of True/False.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** How verdicts are labeled in the UI: 'true_false' shows True/False, 'zero_one' shows 1/0. N/A results are labeled N/A either way. */
+    result_format?: PatchedEvaluationApiOutputConfigResultFormat
 }
 
 /**
@@ -1004,7 +1030,7 @@ export interface PatchedEvaluationApi {
      * * `boolean` - Boolean (Pass/Fail)
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, {result_format: 'zero_one'} to label verdicts 1/0 instead of True/False. */
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]

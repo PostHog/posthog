@@ -562,6 +562,7 @@ export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyOutputConfigResultFormatDefault = `true_false`
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -608,7 +609,9 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                 source: zod
                     .string()
                     .min(1)
-                    .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                    .describe(
+                        'Hog source code. Must return true (pass), false (fail), or null for N\/A; 1 and 0 are accepted as aliases for true and false.'
+                    ),
             }),
             zod.object({
                 source: zod
@@ -633,9 +636,17 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
                 .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+            result_format: zod
+                .enum(['true_false', 'zero_one'])
+                .default(evaluationsCreateBodyOutputConfigResultFormatDefault)
+                .describe(
+                    "How verdicts are labeled in the UI: 'true_false' shows True\/False, 'zero_one' shows 1\/0. N\/A results are labeled N\/A either way."
+                ),
         })
         .optional()
-        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+        .describe(
+            "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, {result_format: 'zero_one'} to label verdicts 1\/0 instead of True\/False."
+        ),
     conditions: zod
         .array(
             zod
@@ -773,6 +784,7 @@ export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyOutputConfigResultFormatDefault = `true_false`
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -820,7 +832,9 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 source: zod
                     .string()
                     .min(1)
-                    .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                    .describe(
+                        'Hog source code. Must return true (pass), false (fail), or null for N\/A; 1 and 0 are accepted as aliases for true and false.'
+                    ),
             }),
             zod.object({
                 source: zod
@@ -846,9 +860,17 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
                 .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+            result_format: zod
+                .enum(['true_false', 'zero_one'])
+                .default(evaluationsPartialUpdateBodyOutputConfigResultFormatDefault)
+                .describe(
+                    "How verdicts are labeled in the UI: 'true_false' shows True\/False, 'zero_one' shows 1\/0. N\/A results are labeled N\/A either way."
+                ),
         })
         .optional()
-        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+        .describe(
+            "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, {result_format: 'zero_one'} to label verdicts 1\/0 instead of True\/False."
+        ),
     conditions: zod
         .array(
             zod

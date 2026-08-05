@@ -261,13 +261,23 @@ def build_evaluation_event_properties(
             properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
     else:
         properties["$ai_evaluation_allows_na"] = allows_na
+        if (evaluation.get("output_config") or {}).get("result_format") == "zero_one":
+            properties["$ai_evaluation_result_format"] = "zero_one"
+        # Skip paths still set verdict=False when N/A is disallowed, so the numeric score is
+        # gated on a real graded verdict: avg($ai_evaluation_score) must read as a true pass rate.
+        verdict = result.get("verdict")
+        graded_verdict = verdict if not result.get("skipped") and isinstance(verdict, bool) else None
         if allows_na:
             applicable = result.get("applicable", True)
             properties["$ai_evaluation_applicable"] = applicable
             if applicable:
                 properties["$ai_evaluation_result"] = result["verdict"]
+                if graded_verdict is not None:
+                    properties["$ai_evaluation_score"] = int(graded_verdict)
         else:
             properties["$ai_evaluation_result"] = result["verdict"]
+            if graded_verdict is not None:
+                properties["$ai_evaluation_score"] = int(graded_verdict)
 
     return properties
 

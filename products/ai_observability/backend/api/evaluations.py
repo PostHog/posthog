@@ -94,7 +94,7 @@ logger = structlog.get_logger(__name__)
                 "properties": {
                     "source": {
                         "type": "string",
-                        "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
+                        "description": "Hog source code. Must return true (pass), false (fail), or null for N/A; 1 and 0 are accepted as aliases for true and false.",
                         "minLength": 1,
                     }
                 },
@@ -128,7 +128,16 @@ class _EvaluationConfigField(serializers.JSONField):
                 "type": "boolean",
                 "description": "Whether the evaluation can return N/A for non-applicable generations.",
                 "default": False,
-            }
+            },
+            "result_format": {
+                "type": "string",
+                "enum": ["true_false", "zero_one"],
+                "description": (
+                    "How verdicts are labeled in the UI: 'true_false' shows True/False, 'zero_one' shows 1/0. "
+                    "N/A results are labeled N/A either way."
+                ),
+                "default": "true_false",
+            },
         },
         "additionalProperties": False,
     }
@@ -305,7 +314,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
     )
     output_config = _OutputConfigField(
         required=False,
-        help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+        help_text=(
+            "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, "
+            "{result_format: 'zero_one'} to label verdicts 1/0 instead of True/False."
+        ),
     )
     target_config = _TargetConfigField(
         required=False,

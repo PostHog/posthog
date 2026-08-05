@@ -13,6 +13,7 @@ export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
 export type EvaluationTarget = 'generation' | 'trace' | 'session'
 export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
+export type EvaluationResultFormat = 'true_false' | 'zero_one'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason =
     | 'provider_key_required'
@@ -34,6 +35,7 @@ export interface ModelConfiguration {
 
 export interface EvaluationOutputConfig {
     allows_na?: boolean
+    result_format?: EvaluationResultFormat
 }
 
 /** Settle config for aggregate targets (trace, session). A missing `strategy` resolves per target:
@@ -132,6 +134,8 @@ export interface EvaluationRun {
     evaluation_type?: EvaluationType
     result_type?: EvaluationOutputType
     result: boolean | null
+    // Stamped on the event at emit time; absent means true_false, including every historical run.
+    result_format?: EvaluationResultFormat
     sentiment_label?: string | null
     sentiment_score?: number | null
     applicable?: boolean

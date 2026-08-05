@@ -188,8 +188,9 @@ const HOG_EVAL_GLOBALS_BY_TARGET = {
 }
 
 function HogTestResultsPanel(): JSX.Element | null {
-    const { hogTestResults, hogTestResultsLoading, hogTestMessage } = useValues(llmEvaluationLogic)
+    const { evaluation, hogTestResults, hogTestResultsLoading, hogTestMessage } = useValues(llmEvaluationLogic)
     const { clearHogTestResults } = useActions(llmEvaluationLogic)
+    const zeroOneFormat = evaluation?.output_config.result_format === 'zero_one'
 
     if (!hogTestResults && !hogTestResultsLoading) {
         return null
@@ -258,11 +259,11 @@ function HogTestResultsPanel(): JSX.Element | null {
                             }
                             return row.result ? (
                                 <LemonTag type="success" icon={<IconCheck />}>
-                                    Pass
+                                    {zeroOneFormat ? '1' : 'Pass'}
                                 </LemonTag>
                             ) : (
                                 <LemonTag type="danger" icon={<IconX />}>
-                                    Fail
+                                    {zeroOneFormat ? '0' : 'Fail'}
                                 </LemonTag>
                             )
                         },

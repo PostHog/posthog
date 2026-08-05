@@ -39,6 +39,7 @@ import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import type {
     EvaluationConditionSet,
     EvaluationConfig,
+    EvaluationResultFormat,
     EvaluationRun,
     EvaluationSettleStrategy,
     EvaluationSummary,
@@ -115,7 +116,7 @@ function toLLMJudgeEvaluation(evaluation: EvaluationConfig): LLMJudgeEvaluation 
         evaluation_type: 'llm_judge',
         evaluation_config: { prompt: '' },
         output_type: 'boolean',
-        output_config: { allows_na: false },
+        output_config: { ...evaluation.output_config, allows_na: false },
     }
 }
 
@@ -396,6 +397,9 @@ export interface llmEvaluationLogicActions {
     setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => {
         modelConfiguration: ModelConfiguration | null
     }
+    setResultFormat: (resultFormat: EvaluationResultFormat) => {
+        resultFormat: EvaluationResultFormat
+    }
     setSettleStrategy: (strategy: EvaluationSettleStrategy) => {
         strategy: EvaluationSettleStrategy
     }
@@ -505,6 +509,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationPrompt: (prompt: string) => ({ prompt }),
         setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
+        setResultFormat: (resultFormat: EvaluationResultFormat) => ({ resultFormat }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
@@ -695,6 +700,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     state && isBooleanEvaluationOutput(state.output_type)
                         ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } }
                         : state,
+                setResultFormat: (state, { resultFormat }) =>
+                    state && isBooleanEvaluationOutput(state.output_type)
+                        ? { ...state, output_config: { ...state.output_config, result_format: resultFormat } }
+                        : state,
                 setTriggerConditions: (state, { conditions }) =>
                     state
                         ? {
@@ -825,6 +834,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationPrompt: () => true,
                 setEvaluationEnabled: () => true,
                 setAllowsNA: () => true,
+                setResultFormat: () => true,
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
                 setEvaluationType: () => true,

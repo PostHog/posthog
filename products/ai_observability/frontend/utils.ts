@@ -1045,7 +1045,7 @@ type RawEvaluationRunRow = [
     evaluation_name: string | null,
     generation_id: string,
     trace_id: string,
-    result: boolean | string | null,
+    result: boolean | string | number | null,
     reasoning: string | null,
     applicable: boolean | string | null,
     evaluation_type: string | null,
@@ -1054,6 +1054,7 @@ type RawEvaluationRunRow = [
     sentiment_score: number | string | null,
     session_id: string | null,
     skipped: boolean | string | null,
+    result_format: string | null,
 ]
 
 export function normalizeEvaluationType(value: unknown): EvaluationType | undefined {
@@ -1079,7 +1080,7 @@ export function normalizeOptionalNumber(value: unknown): number | null {
 }
 
 export function isExplicitEvaluationPass(value: unknown): boolean {
-    return value === true || value === 'true' || value === 'True' || value === '1'
+    return value === true || value === 1 || value === 'true' || value === 'True' || value === '1'
 }
 
 function isExplicitEvaluationNotApplicable(value: unknown): boolean {
@@ -1100,6 +1101,7 @@ export interface NormalizedEvaluationResultProperties {
     rawResultType?: unknown
     rawSentimentLabel?: unknown
     rawSentimentScore?: unknown
+    rawResultFormat?: unknown
 }
 
 export function normalizeEvaluationResultProperties({
@@ -1109,9 +1111,16 @@ export function normalizeEvaluationResultProperties({
     rawResultType,
     rawSentimentLabel,
     rawSentimentScore,
+    rawResultFormat,
 }: NormalizedEvaluationResultProperties): Pick<
     EvaluationRun,
-    'evaluation_type' | 'result_type' | 'result' | 'sentiment_label' | 'sentiment_score' | 'applicable'
+    | 'evaluation_type'
+    | 'result_type'
+    | 'result'
+    | 'sentiment_label'
+    | 'sentiment_score'
+    | 'applicable'
+    | 'result_format'
 > {
     const evaluationType = normalizeEvaluationType(rawEvaluationType)
     const sentimentLabel =
@@ -1135,6 +1144,7 @@ export function normalizeEvaluationResultProperties({
         sentiment_label: sentimentLabel,
         sentiment_score: normalizeOptionalNumber(rawSentimentScore),
         applicable: normalizeEvaluationApplicable(rawApplicable),
+        result_format: rawResultFormat === 'zero_one' ? 'zero_one' : undefined,
     }
 }
 
@@ -1146,6 +1156,7 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         rawResultType: row[10],
         rawSentimentLabel: row[11],
         rawSentimentScore: row[12],
+        rawResultFormat: row[15],
     })
 
     return {
@@ -1201,7 +1212,8 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_sentiment_label as sentiment_label,
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_session_id as session_id,
-            properties.$ai_evaluation_skipped as skipped
+            properties.$ai_evaluation_skipped as skipped,
+            properties.$ai_evaluation_result_format as result_format
         FROM events
         WHERE
             event = '$ai_evaluation'

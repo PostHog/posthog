@@ -153,7 +153,13 @@ def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allo
     if response.result is None and allows_na:
         return {"verdict": None, "applicable": False, "reasoning": reasoning, "error": None}
 
-    if not isinstance(response.result, bool):
+    # 1 and 0 are accepted as aliases for true/false so Hog ported from numeric-scoring
+    # eval frameworks works unchanged.
+    verdict = response.result
+    if isinstance(verdict, int) and not isinstance(verdict, bool) and verdict in (0, 1):
+        verdict = bool(verdict)
+
+    if not isinstance(verdict, bool):
         hint = " (or null if N/A is enabled)" if allows_na else ""
         return {
             "verdict": None,
@@ -161,7 +167,7 @@ def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allo
             "error": f"Must return boolean{hint}, got {type(response.result).__name__}: {response.result}",
         }
 
-    result: dict[str, Any] = {"verdict": response.result, "reasoning": reasoning, "error": None}
+    result: dict[str, Any] = {"verdict": verdict, "reasoning": reasoning, "error": None}
     if allows_na:
         result["applicable"] = True
     return result

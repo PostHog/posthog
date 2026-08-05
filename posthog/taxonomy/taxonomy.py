@@ -2374,6 +2374,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
             "examples": [True, False],
         },
+        "$ai_evaluation_score": {
+            "label": "AI Evaluation Score (LLM)",
+            "description": "Numeric form of the evaluation verdict (1 = pass, 0 = fail). Omitted when the result is N/A or the run was skipped, so averaging it gives the pass rate.",
+            "examples": [1, 0],
+        },
         "$ai_evaluation_reasoning": {
             "label": "AI Evaluation Reasoning (LLM)",
             "description": "The LLM's explanation for why the evaluation passed or failed.",

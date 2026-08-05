@@ -293,6 +293,19 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        it('setResultFormat updates output config', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setResultFormat('zero_one')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    output_config: expect.objectContaining({ result_format: 'zero_one' }),
+                }),
+                hasUnsavedChanges: true,
+            })
+        })
+
         it('setTriggerConditions updates conditions', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 

@@ -38,6 +38,7 @@ interface EvaluationRunRowOverrides {
     sentimentScore?: EvaluationRunRow[12]
     sessionId?: EvaluationRunRow[13]
     skipped?: EvaluationRunRow[14]
+    resultFormat?: EvaluationRunRow[15]
 }
 
 function makeEvaluationRunRow({
@@ -49,6 +50,7 @@ function makeEvaluationRunRow({
     sentimentScore = null,
     sessionId = null,
     skipped = null,
+    resultFormat = null,
 }: EvaluationRunRowOverrides = {}): EvaluationRunRow {
     return [
         'run-1',
@@ -66,6 +68,7 @@ function makeEvaluationRunRow({
         sentimentScore,
         sessionId,
         skipped,
+        resultFormat,
     ]
 }
 
@@ -122,12 +125,20 @@ describe('mapEvaluationRunRow', () => {
         expect(run.skipped).toBe(expected)
     })
 
-    it.each([true, 'true', 'True', '1'])('maps explicit pass result %p', (result) => {
+    it.each([true, 'true', 'True', '1', 1])('maps explicit pass result %p', (result) => {
         expect(mapEvaluationRunRow(makeEvaluationRunRow({ result })).result).toBe(true)
     })
 
-    it.each([false, 'false', 'False', '0'])('maps explicit fail result %p', (result) => {
+    it.each([false, 'false', 'False', '0', 0])('maps explicit fail result %p', (result) => {
         expect(mapEvaluationRunRow(makeEvaluationRunRow({ result })).result).toBe(false)
+    })
+
+    it('maps the zero_one result format stamp', () => {
+        expect(mapEvaluationRunRow(makeEvaluationRunRow({ resultFormat: 'zero_one' })).result_format).toBe('zero_one')
+    })
+
+    it('leaves result_format undefined when the row is not stamped', () => {
+        expect(mapEvaluationRunRow(makeEvaluationRunRow()).result_format).toBeUndefined()
     })
 
     it('maps explicitly non-applicable rows to null', () => {

@@ -7,7 +7,7 @@ import { capitalize } from '../sentimentUtils'
 
 type EvaluationResultLike = Pick<
     EvaluationRun,
-    'status' | 'result' | 'result_type' | 'evaluation_type' | 'sentiment_label' | 'skipped'
+    'status' | 'result' | 'result_type' | 'result_format' | 'evaluation_type' | 'sentiment_label' | 'skipped'
 >
 
 interface EvaluationResultDisplay {
@@ -55,9 +55,14 @@ export function getEvaluationResultDisplay(run: EvaluationResultLike): Evaluatio
         return { type: 'muted', icon: <IconMinus />, label: 'N/A', sortValue: 0.5 }
     }
     if (run.result) {
-        return { type: 'success', icon: <IconCheck />, label: 'True', sortValue: 1 }
+        return {
+            type: 'success',
+            icon: <IconCheck />,
+            label: run.result_format === 'zero_one' ? '1' : 'True',
+            sortValue: 1,
+        }
     }
-    return { type: 'danger', icon: <IconX />, label: 'False', sortValue: 0 }
+    return { type: 'danger', icon: <IconX />, label: run.result_format === 'zero_one' ? '0' : 'False', sortValue: 0 }
 }
 
 export function getEvaluationResultSortValue(run: EvaluationResultLike): number {

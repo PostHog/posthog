@@ -43,4 +43,20 @@ describe('EvaluationDisplay', () => {
         expect(screen.getByText('N/A')).toBeInTheDocument()
         expect(screen.queryByText('False')).not.toBeInTheDocument()
     })
+
+    it('labels a stamped zero_one result as 1 instead of True', () => {
+        render(
+            <Provider>
+                <EvaluationDisplay
+                    eventProperties={{
+                        $ai_evaluation_result: true,
+                        $ai_evaluation_result_format: 'zero_one',
+                    }}
+                />
+            </Provider>
+        )
+
+        expect(screen.getByText('1')).toBeInTheDocument()
+        expect(screen.queryByText('True')).not.toBeInTheDocument()
+    })
 })

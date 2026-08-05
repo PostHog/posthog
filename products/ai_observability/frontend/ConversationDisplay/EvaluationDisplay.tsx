@@ -24,6 +24,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
             rawResultType: eventProperties.$ai_evaluation_result_type,
             rawSentimentLabel: eventProperties.$ai_sentiment_label,
             rawSentimentScore: eventProperties.$ai_sentiment_score,
+            rawResultFormat: eventProperties.$ai_evaluation_result_format,
         }),
     }
 

@@ -147,7 +147,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation_config.evaluation_type, "llm_judge")
         self.assertEqual(evaluation_config.evaluation_config, {"prompt": "Test prompt"})
         self.assertEqual(evaluation_config.output_type, "boolean")
-        self.assertEqual(evaluation_config.output_config, {"allows_na": False})
+        self.assertEqual(evaluation_config.output_config, {"allows_na": False, "result_format": "true_false"})
         self.assertEqual(len(evaluation_config.conditions), 1)
         self.assertEqual(evaluation_config.conditions[0]["id"], "test-condition")
         self.assertEqual(evaluation_config.team, self.team)
@@ -165,6 +165,39 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertTrue(report.enabled)
         self.assertFalse(report.deleted)
         self.assertEqual(report.delivery_targets, [])
+
+    def test_can_create_evaluation_with_zero_one_result_format(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Zero one",
+                "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {"result_format": "zero_one"},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["output_config"], {"allows_na": False, "result_format": "zero_one"})
+
+    def test_rejects_unknown_result_format(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Bad format",
+                "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {"result_format": "one_zero"},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_target_defaults_to_generation(self):
         response = self.client.post(

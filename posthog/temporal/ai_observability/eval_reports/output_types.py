@@ -30,7 +30,7 @@ _OUTCOME_DEFINITIONS: Mapping[str, EvaluationReportOutcomeDefinition] = {
         event_predicate=f"(properties.$ai_evaluation_result_type = 'boolean' OR isNull(properties.$ai_evaluation_result_type)) AND {_NOT_SKIPPED_PREDICATE}",
         result_expression="properties.$ai_evaluation_result",
         applicable_expression="properties.$ai_evaluation_applicable",
-        score_expression="NULL",
+        score_expression="properties.$ai_evaluation_score",
     ),
     "sentiment": EvaluationReportOutcomeDefinition(
         outcomes=("positive", "neutral", "negative"),

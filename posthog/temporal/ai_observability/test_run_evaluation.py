@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -39,6 +39,7 @@ from .evaluation_errors import (
     terminal_user_error_result_from_application_error,
 )
 from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS
+from .evaluation_workflow_activities import build_evaluation_event_properties
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
@@ -180,7 +181,7 @@ class TestRunEvaluationWorkflow:
             assert result["evaluation_type"] == "llm_judge"
             assert result["evaluation_config"] == {"prompt": "Is this response factually accurate?"}
             assert result["output_type"] == "boolean"
-            assert result["output_config"] == {"allows_na": False}
+            assert result["output_config"] == {"allows_na": False, "result_format": "true_false"}
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity(self, setup_data, active_key_config):
@@ -370,6 +371,8 @@ class TestRunEvaluationWorkflow:
                 assert call_kwargs["process_person_profile"] is True
                 props = call_kwargs["properties"]
                 assert props["$ai_evaluation_result"] is True
+                assert props["$ai_evaluation_score"] == 1
+                assert "$ai_evaluation_result_format" not in props
                 assert props["$ai_evaluation_result_type"] == "boolean"
                 assert props["$ai_model"] == "gpt-5-mini"
                 assert props["$ai_provider"] == "openai"
@@ -1040,6 +1043,7 @@ class TestRunEvaluationWorkflow:
                 mock_capture.assert_called_once()
                 props = mock_capture.call_args[1]["properties"]
                 assert props["$ai_evaluation_result"] is True
+                assert props["$ai_evaluation_score"] == 1
                 assert props["$ai_evaluation_result_type"] == "boolean"
                 assert props["$ai_evaluation_applicable"] is True
                 assert props["$ai_evaluation_allows_na"] is True
@@ -1088,6 +1092,7 @@ class TestRunEvaluationWorkflow:
                 props = mock_capture.call_args[1]["properties"]
                 assert props["$ai_evaluation_result_type"] == "boolean"
                 assert "$ai_evaluation_result" not in props
+                assert "$ai_evaluation_score" not in props
                 assert props["$ai_evaluation_applicable"] is False
                 assert props["$ai_evaluation_allows_na"] is True
 
@@ -1911,6 +1916,61 @@ class TestEvalResultModels:
             BooleanWithNAEvalResult(reasoning="Not applicable", applicable=False, verdict=True)
 
 
+class TestBuildEvaluationEventProperties:
+    _START_TIME = datetime(2024, 1, 1, 12, 0, 0)
+
+    def _build(self, result_fields: dict[str, Any], output_config: dict[str, Any] | None = None) -> dict[str, Any]:
+        evaluation: dict[str, Any] = {"id": "eval-1", "name": "Test Evaluation", "evaluation_type": "hog"}
+        if output_config is not None:
+            evaluation["output_config"] = output_config
+        result = cast(EvaluationActivityResult, {"result_type": "boolean", "reasoning": "r", **result_fields})
+        return build_evaluation_event_properties(evaluation, result, self._START_TIME)
+
+    @parameterized.expand(
+        [
+            ("pass_scores_one", {"verdict": True, "allows_na": False}, 1),
+            ("fail_scores_zero", {"verdict": False, "allows_na": False}, 0),
+            ("applicable_pass_scores_one", {"verdict": True, "allows_na": True, "applicable": True}, 1),
+        ]
+    )
+    def test_graded_verdicts_emit_int_score(self, _name, result_fields, expected_score):
+        props = self._build(result_fields)
+
+        assert props["$ai_evaluation_score"] == expected_score
+        # An int JSON-serializes as a number so the property type-infers Numeric; a bool would
+        # serialize as true/false and break avg() aggregation.
+        assert type(props["$ai_evaluation_score"]) is int
+
+    @parameterized.expand(
+        [
+            ("not_applicable", {"verdict": None, "allows_na": True, "applicable": False}),
+            (
+                "skipped_with_fallback_false_verdict",
+                {"verdict": False, "allows_na": False, "skipped": True, "skip_reason": "hog_error"},
+            ),
+        ]
+    )
+    def test_ungraded_runs_emit_no_score(self, _name, result_fields):
+        props = self._build(result_fields)
+
+        assert "$ai_evaluation_score" not in props
+
+    @parameterized.expand(
+        [
+            ("zero_one", {"result_format": "zero_one"}, "zero_one"),
+            ("default_true_false", {"result_format": "true_false"}, None),
+            ("missing_output_config", None, None),
+        ]
+    )
+    def test_result_format_stamped_only_for_zero_one(self, _name, output_config, expected_stamp):
+        props = self._build({"verdict": True, "allows_na": False}, output_config=output_config)
+
+        if expected_stamp is None:
+            assert "$ai_evaluation_result_format" not in props
+        else:
+            assert props["$ai_evaluation_result_format"] == expected_stamp
+
+
 class TestRunHogEvalAllowsNA:
     @pytest.fixture(autouse=True)
     def _compile(self):
@@ -1938,6 +1998,8 @@ class TestRunHogEvalAllowsNA:
         [
             ("true_result", "return true", True, True),
             ("false_result", "return false", False, True),
+            ("one_result", "return 1", True, True),
+            ("zero_result", "return 0", False, True),
         ]
     )
     def test_bool_result_with_allows_na(self, _name, source, expected_verdict, expected_applicable):

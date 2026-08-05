@@ -63,7 +63,7 @@ import {
     llmEvaluationLogic,
 } from './llmEvaluationLogic'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
-import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
+import { EvaluationResultFormat, EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
 
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
@@ -89,6 +89,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         setEvaluationDescription,
         setEvaluationEnabled,
         setAllowsNA,
+        setResultFormat,
         saveEvaluation,
         resetEvaluation,
         setEvaluationType,
@@ -713,6 +714,38 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                 : isHog
                                                                   ? 'Evaluation must return true or false'
                                                                   : 'Evaluation returns true or false'}
+                                                        </span>
+                                                    </div>
+                                                </Field>
+                                            )}
+
+                                            {isBooleanOutput && (
+                                                <Field
+                                                    name="result_format"
+                                                    label={
+                                                        <div className="flex items-center gap-1">
+                                                            <span>Result format</span>
+                                                            <Tooltip title="How pass and fail results are labeled. Applies to new runs. N/A results are labeled N/A either way.">
+                                                                <IconInfo className="text-muted text-base" />
+                                                            </Tooltip>
+                                                        </div>
+                                                    }
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <LemonSelect<EvaluationResultFormat>
+                                                            value={
+                                                                evaluation.output_config.result_format ?? 'true_false'
+                                                            }
+                                                            onChange={setResultFormat}
+                                                            options={[
+                                                                { value: 'true_false', label: 'True / False' },
+                                                                { value: 'zero_one', label: '1 / 0' },
+                                                            ]}
+                                                        />
+                                                        <span className="text-muted text-sm">
+                                                            {evaluation.output_config.result_format === 'zero_one'
+                                                                ? 'Results are labeled 1 (pass) and 0 (fail)'
+                                                                : 'Results are labeled True (pass) and False (fail)'}
                                                         </span>
                                                     </div>
                                                 </Field>

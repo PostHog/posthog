@@ -51,6 +51,10 @@ class BooleanOutputConfig(BaseModel):
     """Configuration for boolean output type"""
 
     allows_na: bool = False
+    result_format: Literal["true_false", "zero_one"] = Field(
+        default="true_false",
+        description="How verdicts are labeled: True/False or 1/0.",
+    )
 
 
 class SentimentEvalConfig(BaseModel):
