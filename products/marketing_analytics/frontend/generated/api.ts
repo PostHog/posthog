@@ -22,7 +22,7 @@ import type {
     MarketingAnalyticsSuggestUtmMappingsRetrieveParams,
     MarketingAnalyticsUtmAuditRetrieveParams,
     MarketingDiagnosticResponseApi,
-    PatchedConversionGoalWriteApi,
+    PatchedConversionGoalUpdateApi,
     UtmAuditResponseApi,
     UtmMappingSuggestionsResponseApi,
 } from './api.schemas'
@@ -75,13 +75,13 @@ export const getMarketingAnalyticsConversionGoalsUpdatePartialUpdateUrl = (
 }
 
 /**
- * Change one conversion goal in place. Fields you send are merged into the stored goal, the rest are kept, and the goal keeps its position in the list.
+ * Change one conversion goal in place. Fields you send are merged into the stored goal, the rest are kept, and the goal keeps its position in the list. Sending a different `kind` replaces the goal instead, since the shapes don't share their fields.
  * @summary Update conversion goal
  */
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdate = async (
     projectId: string,
     conversionGoalId: string,
-    patchedConversionGoalWriteApi?: PatchedConversionGoalWriteApi,
+    patchedConversionGoalUpdateApi?: PatchedConversionGoalUpdateApi,
     options?: RequestInit
 ): Promise<ConversionGoalWriteResponseApi> => {
     return apiMutator<ConversionGoalWriteResponseApi>(
@@ -90,7 +90,7 @@ export const marketingAnalyticsConversionGoalsUpdatePartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedConversionGoalWriteApi),
+            body: JSON.stringify(patchedConversionGoalUpdateApi),
         }
     )
 }
