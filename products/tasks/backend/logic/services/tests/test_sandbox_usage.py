@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from posthog.models.organization import Organization
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
 from products.tasks.backend.logic.services.sandbox import SandboxConfig
@@ -250,14 +251,15 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
     def _loop_session(
         self, *, internal: bool, client_provenance: TaskClientProvenance | None = TaskClientProvenance.POSTHOG_DESKTOP
     ) -> SandboxSession:
-        loop = Loop.objects.create(
-            team=self.team,
-            name="loop",
-            instructions="run",
-            runtime_adapter="claude",
-            internal=internal,
-            client_provenance=client_provenance,
-        )
+        with team_scope(self.team.id):
+            loop = Loop.objects.create(
+                team=self.team,
+                name="loop",
+                instructions="run",
+                runtime_adapter="claude",
+                internal=internal,
+                client_provenance=client_provenance,
+            )
         task = Task.objects.create(
             team=self.team,
             title="loop run",
