@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { LemonButton, LemonInput, LemonModal, lemonToast } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
-import { SupportTicketTargetArea, supportLogic } from 'lib/components/Support/supportLogic'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { maxThreadLogic } from './maxThreadLogic'
@@ -17,8 +17,6 @@ interface TicketPromptProps {
     summary?: string
     /** If provided, pre-populate the input field with this text */
     initialText?: string
-    /** Target area inferred from the conversation; falls back to product analytics when absent */
-    targetArea?: SupportTicketTargetArea | null
 }
 
 /**
@@ -32,7 +30,6 @@ export function TicketPrompt({
     traceId,
     summary,
     initialText,
-    targetArea,
 }: TicketPromptProps): JSX.Element {
     const [issueText, setIssueText] = useState(initialText ?? '')
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -66,8 +63,6 @@ export function TicketPrompt({
             name: '',
             email: '',
             kind: 'bug',
-            target_area: targetArea ?? 'analytics',
-            severity_level: 'low',
             message: summary ? '' : issueText,
             ai_conversation_id: conversationId,
             ai_trace_id: traceId,

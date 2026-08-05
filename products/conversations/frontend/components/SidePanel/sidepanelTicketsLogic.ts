@@ -28,10 +28,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import type { BillingType } from '~/types'
 
-import type {
-    SupportFormFields,
-    SupportTicketTargetArea,
-} from '../../../../../frontend/src/lib/components/Support/supportLogic'
+import type { SupportFormFields } from '../../../../../frontend/src/lib/components/Support/supportLogic'
 import type {
     ChatMessage,
     ConversationMessage,
@@ -73,7 +70,7 @@ export interface sidepanelTicketsLogicValues {
     } | null // supportLogic
     sendSupportRequest: SupportFormFields // supportLogic
     supportResponseTime: string | null // supportLogic
-    targetArea: SupportTicketTargetArea | null // supportLogic
+    isBillingIssue: boolean // supportLogic
     canCreateTicket: boolean
     currentTicket: ConversationTicket | null
     hasBillingExemption: boolean
@@ -211,7 +208,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             sidePanelStateLogic,
             ['sidePanelOpen'],
             supportLogic,
-            ['isEmailFormOpen', 'sendSupportRequest', 'pendingViewTicket', 'targetArea', 'supportResponseTime'],
+            ['isEmailFormOpen', 'sendSupportRequest', 'pendingViewTicket', 'isBillingIssue', 'supportResponseTime'],
             billingLogic,
             ['billing', 'billingLoading'],
             organizationLogic,
@@ -328,9 +325,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 setRestoreState: () => null,
             },
         ],
-        // Held for the life of the open panel rather than read off supportLogic's `targetArea`, which
-        // resets the moment the intent is consumed — a plan that can't open tickets would otherwise
-        // lose the exemption mid-compose, and with it the composer it was just granted
+        // Held for the life of the open panel rather than read off supportLogic's `isBillingIssue`,
+        // which resets the moment the intent is consumed — a plan that can't open tickets would
+        // otherwise lose the exemption mid-compose, and with it the composer it was just granted
         hasBillingExemption: [
             false as boolean,
             {
@@ -589,7 +586,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         startTicketFromSupportForm: () => {
             // Billing problems are answered on every plan, so that CTA earns an exemption even when
             // the plan itself doesn't include support
-            if (values.targetArea === 'billing') {
+            if (values.isBillingIssue) {
                 actions.grantBillingExemption()
             } else if (values.isBillingResolved && !values.canCreateTicket) {
                 // Still consume the intent (see below), just without opening the composer — the panel

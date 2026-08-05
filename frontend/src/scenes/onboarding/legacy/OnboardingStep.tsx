@@ -110,7 +110,7 @@ export const OnboardingStep = ({
                     {showHelpButton && (
                         <LemonButton
                             type="secondary"
-                            onClick={() => openSupportForm({ kind: 'support', target_area: 'onboarding' })}
+                            onClick={() => openSupportForm({ kind: 'support' })}
                         >
                             Need help?
                         </LemonButton>

@@ -70,7 +70,7 @@ describe('supportLogic', () => {
 
         it('opens the side panel when target is sidePanel', async () => {
             await expectLogic(logic, () => {
-                logic.actions.openSupportForm({ kind: 'support', target_area: 'login', target: 'sidePanel' })
+                logic.actions.openSupportForm({ kind: 'support', target: 'sidePanel' })
             }).toFinishAllListeners()
 
             expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
@@ -80,7 +80,7 @@ describe('supportLogic', () => {
 
         it('opens the modal when target is modal', async () => {
             await expectLogic(logic, () => {
-                logic.actions.openSupportForm({ kind: 'support', target_area: 'login', target: 'modal' })
+                logic.actions.openSupportForm({ kind: 'support', target: 'modal' })
             }).toFinishAllListeners()
 
             expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
@@ -90,7 +90,7 @@ describe('supportLogic', () => {
         it('falls back to sidePanelAvailable when no target is given', async () => {
             sidePanelStateLogic.actions.setSidePanelAvailable(false)
             await expectLogic(logic, () => {
-                logic.actions.openSupportForm({ kind: 'support', target_area: 'login' })
+                logic.actions.openSupportForm({ kind: 'support' })
             }).toFinishAllListeners()
 
             expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
@@ -103,8 +103,7 @@ describe('supportLogic', () => {
             name: 'Max',
             email: 'max@example.com',
             kind: 'bug',
-            target_area: 'billing',
-            severity_level: 'high',
+            billing_issue: true,
             message: 'Help!',
         }
 

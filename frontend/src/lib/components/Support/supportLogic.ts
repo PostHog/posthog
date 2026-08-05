@@ -3,8 +3,6 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
-import { LemonSelectOptions } from '@posthog/lemon-ui'
-
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -124,275 +122,15 @@ export function appendExceptionToMessage(message: string, exception_event?: Supp
     return `${message}\n\n-----\nException: ${parseExceptionEvent(exception_event)}`
 }
 
-const TARGET_AREA_TO_NAME_GENERAL = [
-    {
-        value: 'login',
-        'data-attr': `support-form-target-area-login`,
-        label: 'Authentication (incl. login, sign-up, invites)',
-    },
-    {
-        value: 'analytics_platform',
-        'data-attr': `support-form-target-area-analytics_platform`,
-        label: 'Analytics features (incl. alerts, subscriptions, exports, etc.)',
-    },
-    {
-        value: 'billing',
-        'data-attr': `support-form-target-area-billing`,
-        label: 'Billing',
-    },
-    {
-        value: 'cohorts',
-        'data-attr': `support-form-target-area-cohorts`,
-        label: 'Cohorts',
-    },
-    {
-        value: 'data_ingestion',
-        'data-attr': `support-form-target-area-data_ingestion`,
-        label: 'Data ingestion',
-    },
-    {
-        value: 'health_overview',
-        'data-attr': `support-form-target-area-health_overview`,
-        label: 'Health overview',
-    },
-    {
-        value: 'data_management',
-        'data-attr': `support-form-target-area-data_management`,
-        label: 'Data management (incl. events, actions, properties)',
-    },
-    {
-        value: 'mobile',
-        'data-attr': `support-form-target-area-mobile`,
-        label: 'Mobile',
-    },
-    {
-        value: 'notebooks',
-        'data-attr': `support-form-target-area-notebooks`,
-        label: 'Notebooks',
-    },
-    {
-        value: 'onboarding',
-        'data-attr': `support-form-target-area-onboarding`,
-        label: 'Onboarding',
-    },
-    {
-        value: 'platform_addons',
-        'data-attr': `support-form-target-area-platform_addons`,
-        label: 'Platform addons',
-    },
-    {
-        value: 'sdk',
-        'data-attr': `support-form-target-area-onboarding`,
-        label: 'SDK / Implementation',
-    },
-    {
-        value: 'setup-wizard',
-        'data-attr': `support-form-target-area-setup-wizard`,
-        label: 'Wizard',
-    },
-] as const satisfies LemonSelectOptions<string>
-
-const TARGET_AREA_TO_NAME_PRODUCTS = [
-    {
-        value: 'ai_gateway',
-        'data-attr': `support-form-target-area-ai_gateway`,
-        label: 'AI gateway',
-    },
-    {
-        value: 'llm-analytics',
-        'data-attr': `support-form-target-area-llm-analytics`,
-        label: 'AI observability',
-    },
-    {
-        value: 'apps',
-        'data-attr': `support-form-target-area-apps`,
-        label: 'Apps (incl. integrations, plugins, webhooks, and custom apps)',
-    },
-    {
-        value: 'batch_exports',
-        'data-attr': `support-form-target-area-batch_exports`,
-        label: 'Destinations (batch exports)',
-    },
-    {
-        value: 'cdp_destinations',
-        'data-attr': `support-form-target-area-cdp_destinations`,
-        label: 'Destinations (real-time)',
-    },
-    {
-        value: 'data_modeling',
-        'data-attr': `support-form-target-area-data_modeling`,
-        label: 'Data modeling (views, matviews, endpoints)',
-    },
-    {
-        value: 'data_warehouse',
-        'data-attr': `support-form-target-area-data_warehouse`,
-        label: 'Data warehouse (sources)',
-    },
-    {
-        value: 'error_tracking',
-        'data-attr': `support-form-target-area-error_tracking`,
-        label: 'Error tracking',
-    },
-    {
-        value: 'experiments',
-        'data-attr': `support-form-target-area-experiments`,
-        label: 'Experiments',
-    },
-    {
-        value: 'feature_flags',
-        'data-attr': `support-form-target-area-feature_flags`,
-        label: 'Feature flags',
-    },
-    {
-        value: 'group_analytics',
-        'data-attr': `support-form-target-area-group-analytics`,
-        label: 'Group analytics',
-    },
-    {
-        value: 'customer_analytics',
-        'data-attr': `support-form-target-area-customer-analytics`,
-        label: 'Customer analytics',
-    },
-    {
-        value: 'heatmaps',
-        'data-attr': `support-form-target-area-heatmaps`,
-        label: 'Heatmaps',
-    },
-    {
-        value: 'logs',
-        'data-attr': `support-form-target-area-logs`,
-        label: 'Logs',
-    },
-    {
-        value: 'posthog-ai',
-        'data-attr': `support-form-target-area-posthog-ai`,
-        label: 'PostHog AI',
-    },
-    {
-        value: 'posthog-mcp',
-        'data-attr': `support-form-target-area-posthog-mcp`,
-        label: 'PostHog MCP',
-    },
-    {
-        value: 'analytics',
-        'data-attr': `support-form-target-area-analytics`,
-        label: 'Product analytics (incl. insights, dashboards, etc.)',
-    },
-    {
-        value: 'revenue_analytics',
-        'data-attr': `support-form-target-area-revenue-analytics`,
-        label: 'Revenue analytics',
-    },
-    {
-        value: 'session_replay',
-        'data-attr': `support-form-target-area-session_replay`,
-        label: 'Session replay (incl. recordings)',
-    },
-    {
-        value: 'signals',
-        'data-attr': `support-form-target-area-signals`,
-        label: 'Inbox',
-    },
-    {
-        value: 'slack',
-        'data-attr': `support-form-target-area-slack`,
-        label: 'Slack app',
-    },
-    {
-        value: 'surveys',
-        'data-attr': `support-form-target-area-surveys`,
-        label: 'Surveys',
-    },
-    {
-        value: 'toolbar',
-        'data-attr': `support-form-target-area-toolbar`,
-        label: 'Toolbar',
-    },
-    {
-        value: 'web_analytics',
-        'data-attr': `support-form-target-area-web_analytics`,
-        label: 'Web analytics',
-    },
-    {
-        value: 'workflows',
-        'data-attr': `support-form-target-area-workflows`,
-        label: 'Workflows / Messaging',
-    },
-] as const satisfies LemonSelectOptions<string>
-
-export const TARGET_AREA_TO_NAME = [
-    { title: 'General', options: TARGET_AREA_TO_NAME_GENERAL },
-    { title: 'Individual product', options: TARGET_AREA_TO_NAME_PRODUCTS },
-]
-
-// `key` is the label (not the value) so the searchable input shows readable text on edit, not the raw target_area
-export const TARGET_AREA_OPTIONS: { key: string; label: string; value: string }[] = TARGET_AREA_TO_NAME.flatMap(
-    (group) => group.options.map((option) => ({ key: option.label, label: option.label, value: option.value }))
-)
-
-export const SEVERITY_LEVEL_TO_NAME = {
-    critical: 'Outage, data loss, or data breach',
-    high: 'Feature is not working at all',
-    medium: 'Feature not working as expected',
-    low: 'Question or feature request',
-}
-
 export const SUPPORT_KIND_TO_SUBJECT = {
     bug: 'Bug Report',
     feedback: 'Feedback',
     support: 'Support Ticket',
 }
 
-export type SupportTicketTargetArea =
-    | (typeof TARGET_AREA_TO_NAME_GENERAL)[number]['value']
-    | (typeof TARGET_AREA_TO_NAME_PRODUCTS)[number]['value']
-export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
 export type SupportTicketExceptionEvent = { uuid: string; event: string; properties?: Record<string, any> }
-
-export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea): null | string => {
-    for (const category of TARGET_AREA_TO_NAME) {
-        for (const option of category.options) {
-            if (option.value === target_area) {
-                return option.label
-            }
-        }
-    }
-    return null // Return null if the value is not found
-}
-
-export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
-    'ai-gateway': 'ai_gateway',
-    insights: 'analytics',
-    recordings: 'session_replay',
-    replay: 'session_replay',
-    dashboard: 'analytics',
-    feature_flags: 'feature_flags',
-    experiments: 'experiments',
-    'web-performance': 'session_replay',
-    events: 'analytics',
-    'data-management': 'data_management',
-    cohorts: 'cohorts',
-    annotations: 'analytics',
-    persons: 'analytics',
-    groups: 'analytics',
-    heatmaps: 'heatmaps',
-    toolbar: 'toolbar',
-    warehouse: 'data_warehouse',
-    surveys: 'surveys',
-    web: 'web_analytics',
-    destination: 'cdp_destinations',
-    destinations: 'cdp_destinations',
-    transformation: 'cdp_destinations',
-    transformations: 'cdp_destinations',
-    source: 'data_warehouse',
-    sources: 'data_warehouse',
-    workflows: 'workflows',
-    billing: 'billing',
-    logs: 'logs',
-    inbox: 'signals',
-}
 
 export const SUPPORT_TICKET_TEMPLATES = {
     bug: 'Please describe the bug you saw, and how to reproduce it.\n\nIf the bug appeared on a specific insight or dashboard, please include a link to it.',
@@ -400,22 +138,6 @@ export const SUPPORT_TICKET_TEMPLATES = {
         "If your request is due to a problem, please describe the problem as best you can.\n\nPlease also describe the solution you'd like to see, and any alternatives you considered.\n\nYou can add images below to help illustrate your request, if needed!",
     support:
         "Please explain as fully as possible what you're aiming to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
-}
-
-export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
-    const pathParts = pathname.split('/')
-
-    if (pathname.includes('pipeline/destinations/') && !pathname.includes('/hog-')) {
-        return 'batch_exports'
-    }
-
-    for (const part of pathParts) {
-        if (URL_PATH_TO_TARGET_AREA[part]) {
-            return URL_PATH_TO_TARGET_AREA[part]
-        }
-    }
-
-    return null
 }
 
 export type SupportFormLogicProps = {
@@ -426,9 +148,13 @@ export type SupportFormFields = {
     name: string
     email: string
     kind: SupportTicketKind
-    target_area: SupportTicketTargetArea | null
-    severity_level: SupportTicketSeverityLevel | null
     message: string
+    /**
+     * Billing questions are answered on every plan, so a billing CTA earns a support exemption even
+     * when the plan itself doesn't include support. This replaced an implicit `target_area === 'billing'`
+     * check, which stopped being expressible once triage fields were dropped.
+     */
+    billing_issue?: boolean
     exception_event?: SupportTicketExceptionEvent
     isEmailFormOpen?: boolean | 'true' | 'false'
     // Set when the ticket originates from a PostHog AI (/ticket, feedback) handover, so the created
@@ -465,8 +191,8 @@ export interface supportLogicValues {
     sendSupportRequestTouches: Record<string, boolean>
     sendSupportRequestValidationErrors: DeepPartialMap<SupportFormFields, ValidationErrorType>
     showSendSupportRequestErrors: boolean
+    isBillingIssue: boolean
     supportResponseTime: string | null
-    targetArea: SupportTicketTargetArea | null
     title: string
 }
 
@@ -556,7 +282,7 @@ export interface supportLogicActions {
 export interface supportLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         title: (arg: SupportFormFields) => string
-        targetArea: (sendSupportRequest: SupportFormFields) => SupportTicketTargetArea | null
+        isBillingIssue: (sendSupportRequest: SupportFormFields) => boolean
         supportResponseTime: (
             billing: BillingType | null,
             billingPlan: BillingPlan | null,
@@ -636,9 +362,8 @@ export const supportLogic = kea<supportLogicType>([
                 name: '',
                 email: '',
                 kind: 'support',
-                severity_level: null,
-                target_area: null,
                 message: '',
+                billing_issue: false,
             } as SupportFormFields,
             errors: ({ name, email, message }) => {
                 return {
@@ -662,9 +387,9 @@ export const supportLogic = kea<supportLogicType>([
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
                     : 'Leave a message with PostHog',
         ],
-        targetArea: [
+        isBillingIssue: [
             (s) => [s.sendSupportRequest],
-            (sendSupportRequest: SupportFormFields) => sendSupportRequest.target_area,
+            (sendSupportRequest: SupportFormFields) => !!sendSupportRequest.billing_issue,
         ],
         supportResponseTime: [
             (s) => [s.billing, s.billingPlan, s.supportPlans, s.user],
@@ -688,8 +413,6 @@ export const supportLogic = kea<supportLogicType>([
             // This prevents focus loss when typing in text fields
             const panelOptions = [
                 values.sendSupportRequest.kind ?? '',
-                values.sendSupportRequest.target_area ?? '',
-                values.sendSupportRequest.severity_level ?? '',
                 values.isEmailFormOpen ?? 'false',
             ].join(':')
 
@@ -702,25 +425,19 @@ export const supportLogic = kea<supportLogicType>([
             email,
             isEmailFormOpen,
             kind,
-            target_area,
-            severity_level,
             message,
             exception_event,
+            billing_issue,
             target,
         }: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => {
-            let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
-            if (!userLogic.values.user) {
-                area = 'login'
-            }
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({
                 name: name ?? '',
                 email: email ?? '',
                 kind,
-                target_area: area,
-                severity_level: severity_level ?? null,
                 message: message ?? values.sendSupportRequest.message ?? '',
                 exception_event,
+                billing_issue: billing_issue ?? false,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -731,8 +448,7 @@ export const supportLogic = kea<supportLogicType>([
 
             const useSidePanel = target ? target === 'sidePanel' : values.sidePanelAvailable
             if (useSidePanel) {
-                const panelOptions = [kind ?? '', area ?? ''].join(':')
-                actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
+                actions.openSidePanel(SidePanelTab.Support, kind || undefined)
             } else {
                 openSupportModal()
             }
@@ -740,7 +456,7 @@ export const supportLogic = kea<supportLogicType>([
             actions.updateUrlParams()
         },
         submitSupportTicket: async (formValues: SupportFormFields) => {
-            const { name, email, kind, target_area, message, exception_event } = formValues
+            const { name, email, kind, message, exception_event } = formValues
             const { ai_conversation_id, ai_trace_id, ai_feedback_rating } = formValues
 
             // Attribute PostHog AI (/ticket, feedback) handovers to the conversation. The ticket id
@@ -773,7 +489,6 @@ export const supportLogic = kea<supportLogicType>([
                     reason,
                     error: error !== undefined ? (error instanceof Error ? error.message : String(error)) : undefined,
                     kind,
-                    target_area,
                     message_length: message?.length,
                     current_url_length: window.location.href.length,
                 })

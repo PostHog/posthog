@@ -7631,11 +7631,11 @@ export interface FeaturePreviewGateConfig {
     description: string
     docsURL?: string
     /**
-     * Support ticket target area for the "Request access" action. Set this for betas that aren't
-     * self-serve early-access features, so the gated state offers a way to request access instead
-     * of dead-ending on the feature previews page.
+     * Offer a "Request access" support CTA. Set this for betas that aren't self-serve early-access
+     * features, so the gated state offers a way to request access instead of dead-ending on the
+     * feature previews page.
      */
-    supportTargetArea?: string
+    offerRequestAccess?: boolean
 }
 
 export interface ProductManifest {

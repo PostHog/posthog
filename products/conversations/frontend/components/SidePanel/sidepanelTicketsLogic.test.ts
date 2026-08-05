@@ -44,7 +44,6 @@ describe('sidepanelTicketsLogic', () => {
     it('opens the composer with the prefilled message when the support form intent exists at mount', async () => {
         supportLogic.actions.openSupportForm({
             kind: 'bug',
-            target_area: 'analytics',
             isEmailFormOpen: true,
             message: 'It broke',
             target: 'sidePanel',
@@ -72,7 +71,6 @@ describe('sidepanelTicketsLogic', () => {
         await expectLogic(logic, () => {
             supportLogic.actions.openSupportForm({
                 kind: 'support',
-                target_area: 'analytics',
                 isEmailFormOpen: true,
                 target: 'sidePanel',
             })
@@ -96,7 +94,6 @@ describe('sidepanelTicketsLogic', () => {
         await expectLogic(logic, () => {
             supportLogic.actions.openSupportForm({
                 kind: 'bug',
-                target_area: targetArea as 'analytics' | 'billing',
                 isEmailFormOpen: true,
                 message: 'It broke',
                 target: 'sidePanel',
@@ -118,7 +115,7 @@ describe('sidepanelTicketsLogic', () => {
         await expectLogic(logic, () => {
             supportLogic.actions.openSupportForm({
                 kind: 'support',
-                target_area: 'billing',
+                billing_issue: true,
                 isEmailFormOpen: true,
                 target: 'sidePanel',
             })
@@ -144,7 +141,6 @@ describe('sidepanelTicketsLogic', () => {
 
         supportLogic.actions.openSupportForm({
             kind: 'bug',
-            target_area: 'analytics',
             isEmailFormOpen: true,
             message: 'It broke',
             target: 'sidePanel',

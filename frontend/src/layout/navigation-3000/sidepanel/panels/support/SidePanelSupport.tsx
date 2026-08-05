@@ -253,7 +253,7 @@ const SupportResponseTimesTable = ({
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
-    const { targetArea } = useValues(supportLogic)
+    const { isBillingIssue } = useValues(supportLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { tickets, canCreateTicket } = useValues(sidepanelTicketsLogic)
@@ -262,9 +262,9 @@ export function SidePanelSupport(): JSX.Element {
     const showMaxAI = isCloudOrDev
     const isBillingLoaded = !billingLoading && billing !== undefined
     // Free plans can't open new tickets, but tickets they already have (billing questions, PostHog AI
-    // bug reports) stay readable and repliable here. The `targetArea` arm shows the section right away
-    // for a billing CTA, before `grantBillingExemption` lands.
-    const showTickets = isCloudOrDev && (canCreateTicket || targetArea === 'billing' || tickets.length > 0)
+    // bug reports) stay readable and repliable here. The `isBillingIssue` arm shows the section right
+    // away for a billing CTA, before `grantBillingExemption` lands.
+    const showTickets = isCloudOrDev && (canCreateTicket || isBillingIssue || tickets.length > 0)
 
     return (
         <div className="SidePanelSupport contents">
