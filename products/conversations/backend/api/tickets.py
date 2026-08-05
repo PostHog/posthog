@@ -1274,6 +1274,17 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
+        # A ticket that other tickets were merged into is itself a top-level ticket; merging it
+        # elsewhere would orphan its children, so block it.
+        if Ticket.objects.filter(team_id=self.team_id, merged_into_id=source.id).exists():
+            return Response(
+                {
+                    "detail": "This ticket has other tickets merged into it, so it can't be merged into another ticket.",
+                    "error_type": "has_merged_tickets",
+                },
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
         target_ticket_id = data["target_ticket_id"]
         if str(target_ticket_id) == str(source.id):
             return Response(
@@ -1322,12 +1333,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 source.save(update_fields=["status", "merged_into", "merged_at", "updated_at"])
             else:
                 source.save(update_fields=["merged_into", "merged_at", "updated_at"])
-
-            # Keep the tree flat (depth 1): any tickets already merged into the source now point at
-            # the target too, so merged_into always references a top-level ticket.
-            Ticket.objects.filter(team_id=self.team_id, merged_into_id=source.id).exclude(id=source.id).update(
-                merged_into=target
-            )
 
             assign_ticket(
                 source,

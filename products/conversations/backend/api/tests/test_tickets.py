@@ -2606,9 +2606,9 @@ class TestTicketMerge(APIBaseTest):
         self.source.refresh_from_db()
         assert self.source.merged_into_id is None
 
-    def test_merge_reparents_existing_children_to_stay_flat(self, mock_on_commit):
-        # child -> source already; merging source -> target must re-point child to target.
-        child = Ticket.objects.create_with_number(
+    def test_cannot_merge_ticket_that_has_children(self, mock_on_commit):
+        # child -> source already, so source is a top-level ticket and can't itself be merged.
+        Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
             widget_session_id="child-session",
@@ -2622,11 +2622,10 @@ class TestTicketMerge(APIBaseTest):
             {"target_ticket_id": str(self.target.id)},
             format="json",
         )
-        assert response.status_code == status.HTTP_200_OK
-        child.refresh_from_db()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error_type"] == "has_merged_tickets"
         self.source.refresh_from_db()
-        assert self.source.merged_into_id == self.target.id
-        assert child.merged_into_id == self.target.id  # re-parented, not left pointing at source
+        assert self.source.merged_into_id is None
 
     def test_merged_tickets_listed_on_root(self, mock_on_commit):
         self.client.post(

@@ -61,6 +61,12 @@ export function TicketActions({ sourceTicket, onMerged }: TicketActionsProps): J
     const { openMergeModal } = useActions(logic)
 
     const alreadyMerged = !!sourceTicket.merged_into_id
+    const hasMergedTickets = (sourceTicket.merged_tickets?.length ?? 0) > 0
+    const mergeDisabledReason = alreadyMerged
+        ? `Already merged into #${sourceTicket.merged_into_ticket_number}`
+        : hasMergedTickets
+          ? "Other tickets are merged into this one, so it can't be merged elsewhere"
+          : undefined
 
     return (
         <>
@@ -70,9 +76,7 @@ export function TicketActions({ sourceTicket, onMerged }: TicketActionsProps): J
                     {
                         label: 'Merge into another ticket',
                         onClick: openMergeModal,
-                        disabledReason: alreadyMerged
-                            ? `Already merged into #${sourceTicket.merged_into_ticket_number}`
-                            : undefined,
+                        disabledReason: mergeDisabledReason,
                     },
                 ]}
             >
