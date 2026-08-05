@@ -574,6 +574,36 @@ class TestGeneralizedFanOut:
             }
         ]
 
+    def test_coupon_codes_fan_out_over_coupons_instead_of_the_unfiltered_collection(self, monkeypatch: Any) -> None:
+        # Klaviyo's flat /coupon-codes list requires a coupon.id or profile.id filter and 400s
+        # without one; fanning out per coupon avoids ever calling that unfiltered endpoint.
+        pages = {
+            "https://a.klaviyo.com/api/coupons?page[size]=100": {
+                "data": [{"id": "C1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/coupons/C1/coupon-codes?page[size]=100": {
+                "data": [
+                    {
+                        "type": "coupon-code",
+                        "id": "C1-CODE1",
+                        "attributes": {"unique_code": "CODE1", "status": "UNASSIGNED"},
+                    }
+                ],
+                "links": {"next": None},
+            },
+        }
+        rows = _collect_rows("coupon_codes", monkeypatch, pages)
+        assert rows == [
+            {
+                "type": "coupon-code",
+                "id": "C1-CODE1",
+                "unique_code": "CODE1",
+                "status": "UNASSIGNED",
+                "coupon_id": "C1",
+            }
+        ]
+
     def test_flow_messages_walk_flows_then_actions_and_carry_both_ancestors(self, monkeypatch: Any) -> None:
         # Two-level fan-out: the intermediate path must be formatted with the grandparent id, and
         # each row must carry both ancestors or the flow -> action -> message chain can't be rebuilt.
@@ -763,6 +793,61 @@ class TestValuesReports:
 
         assert rows[0]["conversion_metric_id"] == "M_FIRST"
 
+    def test_ineligible_conversion_metric_skips_the_report_instead_of_failing_the_sync(self, monkeypatch: Any) -> None:
+        # Klaviyo rejects some metrics (e.g. system metrics) as conversion metrics for values
+        # reports; the same metric would be re-resolved on every retry, so this can never self-heal
+        # and must not fail the whole sync.
+        response = _response_with_status(400)
+        response._content = (
+            b'{"errors":[{"status":400,"code":"invalid","title":"Invalid input.",'
+            b'"detail":"Passed in conversion metric does not support querying for values data",'
+            b'"source":{"pointer":"/data/attributes/conversion_metric_id"}}]}'
+        )
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                raise requests.HTTPError(response=response)
+            return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        assert (
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="campaign_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+            == []
+        )
+
+    def test_unrelated_http_error_still_propagates(self, monkeypatch: Any) -> None:
+        # Only the specific ineligible-conversion-metric 400 should be swallowed; any other HTTP
+        # failure (e.g. a transient 500) must still fail the sync loudly rather than go silent.
+        response = _response_with_status(500)
+        response._content = b'{"errors":[{"status":500,"title":"Internal Server Error"}]}'
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                raise requests.HTTPError(response=response)
+            return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        with pytest.raises(requests.HTTPError):
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="campaign_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
     def test_account_with_no_metrics_yields_nothing_instead_of_posting_an_invalid_report(
         self, monkeypatch: Any
     ) -> None:
@@ -839,6 +924,31 @@ class TestEndpointRequestParams:
             incremental_field="created",
         )
         assert params["filter"] == "greater-or-equal(created,2026-03-04T02:58:14.000Z)"
+
+    def test_profiles_request_the_omitted_subscriptions_object(self) -> None:
+        # Klaviyo excludes subscriptions (consent detail) unless additional-fields asks for it;
+        # dropping this param silently loses the column for every synced profile.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS["profiles"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="updated",
+        )
+        assert params["additional-fields[profile]"] == "subscriptions"
+        assert params["filter"] == "greater-than(updated,2026-03-04T02:58:14.000Z)"
+
+    @parameterized.expand([("list_profiles",), ("segment_profiles",)])
+    def test_membership_fan_outs_keep_their_restrictive_fieldset(self, endpoint: str) -> None:
+        # The fan-outs only need joined_group_at; expanding them with additional-fields would
+        # balloon every per-parent request.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS[endpoint],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert params["fields[profile]"] == "joined_group_at"
+        assert "additional-fields[profile]" not in params
 
 
 class TestNewSchemas:

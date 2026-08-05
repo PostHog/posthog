@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
@@ -144,3 +145,59 @@ class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         verbose_name = "Duckgres sink schema state"
         verbose_name_plural = "Duckgres sink schema states"
         indexes = [models.Index(fields=["team", "state"], name="duckgres_sink_team_state_idx")]
+
+
+class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    class WorkflowType(models.TextChoices):
+        COPY = "copy", "Copy"
+        REGISTER = "register", "Register"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        SKIPPED = "skipped", "Skipped"
+        STALE = "stale", "Stale"
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="managed_warehouse_source_jobs",
+        db_constraint=False,
+    )
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+    environment_id = models.BigIntegerField()
+    schema_id = models.UUIDField()
+    source_job_id = models.CharField(max_length=400)
+    attempt_id = models.CharField(max_length=500)
+    workflow_type = models.CharField(max_length=16, choices=WorkflowType.choices)
+    status = models.CharField(max_length=16, choices=Status.choices)
+    workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    latest_error = models.TextField(null=True, blank=True)
+
+    class Meta(TeamScopedRootMixin.Meta):
+        db_table = "posthog_managedwarehousesourcejob"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "environment_id", "schema_id", "workflow_type", "attempt_id"],
+                name="unique_managed_warehouse_source_job_attempt",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["team", "environment_id", "schema_id", "-started_at"],
+                name="mw_source_job_latest_idx",
+            )
+        ]

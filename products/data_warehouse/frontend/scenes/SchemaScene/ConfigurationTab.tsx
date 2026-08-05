@@ -971,7 +971,6 @@ function AnchorTimeField({
     const localTime = isProjectTime
         ? dayjs
               .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
-              .local()
               .tz(currentTeam?.timezone || 'UTC')
               .format('HH:mm:00')
         : utcTime
@@ -1025,7 +1024,7 @@ function AnchorTimeField({
                         accessDisabledReason ?? (!schema.should_sync ? 'Enable syncing to set anchor time' : undefined)
                     }
                     onChange={(checked) => {
-                        setDraftSyncTimeOfDay(checked ? (isProjectTime ? localTime : utcTime) : null)
+                        setDraftSyncTimeOfDay(checked ? utcTime : null)
                     }}
                 />
                 <LemonInput
@@ -1035,9 +1034,11 @@ function AnchorTimeField({
                     value={isSyncTimeSet ? localTime.substring(0, 5) : undefined}
                     onChange={(value) => {
                         const newValue = `${value}:00`
+                        // dayjs.tz(str, zone) interprets the wall-clock time in the project
+                        // timezone; plain dayjs(str) would parse it in the browser's timezone.
                         const utcValue = isProjectTime
-                            ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
-                                  .tz(currentTeam?.timezone || 'UTC')
+                            ? dayjs
+                                  .tz(`${dayjs().format('YYYY-MM-DD')}T${newValue}`, currentTeam?.timezone || 'UTC')
                                   .utc()
                                   .format('HH:mm:00')
                             : newValue

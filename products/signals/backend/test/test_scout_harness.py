@@ -35,7 +35,14 @@ from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, 
 from products.signals.backend.scout_harness.limits import FAILURE_STREAK_PAUSE_THRESHOLD, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, HARNESS_PROMPT_VERSION, build_run_prompt
-from products.signals.backend.scout_harness.runner import RunResult, _ai_stage, _create_run_row, arun_signals_scout
+from products.signals.backend.scout_harness.runner import (
+    SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
+    SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+    RunResult,
+    _ai_stage,
+    _create_run_row,
+    arun_signals_scout,
+)
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     SkillNotFoundError,
@@ -45,6 +52,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
+from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -290,6 +298,55 @@ class TestReportChartsSection(SimpleTestCase):
 
         assert sql_chart["chartSettings"]["xAxis"]["column"]
         assert sql_chart["chartSettings"]["yAxis"][0]["column"]
+
+
+class TestPromptCrossReferences(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("signal_canonical", [], "canonical", False),
+            ("signal_custom", [], "custom", False),
+            ("report_both", ["emit_report", "edit_report"], "custom", False),
+            ("report_both_github", ["emit_report", "edit_report"], "canonical", True),
+            ("report_emit_only", ["emit_report"], "custom", False),
+            ("report_emit_only_github", ["emit_report"], "custom", True),
+            ("report_edit_only", ["edit_report"], "custom", False),
+            # The `gh` section is the one that references an author-time section, so the edit-only
+            # persona (which renders no author-time sections) only dangles with the token granted.
+            ("report_edit_only_github", ["edit_report"], "custom", True),
+        ]
+    )
+    def test_every_referenced_section_renders_in_the_same_prompt(
+        self, _name: str, allowed_tools: list[str], origin: str, github_read_access: bool
+    ) -> None:
+        # Shared rules (the untrusted-input boundary, the front-load writing rule, the side-channel
+        # etiquette) are stated once and pointed at by name from the sections that used to restate
+        # them. Each tail is assembled by its own code path, so dropping a section from one list, or
+        # renaming its heading, leaves the other sections telling the scout to consult guidance that
+        # is not in its prompt — a silently missing rule no per-string assertion catches.
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-errors",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin=origin,  # type: ignore[arg-type]
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            github_read_access=github_read_access,
+        )
+        headings = {line.removeprefix("# ") for line in prompt.splitlines() if line.startswith("# ")}
+        # `*Emphasized*` spans naming another section, e.g. "see *Ground rules*". Single asterisks
+        # only, so `**bold**` labels don't register, and title-cased so the lowercase *what* / *why*
+        # stress marks scattered through the prose aren't read as cross-references.
+        referenced = set(re.findall(r"(?<![\w*])\*([A-Z][^*\n]{3,60})\*(?!\*)", prompt))
+        assert referenced, "no cross-references found — the extraction pattern has drifted"
+        assert referenced <= headings, f"dangling cross-references: {sorted(referenced - headings)}"
 
 
 class TestPromptBuilder(BaseTest):
@@ -846,6 +903,60 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 
     # `signals-scout-errors` is not a canonical scout, so its team-authored name is withheld.
     assert captured["ai_stage"] == "scout:custom"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "network_access,expected_env_name,expected_level",
+    [
+        pytest.param(
+            None,
+            SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+            tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+            id="default_trusted",
+        ),
+        pytest.param(
+            "full",
+            SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
+            tasks_facade.SandboxNetworkAccessLevel.FULL,
+            id="full",
+        ),
+    ],
+)
+async def test_sandbox_env_matches_config_network_access(
+    ateam, aerrors_skill, network_access, expected_env_name, expected_level
+):
+    # The (env name, level) pair is the egress enforcement point: `upsert_internal_sandbox_env`
+    # reasserts policy per call on the per-team env row named here, so a `full` config routed to
+    # the shared trusted env would silently lift the restriction for every other scout on the
+    # team — and a config value that never reaches provisioning would leave a "full" scout
+    # blocked. The default path (no pre-existing config row) must stay on the trusted env.
+    if network_access is not None:
+        await database_sync_to_async(SignalScoutConfig.objects.create, thread_sensitive=False)(
+            team=ateam, skill_name="signals-scout-errors", network_access=network_access
+        )
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    env_mock = MagicMock(return_value="env-id")
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
+        patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", env_mock),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    env_mock.assert_called_once_with(ateam.id, expected_env_name, expected_level)
+    # Provenance stamp: `metadata.network_access` is present exactly when the run departed from
+    # the trusted default — a later config edit must not rewrite what past runs could reach.
+    bridge = await database_sync_to_async(SignalScoutRun.objects.unscoped().get)(id=run_result.run_id)
+    assert (bridge.metadata or {}).get("network_access") == ("full" if network_access == "full" else None)
 
 
 @parameterized.expand(

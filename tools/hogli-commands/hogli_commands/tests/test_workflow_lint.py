@@ -9,6 +9,7 @@ parser end-to-end.
 from __future__ import annotations
 
 import textwrap
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,33 @@ class TestReadWorkflows:
         [job] = wf.jobs
         assert job.is_reusable_call
         assert job.uses == "./.github/workflows/other.yml"
+
+    def test_flattens_parallel_steps(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                timeout-minutes: 5
+                runs-on: depot-ubuntu-latest
+                steps:
+                  - run: echo before
+                  - parallel:
+                      - id: cache
+                        uses: actions/cache/save@v5
+                      - run: echo nested
+            """,
+        )
+        wf = next(read_workflows(tmp_path))
+        [job] = wf.jobs
+        assert [(step.id_, step.uses, step.run) for step in job.steps] == [
+            (None, None, "echo before"),
+            ("cache", "actions/cache/save@v5", None),
+            (None, None, "echo nested"),
+        ]
 
     def test_parse_error_raises_typed(self, tmp_path: Path) -> None:
         bad = tmp_path / "wf.yml"
@@ -526,6 +554,41 @@ class TestSemgrepServicesCoverageCheck:
         )
         [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert issue.workflow == "ci-security.yaml"
+        assert "services/worker/" in issue.message
+
+    def test_judges_tracked_services_only(self, tmp_path: Path) -> None:
+        # Build residue left by another branch (node_modules and friends, no
+        # tracked source) is not a service CI can scan, so it must not fail —
+        # while a tracked service that really is uncovered still must.
+        repo_root = tmp_path
+        for service in ("api", "worker"):
+            (repo_root / "services" / service).mkdir(parents=True)
+            (repo_root / "services" / service / "main.py").write_text("x = 1\n")
+        (repo_root / "services" / "stale" / "node_modules").mkdir(parents=True)
+        for command in (("init",), ("add", "services/api/main.py", "services/worker/main.py")):
+            subprocess.run(["git", *command], cwd=repo_root, check=True, capture_output=True)
+        workflows_dir = repo_root / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(
+            workflows_dir,
+            "ci-security.yaml",
+            """
+            name: Security
+            on: [pull_request]
+            jobs:
+              semgrep-python:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: semgrep scan services/api/
+              semgrep-js:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert "services/worker/" in issue.message
 
 

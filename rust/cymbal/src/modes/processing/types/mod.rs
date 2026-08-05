@@ -7,6 +7,7 @@ use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
 use crate::fingerprinting::{FingerprintRecordPart, FingerprintVersion};
+use crate::frames::releases::ReleaseInfo;
 use crate::frames::{Frame, RawFrame};
 use crate::langs::native::DebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
@@ -149,6 +150,13 @@ struct ProcessedExceptionPropertiesWire {
     other: HashMap<String, Value>,
     #[serde(rename = "$exception_handled")]
     handled: bool,
+    // The single release an event resolves to, from its `$release_id` or mobile app metadata.
+    #[serde(
+        rename = "$exception_release",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    release: Option<ReleaseInfo>,
     #[serde(rename = "$exception_types")]
     types: Vec<String>,
     #[serde(rename = "$exception_values")]

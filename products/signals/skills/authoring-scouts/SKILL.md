@@ -112,6 +112,9 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   The standard flow is to make a scout and let it write — seeing what actually lands is the fastest way to calibrate it.
   Set **`emit=false` (dry-run)** only when you want to be extra careful: the scout still runs and logs its reasoning but writes nothing to the inbox.
   Reach for dry-run on a scout you expect to be chatty, expensive, or high-stakes; for most scouts, just writing and watching the inbox is the better loop.
+- `network_access` — defaults to **`trusted`**: the scout's sandbox can only reach the platform's trusted-domain allowlist (PostHog, GitHub, common package registries), which covers the MCP loop and `gh` but blocks everything else.
+  Set **`full`** for a scout whose skill needs to read arbitrary external sites, e.g. documentation, papers on arxiv.org, or a vendor status page.
+  Applies from the scout's next run, and changes are activity-logged.
 - `auto_pause_exempt` — defaults to `false`.
   A scout whose reports nobody acts on is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
   `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout, and marks it exempt so the sweep never overrules a person twice.
