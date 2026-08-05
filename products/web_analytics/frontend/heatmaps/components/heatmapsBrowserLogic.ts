@@ -32,17 +32,18 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
-import {
-    ReplayIframeData,
-    getStoredRecordingBackground,
-    removeReplayIframeDataFromLocalStorage,
-} from 'scenes/heatmaps/replayIframeData'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { hogql } from '~/queries/utils'
 
 import { savedPreflightCreate } from 'products/web_analytics/frontend/generated/api'
 import type { HeatmapPreflightResponseApi } from 'products/web_analytics/frontend/generated/api.schemas'
+
+import {
+    ReplayIframeData,
+    getStoredRecordingBackground,
+    removeReplayIframeDataFromLocalStorage,
+} from '../replayIframeData'
 
 export type HeatmapsBrowserLogicProps = {
     iframeRef: RefObject<HTMLIFrameElement | null>
