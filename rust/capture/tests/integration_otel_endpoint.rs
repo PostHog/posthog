@@ -1156,8 +1156,8 @@ async fn test_verified_gateway_batch_matches_direct_ai_global_quota_behavior() {
 
     let status =
         send_signed_request_with_client(&client, &make_single_span_request(), SECRET).await;
-    assert_eq!(status, 200);
-    assert_eq!(sink.get_events().await.len(), 1);
+    assert_eq!(status, 400);
+    assert!(sink.get_events().await.is_empty());
 }
 
 #[tokio::test]
