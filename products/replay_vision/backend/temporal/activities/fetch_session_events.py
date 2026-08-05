@@ -1,6 +1,7 @@
 import hashlib
 import datetime as dt
 import itertools
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,6 +27,7 @@ from products.replay_vision.backend.temporal.state import (
     get_redis_state_client,
     store_data_in_redis,
 )
+from products.replay_vision.backend.temporal.team_context import fetch_event_descriptions, fetch_product_context
 from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
@@ -180,6 +182,8 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     return ScannerLlmInputs(
         session_id=session_id,
         team_id=team_id,
+        product_context=fetch_product_context(team),
+        event_descriptions=fetch_event_descriptions(team_id, _event_names_by_frequency(processed)),
         events=EventTable(columns=processed.columns, rows=processed.rows),
         url_mapping=processed.url_mapping,
         window_mapping=processed.window_mapping,
@@ -201,6 +205,17 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
             console_error_count=metadata.get("console_error_count"),
         ),
     )
+
+
+def _event_names_by_frequency(processed: "ProcessedEvents") -> list[str]:
+    """Distinct event names in the session, most frequent first, alphabetical tie-break for stable order."""
+    if "event" not in processed.columns:
+        return []
+    event_index = processed.columns.index("event")
+    counts = Counter(
+        row[event_index] for row in processed.rows if isinstance(row[event_index], str) and row[event_index]
+    )
+    return [name for name, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
 
 
 @dataclass(frozen=True)
