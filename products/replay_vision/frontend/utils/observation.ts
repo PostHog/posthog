@@ -51,7 +51,34 @@ export function readTags(obs: ReplayObservationApi): string[] {
     return [...readFixedTags(obs), ...readFreeformTags(obs)]
 }
 
-export function readCitedTimestampsMs(obs: ReplayObservationApi): number[] {
+export interface ObservationSeekbarMarkEntry {
+    scannerName: string | null
+    headline: string | null
+    snippet: string | null
+}
+
+export interface ObservationSeekbarMark {
+    timestampMs: number
+    entries: ObservationSeekbarMarkEntry[]
+}
+
+const SNIPPET_MAX_LENGTH = 160
+
+function lastSentence(text: string): string | null {
+    const trimmed = text.trim()
+    if (!trimmed) {
+        return null
+    }
+    const sentences = trimmed.split(/(?<=[.!?])\s+/)
+    const last = sentences[sentences.length - 1].replace(/[.!?]+$/, '').trim()
+    if (!last) {
+        return null
+    }
+    return last.length > SNIPPET_MAX_LENGTH ? `${last.slice(0, SNIPPET_MAX_LENGTH - 1)}…` : last
+}
+
+/** Cited timestamps in a succeeded observation's output, each with the sentence that cites it. */
+function readCitations(obs: ReplayObservationApi): { timestampMs: number; snippet: string | null }[] {
     const output = readModelOutput(obs)
     if (!output || obs.status !== 'succeeded') {
         return []
@@ -63,36 +90,53 @@ export function readCitedTimestampsMs(obs: ReplayObservationApi): number[] {
     if (typeof text !== 'string' || !text) {
         return []
     }
-    const timestamps = new Set<number>()
-    for (const segment of parseCitedSegments(text, segments)) {
-        if (segment.kind === 'chip') {
-            timestamps.add(segment.timestamp_ms)
+    const parsed = parseCitedSegments(text, segments)
+    const snippetByTimestamp = new Map<number, string | null>()
+    parsed.forEach((segment, index) => {
+        if (segment.kind !== 'chip' || snippetByTimestamp.has(segment.timestamp_ms)) {
+            return
         }
-    }
-    return [...timestamps].sort((a, b) => a - b)
-}
-
-export interface ObservationSeekbarMark {
-    timestampMs: number
-    scannerNames: string[]
-}
-
-/** One mark per cited timestamp; scanner names merged when they cite the same moment. */
-export function observationSeekbarMarks(observations: ReplayObservationApi[]): ObservationSeekbarMark[] {
-    const namesByTimestamp = new Map<number, Set<string>>()
-    for (const obs of observations) {
-        const scannerName = obs.scanner_snapshot?.name
-        for (const timestampMs of readCitedTimestampsMs(obs)) {
-            const names = namesByTimestamp.get(timestampMs) ?? new Set<string>()
-            if (scannerName) {
-                names.add(scannerName)
+        let snippet: string | null = null
+        for (let i = index - 1; i >= 0; i--) {
+            const previous = parsed[i]
+            if (previous.kind === 'text') {
+                snippet = lastSentence(previous.value)
+                break
             }
-            namesByTimestamp.set(timestampMs, names)
+        }
+        snippetByTimestamp.set(segment.timestamp_ms, snippet)
+    })
+    return [...snippetByTimestamp.entries()].map(([timestampMs, snippet]) => ({ timestampMs, snippet }))
+}
+
+function observationHeadline(obs: ReplayObservationApi): string | null {
+    const scannerType = obs.scanner_snapshot?.scanner_type
+    if (scannerType === 'monitor') {
+        const verdict = readVerdict(obs)
+        return verdict ? `Verdict: ${verdict}` : null
+    }
+    if (scannerType === 'scorer') {
+        const score = readScore(obs)
+        return score !== null ? `Score: ${score}` : null
+    }
+    return null
+}
+
+/** One mark per cited timestamp; entries merged when scanners cite the same moment. */
+export function observationSeekbarMarks(observations: ReplayObservationApi[]): ObservationSeekbarMark[] {
+    const entriesByTimestamp = new Map<number, Map<string, ObservationSeekbarMarkEntry>>()
+    for (const obs of observations) {
+        const scannerName = obs.scanner_snapshot?.name ?? null
+        const headline = observationHeadline(obs)
+        for (const { timestampMs, snippet } of readCitations(obs)) {
+            const entries = entriesByTimestamp.get(timestampMs) ?? new Map<string, ObservationSeekbarMarkEntry>()
+            entries.set(`${scannerName}|${headline}|${snippet}`, { scannerName, headline, snippet })
+            entriesByTimestamp.set(timestampMs, entries)
         }
     }
-    return [...namesByTimestamp.entries()]
+    return [...entriesByTimestamp.entries()]
         .sort(([a], [b]) => a - b)
-        .map(([timestampMs, names]) => ({ timestampMs, scannerNames: [...names] }))
+        .map(([timestampMs, entries]) => ({ timestampMs, entries: [...entries.values()] }))
 }
 
 /** One succeeded observation as clipboard text: a metadata line, then the result body. */

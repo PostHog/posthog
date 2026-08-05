@@ -1,6 +1,8 @@
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { ObservationSeekbarMark, observationClipboardText, observationSeekbarMarks } from './observation'
 
+const summarizerEntry = { scannerName: 'Session summarizer', headline: null, snippet: 'Rage clicked pay' }
+
 function makeObservation(
     scannerType: string,
     modelOutput: Record<string, unknown> | null,
@@ -66,29 +68,48 @@ describe('observation utils', () => {
                     ),
                 ],
                 expected: [
-                    { timestampMs: 30_000, scannerNames: ['Session summarizer'] },
-                    { timestampMs: 161_000, scannerNames: ['Session summarizer'] },
+                    { timestampMs: 30_000, entries: [summarizerEntry] },
+                    { timestampMs: 161_000, entries: [summarizerEntry] },
                 ],
             },
             {
-                name: 'monitor: leaked (t N) markers in reasoning are parsed client-side',
+                name: 'monitor: leaked (t N) markers parsed client-side, verdict headline, citing sentence as snippet',
                 observations: [
                     makeObservation(
                         'monitor',
-                        { verdict: 'yes', reasoning: 'Error toast shown (t 42).' },
+                        { verdict: 'yes', reasoning: 'User opened checkout. Error toast shown (t 42).' },
                         'succeeded',
                         'Error monitor'
                     ),
                 ],
-                expected: [{ timestampMs: 42_000, scannerNames: ['Error monitor'] }],
+                expected: [
+                    {
+                        timestampMs: 42_000,
+                        entries: [
+                            {
+                                scannerName: 'Error monitor',
+                                headline: 'Verdict: yes',
+                                snippet: 'Error toast shown',
+                            },
+                        ],
+                    },
+                ],
             },
             {
                 name: 'two scanners citing the same moment merge into one mark',
                 observations: [
                     makeObservation('monitor', { reasoning: 'Saw it (t 42).' }, 'succeeded', 'Monitor A'),
-                    makeObservation('scorer', { reasoning: 'Also saw it (t 42).' }, 'succeeded', 'Scorer B'),
+                    makeObservation('scorer', { score: 3, reasoning: 'Also saw it (t 42).' }, 'succeeded', 'Scorer B'),
                 ],
-                expected: [{ timestampMs: 42_000, scannerNames: ['Monitor A', 'Scorer B'] }],
+                expected: [
+                    {
+                        timestampMs: 42_000,
+                        entries: [
+                            { scannerName: 'Monitor A', headline: null, snippet: 'Saw it' },
+                            { scannerName: 'Scorer B', headline: 'Score: 3', snippet: 'Also saw it' },
+                        ],
+                    },
+                ],
             },
             {
                 name: 'non-succeeded observations contribute no marks',

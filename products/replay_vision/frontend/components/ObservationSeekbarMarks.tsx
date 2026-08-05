@@ -48,7 +48,21 @@ function ObservationSeekbarMarksContent({
                 return (
                     <Tooltip
                         key={mark.timestampMs}
-                        title={[...mark.scannerNames, timeLabel].join(' · ')}
+                        title={
+                            <div className="flex flex-col gap-1">
+                                <span className="font-medium">{timeLabel}</span>
+                                {mark.entries.map((entry, i) => (
+                                    <div key={i} className="flex flex-col">
+                                        <span>
+                                            {[entry.scannerName ?? 'Scanner', entry.headline]
+                                                .filter(Boolean)
+                                                .join(' · ')}
+                                        </span>
+                                        {entry.snippet && <span className="text-xs opacity-75">{entry.snippet}</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        }
                         placement="top"
                     >
                         <div
