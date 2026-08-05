@@ -427,14 +427,18 @@ class TestDatasetsApi(APIBaseTest):
         accessible_dataset = self._create_dataset("Accessible dataset")
         other_dataset = self._create_dataset("Other dataset")
         item = self._create_item(other_dataset["id"])
-        DatasetItemVersion.objects.unscoped().filter(id=item["version_id"]).update(dataset_id=accessible_dataset["id"])
+        item_version = DatasetItemVersion.objects.unscoped().filter(id=item["version_id"])
+        item_version.update(dataset_id=accessible_dataset["id"])
 
-        list_response = self.client.get(self.items_url, {"dataset": accessible_dataset["id"]})
-        retrieve_response = self.client.get(f"{self.items_url}{item['id']}/")
+        try:
+            list_response = self.client.get(self.items_url, {"dataset": accessible_dataset["id"]})
+            retrieve_response = self.client.get(f"{self.items_url}{item['id']}/")
 
-        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(list_response.data["results"], [])
-        self.assertEqual(retrieve_response.status_code, status.HTTP_404_NOT_FOUND)
+            self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+            self.assertEqual(list_response.data["results"], [])
+            self.assertEqual(retrieve_response.status_code, status.HTTP_404_NOT_FOUND)
+        finally:
+            item_version.update(dataset_id=other_dataset["id"])
 
     @parameterized.expand(
         [
