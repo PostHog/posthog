@@ -4,7 +4,7 @@ describe('QueryDatabase', () => {
     describe('getColumnInsertText', () => {
         test.each([
             ['a column inserts its name at the cursor', { type: 'column', columnName: 'id' }, 'id'],
-            // A row is free to render as a column without carrying a name — the notebook's dataframe
+            // A row can render as a column without carrying a name, as the notebook's dataframe
             // section did for a while. Escaping the missing name throws, and the throw escapes the
             // row's <a> handler before it can preventDefault, so the browser follows the placeholder
             // href and drops the user on the project home page.
