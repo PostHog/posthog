@@ -192,7 +192,11 @@ pub async fn otel_handler(
     let received_at = Utc::now();
     let request_fallback_distinct_id = identity::request_fallback_distinct_id();
     let mut span_events = fan_out::expand_into_events(&request, &request_fallback_distinct_id);
-    provenance::apply(&mut span_events, gateway_provenance);
+    provenance::apply(
+        &mut span_events,
+        gateway_provenance,
+        headers.contains_key(crate::gateway_provenance::SIGNATURE_HEADER),
+    );
     let span_count = span_events.len();
     let dropped_span_count = raw_span_count.saturating_sub(span_count);
 

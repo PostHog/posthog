@@ -1320,13 +1320,21 @@ async fn test_invalid_gateway_signature_does_not_bypass_scoped_llm_quota() {
 async fn test_verified_gateway_batch_matches_direct_ai_global_quota_behavior() {
     const SECRET: &str = "test-signing-secret";
 
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
     let global_key = format!(
         "{}{}",
         QUOTA_LIMITER_CACHE_KEY,
         QuotaResource::Events.as_str()
     );
-    let redis =
-        Arc::new(MockRedisClient::new().zrangebyscore_ret(&global_key, vec![TOKEN.to_string()]));
+    let redis = Arc::new(
+        MockRedisClient::new()
+            .zrangebyscore_ret(&llm_key, vec![TOKEN.to_string()])
+            .zrangebyscore_ret(&global_key, vec![TOKEN.to_string()]),
+    );
     let sink = CapturingSink::new();
     let client = make_test_client_with_options(
         &sink,

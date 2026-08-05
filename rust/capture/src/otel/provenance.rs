@@ -44,11 +44,12 @@ pub fn verify(
     shared::verify(secret.as_bytes(), &message, &signature, &signed_at, now)
 }
 
-pub fn apply(span_events: &mut [SpanEvent], provenance: Provenance) {
+pub fn apply(span_events: &mut [SpanEvent], provenance: Provenance, signature_present: bool) {
     let trusted = provenance == Provenance::Verified;
     let reason = match provenance {
         Provenance::Verified => "verified",
         Provenance::Stale => "stale",
+        Provenance::Invalid if !signature_present => "unsigned",
         Provenance::Invalid => "invalid",
     };
 
@@ -150,7 +151,7 @@ mod tests {
             timestamp: None,
         }];
 
-        apply(&mut events, Provenance::Verified);
+        apply(&mut events, Provenance::Verified, true);
 
         let properties = events[0].properties.as_object().unwrap();
         assert_eq!(
@@ -171,7 +172,7 @@ mod tests {
             timestamp: None,
         }];
 
-        apply(&mut events, Provenance::Invalid);
+        apply(&mut events, Provenance::Invalid, true);
 
         let properties = events[0].properties.as_object().unwrap();
         assert!(!properties.contains_key(shared::VERIFIED_PROPERTY));

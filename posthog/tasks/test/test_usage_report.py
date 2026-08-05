@@ -1612,6 +1612,10 @@ class TestQueryUsageReportSQL:
         assert "ARRAY JOIN [0, 1] AS allowance_kind" in sponsor_query
         assert "if(event = '$ai_evaluation', 1, 0) AS allowance_kind" in sponsor_query
         assert "sponsor_timestamp - toIntervalSecond(%(backdate_seconds)s)" in sponsor_query
+        assert (
+            "if(\n                                allowance_kind = 0,\n                                sponsor_timestamp"
+            not in sponsor_query
+        )
         assert sponsor_query.count("AND property_expr IN ('true', '1')") >= 3
         assert "AND property_expr NOT IN ('true', '1')" in sponsor_query
         assert "sum(balance_delta) OVER" in sponsor_query
@@ -6143,6 +6147,41 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         flush_persons_and_events()
 
         self.assertEqual(ai_count(), baseline_count + 2, "one generation replay and one unmatched span stay billable")
+
+    def test_gateway_sponsorship_is_isolated_by_team(self) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        other_team = Team.objects.create(organization=self.organization, name="Other gateway team")
+        trace_id = "shared-across-teams"
+        for team, request_id in ((self.team, "first-request"), (other_team, "second-request")):
+            _create_event(
+                event="$ai_generation",
+                team=team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": request_id,
+                    "$ai_trace_id": trace_id,
+                },
+            )
+            _create_event(
+                event="$ai_span",
+                team=team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=2),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_trace_id": trace_id,
+                    "$ai_span_id": "shared-span-id",
+                },
+            )
+        flush_persons_and_events()
+
+        counts = dict(get_teams_with_ai_event_count_in_period(self.begin, self.end))
+        self.assertEqual(counts.get(self.team.id, 0), 0)
+        self.assertEqual(counts.get(other_team.id, 0), 0)
 
     def test_gateway_generation_does_not_sponsor_earlier_relay(self) -> None:
         from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
