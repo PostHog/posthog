@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type ComponentProps } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
@@ -19,13 +19,7 @@ import {
 import { ConsoleLogLoader, consoleLogRenderer } from 'lib/components/SessionTimeline/timeline/items/logs'
 import { pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import {
-    TabsPrimitive,
-    TabsPrimitiveContent,
-    TabsPrimitiveContentProps,
-    TabsPrimitiveList,
-    TabsPrimitiveTrigger,
-} from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
@@ -35,7 +29,7 @@ import { SubHeader } from '../SubHeader'
 import { SessionRecordingTab } from './SessionRecordingTab'
 import { sessionTabLogic } from './sessionTabLogic'
 
-export interface SessionTabProps extends TabsPrimitiveContentProps {
+export interface SessionTabProps extends ComponentProps<typeof TabsContent> {
     timestamp?: string
 }
 
@@ -45,30 +39,33 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
     const { setCurrentSessionTab } = useActions(exceptionCardLogic)
 
     return (
-        <TabsPrimitiveContent {...props} className={cn('flex flex-col', className)}>
+        <TabsContent {...props} className={cn('flex min-w-0 flex-col overflow-hidden', className)}>
             {match([loading, sessionId])
                 .with([true, P.any], () => (
-                    <div className="flex justify-center items-center h-[300px]">
+                    <div data-not-quill className="flex justify-center items-center h-[300px]">
                         <Spinner />
                     </div>
                 ))
                 .with([false, P.nullish], () => <NoSessionStepsView timestamp={timestamp} />)
                 .with([false, P.string], ([_, sessionId]) => (
                     <BindLogic logic={sessionTabLogic} props={{ timestamp, sessionId }}>
-                        <TabsPrimitive
+                        <Tabs
                             value={currentSessionTab}
                             onValueChange={setCurrentSessionTab}
-                            className="flex flex-col flex-1 min-h-0"
+                            className="min-h-0 min-w-0 flex-1 gap-0"
                         >
                             <SubHeader className="p-0 shrink-0">
-                                <TabsPrimitiveList className="flex justify-start gap-2 w-full h-full items-center">
-                                    <TabsPrimitiveTrigger className="px-2 h-full" value="timeline">
+                                <TabsList
+                                    variant="line"
+                                    className="flex h-full w-full items-center justify-start gap-2 p-0 pl-1"
+                                >
+                                    <TabsTrigger className="h-auto flex-none px-2" value="timeline">
                                         Timeline
-                                    </TabsPrimitiveTrigger>
-                                    <TabsPrimitiveTrigger className="px-2 h-full" value="recording">
+                                    </TabsTrigger>
+                                    <TabsTrigger className="h-auto flex-none px-2" value="recording">
                                         Recording
-                                    </TabsPrimitiveTrigger>
-                                    <div className="ml-auto pr-1">
+                                    </TabsTrigger>
+                                    <div data-not-quill className="ml-auto pr-1">
                                         <ViewLogsButton
                                             sessionId={sessionId}
                                             timestamp={timestamp}
@@ -76,15 +73,15 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
                                             data-attr="error-tracking-session-view-logs"
                                         />
                                     </div>
-                                </TabsPrimitiveList>
+                                </TabsList>
                             </SubHeader>
                             <SessionTimelineTab />
                             <SessionRecordingTab />
-                        </TabsPrimitive>
+                        </Tabs>
                     </BindLogic>
                 ))
                 .exhaustive()}
-        </TabsPrimitiveContent>
+        </TabsContent>
     )
 }
 
@@ -118,16 +115,18 @@ export function SessionTimelineTab(): JSX.Element {
     }, [properties, sessionId, timestamp, uuid])
 
     return (
-        <TabsPrimitiveContent value="timeline" className="flex-1 min-h-0 overflow-y-auto">
+        <TabsContent value="timeline" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             {collector && (
-                <SessionTimeline
-                    ref={sessionTimelineRef}
-                    collector={collector}
-                    selectedItemId={uuid}
-                    onTimeClick={onTimeClick}
-                />
+                <div data-not-quill className="contents">
+                    <SessionTimeline
+                        ref={sessionTimelineRef}
+                        collector={collector}
+                        selectedItemId={uuid}
+                        onTimeClick={onTimeClick}
+                    />
+                </div>
             )}
-        </TabsPrimitiveContent>
+        </TabsContent>
     )
 }
 
@@ -147,7 +146,7 @@ function NoSessionStepsView({ timestamp }: { timestamp?: string }): JSX.Element 
     }
 
     return (
-        <div className="flex flex-col flex-1 min-h-0">
+        <div data-not-quill className="flex flex-col flex-1 min-h-0">
             <LemonBanner type="info" className="m-2 shrink-0">
                 No session ID associated with this exception — showing exception steps only.{' '}
                 <Link to="https://posthog.com/docs/data/sessions#server-sdks-and-sessions" target="_blank">
@@ -163,7 +162,7 @@ function NoSessionStepsView({ timestamp }: { timestamp?: string }): JSX.Element 
 
 export function NoSessionIdFound(): JSX.Element {
     return (
-        <div className="flex justify-center w-full h-[300px] items-center">
+        <div data-not-quill className="flex justify-center w-full h-[300px] items-center">
             <EmptyMessage
                 title="No session found"
                 description="There is no $session_id associated with this exception. If it was captured from a server SDK, you can read our doc on how to forward session IDs"

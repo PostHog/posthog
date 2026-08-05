@@ -113,12 +113,12 @@ export const IssueListTitleColumn = (props: {
                 <IssueTitle record={record} issueUrl={issueUrl} runtime={runtime} />
                 <div
                     title={record.description || undefined}
-                    className="font-medium line-clamp-1 text-[var(--gray-8)] h-(--line-height)"
+                    className="line-clamp-1 h-(--line-height) font-medium text-[var(--foreground)]"
                 >
                     {record.description}
                 </div>
                 {(record.function || record.source) && (
-                    <div className="line-clamp-1 text-[var(--gray-6)] italic font-light h-(--line-height)">
+                    <div className="line-clamp-1 h-(--line-height) font-light text-[var(--muted-foreground)] italic">
                         {record.function}
                         {record.source ? <> in {sourceDisplay(record.source)}</> : <></>}
                     </div>

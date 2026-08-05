@@ -102,7 +102,7 @@ export function ContextDisplay({
         <>
             {match(loading)
                 .with(true, () => (
-                    <div className="flex justify-center w-full h-32 items-center">
+                    <div data-not-quill className="flex justify-center w-full h-32 items-center">
                         <Spinner />
                     </div>
                 ))

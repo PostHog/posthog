@@ -1,7 +1,5 @@
 import './StyleVariables.scss'
 
-import { cn } from 'lib/utils/css-classes'
-
 export function StyleVariables({
     children,
     className,
@@ -9,5 +7,11 @@ export function StyleVariables({
     children: React.ReactNode
     className?: string
 }): JSX.Element {
-    return <div className={cn('ErrorTrackingVariables', className)}>{children}</div>
+    return (
+        <div data-quill className={`ErrorTrackingStyleVariables ${className ?? ''}`}>
+            <div data-not-quill className="contents">
+                {children}
+            </div>
+        </div>
+    )
 }

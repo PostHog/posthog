@@ -1,15 +1,16 @@
-.ErrorTrackingIssue {
-    .ErrorTrackingIssue__search .quill-input-group {
-        background-color: color-mix(in oklab, var(--muted) 30%, transparent);
-        border-color: color-mix(in oklab, var(--foreground) 10%, transparent);
+@layer components {
+    .ErrorTrackingIssueScene [data-not-quill] :is(.LemonButton, .button-primitive) {
+        --radius: 0.375rem !important;
     }
 
-    // Needed for the NotFound state inside SessionRecordingPlayer
-    .NotFoundComponent {
-        margin: 0 auto;
-    }
-}
+    .ErrorTrackingIssue {
+        .quill-tabs__list--variant-line .quill-tabs__trigger[data-active] {
+            background-color: rgb(0 0 0 / 0%) !important;
+        }
 
-:is(.dark, [theme='dark']) .ErrorTrackingIssue .ErrorTrackingIssue__search .quill-input-group {
-    border-color: color-mix(in oklab, var(--foreground) 15%, transparent);
+        // Needed for the NotFound state inside SessionRecordingPlayer
+        .NotFoundComponent {
+            margin: 0 auto;
+        }
+    }
 }

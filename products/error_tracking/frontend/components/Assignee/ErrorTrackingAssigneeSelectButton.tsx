@@ -26,17 +26,19 @@ export function ErrorTrackingAssigneeSelectButton({
     return (
         <AssigneeSelect assignee={assignee ?? null} onChange={onChange} fullWidth={fullWidth}>
             {(displayAssignee) => (
-                <LemonButton type="secondary" size="small" fullWidth={fullWidth}>
-                    <span className="flex items-center gap-1 min-w-0">
-                        <AssigneeIconDisplay assignee={displayAssignee} size="small" />
-                        <AssigneeLabelDisplay
-                            assignee={displayAssignee}
-                            placeholder={placeholder}
-                            size="small"
-                            className="truncate"
-                        />
-                    </span>
-                </LemonButton>
+                <div data-not-quill className="contents">
+                    <LemonButton type="secondary" size="small" fullWidth={fullWidth}>
+                        <span className="flex items-center gap-1 min-w-0">
+                            <AssigneeIconDisplay assignee={displayAssignee} size="small" />
+                            <AssigneeLabelDisplay
+                                assignee={displayAssignee}
+                                placeholder={placeholder}
+                                size="small"
+                                className="truncate"
+                            />
+                        </span>
+                    </LemonButton>
+                </div>
             )}
         </AssigneeSelect>
     )

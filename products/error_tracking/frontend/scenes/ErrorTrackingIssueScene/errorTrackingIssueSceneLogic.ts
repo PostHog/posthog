@@ -717,23 +717,15 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         searchQuery: values.searchQuery,
                         volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
                         withAggregations: true,
-                        withFirstEvent: false,
-                        withLastEvent: false,
+                        withFirstEvent: true,
+                        withLastEvent: true,
                     }),
                     { refresh: 'blocking' }
                 )
                 if (!response.results.length) {
                     return null
                 }
-                const summary = response.results[0]
-                if (!summary.aggregations) {
-                    return null
-                }
-                return {
-                    first_seen: summary.first_seen,
-                    last_seen: summary.last_seen,
-                    aggregations: summary.aggregations,
-                }
+                return toErrorTrackingIssueSummary(response.results[0])
             },
         },
         issueFingerprints: [
@@ -981,5 +973,23 @@ function getNarrowDateRange(timestamp: Dayjs | string): DateRange {
 export type ErrorTrackingIssueSummary = {
     last_seen?: string
     first_seen?: string
+    first_event_uuid?: string
+    last_event_uuid?: string
     aggregations: ErrorTrackingIssueAggregations
+}
+
+export function toErrorTrackingIssueSummary(
+    summary: Pick<ErrorTrackingIssue, 'first_seen' | 'last_seen' | 'first_event' | 'last_event' | 'aggregations'>
+): ErrorTrackingIssueSummary | null {
+    if (!summary.aggregations) {
+        return null
+    }
+
+    return {
+        first_seen: summary.first_seen,
+        last_seen: summary.last_seen,
+        first_event_uuid: summary.first_event?.uuid,
+        last_event_uuid: summary.last_event?.uuid,
+        aggregations: summary.aggregations,
+    }
 }

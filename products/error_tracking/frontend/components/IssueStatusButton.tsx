@@ -1,6 +1,17 @@
-import { LemonButton, LemonMenuOverlay } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import {
+    Button,
+    ButtonGroup,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from 'lib/ui/quill'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -24,42 +35,38 @@ export const IssueStatusButton = ({
         }
     }
 
+    const intentLabel =
+        status === 'active' ? ISSUE_STATUS_CONFIG.resolved.intentLabel : ISSUE_STATUS_CONFIG.active.intentLabel
+
     return (
         <>
             <HogfettiComponent />
-            <LemonButton
-                type="primary"
-                onClick={handleResolve}
-                tooltip={
-                    status === 'active'
-                        ? ISSUE_STATUS_CONFIG.resolved.intentLabel
-                        : ISSUE_STATUS_CONFIG.active.intentLabel
-                }
-                data-attr="error-tracking-resolve"
-                sideAction={
-                    status === 'active'
-                        ? {
-                              dropdown: {
-                                  placement: 'bottom-end',
-                                  overlay: (
-                                      <LemonMenuOverlay
-                                          items={[
-                                              {
-                                                  label: 'Suppress',
-                                                  onClick: () => onChange('suppressed'),
-                                                  tooltip: ISSUE_STATUS_CONFIG.suppressed.intentLabel,
-                                              },
-                                          ]}
-                                      />
-                                  ),
-                              },
-                          }
-                        : undefined
-                }
-                size="small"
-            >
-                {status === 'active' ? 'Resolve' : 'Reopen'}
-            </LemonButton>
+            <ButtonGroup>
+                <Tooltip>
+                    <TooltipTrigger render={<Button variant="primary" size="default" onClick={handleResolve} />}>
+                        {status === 'active' ? 'Resolve' : 'Reopen'}
+                    </TooltipTrigger>
+                    <TooltipContent>{intentLabel}</TooltipContent>
+                </Tooltip>
+                {status === 'active' && (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger
+                            render={
+                                <Button
+                                    variant="primary"
+                                    size="icon"
+                                    aria-label={ISSUE_STATUS_CONFIG.suppressed.intentLabel}
+                                />
+                            }
+                        >
+                            <IconChevronDown />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-auto min-w-32">
+                            <DropdownMenuItem onClick={() => onChange('suppressed')}>Suppress</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                )}
+            </ButtonGroup>
         </>
     )
 }
