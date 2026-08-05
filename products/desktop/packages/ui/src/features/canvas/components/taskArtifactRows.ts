@@ -75,7 +75,26 @@ function canvasDashboardId(url: string | null): string | null {
   if (!url) return null;
   const parsed = parseHttpsUrl(url);
   const target = parsed ? parseShareLink(parsed.href) : null;
-  return target?.kind === "canvas" ? target.dashboardId : null;
+  if (target?.kind === "canvas") return target.dashboardId;
+
+  // Local development emits http:// canvas links, which are deliberately not
+  // valid external share links. Recover only the exact route's final id here;
+  // this value is used for an access-checked API query, never for navigation.
+  try {
+    const localUrl = new URL(url);
+    if (localUrl.protocol !== "http:") return null;
+    const segments = localUrl.pathname.split("/").filter(Boolean);
+    if (
+      segments.length === 4 &&
+      segments[0] === "code" &&
+      segments[1] === "canvas"
+    ) {
+      return decodeURIComponent(segments[3]);
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 /** Where a row's comments live, or null when the row can't carry any. */

@@ -1,5 +1,7 @@
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
+import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import type { Task, TaskRun, TaskRunArtifact } from "@posthog/shared";
+import type { TaskThreadMessage } from "@posthog/shared/domain-types";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -285,6 +287,38 @@ describe("TaskCommentsList", () => {
       },
       mentions: [],
     });
+  });
+
+  it("loads canvas comments from a local-development artifact link", () => {
+    mocks.runs = [];
+    mocks.comments = [
+      comment({
+        item_id: "canvas-1",
+        scope: "desktop_canvas",
+        content: "Linked canvas feedback",
+      }),
+    ];
+
+    const timeline = [
+      {
+        kind: "artifact",
+        timestamp: 1,
+        message: { id: "message-1" },
+        artifact: {
+          kind: "canvas",
+          name: "Dev Joke Machine",
+          url: "http://localhost:8000/code/canvas/channel-1/canvas-1",
+        },
+      },
+    ] as unknown as ThreadTimelineRow<TaskThreadMessage>[];
+
+    render(<TaskCommentsList task={task} timeline={timeline} />);
+
+    expect(mocks.queriedTargets.at(-1)).toContainEqual({
+      scope: "desktop_canvas",
+      itemId: "canvas-1",
+    });
+    expect(screen.getByText("Linked canvas feedback")).toBeInTheDocument();
   });
 
   // The tab is the one place to see every thread the task produced, so each row
