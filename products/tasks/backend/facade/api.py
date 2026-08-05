@@ -233,6 +233,9 @@ __all__ = [
     "task_runtime",
     "task_visible",
     "task_comment_mentions_allowed",
+    "list_task_artifacts",
+    "list_task_comments",
+    "retrieve_task_comment",
     "update_sandbox_environment",
     "update_task",
     "update_task_automation",
@@ -6073,6 +6076,53 @@ def record_comment_activity(
         target_owner_id=target_owner_id,
         activity_at=activity_at,
     )
+
+
+def list_task_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskArtifactDTO]:
+    from products.tasks.backend.logic.services.task_comments import list_artifacts
+
+    return list_artifacts(team_id=team_id, task_id=task_id)
+
+
+def list_task_comments(
+    *,
+    team_id: int,
+    task_id: UUID,
+    artifact_id: str | None,
+    include_resolved: bool,
+    limit: int,
+    cursor: str | None,
+) -> contracts.TaskCommentPageDTO:
+    from products.tasks.backend.logic.services.task_comments import InvalidTaskCommentCursor, list_comments
+
+    try:
+        return list_comments(
+            team_id=team_id,
+            task_id=task_id,
+            artifact_id=artifact_id,
+            include_resolved=include_resolved,
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidTaskCommentCursor:
+        raise ValueError("Invalid task comment cursor") from None
+
+
+def retrieve_task_comment(
+    *, team_id: int, task_id: UUID, comment_id: UUID, limit: int, cursor: str | None
+) -> contracts.TaskCommentDetailDTO | None:
+    from products.tasks.backend.logic.services.task_comments import InvalidTaskCommentCursor, retrieve_comment
+
+    try:
+        return retrieve_comment(
+            team_id=team_id,
+            task_id=task_id,
+            comment_id=comment_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidTaskCommentCursor:
+        raise ValueError("Invalid task comment cursor") from None
 
 
 def list_mentions(

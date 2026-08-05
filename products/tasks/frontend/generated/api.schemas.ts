@@ -2013,6 +2013,103 @@ export interface PatchedTaskWriteApi {
     channel?: string | null
 }
 
+export interface TaskArtifactApi {
+    /** Stable artifact id used to filter task comments. */
+    id: string
+    /** Artifact type: artifact or canvas. */
+    type: string
+    /** Display name of the artifact. */
+    name: string
+}
+
+export interface TaskArtifactsResponseApi {
+    /** Artifacts and canvases linked to this task. */
+    artifacts: TaskArtifactApi[]
+}
+
+export interface TaskCommentTargetApi {
+    /** Stable target id. */
+    id: string
+    /** Target type: task, artifact, or canvas. */
+    type: string
+    /** Display name of the comment target. */
+    name: string
+}
+
+export interface TaskCommentSummaryApi {
+    /** Root comment id. */
+    id: string
+    /** Task, artifact, or canvas receiving the comment. */
+    target: TaskCommentTargetApi
+    /** Root comment body. */
+    content: string
+    /**
+     * Text selected when the comment was created.
+     * @nullable
+     */
+    selected_text: string | null
+    /** When the root comment was created. */
+    created_at: string
+    /** Number of human replies. */
+    reply_count: number
+    /** Whether the comment is resolved. */
+    resolved: boolean
+}
+
+export interface TaskCommentsResponseApi {
+    /** Root comments, newest first. */
+    comments: TaskCommentSummaryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
+export interface TaskCommentAnchorApi {
+    /** Anchor kind. */
+    kind?: string
+    /** Selected text. */
+    quote?: string
+}
+
+export interface TaskCommentEntryApi {
+    /** Comment id. */
+    id: string
+    /** Comment body. */
+    content: string
+    /**
+     * Comment author's display name.
+     * @nullable
+     */
+    author: string | null
+    /** When the comment was created. */
+    created_at: string
+    /** Normalized text or document anchor. */
+    anchor: TaskCommentAnchorApi | null
+    /**
+     * Canvas version receiving the comment.
+     * @nullable
+     */
+    canvas_version_id: string | null
+}
+
+export interface TaskCommentDetailApi {
+    /** Root comment id. */
+    id: string
+    /** Task, artifact, or canvas receiving the comment. */
+    target: TaskCommentTargetApi
+    /** Whether the comment is resolved. */
+    resolved: boolean
+    /** Comments in this page, oldest first. */
+    comments: TaskCommentEntryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
 export interface TaskPinRequestApi {
     /** Whether the task should be pinned for the requester. */
     pinned: boolean
@@ -4082,6 +4179,41 @@ export const TasksListStatus = {
     Failed: 'failed',
     Cancelled: 'cancelled',
 } as const
+
+export type TasksCommentsListParams = {
+    /**
+     * Artifact id returned by the artifacts endpoint.
+     * @minLength 1
+     * @maxLength 72
+     */
+    artifact_id?: string
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    include_resolved?: boolean
+    /**
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type TasksCommentsRetrieveParams = {
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
 
 export type TasksRunsListParams = {
     /**

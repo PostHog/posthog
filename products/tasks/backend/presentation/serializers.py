@@ -1838,6 +1838,77 @@ class TaskRepositoriesResponseSerializer(serializers.Serializer):
     )
 
 
+class TaskArtifactSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable artifact id used to filter task comments.")
+    type = serializers.CharField(help_text="Artifact type: artifact or canvas.")
+    name = serializers.CharField(help_text="Display name of the artifact.")
+
+
+class TaskArtifactsResponseSerializer(serializers.Serializer):
+    artifacts = TaskArtifactSerializer(many=True, help_text="Artifacts and canvases linked to this task.")
+
+
+class TaskCommentsQuerySerializer(serializers.Serializer):
+    artifact_id = serializers.CharField(
+        required=False, max_length=72, help_text="Artifact id returned by the artifacts endpoint."
+    )
+    include_resolved = serializers.BooleanField(required=False, default=False)
+    limit = serializers.IntegerField(required=False, default=50, min_value=1, max_value=100)
+    cursor = serializers.CharField(
+        required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
+    )
+
+
+class TaskCommentDetailQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, default=50, min_value=1, max_value=100)
+    cursor = serializers.CharField(
+        required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
+    )
+
+
+class TaskCommentTargetSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable target id.")
+    type = serializers.CharField(help_text="Target type: task, artifact, or canvas.")
+    name = serializers.CharField(help_text="Display name of the comment target.")
+
+
+class TaskCommentSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Root comment id.")
+    target = TaskCommentTargetSerializer(help_text="Task, artifact, or canvas receiving the comment.")
+    content = serializers.CharField(help_text="Root comment body.")
+    selected_text = serializers.CharField(allow_null=True, help_text="Text selected when the comment was created.")
+    created_at = serializers.DateTimeField(help_text="When the root comment was created.")
+    reply_count = serializers.IntegerField(help_text="Number of human replies.")
+    resolved = serializers.BooleanField(help_text="Whether the comment is resolved.")
+
+
+class TaskCommentsResponseSerializer(serializers.Serializer):
+    comments = TaskCommentSummarySerializer(many=True, help_text="Root comments, newest first.")
+    next = serializers.CharField(allow_null=True, help_text="Opaque cursor for the next page, or null.")
+
+
+class TaskCommentAnchorSerializer(serializers.Serializer):
+    kind = serializers.CharField(required=False, help_text="Anchor kind.")
+    quote = serializers.CharField(required=False, help_text="Selected text.")
+
+
+class TaskCommentEntrySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Comment id.")
+    content = serializers.CharField(help_text="Comment body.")
+    author = serializers.CharField(allow_null=True, help_text="Comment author's display name.")
+    created_at = serializers.DateTimeField(help_text="When the comment was created.")
+    anchor = TaskCommentAnchorSerializer(allow_null=True, help_text="Normalized text or document anchor.")
+    canvas_version_id = serializers.CharField(allow_null=True, help_text="Canvas version receiving the comment.")
+
+
+class TaskCommentDetailSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Root comment id.")
+    target = TaskCommentTargetSerializer(help_text="Task, artifact, or canvas receiving the comment.")
+    resolved = serializers.BooleanField(help_text="Whether the comment is resolved.")
+    comments = TaskCommentEntrySerializer(many=True, help_text="Comments in this page, oldest first.")
+    next = serializers.CharField(allow_null=True, help_text="Opaque cursor for the next page, or null.")
+
+
 class PinnedTaskIdsResponseSerializer(serializers.Serializer):
     task_ids = serializers.ListField(
         child=serializers.UUIDField(),

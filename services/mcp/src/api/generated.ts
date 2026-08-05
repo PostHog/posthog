@@ -72497,6 +72497,15 @@ export namespace Schemas {
       next_before_id?: string | null;
     }
 
+    export interface TaskArtifact {
+      /** Stable artifact id used to filter task comments. */
+      id: string;
+      /** Artifact type: artifact or canvas. */
+      type: string;
+      /** Display name of the artifact. */
+      name: string;
+    }
+
     /**
      * * `active` - active
      * * `failed` - failed
@@ -72508,6 +72517,11 @@ export namespace Schemas {
       Active: 'active',
       Failed: 'failed',
     } as const;
+
+    export interface TaskArtifactsResponse {
+      /** Artifacts and canvases linked to this task. */
+      artifacts: TaskArtifact[];
+    }
 
     /**
      * Request body for creating or updating a task automation.
@@ -72548,6 +72562,89 @@ export namespace Schemas {
       template_id?: string | null;
       /** Whether the schedule is active; paused when false. */
       enabled?: boolean;
+    }
+
+    export interface TaskCommentAnchor {
+      /** Anchor kind. */
+      kind?: string;
+      /** Selected text. */
+      quote?: string;
+    }
+
+    export interface TaskCommentTarget {
+      /** Stable target id. */
+      id: string;
+      /** Target type: task, artifact, or canvas. */
+      type: string;
+      /** Display name of the comment target. */
+      name: string;
+    }
+
+    export interface TaskCommentEntry {
+      /** Comment id. */
+      id: string;
+      /** Comment body. */
+      content: string;
+      /**
+         * Comment author's display name.
+         * @nullable
+         */
+      author: string | null;
+      /** When the comment was created. */
+      created_at: string;
+      /** Normalized text or document anchor. */
+      anchor: TaskCommentAnchor | null;
+      /**
+         * Canvas version receiving the comment.
+         * @nullable
+         */
+      canvas_version_id: string | null;
+    }
+
+    export interface TaskCommentDetail {
+      /** Root comment id. */
+      id: string;
+      /** Task, artifact, or canvas receiving the comment. */
+      target: TaskCommentTarget;
+      /** Whether the comment is resolved. */
+      resolved: boolean;
+      /** Comments in this page, oldest first. */
+      comments: TaskCommentEntry[];
+      /**
+         * Opaque cursor for the next page, or null.
+         * @nullable
+         */
+      next: string | null;
+    }
+
+    export interface TaskCommentSummary {
+      /** Root comment id. */
+      id: string;
+      /** Task, artifact, or canvas receiving the comment. */
+      target: TaskCommentTarget;
+      /** Root comment body. */
+      content: string;
+      /**
+         * Text selected when the comment was created.
+         * @nullable
+         */
+      selected_text: string | null;
+      /** When the root comment was created. */
+      created_at: string;
+      /** Number of human replies. */
+      reply_count: number;
+      /** Whether the comment is resolved. */
+      resolved: boolean;
+    }
+
+    export interface TaskCommentsResponse {
+      /** Root comments, newest first. */
+      comments: TaskCommentSummary[];
+      /**
+         * Opaque cursor for the next page, or null.
+         * @nullable
+         */
+      next: string | null;
     }
 
     /**
@@ -85833,6 +85930,41 @@ export namespace Schemas {
       Failed: 'failed',
       Cancelled: 'cancelled',
     } as const;
+
+    export type TasksCommentsListParams = {
+    /**
+     * Artifact id returned by the artifacts endpoint.
+     * @minLength 1
+     * @maxLength 72
+     */
+    artifact_id?: string;
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string;
+    include_resolved?: boolean;
+    /**
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type TasksCommentsRetrieveParams = {
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string;
+    /**
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
 
     export type TasksRunsListParams = {
     /**

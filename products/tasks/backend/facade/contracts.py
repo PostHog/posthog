@@ -276,6 +276,56 @@ class TaskActivityPageDTO:
 
 
 @dataclass(frozen=True)
+class TaskArtifactDTO:
+    id: str
+    type: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TaskCommentTargetDTO:
+    id: str
+    type: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TaskCommentSummaryDTO:
+    id: UUID
+    target: TaskCommentTargetDTO
+    content: str
+    selected_text: str | None
+    created_at: datetime
+    reply_count: int
+    resolved: bool
+
+
+@dataclass(frozen=True)
+class TaskCommentPageDTO:
+    comments: list[TaskCommentSummaryDTO]
+    next: str | None
+
+
+@dataclass(frozen=True)
+class TaskCommentEntryDTO:
+    id: UUID
+    content: str
+    author: str | None
+    created_at: datetime
+    anchor: dict | None
+    canvas_version_id: str | None
+
+
+@dataclass(frozen=True)
+class TaskCommentDetailDTO:
+    id: UUID
+    target: TaskCommentTargetDTO
+    resolved: bool
+    comments: list[TaskCommentEntryDTO]
+    next: str | None
+
+
+@dataclass(frozen=True)
 class TaskLatestRunSummaryDTO:
     """The latest-run status/environment pair nested in a task summary response."""
 

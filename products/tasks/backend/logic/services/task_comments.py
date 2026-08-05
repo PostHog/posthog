@@ -1,0 +1,298 @@
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from collections import defaultdict
+from collections.abc import Sequence
+from datetime import datetime
+from uuid import UUID
+
+from django.db.models import Q, QuerySet
+
+from posthog.models import Comment
+
+from products.tasks.backend.facade import contracts
+from products.tasks.backend.models import TaskArtifact, TaskRun, TaskThreadMessage
+
+COMMENT_STATES = frozenset({"open", "resolved"})
+
+
+class InvalidTaskCommentCursor(ValueError):
+    pass
+
+
+def _artifact_names(*, team_id: int, task_id: UUID, artifact_ids: Sequence[str]) -> dict[str, str]:
+    wanted = set(artifact_ids)
+    relational_ids: list[UUID] = []
+    for artifact_id in wanted:
+        try:
+            relational_ids.append(UUID(artifact_id))
+        except ValueError:
+            pass
+    names = {
+        str(artifact_id): name
+        for artifact_id, name in TaskArtifact.objects.for_team(team_id)
+        .filter(task_id=task_id, id__in=relational_ids)
+        .values_list("id", "name")
+    }
+    missing = wanted - names.keys()
+    if not missing:
+        return names
+    for artifacts in (
+        TaskRun.objects.filter(team_id=team_id, task_id=task_id)
+        .order_by("-created_at", "-id")
+        .values_list("artifacts", flat=True)
+    ):
+        for artifact in artifacts or []:
+            artifact_id = str(artifact.get("id") or "") if isinstance(artifact, dict) else ""
+            name = artifact.get("name") if isinstance(artifact, dict) else None
+            if artifact_id in missing and isinstance(name, str) and name:
+                names[artifact_id] = name
+                missing.remove(artifact_id)
+        if not missing:
+            break
+    return names
+
+
+def _is_state_event(comment: Comment) -> bool:
+    return (comment.item_context or {}).get("threadState") in COMMENT_STATES
+
+
+def _encode_cursor(created_at: datetime, comment_id: UUID) -> str:
+    return urlsafe_b64encode(f"{created_at.isoformat()}|{comment_id}".encode()).decode().rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime, UUID]:
+    if len(cursor) > 256:
+        raise InvalidTaskCommentCursor
+    try:
+        decoded = urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
+        created_at, comment_id = decoded.rsplit("|", 1)
+        parsed_created_at = datetime.fromisoformat(created_at)
+        if parsed_created_at.utcoffset() is None:
+            raise InvalidTaskCommentCursor
+        return parsed_created_at, UUID(comment_id)
+    except (ValueError, UnicodeDecodeError):
+        raise InvalidTaskCommentCursor from None
+
+
+def _comments(team_id: int, task_id: UUID) -> QuerySet[Comment]:
+    task_id_string = str(task_id)
+    return (
+        Comment.objects.filter(team_id=team_id, deleted=False)
+        .filter(
+            Q(scope="task", item_id=task_id_string)
+            | Q(scope__in=["task_artifact", "desktop_canvas"], item_context__taskId=task_id_string)
+        )
+        .filter(Q(item_context__isnull=True) | ~Q(item_context__has_key="is_emoji") | Q(item_context__is_emoji=False))
+    )
+
+
+def _canvas_names(*, team_id: int, task_id: UUID, canvas_ids: Sequence[str]) -> dict[str, str]:
+    wanted = set(canvas_ids)
+    names: dict[str, str] = {}
+    if not wanted:
+        return names
+    for payload in (
+        TaskThreadMessage.objects.for_team(team_id)
+        .filter(task_id=task_id, event="canvas_created")
+        .values_list("payload", flat=True)
+    ):
+        canvas_url = payload.get("canvas_url") if isinstance(payload, dict) else None
+        canvas_id = canvas_url.rstrip("/").rsplit("/", 1)[-1] if isinstance(canvas_url, str) else ""
+        canvas_name = payload.get("canvas_name") if isinstance(payload, dict) else None
+        if canvas_id in wanted and isinstance(canvas_name, str) and canvas_name:
+            names.setdefault(canvas_id, canvas_name)
+            if len(names) == len(wanted):
+                break
+    return names
+
+
+def _target(comment: Comment, target_names: dict[tuple[str, str], str]) -> contracts.TaskCommentTargetDTO:
+    if comment.scope == "task":
+        return contracts.TaskCommentTargetDTO(id=str(comment.item_id), type="task", name="This task")
+    item_id = comment.item_id or ""
+    if comment.scope == "task_artifact":
+        return contracts.TaskCommentTargetDTO(
+            id=item_id, type="artifact", name=target_names.get(("artifact", item_id), item_id or "Artifact")
+        )
+    return contracts.TaskCommentTargetDTO(
+        id=item_id, type="canvas", name=target_names.get(("canvas", item_id), item_id or "Canvas")
+    )
+
+
+def _resolved(root: Comment, replies: Sequence[Comment]) -> bool:
+    state_replies = [reply for reply in replies if _is_state_event(reply)]
+    if state_replies:
+        return (state_replies[-1].item_context or {}).get("threadState") == "resolved"
+    return root.completed_at is not None
+
+
+def _target_names_for_roots(*, team_id: int, task_id: UUID, roots: Sequence[Comment]) -> dict[tuple[str, str], str]:
+    artifact_ids = [root.item_id for root in roots if root.scope == "task_artifact" and root.item_id]
+    canvas_ids = [root.item_id for root in roots if root.scope == "desktop_canvas" and root.item_id]
+    return {
+        **{
+            ("artifact", artifact_id): name
+            for artifact_id, name in _artifact_names(
+                team_id=team_id, task_id=task_id, artifact_ids=artifact_ids
+            ).items()
+        },
+        **{
+            ("canvas", canvas_id): name
+            for canvas_id, name in _canvas_names(team_id=team_id, task_id=task_id, canvas_ids=canvas_ids).items()
+        },
+    }
+
+
+def list_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskArtifactDTO]:
+    artifacts: dict[tuple[str, str], contracts.TaskArtifactDTO] = {}
+    for artifact_id, name in TaskArtifact.objects.for_team(team_id).filter(task_id=task_id).values_list("id", "name"):
+        relational_id = str(artifact_id)
+        artifacts[("artifact", relational_id)] = contracts.TaskArtifactDTO(id=relational_id, type="artifact", name=name)
+    for manifest in (
+        TaskRun.objects.filter(team_id=team_id, task_id=task_id)
+        .order_by("-created_at", "-id")
+        .values_list("artifacts", flat=True)
+    ):
+        for artifact in manifest or []:
+            if not isinstance(artifact, dict):
+                continue
+            artifact_id = str(artifact.get("id") or "")
+            artifact_name = artifact.get("name")
+            artifact_key = ("artifact", artifact_id)
+            if artifact_id and artifact_key not in artifacts and isinstance(artifact_name, str) and artifact_name:
+                artifacts[artifact_key] = contracts.TaskArtifactDTO(id=artifact_id, type="artifact", name=artifact_name)
+    for payload in (
+        TaskThreadMessage.objects.for_team(team_id)
+        .filter(task_id=task_id, event="canvas_created")
+        .values_list("payload", flat=True)
+    ):
+        canvas_url = payload.get("canvas_url") if isinstance(payload, dict) else None
+        canvas_name = payload.get("canvas_name") if isinstance(payload, dict) else None
+        canvas_id = canvas_url.rstrip("/").rsplit("/", 1)[-1] if isinstance(canvas_url, str) else ""
+        if canvas_id:
+            artifacts.setdefault(
+                ("canvas", canvas_id),
+                contracts.TaskArtifactDTO(
+                    id=canvas_id,
+                    type="canvas",
+                    name=canvas_name if isinstance(canvas_name, str) and canvas_name else "Canvas",
+                ),
+            )
+    return sorted(artifacts.values(), key=lambda artifact: (artifact.type, artifact.id))
+
+
+def list_comments(
+    *,
+    team_id: int,
+    task_id: UUID,
+    artifact_id: str | None,
+    include_resolved: bool,
+    limit: int,
+    cursor: str | None,
+) -> contracts.TaskCommentPageDTO:
+    roots_qs = _comments(team_id, task_id).filter(source_comment_id__isnull=True)
+    if artifact_id:
+        roots_qs = roots_qs.filter(scope__in=["task_artifact", "desktop_canvas"], item_id=artifact_id)
+    scan_cursor = _decode_cursor(cursor) if cursor else None
+    result: list[contracts.TaskCommentSummaryDTO] = []
+    next_cursor = None
+    while len(result) < limit:
+        batch_qs = roots_qs
+        if scan_cursor:
+            before, before_id = scan_cursor
+            batch_qs = batch_qs.filter(Q(created_at__lt=before) | Q(created_at=before, id__lt=before_id))
+        remaining = limit - len(result)
+        batch = list(batch_qs.order_by("-created_at", "-id")[: remaining + 1])
+        has_more = len(batch) > remaining
+        roots = batch[:remaining]
+        if not roots:
+            break
+        replies: dict[UUID, list[Comment]] = defaultdict(list)
+        for reply in (
+            _comments(team_id, task_id)
+            .filter(source_comment_id__in=[root.id for root in roots])
+            .order_by("created_at", "id")
+        ):
+            if reply.source_comment_id:
+                replies[reply.source_comment_id].append(reply)
+        target_names = _target_names_for_roots(team_id=team_id, task_id=task_id, roots=roots)
+        for root in roots:
+            comment_replies = replies[root.id]
+            resolved = _resolved(root, comment_replies)
+            if resolved and not include_resolved:
+                continue
+            result.append(
+                contracts.TaskCommentSummaryDTO(
+                    id=root.id,
+                    target=_target(root, target_names),
+                    content=root.content or "",
+                    selected_text=((root.item_context or {}).get("anchor") or {}).get("quote"),
+                    created_at=root.created_at,
+                    reply_count=sum(1 for reply in comment_replies if not _is_state_event(reply)),
+                    resolved=resolved,
+                )
+            )
+        scan_cursor = (roots[-1].created_at, roots[-1].id)
+        if len(result) == limit:
+            next_cursor = _encode_cursor(*scan_cursor) if has_more else None
+            break
+        if not has_more:
+            break
+    return contracts.TaskCommentPageDTO(comments=result, next=next_cursor)
+
+
+def _entry(comment: Comment) -> contracts.TaskCommentEntryDTO:
+    creator = comment.created_by
+    author = None
+    if creator:
+        author = " ".join(filter(None, [creator.first_name, creator.last_name])) or creator.email
+    return contracts.TaskCommentEntryDTO(
+        id=comment.id,
+        content=comment.content or "",
+        author=author,
+        created_at=comment.created_at,
+        anchor=(comment.item_context or {}).get("anchor"),
+        canvas_version_id=(comment.item_context or {}).get("canvasVersionId"),
+    )
+
+
+def retrieve_comment(
+    *, team_id: int, task_id: UUID, comment_id: UUID, limit: int, cursor: str | None
+) -> contracts.TaskCommentDetailDTO | None:
+    root = (
+        _comments(team_id, task_id)
+        .select_related("created_by")
+        .filter(id=comment_id, source_comment_id__isnull=True)
+        .first()
+    )
+    if root is None:
+        return None
+    latest_state_reply = (
+        _comments(team_id, task_id)
+        .filter(source_comment_id=root.id, item_context__threadState__in=COMMENT_STATES)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    comments_qs = (
+        _comments(team_id, task_id)
+        .filter(Q(id=root.id) | Q(source_comment_id=root.id))
+        .filter(
+            Q(id=root.id)
+            | Q(item_context__isnull=True)
+            | ~Q(item_context__has_key="threadState")
+            | ~Q(item_context__threadState__in=COMMENT_STATES)
+        )
+    )
+    if cursor:
+        after, after_id = _decode_cursor(cursor)
+        comments_qs = comments_qs.filter(Q(created_at__gt=after) | Q(created_at=after, id__gt=after_id))
+    comments = list(comments_qs.select_related("created_by").order_by("created_at", "id")[: limit + 1])
+    has_more = len(comments) > limit
+    comments = comments[:limit]
+    target_names = _target_names_for_roots(team_id=team_id, task_id=task_id, roots=[root])
+    return contracts.TaskCommentDetailDTO(
+        id=root.id,
+        target=_target(root, target_names),
+        resolved=_resolved(root, [latest_state_reply] if latest_state_reply else []),
+        comments=[_entry(comment) for comment in comments],
+        next=_encode_cursor(comments[-1].created_at, comments[-1].id) if has_more and comments else None,
+    )

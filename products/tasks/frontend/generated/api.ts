@@ -67,11 +67,14 @@ import type {
     TaskActivityMarkReadApi,
     TaskActivityMarkReadResponseApi,
     TaskActivityPageDTOApi,
+    TaskArtifactsResponseApi,
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
+    TaskCommentDetailApi,
+    TaskCommentsResponseApi,
     TaskCreateApi,
     TaskDetailDTOApi,
     TaskMentionsListParams,
@@ -114,6 +117,8 @@ import type {
     TaskThreadMessageDTOApi,
     TaskThreadMessageWriteApi,
     TaskWriteApi,
+    TasksCommentsListParams,
+    TasksCommentsRetrieveParams,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -1320,6 +1325,92 @@ export const tasksDestroy = async (projectId: string, id: string, options?: Requ
     return apiMutator<void>(getTasksDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getTasksArtifactsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/artifacts/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksArtifactsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskArtifactsResponseApi> => {
+    return apiMutator<TaskArtifactsResponseApi>(getTasksArtifactsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksCommentsListUrl = (projectId: string, id: string, params?: TasksCommentsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/comments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/comments/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksCommentsList = async (
+    projectId: string,
+    id: string,
+    params?: TasksCommentsListParams,
+    options?: RequestInit
+): Promise<TaskCommentsResponseApi> => {
+    return apiMutator<TaskCommentsResponseApi>(getTasksCommentsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksCommentsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: TasksCommentsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/comments/${rootCommentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/comments/${rootCommentId}/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksCommentsRetrieve = async (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: TasksCommentsRetrieveParams,
+    options?: RequestInit
+): Promise<TaskCommentDetailApi> => {
+    return apiMutator<TaskCommentDetailApi>(getTasksCommentsRetrieveUrl(projectId, id, rootCommentId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

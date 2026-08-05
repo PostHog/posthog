@@ -3580,6 +3580,10 @@ To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears
 You can also open pull requests directly from this Slack thread. When the user's question describes a problem with a plausible code-side fix — a bug visible in errors or logs, missing or broken instrumentation, a broken funnel step traceable to UI code, a stale config that lives in a repo — end your reply with a one-sentence offer to open a PR for the fix and ask if they want you to proceed. Skip the offer for pure data lookups with no actionable code change (e.g. "what was DAU yesterday?"), and skip it when the fix would clearly live outside any repo you can reach.
 `
       : "";
+    const currentTaskCommentsInstructions = `
+## Current task comments
+When the \`tasks-comments-*\` tools are available, they read human comments only from this task and its artifacts or canvases. Call \`tasks-comments-list\` directly when the user asks you to review comments or says they added feedback. Follow \`next\` until it is null when reviewing all comments or replies. Use \`tasks-artifacts-list\` when you need the artifact inventory or want to filter comments by artifact, and call \`tasks-comments-retrieve\` to read every reply before acting on a root comment.`;
+
     const signedCommitInstructions = `
 ## Committing (signed commits required)
 Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this environment.
@@ -3679,7 +3683,7 @@ Do the requested work, but stop with local changes ready for review.
 Important:
 - Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${currentTaskCommentsInstructions}${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
       }
 
@@ -3700,7 +3704,7 @@ After completing the requested changes:
 Important:
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 - Do NOT push fixes for review comments without replying to and resolving each related thread.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${currentTaskCommentsInstructions}${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
     }
 
@@ -3754,7 +3758,7 @@ ${repositoryInstructions}${publishInstructions}
 
 Important:
 - Prefer using MCP tools to answer questions with real data over giving generic advice.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${currentTaskCommentsInstructions}${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
     }
 
@@ -3774,7 +3778,7 @@ ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
 - Always create the PR as a draft.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${currentTaskCommentsInstructions}${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
     }
 
@@ -3804,7 +3808,7 @@ ${prFooter}
 
 Important:
 - Always create the PR as a draft. Do not ask for confirmation.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${currentTaskCommentsInstructions}${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
   }
 

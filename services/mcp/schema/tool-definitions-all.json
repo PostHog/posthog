@@ -10195,6 +10195,51 @@
             "readOnlyHint": false
         }
     },
+    "tasks-artifacts-list": {
+        "description": "List the current PostHog Code task's artifacts and canvases. Use the returned artifact ids to filter tasks-comments-list when the user asks about comments on a specific artifact. The current task is fixed by the host and cannot be selected by the caller.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List artifacts for the current task.",
+        "title": "List current task artifacts",
+        "required_scopes": ["task:read"],
+        "always_available": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "tasks-comments-list": {
+        "description": "List open comments for the current PostHog Code task. Call this tool directly with no artifact_id to review comments across the task and all its artifacts. Optionally filter by an artifact id from tasks-artifacts-list or include resolved comments. When reviewing all comments, follow the returned `next` cursor until it is null. Returns root comment ids for tasks-comments-retrieve. The current task is fixed by the host and cannot be selected by the caller.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List comments for the current task.",
+        "title": "List current task comments",
+        "required_scopes": ["comment:read"],
+        "always_available": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "tasks-comments-retrieve": {
+        "description": "Retrieve one root comment and its replies from the current PostHog Code task, including anchor context such as selected text and canvas version. Use a root comment id returned by tasks-comments-list. Follow the returned `next` cursor until it is null before acting on the complete conversation. Comments outside the current task are never accessible.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Retrieve one comment conversation from the current task.",
+        "title": "Retrieve current task comments",
+        "required_scopes": ["comment:read"],
+        "always_available": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "tasks-create": {
         "description": "Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task record only — it does not start the agent. Returns the created task including its URL; open that URL to start the run. Requires the calling token's organization to have Tasks access enabled.",
         "category": "Tasks",
