@@ -185,6 +185,33 @@ class TestCollisionOverride:
         assert suggestion.safe_to_batch is False
         assert "meta" in suggestion.reason
 
+    def test_a_collision_never_suggests_going_back_to_names(self):
+        # The team already matches on campaign_id, which is the cure for a name collision.
+        # Because the target field was derived as "whatever isn't current", the collision
+        # override emitted a suggestion to switch *to* campaign_name — reintroducing the exact
+        # ambiguity it fired about, and misattributing spend across the two platforms.
+        campaigns = _named_campaigns(10)
+        utm_events = _utm(*[c.campaign_id for c in campaigns])
+        audit = [_collision("google", ["meta"])]
+
+        suggestions = suggest_campaign_field_preferences(campaigns, utm_events, PREFERS_ID, audit)
+
+        assert [s.suggested_match_field for s in suggestions] == []
+
+    def test_collision_reason_counts_the_shared_campaigns(self):
+        # The affected set was "names absent from the catalogue", but a collision is about
+        # names that are present and shared, so the evidence read "0 campaign(s) worth $0.00"
+        # in exactly the case it was written for.
+        campaigns = _named_campaigns(10, spend=250.0)
+        utm_events = _utm(*[c.campaign_name for c in campaigns])
+        audit = [_collision("google", ["meta"])]
+
+        suggestion = suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS, audit)[0]
+
+        # All ten names are in the catalogue, so all ten are exposed to the collision.
+        assert "10 campaign(s)" in suggestion.reason
+        assert "2,500" in suggestion.reason
+
     def test_spend_delta_wins_over_collision_framing(self):
         # When the arithmetic already says switch, report that (higher confidence)
         # rather than downgrading to the collision path.
