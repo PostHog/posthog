@@ -113,6 +113,23 @@ class TestCommentMentionActivity(CommentMentionTestCase):
         assert activity.latest_comment_scope == "task_artifact"
         assert activity.latest_comment_item_id == "artifact-1"
 
+    def test_mention_grants_read_access_without_exposing_a_personal_channel(self):
+        self.channel.channel_type = Channel.ChannelType.PERSONAL
+        self.channel.created_by = self.peer
+        self.channel.save(update_fields=["channel_type", "created_by"])
+        self.task.created_by = self.peer
+        self.task.save(update_fields=["created_by"])
+        comment = self._comment()
+
+        self._record_mentions(comment, [self.author.id])
+
+        page = tasks_facade.list_task_activity(self.team.id, self.author.id)
+        assert len(page.results) == 1
+        assert page.results[0].channel_id is None
+        assert page.results[0].channel_name is None
+        assert tasks_facade.get_task_detail(str(self.task.id), self.team.id, self.author.id) is not None
+        assert not tasks_facade.task_visible(str(self.task.id), self.team.id, self.author.id, for_control=True)
+
     def test_artifact_must_belong_to_the_named_task(self):
         comment = self._comment(item_id="not-this-task-artifact")
 
