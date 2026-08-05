@@ -351,8 +351,11 @@ export function TaskDetail({
         taskTitle={task.title}
         stopsCloudSandbox={task.latest_run?.environment === "cloud"}
         onConfirm={async () => {
-          await runArchive();
-          setShowArchiveConfirm(false);
+          try {
+            await runArchive();
+          } finally {
+            setShowArchiveConfirm(false);
+          }
         }}
         onCancel={() => setShowArchiveConfirm(false)}
       />
