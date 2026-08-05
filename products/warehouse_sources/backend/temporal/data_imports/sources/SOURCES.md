@@ -266,6 +266,7 @@ the row lists both.
 | flexmail                         | HTTP                        | requests                                                        | ✅                          |
 | float_app                        | HTTP                        | requests                                                        | ✅                          |
 | flowlu                           | HTTP                        | requests                                                        | ✅                          |
+| flutterwave                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fly_io                           | HTTP                        | requests                                                        | ✅                          |
 | formbricks                       | HTTP                        | requests                                                        | ✅                          |
 | fred                             | HTTP                        | requests                                                        | ✅                          |
@@ -397,7 +398,7 @@ the row lists both.
 | mailerlite                       | HTTP                        | requests                                                        | ✅                          |
 | mailersend                       | HTTP                        | requests                                                        | ✅                          |
 | mailgun                          | HTTP                        | requests                                                        | ✅                          |
-| mailjet                          | HTTP                        | requests                                                        | ✅                          |
+| mailjet                          | HTTP + Webhook              | `rest_source.RESTClient` + requests + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | mailosaur                        | HTTP                        | requests                                                        | ✅                          |
 | mailtrap                         | HTTP                        | requests                                                        | ✅                          |
 | marketstack                      | HTTP                        | requests                                                        | ✅                          |
@@ -445,6 +446,7 @@ the row lists both.
 | onepassword                      | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | onfleet                          | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | open_exchange_rates              | HTTP                        | requests                                                        | ✅                          |
+| open_meteo                       | HTTP (date windows)         | requests                                                        | ✅                          |
 | openai                           | HTTP                        | requests                                                        | ✅                          |
 | openai_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | opinion_stage                    | HTTP                        | requests                                                        | ✅                          |
@@ -559,6 +561,7 @@ the row lists both.
 | shutterstock                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | signoz                           | HTTP                        | requests                                                        | ✅                          |
 | simfin                           | HTTP                        | requests                                                        | ✅                          |
+| similarweb                       | HTTP                        | requests                                                        | ✅                          |
 | simplecast                       | HTTP                        | requests                                                        | ✅                          |
 | simplesat                        | HTTP                        | requests                                                        | ✅                          |
 | skyvern                          | HTTP                        | requests                                                        | ✅                          |
@@ -953,7 +956,6 @@ doesn't conflict with concurrent PRs.
 - flexmail
 - flexport
 - flowlu
-- flutterwave
 - fly_io
 - formbricks
 - fortnox
@@ -1173,7 +1175,6 @@ doesn't conflict with concurrent PRs.
 - onesignal
 - open_data_dc
 - open_dental
-- open_meteo
 - openalex
 - opencorporates
 - openfec
@@ -1305,7 +1306,6 @@ doesn't conflict with concurrent PRs.
 - sigma_computing
 - signnow
 - sim
-- similarweb
 - simplecast
 - simplesat
 - simpro
