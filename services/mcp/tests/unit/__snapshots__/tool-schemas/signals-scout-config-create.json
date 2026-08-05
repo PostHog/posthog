@@ -78,6 +78,21 @@
             "description": "The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.",
             "maxLength": 200,
             "type": "string"
+        },
+        "structured_output_schema": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off."
         }
     },
     "required": ["skill_name"],
