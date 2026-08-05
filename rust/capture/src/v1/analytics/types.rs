@@ -1054,81 +1054,96 @@ mod tests {
         test_utils::wrapped_event(event_name, distinct_id)
     }
 
+    /// One row of the ordering matrix: the lane, plus the two event stamps
+    /// `ordering()` consults — `person_off` mirrors
+    /// `force_disable_person_processing`, `spread` mirrors `spread_partitions`.
+    struct Stamps {
+        destination: Destination,
+        person_off: bool,
+        spread: bool,
+    }
+
+    impl Stamps {
+        fn on(destination: Destination) -> Self {
+            Self {
+                destination,
+                person_off: false,
+                spread: false,
+            }
+        }
+    }
+
     /// The ordering rule, per lane and per reason for giving ordering up. The
-    /// `spread`-without-`force_disable` rows are the ones that matter most:
+    /// `spread`-without-`person_off` rows are the ones that matter most:
     /// on the person-writing analytics lanes a bursting key must keep its
     /// partition key while person processing is on (spreading one distinct id
     /// across partitions contends the consumer's person updates), while the
     /// read-only AI overflow lane spreads it immediately.
     #[rstest::rstest]
     #[case::main_untouched(
-        Destination::AnalyticsMain,
-        false,
-        false,
+        Stamps::on(Destination::AnalyticsMain),
         OrderingGuarantee::PerDistinctId
     )]
-    #[case::main_person_off(Destination::AnalyticsMain, true, false, OrderingGuarantee::None)]
+    #[case::main_person_off(
+        Stamps { person_off: true, ..Stamps::on(Destination::AnalyticsMain) },
+        OrderingGuarantee::None
+    )]
     #[case::main_spread(
-        Destination::AnalyticsMain,
-        false,
-        true,
+        Stamps { spread: true, ..Stamps::on(Destination::AnalyticsMain) },
         OrderingGuarantee::PerDistinctId
     )]
-    #[case::overflow_untouched(
-        Destination::Overflow,
-        false,
-        false,
+    #[case::overflow_untouched(Stamps::on(Destination::Overflow), OrderingGuarantee::PerDistinctId)]
+    #[case::overflow_person_off(
+        Stamps { person_off: true, ..Stamps::on(Destination::Overflow) },
+        OrderingGuarantee::None
+    )]
+    #[case::overflow_spread(
+        Stamps { spread: true, ..Stamps::on(Destination::Overflow) },
         OrderingGuarantee::PerDistinctId
     )]
-    #[case::overflow_person_off(Destination::Overflow, true, false, OrderingGuarantee::None)]
-    #[case::overflow_spread(Destination::Overflow, false, true, OrderingGuarantee::PerDistinctId)]
-    #[case::overflow_spread_person_off(Destination::Overflow, true, true, OrderingGuarantee::None)]
-    #[case::ai_overflow_spread(Destination::AiEventsOverflow, false, true, OrderingGuarantee::None)]
+    #[case::overflow_spread_person_off(
+        Stamps { person_off: true, spread: true, ..Stamps::on(Destination::Overflow) },
+        OrderingGuarantee::None
+    )]
+    #[case::ai_overflow_spread(
+        Stamps { spread: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        OrderingGuarantee::None
+    )]
     #[case::ai_overflow_person_off(
-        Destination::AiEventsOverflow,
-        true,
-        false,
+        Stamps { person_off: true, ..Stamps::on(Destination::AiEventsOverflow) },
         OrderingGuarantee::None
     )]
     // Lanes whose consumers need the key regardless: person processing being
     // off must not spread them, matching v0's route().
     #[case::ai_main_person_off(
-        Destination::AiEvents,
-        true,
-        false,
+        Stamps { person_off: true, ..Stamps::on(Destination::AiEvents) },
         OrderingGuarantee::PerDistinctId
     )]
     #[case::historical_person_off(
-        Destination::AnalyticsHistorical,
-        true,
-        false,
+        Stamps { person_off: true, ..Stamps::on(Destination::AnalyticsHistorical) },
         OrderingGuarantee::PerDistinctId
     )]
-    #[case::dlq_person_off(Destination::Dlq, true, false, OrderingGuarantee::PerDistinctId)]
+    #[case::dlq_person_off(
+        Stamps { person_off: true, ..Stamps::on(Destination::Dlq) },
+        OrderingGuarantee::PerDistinctId
+    )]
     #[case::custom_person_off(
-        Destination::Custom("t".into()),
-        true,
-        false,
+        Stamps { person_off: true, ..Stamps::on(Destination::Custom("t".into())) },
         OrderingGuarantee::PerDistinctId
     )]
-    fn ordering_per_lane(
-        #[case] destination: Destination,
-        #[case] force_disable_person_processing: bool,
-        #[case] spread_partitions: bool,
-        #[case] expected: OrderingGuarantee,
-    ) {
+    fn ordering_per_lane(#[case] stamps: Stamps, #[case] expected: OrderingGuarantee) {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = destination;
-        ev.force_disable_person_processing = force_disable_person_processing;
-        ev.spread_partitions = spread_partitions;
+        ev.destination = stamps.destination;
+        ev.force_disable_person_processing = stamps.person_off;
+        ev.spread_partitions = stamps.spread;
 
         assert_eq!(ev.ordering(), expected);
         // The header tracks the person-processing flag and nothing else, so
         // spreading a key never asks downstream to skip identity resolution.
         assert_eq!(
             ev.headers(&ctx).force_disable_person_processing,
-            force_disable_person_processing.then_some(true),
+            stamps.person_off.then_some(true),
             "the header must follow the person flag alone"
         );
     }
