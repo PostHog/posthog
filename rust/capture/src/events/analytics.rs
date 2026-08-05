@@ -21,7 +21,6 @@ use limiters::overflow::OverflowLimiter;
 
 use crate::{
     api::CaptureError,
-    config::AiRouting,
     debug_or_info,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::overflow_stamping::stamp_overflow_reason,
@@ -120,7 +119,7 @@ fn create_heatmap_redirect(
 
 /// Process a single analytics event from RawEvent to ProcessedEvent.
 ///
-/// `route_ai_events` is the per-batch `AiRouting` decision (see
+/// `route_ai_events` is the deployment's `CaptureMode::routes_ai_events` (see
 /// `process_events`); when set, `$ai_*` events classify as
 /// `DataType::AiEvents` instead of the analytics main/historical lanes.
 #[instrument(skip_all, fields(event_name, request_id))]
@@ -231,8 +230,8 @@ pub fn process_single_event(
 /// Process a batch of analytics events.
 ///
 /// All routing policy lives here: token dropping, `$ai_*` lane assignment
-/// (per the deployment-level [`AiRouting`] policy, resolved into
-/// `DataType::AiEvents` at classification time), event restrictions, global
+/// (per `CaptureMode::routes_ai_events`, resolved into `DataType::AiEvents`
+/// at classification time), event restrictions, global
 /// rate limiting (per `token:distinct_id`), historical rerouting, and
 /// per-key overflow rerouting via [`OverflowLimiter`]. Overflow stamping
 /// goes through the shared [`stamp_overflow_reason`] helper, which the AI
@@ -253,7 +252,6 @@ pub async fn process_events(
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
-    ai_routing: &AiRouting,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -274,7 +272,6 @@ pub async fn process_events(
         overflow_limiter,
         ai_events_overflow_limiter,
         ingestion_warning_emitter,
-        ai_routing,
         events,
         context,
     )
@@ -296,7 +293,6 @@ async fn process_events_inner(
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
-    ai_routing: &AiRouting,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -324,11 +320,11 @@ async fn process_events_inner(
         return Ok(());
     }
 
-    // A request carries a single token, so the `$ai_*` lane decision is per
-    // batch, mirroring v1's `process_batch`. The flag feeds
+    // Whether `$ai_*` events divert to the dedicated AI topic is a deployment
+    // property, mirroring v1's `process_batch`. The flag feeds
     // `DataType::from_event_name` via `process_single_event`; the kafka sink
     // maps the resulting `DataType::AiEvents` to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`.
-    let route_ai_events = ai_routing.routes_to_secondary(&context.token);
+    let route_ai_events = context.capture_mode.routes_ai_events();
 
     // Build the processed batch one raw event at a time so we can split a
     // heatmap-carrying event into a stripped original + a `$$heatmap`
@@ -908,7 +904,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -959,7 +954,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1011,7 +1005,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1063,7 +1056,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1122,7 +1114,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1161,7 +1152,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1218,7 +1208,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1269,7 +1258,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1284,31 +1272,39 @@ mod tests {
         );
     }
 
-    /// The `$ai_*` lane assignment is decided once per batch from the request
-    /// token: `secondary` diverts every `$ai_*` event, an allowlist diverts
-    /// only listed tokens, and `primary` never diverts. Non-AI events stay on
-    /// their normal route in every mode. The topic itself is resolved in the
-    /// kafka sink from `DataType::AiEvents`, not here.
+    /// The `$ai_*` lane assignment follows the deployment's capture mode:
+    /// `Events` diverts every `$ai_*` event, `Import` keeps them on the
+    /// analytics lanes. Non-AI events stay on their normal route in every
+    /// mode. The topic itself is resolved in the kafka sink from
+    /// `DataType::AiEvents`, not here.
     #[rstest]
-    #[case::secondary(AiRouting::Secondary, true)]
-    #[case::allowlisted_token(
-        AiRouting::SecondaryAllowlist(["test_token".to_string()].into_iter().collect()),
-        true
+    #[case::events_mode(
+        crate::config::CaptureMode::Events,
+        false,
+        DataType::AiEvents,
+        DataType::AnalyticsMain
     )]
-    #[case::unlisted_token(
-        AiRouting::SecondaryAllowlist(["other_token".to_string()].into_iter().collect()),
-        false
+    #[case::import_mode(
+        crate::config::CaptureMode::Import,
+        true,
+        DataType::AnalyticsHistorical,
+        DataType::AnalyticsHistorical
     )]
-    #[case::primary(AiRouting::Primary, false)]
     #[tokio::test]
     async fn test_process_events_ai_lane_assignment(
-        #[case] routing: AiRouting,
-        #[case] expect_diverted: bool,
+        #[case] capture_mode: crate::config::CaptureMode,
+        // Import mode drops non-historical batches before classification, so
+        // its case must arrive flagged historical.
+        #[case] historical_migration: bool,
+        #[case] expected_ai: DataType,
+        #[case] expected_pageview: DataType,
     ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let context = create_test_context(now, None);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = capture_mode;
+        context.historical_migration = historical_migration;
         let events = vec![
             create_test_event_with_name(
                 "$ai_generation",
@@ -1337,7 +1333,6 @@ mod tests {
             None,
             None,
             None,
-            &routing,
             events,
             &context,
         )
@@ -1350,12 +1345,7 @@ mod tests {
             .iter()
             .find(|e| e.event.event == "$ai_generation")
             .unwrap();
-        let expected = if expect_diverted {
-            DataType::AiEvents
-        } else {
-            DataType::AnalyticsMain
-        };
-        assert_eq!(ai_event.metadata.data_type, expected);
+        assert_eq!(ai_event.metadata.data_type, expected_ai);
         // Lane assignment must not leak into the restriction-driven redirect
         // mechanism; the sink resolves the AI topic from the data type alone.
         assert_eq!(ai_event.metadata.redirect_to_topic, None);
@@ -1363,7 +1353,7 @@ mod tests {
             .iter()
             .find(|e| e.event.event == "$pageview")
             .unwrap();
-        assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(pageview.metadata.data_type, expected_pageview);
         assert_eq!(pageview.metadata.redirect_to_topic, None);
     }
 
@@ -1419,7 +1409,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Secondary,
             events,
             &context,
         )
@@ -1482,7 +1471,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Secondary,
             events,
             &context,
         )
@@ -1544,7 +1532,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1620,7 +1607,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1695,7 +1681,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1765,7 +1750,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1827,7 +1811,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1883,7 +1866,6 @@ mod tests {
             None, // no overflow limiter
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1922,7 +1904,6 @@ mod tests {
             Some(limiter),
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -1975,7 +1956,6 @@ mod tests {
             None,
             ai_limiter,
             None,
-            &AiRouting::Secondary,
             events,
             &context,
         )
@@ -2014,7 +1994,6 @@ mod tests {
             Some(limiter),
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2057,7 +2036,6 @@ mod tests {
             Some(limiter),
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2117,7 +2095,6 @@ mod tests {
             Some(limiter),
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2159,7 +2136,6 @@ mod tests {
             Some(limiter),
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2213,7 +2189,6 @@ mod tests {
             Some(overflow_limiter),
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2279,7 +2254,6 @@ mod tests {
             None, // no overflow limiter -- isolate global RL behavior
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2344,7 +2318,6 @@ mod tests {
             None,
             None,
             Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2396,7 +2369,6 @@ mod tests {
             None,
             None,
             Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2453,7 +2425,6 @@ mod tests {
             None,
             None,
             Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2507,7 +2478,6 @@ mod tests {
             None,
             None,
             Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2554,7 +2524,6 @@ mod tests {
             None, // no overflow limiter -- isolate global RL behavior
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2604,7 +2573,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2646,7 +2614,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2693,7 +2660,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2748,7 +2714,6 @@ mod tests {
             Some(limiter),
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -2810,7 +2775,6 @@ mod tests {
             Some(limiter),
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -3069,7 +3033,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -3120,7 +3083,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -3160,7 +3122,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -3208,7 +3169,6 @@ mod tests {
             None,
             None,
             None,
-            &AiRouting::Primary,
             events,
             &context,
         )
@@ -3428,7 +3388,6 @@ mod tests {
             None,
             None,
             Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
         )

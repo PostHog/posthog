@@ -326,11 +326,6 @@ pub async fn build_components(
                     .map(parse_token_allowlist)
                     .unwrap_or_default(),
             ),
-            // The percentage mode exists for the analytics topic routing only;
-            // refuse to start rather than fall through to a full cutover.
-            AiSinkMode::SecondaryPercentage => panic!(
-                "invalid configuration: AI_SINK_MODE=secondary_percentage is not supported; percentage routing exists only for CAPTURE_ANALYTICS_AI_EVENTS_MODE"
-            ),
         };
         info!(mode = ?config.ai_sink_mode, "AI secondary sink enabled");
         Arc::new(SplitKafkaSink::new(primary_sink, secondary, routing))
@@ -392,47 +387,21 @@ pub async fn build_components(
         None
     };
 
-    // Deployment-level policy for diverting `$ai_*` events to a dedicated
-    // topic, shared by the v0 and v1 analytics pipelines. Distinct from the AI
-    // secondary CLUSTER routing above: this stays on the same sink and only
-    // changes the destination topic.
-    let ai_routing = match config.capture_analytics_ai_events_mode {
-        AiSinkMode::Primary => AiRouting::Primary,
-        AiSinkMode::Secondary => AiRouting::Secondary,
-        AiSinkMode::SecondaryAllowlist => AiRouting::SecondaryAllowlist(
-            config
-                .capture_analytics_ai_events_allowlist_tokens
-                .as_deref()
-                .map(parse_token_allowlist)
-                .unwrap_or_default(),
-        ),
-        AiSinkMode::SecondaryPercentage => AiRouting::SecondaryPercentage(require_percentage(
-            config.capture_analytics_ai_events_percentage,
-        )),
-    };
     assert!(
-        config.capture_analytics_ai_events_mode == AiSinkMode::Primary
-            || config
-                .kafka
-                .capture_analytics_ai_events_topic
-                .as_deref()
-                .is_some_and(|t| !t.is_empty()),
-        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_TOPIC must be set when CAPTURE_ANALYTICS_AI_EVENTS_MODE is not primary (got {:?})",
-        config.capture_analytics_ai_events_mode,
+        !config.kafka.capture_analytics_ai_events_topic.is_empty(),
+        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_TOPIC must not be empty",
     );
-    // The AI overflow valve: settable in advance of the routing mode (or
-    // absent), so it is deliberately not validated against it.
+    // The AI overflow valve: unset means AI events never overflow.
     let ai_events_overflow_enabled = config
         .kafka
         .capture_analytics_ai_events_overflow_topic
         .as_deref()
         .is_some_and(|t| !t.is_empty());
     info!(
-        ai_routing = ?ai_routing,
-        capture_analytics_ai_events_topic = ?config.kafka.capture_analytics_ai_events_topic,
+        capture_analytics_ai_events_topic = %config.kafka.capture_analytics_ai_events_topic,
         capture_analytics_ai_events_overflow_topic = ?config.kafka.capture_analytics_ai_events_overflow_topic,
         ai_events_overflow_enabled,
-        "AI events topic routing policy"
+        "AI events topic routing"
     );
 
     // The AI lane gets its own limiter instance with the same knobs: the
@@ -510,7 +479,6 @@ pub async fn build_components(
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
-        ai_routing,
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
     );
@@ -561,22 +529,6 @@ fn parse_token_allowlist(csv: &str) -> HashSet<String> {
         .filter(|s| !s.is_empty())
         .map(String::from)
         .collect()
-}
-
-/// Validate the percentage companion of the `secondary_percentage` routing
-/// mode. Unlike the allowlist (where unset defaults to an empty set that
-/// routes nothing), an unset percentage refuses to start: the mode being set
-/// with no percentage is almost certainly a misconfigured rollout, not an
-/// intent to route 0% of teams.
-fn require_percentage(value: Option<u8>) -> u8 {
-    let percentage = value.expect(
-        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE must be set when CAPTURE_ANALYTICS_AI_EVENTS_MODE is secondary_percentage"
-    );
-    assert!(
-        percentage <= 100,
-        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE must be between 0 and 100 (got {percentage})"
-    );
-    percentage
 }
 
 /// Builds the v1 sink router. The dedicated `$ai_*` topics are
