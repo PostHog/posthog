@@ -120,6 +120,7 @@ rules:
                               |DatasetItemVersion
                               |DatasetRevision
                               |DataWarehouseCredential
+                              |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
@@ -464,6 +465,7 @@ rules:
                         |DatasetItemVersion
                         |DatasetRevision
                         |DataWarehouseCredential
+                        |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath

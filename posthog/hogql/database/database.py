@@ -828,6 +828,18 @@ class Database(BaseModel):
         self._denied_tables.add(saved_query.name)
         return True
 
+    def _is_warehouse_expression_denied(self, expression: Any) -> bool:
+        """
+        Expression counterpart of `_is_warehouse_view_denied`: a user denied access to a saved
+        expression doesn't get its virtual field injected, so their queries see "Field not found".
+        Userless context (no UserAccessControl) fails closed - every expression is denied.
+        """
+        uac = self.user_access_control
+        return not (
+            uac is not None
+            and (uac.is_organization_admin or uac.check_access_level_for_object(expression, required_level="viewer"))
+        )
+
     def serialize(
         self,
         context: HogQLContext,
@@ -2133,6 +2145,12 @@ class Database(BaseModel):
         # After joins, so a saved expression can never shadow a join field either.
         with timings.measure("data_warehouse_expressions", emit_span=True):
             for saved_expression in sources.data_warehouse_expressions:
+                if (
+                    sources.is_hogql_warehouse_access_control_enabled
+                    and not sources.bypass_warehouse_access_control
+                    and database._is_warehouse_expression_denied(saved_expression)
+                ):
+                    continue
                 if not database.has_table(saved_expression.table_name):
                     continue
                 try:

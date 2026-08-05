@@ -4,6 +4,8 @@ import pytest
 
 from rest_framework import status
 
+from posthog.hogql.database.database import Database
+
 from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 
@@ -40,3 +42,18 @@ class TestExpressionAccessControl(WarehouseAccessControlTestMixin):
 
         delete_response = self.client.delete(self._url(expression_id))
         self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN, delete_response.content)
+
+    def test_object_denied_expression_is_not_injected_into_queries(self):
+        expression_id = self.client.post(
+            self._url(),
+            {"table_name": "events", "field_name": "browser", "expression": "properties.$browser"},
+        ).json()["id"]
+        self._create_access_control(
+            self.viewer_user, resource="warehouse_view", resource_id=expression_id, access_level="none"
+        )
+
+        for user, should_have_field in ((self.viewer_user, False), (self.editor_user, True)):
+            sources = Database._fetch_sources(team=self.team, user=user)
+            sources.is_hogql_warehouse_access_control_enabled = True
+            database = Database._build_from_sources(sources)
+            self.assertEqual("browser" in database.get_table("events").fields, should_have_field, user.email)
