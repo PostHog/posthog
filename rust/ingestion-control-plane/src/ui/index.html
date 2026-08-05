@@ -85,11 +85,11 @@
       .toolbar { border-bottom: 1px solid var(--border); }
       .toolbar .count { margin-left: auto; }
       .pager { border-top: 1px solid var(--border); justify-content: flex-end; }
-      .ns-head {
-        font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
-        margin: 0; padding: 12px 14px 6px; display: flex; align-items: baseline; gap: 8px;
-      }
-      .ns-head .ns { color: var(--text); font-family: var(--mono); text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; }
+      .panel > h2.dep-head { cursor: pointer; user-select: none; }
+      .panel > h2.dep-head:hover { background: var(--panel-2); }
+      .dep-head .chev { color: var(--muted); flex: 0 0 auto; }
+      .panel > h2 .ns { color: var(--text); font-family: var(--mono); text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; }
+      .dep-head .dep-meta { text-transform: none; letter-spacing: 0; font-weight: 400; }
       button.small { padding: 2px 8px; font-size: 11px; }
       .muted { color: var(--muted); }
       .mono { font-family: var(--mono); }
@@ -161,6 +161,13 @@
         let value = Number(n), unit = 0;
         while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
         return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+      };
+      const fmtAgo = (iso) => {
+        const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+        if (seconds < 90) return `${Math.round(seconds)}s ago`;
+        if (seconds < 90 * 60) return `${Math.round(seconds / 60)}m ago`;
+        if (seconds < 36 * 3600) return `${Math.round(seconds / 3600)}h ago`;
+        return `${Math.round(seconds / 86400)}d ago`;
       };
       const fetchJSON = async (url, opts) => {
         const resp = await fetch(url, opts);
@@ -502,29 +509,50 @@
       const debugSection = {
         id: "debug",
         title: "Consumer debug",
-        description: "Live ingestion-consumer pods; selecting one opens its full routing debug UI, backed by this service's per-pod proxy.",
-        unmount() {},
+        description: "Ingestion consumer deployments. Expand one to list its pods; selecting a pod opens its full routing debug UI, backed by this service's per-pod proxy.",
+        expanded: null,
+        selectedPod: null,
+        loadEpoch: 0,
+        refreshSeq: 0,
+        timers: [],
+        // debug/load results per pod key, so re-renders show the last known
+        // values instead of flashing back to placeholders while refetching.
+        loads: new Map(),
+        unmount() {
+          this.loadEpoch++;
+          this.timers.forEach(clearInterval);
+          this.timers = [];
+        },
         mount(root) {
-          const podsBody = el("div", {}, el("div", { class: "empty" }, "Loading pods…"));
+          const refreshedAt = el("span", { class: "muted mono" });
+          const listBody = el("div", {}, el("div", { class: "empty" }, "Loading deployments…"));
           const viewer = el("div", {});
-          this.ui = { podsBody, viewer };
+          this.ui = { listBody, viewer, refreshedAt };
           root.append(
-            el("div", { class: "panel" },
-              el("h2", {}, "Pods", el("button", { class: "small", onclick: () => this.refreshPods() }, "Refresh")),
-              podsBody),
+            el("div", { class: "row", style: "padding: 0 0 10px; justify-content: flex-end" },
+              refreshedAt,
+              el("button", { class: "small", onclick: () => this.refreshPods() }, "Refresh")),
+            listBody,
             viewer
           );
           this.refreshPods();
+          // Keep the expanded deployment's live columns current; /debug/load is
+          // built to be polled cheaply. Cells repaint in place, so no flicker.
+          this.timers.push(setInterval(() => {
+            const group = (this.groups || []).find((g) => g.ns === this.expanded);
+            if (group) this.fetchLoads(group);
+          }, 5000));
         },
 
         async refreshPods() {
-          const { podsBody } = this.ui;
+          const { listBody, refreshedAt } = this.ui;
+          // Drop out-of-order responses: an older request resolving after a
+          // newer one must not roll the deployment list back to stale state.
+          const seq = ++this.refreshSeq;
           try {
             const data = await fetchJSON("api/pods");
-            if (!data.pods.length) {
-              podsBody.replaceChildren(el("div", { class: "empty" }, "No matching pods found."));
-              return;
-            }
+            if (seq !== this.refreshSeq) return;
+            refreshedAt.textContent = `as of ${new Date().toLocaleTimeString()}`;
             // One group per namespace: each ingestion lane deploys into its own.
             const byNamespace = new Map();
             for (const pod of data.pods) {
@@ -532,38 +560,144 @@
               if (!byNamespace.has(ns)) byNamespace.set(ns, []);
               byNamespace.get(ns).push(pod);
             }
-            podsBody.replaceChildren(
-              ...[...byNamespace.entries()].map(([ns, pods]) =>
-                el("div", {},
-                  el("h3", { class: "ns-head" },
-                    el("span", { class: "ns" }, ns),
-                    el("span", {}, `${pods.length} pod${pods.length === 1 ? "" : "s"}`)),
-                  el("table", {},
-                    el("thead", {}, el("tr", {}, el("th", {}, "pod"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"))),
-                    el("tbody", {}, pods.map((pod) =>
-                      el("tr", { class: `clickable ${pod.name === this.selectedPod ? "selected" : ""}`, onclick: () => this.selectPod(pod) },
-                        el("td", { class: "mono" }, pod.name),
-                        el("td", { class: "mono" }, pod.ip || "–"),
-                        el("td", {}, el("span", { class: `pill ${pod.ready ? "good" : "warn"}` }, pod.phase || "?")),
-                        el("td", { class: "mono" }, String(pod.restarts)),
-                        el("td", { class: "muted mono" }, pod.started_at ? new Date(pod.started_at).toLocaleString() : "–"))
-                    ))
-                  )
-                )
-              )
-            );
+            this.groups = [...byNamespace.entries()].map(([ns, pods]) => ({
+              ns,
+              pods,
+              ready: pods.filter((p) => p.ready).length,
+              restarts: pods.reduce((sum, p) => sum + (p.restarts || 0), 0),
+              newestStart: pods.reduce((max, p) => (p.started_at && (!max || p.started_at > max) ? p.started_at : max), null),
+            }));
+            // A single deployment leaves nothing to choose between: open it.
+            if (this.groups.length === 1) this.expanded = this.groups[0].ns;
+            this.render();
           } catch (e) {
-            podsBody.replaceChildren(el("div", { class: "error-box" }, String(e)));
+            if (seq !== this.refreshSeq) return;
+            listBody.replaceChildren(el("div", { class: "error-box" }, String(e)));
           }
         },
 
-        selectPod(pod) {
-          this.selectedPod = pod.name;
-          this.refreshPods();
+        toggle(ns) {
+          this.expanded = this.expanded === ns ? null : ns;
+          this.render();
+        },
+
+        render() {
+          const { listBody } = this.ui;
+          this.loadEpoch++;
+          if (!this.groups.length) {
+            listBody.replaceChildren(el("div", { class: "empty" }, "No matching pods found."));
+            return;
+          }
+          this.liveCells = new Map();
+          listBody.replaceChildren(...this.groups.map((group) => this.renderGroup(group)));
+          const expandedGroup = this.groups.find((group) => group.ns === this.expanded);
+          if (expandedGroup) this.fetchLoads(expandedGroup);
+        },
+
+        renderGroup(group) {
+          const expanded = group.ns === this.expanded;
+          const total = group.pods.length;
+          return el("div", { class: "panel" },
+            el("h2", { class: "dep-head", onclick: () => this.toggle(group.ns) },
+              el("span", { class: "row", style: "padding: 0; flex-wrap: nowrap" },
+                el("span", { class: "chev" }, expanded ? "▾" : "▸"),
+                el("span", { class: "ns" }, group.ns)),
+              el("span", { class: "row", style: "padding: 0" },
+                group.ready === total
+                  ? el("span", { class: "pill good" }, `${fmtInt(total)} pod${total === 1 ? "" : "s"} ready`)
+                  : el("span", { class: "pill warn" }, `${fmtInt(group.ready)}/${fmtInt(total)} pods ready`),
+                group.restarts > 0
+                  ? el("span", { class: "pill warn" }, `${fmtInt(group.restarts)} restart${group.restarts === 1 ? "" : "s"}`)
+                  : el("span", { class: "pill muted" }, "no restarts"),
+                group.newestStart ? el("span", { class: "muted mono dep-meta" }, `newest pod ${fmtAgo(group.newestStart)}`) : null)),
+            expanded ? this.renderPodsTable(group) : null
+          );
+        },
+
+        renderPodsTable(group) {
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "pod"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"),
+              el("th", {}, "peer"), el("th", {}, "workers"), el("th", {}, "in flight"), el("th", {}, "stashed"))),
+            el("tbody", {}, group.pods.map((pod) => {
+              const key = `${pod.namespace}/${pod.name}`;
+              const live = {
+                peer: el("td", { class: "mono muted" }, "…"),
+                workers: el("td", { class: "mono muted" }, "…"),
+                inFlight: el("td", { class: "mono muted" }, "…"),
+                stashed: el("td", { class: "mono muted" }, "…"),
+              };
+              this.liveCells.set(key, live);
+              if (this.loads.has(key)) this.paintLoad(key);
+              const row = el("tr", { class: `clickable ${key === this.selectedPod ? "selected" : ""}` },
+                el("td", { class: "mono" }, pod.name),
+                el("td", { class: "mono" }, pod.ip || "–"),
+                el("td", {}, el("span", { class: `pill ${pod.ready ? "good" : "warn"}` }, pod.phase || "?")),
+                el("td", { class: "mono" }, String(pod.restarts)),
+                el("td", { class: "muted mono" }, pod.started_at ? `${new Date(pod.started_at).toLocaleString()} (${fmtAgo(pod.started_at)})` : "–"),
+                live.peer, live.workers, live.inFlight, live.stashed);
+              row.addEventListener("click", () => this.selectPod(pod, row));
+              return row;
+            }))
+          );
+        },
+
+        // The live columns cost one debug/load call per pod, so only the
+        // expanded deployment is polled; collapsed ones cost nothing.
+        fetchLoads(group) {
+          const epoch = this.loadEpoch;
+          for (const pod of group.pods) {
+            const key = `${pod.namespace}/${pod.name}`;
+            fetchJSON(`pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}/debug/load`)
+              .then((load) => {
+                if (epoch !== this.loadEpoch) return;
+                this.loads.set(key, { ok: true, load });
+                this.paintLoad(key);
+              })
+              .catch(() => {
+                if (epoch !== this.loadEpoch) return;
+                this.loads.set(key, { ok: false });
+                this.paintLoad(key);
+              });
+          }
+        },
+
+        paintLoad(key) {
+          const cells = this.liveCells.get(key);
+          const result = this.loads.get(key);
+          if (!cells || !result) return;
+          if (!result.ok) {
+            cells.peer.replaceChildren(el("span", { class: "pill bad" }, "unreachable"));
+            for (const cell of [cells.workers, cells.inFlight, cells.stashed]) cell.replaceChildren("–");
+            return;
+          }
+          const { load } = result;
+          const set = (cell, ...children) => {
+            cell.classList.remove("muted");
+            cell.replaceChildren(...children);
+          };
+          set(cells.peer, load.peer_index != null && load.peer_count ? `${load.peer_index + 1}/${load.peer_count}` : "–");
+          const routable = load.workers.filter((w) => !w.draining && (w.state === "healthy" || w.state === "degraded")).length;
+          set(cells.workers, routable === load.workers.length
+            ? `${routable}/${load.workers.length}`
+            : el("span", { class: "pill warn" }, `${routable}/${load.workers.length}`));
+          set(cells.inFlight, fmtInt(load.dispatcher.total_in_flight));
+          set(cells.stashed, load.dispatcher.stashed_messages > 0
+            ? el("span", { class: "pill warn" }, fmtInt(load.dispatcher.stashed_messages))
+            : "0");
+        },
+
+        selectPod(pod, row) {
+          // Pods are keyed namespace + name: identical names across lanes must
+          // not both highlight. Selection repaints in place; a full re-render
+          // would refetch every debug/load for one row's highlight.
+          this.selectedPod = `${pod.namespace}/${pod.name}`;
+          for (const selected of this.ui.listBody.querySelectorAll("tr.selected")) selected.classList.remove("selected");
+          row.classList.add("selected");
           const url = `pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}/`;
           this.ui.viewer.replaceChildren(
             el("div", { class: "panel" },
-              el("h2", {}, `Debug — ${pod.name}`,
+              el("h2", {}, el("span", {}, "Debug ", el("span", { class: "ns" }, pod.name)),
                 el("a", { href: url, target: "_blank", style: "color: var(--accent); font-size: 11px; text-transform: none; letter-spacing: 0" }, "open in new tab ↗")),
               el("iframe", { class: "debug", src: url, onload: (e) => this.autosize(e.target) }))
           );
