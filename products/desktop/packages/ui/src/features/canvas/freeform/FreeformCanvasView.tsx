@@ -26,6 +26,7 @@ import {
 } from "@posthog/quill";
 import { CANVAS_COMPONENT_PATH } from "@posthog/shared";
 import {
+  activeCanvasGenerationTaskId,
   isCanvasGenerating,
   isCanvasGenerationRunning,
 } from "@posthog/ui/features/canvas/freeform/canvasGenerationStatus";
@@ -714,7 +715,10 @@ export function FreeformCanvasView({
               overflow:hidden) so the embedded run's session — and its activity
               heartbeat — stays alive and chat scroll survives a minimize. */}
           <CanvasSidePanel
-            effectiveTaskId={effectiveTaskId}
+            effectiveTaskId={activeCanvasGenerationTaskId(
+              effectiveTaskId,
+              isGenerating,
+            )}
             onMinimize={() => {
               setCollapsed(true);
               setGeneratingPanelDismissed(true);

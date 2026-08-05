@@ -2,6 +2,7 @@ import type { AgentSession } from "@posthog/shared";
 import type { TaskRun, TaskRunStatus } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
 import {
+  activeCanvasGenerationTaskId,
   hasCanvasGenerationStarted,
   isCanvasGenerating,
   isCanvasGenerationRunning,
@@ -29,6 +30,14 @@ const session = (
   status: AgentSession["status"],
   cloudStatus?: TaskRunStatus,
 ): Session => ({ status, cloudStatus, isPromptPending: false });
+
+describe("activeCanvasGenerationTaskId", () => {
+  it("returns the task only while its generation turn is active", () => {
+    expect(activeCanvasGenerationTaskId("t1", true)).toBe("t1");
+    expect(activeCanvasGenerationTaskId("t1", false)).toBeNull();
+    expect(activeCanvasGenerationTaskId(null, true)).toBeNull();
+  });
+});
 
 describe("isCanvasGenerationRunning", () => {
   it("is not running when there is no generation task", () => {

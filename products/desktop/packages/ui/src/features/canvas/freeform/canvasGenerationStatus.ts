@@ -96,6 +96,16 @@ export function isCanvasGenerating({
   return session?.status === "connecting" || session?.isPromptPending === true;
 }
 
+// The side panel only owns the live generation conversation. Once that turn
+// settles it must return to the edit composer, even if the canvas record keeps
+// the task association around for status/history polling.
+export function activeCanvasGenerationTaskId(
+  taskId: string | null,
+  isGenerating: boolean,
+): string | null {
+  return isGenerating ? taskId : null;
+}
+
 // Whether there's concrete evidence the generation run has actually started, as
 // opposed to merely having been created. The completion-toast watcher arms on
 // this so the brief gap between creating the task and its live session
