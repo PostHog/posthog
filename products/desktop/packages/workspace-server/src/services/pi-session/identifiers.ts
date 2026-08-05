@@ -6,7 +6,7 @@ import type { PiRuntime } from "@posthog/agent/pi/runtime";
 
 export interface PiRpcClientFactory {
   create(
-    input:  Pick<
+    input: Pick<
       PiRpcClientOptions,
       "cwd" | "model" | "sessionFile" | "projectTrusted"
     > & {

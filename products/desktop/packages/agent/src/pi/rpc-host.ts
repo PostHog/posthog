@@ -3,12 +3,12 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
 import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
 import type { PosthogProviderOptions } from "@posthog/harness/extensions/posthog-provider/provider";
+import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
 import type {
   McpToolPermissionDecision,
   McpToolPermissionRequest,
   McpToolPolicy,
 } from "@posthog/shared";
-import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
