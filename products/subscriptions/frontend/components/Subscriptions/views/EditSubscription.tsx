@@ -733,7 +733,7 @@ function EditSubscriptionForm({
                                                 onChange={(val) => {
                                                     onChange(
                                                         dayjs()
-                                                            .hour(typeof val === 'string' ? parseInt(val, 10) : 0)
+                                                            .hour(Number(val ?? 0))
                                                             .minute(0)
                                                             .second(0)
                                                             .toISOString()
