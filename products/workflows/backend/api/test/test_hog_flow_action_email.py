@@ -422,6 +422,33 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         )
         assert patch_response.status_code == 200, patch_response.json()
 
+    def test_falsy_body_placeholders_do_not_clobber_template_content(self):
+        # Agents emit explicit null/empty placeholders for fields they aren't setting. The
+        # materialization decision ignores falsy body keys, so the merge must too - otherwise
+        # a subject: null placeholder erases the template's subject it just resolved.
+        template = self._create_library_template()
+        response = self._post_flow(
+            {
+                "template_id": "template-email",
+                "template_uuid": str(template.id),
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "from": "noreply@example.com",
+                            "to": "{{ person.properties.email }}",
+                            "subject": None,
+                            "html": "",
+                        }
+                    }
+                },
+            }
+        )
+
+        assert response.status_code == 201, response.json()
+        stored = _stored_email_value(HogFlow.objects.get(pk=response.json()["id"]))
+        assert stored["subject"] == "Library subject"
+        assert stored["html"] == "<p>Library html</p>"
+
     def test_caller_authored_body_wins_over_template_reference(self):
         # Any caller-supplied body key means the caller owns the whole body; merging template
         # content underneath it would mix two different emails.

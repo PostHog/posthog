@@ -514,7 +514,9 @@ def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: 
 _TEMPLATE_EMAIL_BODY_KEYS = ("subject", "text", "html", "design")
 
 
-def _apply_email_template_content(config: dict, team: Team, strict: bool) -> None:
+def _apply_email_template_content(
+    config: dict, team: Team, strict: bool, template_cache: dict[str, Optional[MessageTemplate]]
+) -> None:
     """Materialize a referenced saved template's email body into the step's inputs at save,
     mirroring what the web editor does when a template is picked (snapshot semantics: later
     template edits don't propagate). Only fires when the caller supplied no body at all — a
@@ -534,9 +536,16 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool) -> Non
         parsed_uuid = uuid_mod.UUID(str(template_uuid))
     except (ValueError, AttributeError, TypeError):
         parsed_uuid = None
-    template = (
-        MessageTemplate.objects.filter(team_id=team.id, id=parsed_uuid, deleted=False).first() if parsed_uuid else None
-    )
+    # Memoized per request: a drip sequence reuses one template across steps, and the actions
+    # list validates one action at a time, so without this each step re-queries the same row.
+    cache_key = str(parsed_uuid)
+    if parsed_uuid is None:
+        template = None
+    elif cache_key in template_cache:
+        template = template_cache[cache_key]
+    else:
+        template = MessageTemplate.objects.filter(team_id=team.id, id=parsed_uuid, deleted=False).first()
+        template_cache[cache_key] = template
     email_content = (template.content or {}).get("email") if template else None
     if not isinstance(email_content, dict) or not any(email_content.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
         if strict:
@@ -552,7 +561,14 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool) -> Non
         return
 
     body = {key: email_content[key] for key in _TEMPLATE_EMAIL_BODY_KEYS if email_content.get(key)}
-    merged_value = {**body, **(value if isinstance(value, dict) else {})}
+    # Body keys are template-sourced once materialization is decided: a falsy placeholder the
+    # detection above just ignored (subject: null) must not clobber the template's content.
+    carried_over = (
+        {key: item for key, item in value.items() if key not in _TEMPLATE_EMAIL_BODY_KEYS}
+        if isinstance(value, dict)
+        else {}
+    )
+    merged_value = {**body, **carried_over}
     merged_input = dict(email_input) if isinstance(email_input, dict) else {}
     merged_input["value"] = merged_value
     # Library template content is always Liquid; only default it, never override the caller.
@@ -1089,7 +1105,10 @@ class HogFlowActionSerializer(serializers.Serializer):
             # direct construction) - there's no team to resolve the reference against, so skip.
             get_team = self.context.get("get_team")
             if get_team is not None:
-                _apply_email_template_content(data["config"], get_team(), strict)
+                # The context dict is shared across the many=True action list, so the memo
+                # spans all steps in one request.
+                template_cache = self.context.setdefault("_message_template_cache", {})
+                _apply_email_template_content(data["config"], get_team(), strict, template_cache)
 
         if "function" in data.get("type", "") or trigger_is_function:
             config = data.setdefault("config", {})
