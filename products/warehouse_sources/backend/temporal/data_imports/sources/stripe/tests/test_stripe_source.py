@@ -75,6 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     _RateLimitRetryingRequestsClient,
     _scrub_client_secrets,
     check_endpoint_permissions,
+    create_webhook,
     get_rows,
     validate_credentials as validate_stripe_credentials,
 )
@@ -1131,3 +1132,29 @@ class TestSchemaWebhookCapability:
         for name, schema in self.by_name.items():
             expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
             assert schema.supports_webhooks is expected, name
+
+
+class TestCreateWebhookPermissionErrorCopy:
+    # Regression test: a permission-denied webhook creation used to always tell the user to add
+    # the "Write" permission to their API key, even when the source was connected via OAuth and
+    # has no API key to edit.
+    @parameterized.expand(
+        [
+            ("api_key", "add the 'Write' permission for 'Webhook endpoints' to your API key"),
+            ("oauth", "reconnect your Stripe integration"),
+        ]
+    )
+    def test_permission_error_message_matches_auth_method(self, auth_method, expected_phrase):
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            mock_client = mock_client_cls.return_value
+            mock_client.webhook_endpoints.create.side_effect = stripe_lib.PermissionError("forbidden")
+
+            result = create_webhook(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url="https://example.com/webhook",
+                auth_method=auth_method,
+            )
+
+        assert result.success is False
+        assert expected_phrase in (result.error or "")

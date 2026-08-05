@@ -222,10 +222,21 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # The workers-pool project in vitest.config.mts parses wrangler.jsonc
             # up front and needs `assets.directory` (./public/) populated and
@@ -648,7 +659,9 @@ jobs:
               # every failure is an already-quarantined flake, fails otherwise.
               continue-on-error: true
               # The junit reporter (alongside the default console one) feeds the Trunk upload below.
-              run: cd services/mcp && pnpm run test:integration -- --reporter=default --reporter=junit --outputFile.junit=junit-integration.xml
+              # No `--` before the flags: pnpm forwards it literally, and vitest then treats
+              # everything after it as positional args, silently dropping the junit reporter.
+              run: cd services/mcp && pnpm run test:integration --reporter=default --reporter=junit --outputFile.junit=junit-integration.xml
               env:
                   TEST_POSTHOG_API_BASE_URL: http://localhost:8000
                   TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key

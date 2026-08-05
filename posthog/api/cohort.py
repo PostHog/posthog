@@ -5,6 +5,7 @@ import uuid
 import hashlib
 from collections.abc import Iterator
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.db.models import OuterRef, QuerySet, Subquery
@@ -184,11 +185,18 @@ def validate_filters_and_compute_realtime_support(
         return filters_dict, current_cohort_type, [str(e)]
 
 
-def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list[Any] | None, str | None, str | None]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class CohortFilterBytecodeResult:
+    bytecode: list[Any] | None = None
+    error: str | None = None
+    condition_hash: str | None = None
+
+
+def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> CohortFilterBytecodeResult:
     """
     Generate HogQL bytecode for cohort filter data.
     Similar to generate_template_bytecode in validation.py but for cohort-specific filters.
-    Returns tuple of (bytecode, error, conditionHash)
+    Returns a CohortFilterBytecodeResult with bytecode, error, and condition_hash.
     """
     try:
         # Only treat behavioral as event matcher + optional event properties; unsupported values return None
@@ -196,34 +204,34 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
             expr = build_behavioral_event_expr(filter_data, team)
             # Unsupported behavioral filters return None → skip bytecode
             if expr is None:
-                return None, "Unsupported behavioral filter for realtime bytecode", None
+                return CohortFilterBytecodeResult(error="Unsupported behavioral filter for realtime bytecode")
             bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
             condition_hash = None
             if bytecode:
                 bytecode_str = json.dumps(bytecode, sort_keys=True)
                 condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
-            return bytecode, None, condition_hash
+            return CohortFilterBytecodeResult(bytecode=bytecode, condition_hash=condition_hash)
 
         # Check if it's a cohort filter referencing another cohort
         if filter_data.get("type") == "cohort":
             cohort_id = filter_data.get("value")
             if cohort_id is None:
                 # If cohort_id is missing, don't generate bytecode
-                return None, None, None
+                return CohortFilterBytecodeResult()
             # Type narrowing: cohort_id is not None at this point, and should be int
             try:
                 cohort_id_int = int(cohort_id)
             except (ValueError, TypeError):
-                return None, None, None
+                return CohortFilterBytecodeResult()
             try:
                 referenced_cohort = Cohort.objects.get(team__project_id=team.project_id, id=cohort_id_int)
                 # Check if the referenced cohort is realtime
                 if referenced_cohort.cohort_type != CohortType.REALTIME:
                     # Don't generate bytecode for non-realtime cohort references
-                    return None, None, None
+                    return CohortFilterBytecodeResult()
             except Cohort.DoesNotExist:
                 # If cohort doesn't exist, don't generate bytecode
-                return None, None, None
+                return CohortFilterBytecodeResult()
 
         property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
@@ -236,10 +244,10 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
             bytecode_str = json.dumps(bytecode, sort_keys=True)
             condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
 
-        return bytecode, None, condition_hash
+        return CohortFilterBytecodeResult(bytecode=bytecode, condition_hash=condition_hash)
     except Exception as e:
         logger.warning(f"Failed to generate bytecode for cohort filter: {e}")
-        return None, str(e), None
+        return CohortFilterBytecodeResult(error=str(e))
 
 
 class FilterBytecodeMixin(BaseModel):
@@ -253,15 +261,13 @@ class FilterBytecodeMixin(BaseModel):
         if info and info.context:
             team = info.context.get("team")
             if team:
-                bytecode, error, condition_hash = generate_cohort_filter_bytecode(
-                    self.model_dump(exclude_none=True), team
-                )
-                if bytecode:
-                    self.bytecode = bytecode
-                if condition_hash:
-                    self.conditionHash = condition_hash
-                if error:
-                    self.bytecode_error = error
+                result = generate_cohort_filter_bytecode(self.model_dump(exclude_none=True), team)
+                if result.bytecode:
+                    self.bytecode = result.bytecode
+                if result.condition_hash:
+                    self.conditionHash = result.condition_hash
+                if result.error:
+                    self.bytecode_error = result.error
         return self
 
 
@@ -671,7 +677,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # response small for teams with thousands of cohorts. Default output is
         # unchanged; only callers that explicitly ask get the trimmed shape.
         if self.context.get("basic_cohort_list"):
-            for field_name in ("filters", "query", "groups"):
+            # Keep `filters`: the feature-flag intent warning reads it off `cohortsById`
+            # (see featureFlagIntentWarningLogic.hasBehavioralCriteria) to flag behavioral
+            # cohorts that can't be evaluated locally. `last_error_message` is computed from
+            # a per-row correlated subquery over CohortCalculationHistory (see
+            # safely_get_queryset), and `experiment_set` costs a prefetch — basic-list callers
+            # read neither, so drop them and skip the extra queries there.
+            for field_name in ("query", "groups", "last_error_message", "experiment_set"):
                 self.fields.pop(field_name, None)
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
@@ -1579,8 +1591,9 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Return a basic payload that omits the heavy `filters`, `query`, and "
-                    "`groups` fields. Useful for pickers that only need id/name/count."
+                    "Return a basic payload that omits the `query`, `groups`, "
+                    "`last_error_message`, and `experiment_set` fields (`filters` is kept). "
+                    "Useful for pickers that only need id/name/count."
                 ),
             ),
         ]
@@ -1638,6 +1651,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         search_ordered = False
+        # `_is_basic_list_request()` returns False for non-list actions, so computing it once
+        # up front is safe and keeps the queryset and serializer paths reading the same flag.
+        is_basic_list = self._is_basic_list_request()
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
@@ -1660,29 +1676,35 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # add additional filters provided by the client
             queryset, search_ordered = self._filter_request(self.request, queryset)
 
-            # `?basic=true` callers never read these columns, so skip reading them
-            # off disk (the serializer drops them too; see CohortSerializer.__init__).
-            if self._is_basic_list_request():
-                queryset = queryset.defer("filters", "query", "groups")
-
-        last_error_code_subquery = Subquery(
-            CohortCalculationHistory.objects.filter(
-                cohort=OuterRef("pk"),
-                error__isnull=False,
-            )
-            .exclude(error="")
-            .order_by("-started_at")
-            .values("error_code")[:1]
-        )
+            # `?basic=true` callers never read `query`, so skip reading it off disk (the
+            # serializer drops it too; see CohortSerializer.__init__). `groups` is dropped
+            # from the payload but kept on disk: `to_representation`'s `filters` fallback reads
+            # `instance.properties`, which reads `groups`, so deferring it would add a per-row
+            # query for rows with a falsy `filters`. `filters` stays in the payload — the flag
+            # intent warning reads it off `cohortsById`.
+            if is_basic_list:
+                queryset = queryset.defer("query")
 
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
         # one query instead of the two extra round-trips `prefetch_related` costs.
-        # `experiment_set` is a reverse relation, so it stays prefetched.
-        queryset = (
-            queryset.annotate(last_error_code=last_error_code_subquery)
-            .select_related("created_by", "team")
-            .prefetch_related("experiment_set")
-        )
+        queryset = queryset.select_related("created_by", "team")
+
+        # `experiment_set` is a reverse relation (a prefetch) and the per-row correlated
+        # subquery over CohortCalculationHistory only feeds `last_error_message`. The basic
+        # list payload drops both, so skip the prefetch and the per-row subquery there — the
+        # hot-path fetch would otherwise run a subquery per row for teams with thousands of
+        # cohorts.
+        if not is_basic_list:
+            last_error_code_subquery = Subquery(
+                CohortCalculationHistory.objects.filter(
+                    cohort=OuterRef("pk"),
+                    error__isnull=False,
+                )
+                .exclude(error="")
+                .order_by("-started_at")
+                .values("error_code")[:1]
+            )
+            queryset = queryset.prefetch_related("experiment_set").annotate(last_error_code=last_error_code_subquery)
 
         if not search_ordered:
             queryset = queryset.order_by("-created_at")

@@ -13,9 +13,15 @@ export interface ScoutConfigUpdate {
   enabled?: boolean;
   emit?: boolean;
   run_interval_minutes?: number;
+  auto_pause_exempt?: boolean;
 }
 
-const CONFIG_SETTINGS = ["enabled", "emit", "run_interval_minutes"] as const;
+const CONFIG_SETTINGS = [
+  "enabled",
+  "emit",
+  "run_interval_minutes",
+  "auto_pause_exempt",
+] as const;
 
 function trackConfigChange(
   previousConfig: ScoutConfig | undefined,
@@ -31,7 +37,10 @@ function trackConfigChange(
       scout_origin: getScoutOrigin(previousConfig),
       setting,
       new_value: newValue,
-      old_value: previousConfig[setting],
+      // Explicit null, not undefined: `auto_pause_exempt` is optional, and the
+      // cloud client normalizes an unknown prior value to null. Undefined would
+      // drop the key on serialization and split the two clients' event shape.
+      old_value: previousConfig[setting] ?? null,
       success,
     });
   }

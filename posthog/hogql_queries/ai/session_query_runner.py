@@ -64,7 +64,11 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
     cached_response: CachedSessionQueryResponse
     paginator: HogQLHasMorePaginator
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, for_evaluation: bool = False, **kwargs: Any) -> None:
+        # Online evaluations need a time-bounded primary query and no events fallback: an
+        # aged-out session must surface as "expired", not as a stripped events scan whose rows
+        # lack input/output_choices, which would have the judge grade an empty transcript.
+        self.for_evaluation = for_evaluation
         super().__init__(*args, **kwargs)
         limit = self.query.limit
         if self.limit_context == LimitContext.EXPORT:
@@ -78,6 +82,9 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         )
 
     def _calculate(self) -> SessionQueryResponse:
+        if self.for_evaluation and not self._has_bounded_date_range():
+            raise ValueError("Evaluation-mode session queries require dateRange.date_from and dateRange.date_to")
+
         query = self._build_query()
 
         with self.timings.measure("session_query_ai_events_execute"), tags_context(product=Product.LLM_ANALYTICS):
@@ -96,7 +103,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                 limit_context=self.limit_context,
             )
 
-        if not query_result.results:
+        if not query_result.results and not self.for_evaluation:
             fallback_filters = self._get_events_fallback_filters()
             if fallback_filters is None:
                 return self._response_from_query_result(query_result, [])
@@ -277,17 +284,39 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
     def _has_fallback_date_range(self) -> bool:
         return bool(self.query.dateRange and self.query.dateRange.date_from)
 
-    def _get_trace_filter(self) -> ast.Expr:
+    def _has_bounded_date_range(self) -> bool:
+        # date_to must be explicit too: QueryDateRange defaults a missing date_to to now(),
+        # which would silently turn a half-open range into an unbounded upper bound.
+        return bool(self.query.dateRange and self.query.dateRange.date_from and self.query.dateRange.date_to)
+
+    def _date_filter(self) -> ast.Expr:
         return ast.And(
             exprs=[
-                ast.Call(name="isNotNull", args=[ast.Field(chain=["ai_events", "trace_id"])]),
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["ai_events", "trace_id"]),
-                    right=ast.Constant(value=""),
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["ai_events", "timestamp"]),
+                    right=self._date_range.date_from_as_hogql(),
                 ),
-            ]
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["ai_events", "timestamp"]),
+                    right=self._date_range.date_to_as_hogql(),
+                ),
+            ],
         )
+
+    def _get_trace_filter(self) -> ast.Expr:
+        exprs: list[ast.Expr] = [
+            ast.Call(name="isNotNull", args=[ast.Field(chain=["ai_events", "trace_id"])]),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Field(chain=["ai_events", "trace_id"]),
+                right=ast.Constant(value=""),
+            ),
+        ]
+        if self.for_evaluation:
+            exprs.append(self._date_filter())
+        return ast.And(exprs=exprs)
 
     def _get_session_filter(self) -> ast.Expr:
         return ast.And(
@@ -306,20 +335,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         if not self._has_fallback_date_range():
             return None
 
-        date_filter = ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["ai_events", "timestamp"]),
-                    right=self._date_range.date_from_as_hogql(),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["ai_events", "timestamp"]),
-                    right=self._date_range.date_to_as_hogql(),
-                ),
-            ],
-        )
+        date_filter = self._date_filter()
         return (
             ast.And(exprs=[self._get_session_filter(), date_filter]),
             ast.And(exprs=[self._get_trace_filter(), date_filter]),

@@ -7,7 +7,7 @@ from time import time
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
@@ -26,6 +26,7 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
+    get_self_driving_credits_used_in_period_for_org,
     get_signals_credited_refund_credits_for_org,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
@@ -732,6 +733,57 @@ def update_org_billing_quotas(organization: Organization):
     invalidate_llm_gateway_quota_cache(teams_by_token.values())
 
 
+def refresh_org_self_driving_quota(organization_id: str) -> None:
+    """Recompute one org's live `signals_credits` usage for today and re-evaluate its quota limits.
+
+    Dispatched when a self-driving implementation run records its first PR URL (the billable moment), so
+    the Redis limited flag can flip within seconds of the PR that crosses the limit. Without this,
+    `update_org_billing_quotas` reads the `todays_usage` value patched by the last quota cron tick,
+    which by definition predates the PR that just landed — the cron (every 15 minutes) remains the
+    backstop for orgs that cross the limit without a PR event.
+
+    Concurrent refreshes for one org (two PRs landing close together) are serialized on the org
+    row, and this path only ever raises `todays_usage`: it fires exclusively because a PR landed,
+    so a slower refresh that counted usage before a newer PR must not overwrite the fresher value
+    and momentarily unpause the org. Decreases (refunds, cron corrections) stay the cron's job.
+
+    Scope caveat: the recount covers today's UTC window keyed on the implementation run's
+    `created_at`, so a PR recorded after midnight by a run created before midnight falls in
+    yesterday's window and is invisible to this refresh and to the cron. It reaches enforcement
+    hours later, when the previous day's usage report lands in `organization.usage`; billing
+    itself stays correct because that report queries yesterday's window with the PR present.
+    """
+    organization = Organization.objects.filter(id=organization_id).first()
+    if organization is None or not organization.usage:
+        return
+    if not organization.usage.get(QuotaResource.SIGNALS_CREDITS.value):
+        return
+
+    # The billing count runs outside the lock so the hot organization row is locked only for
+    # the compare-and-patch; the monotonic guard below makes a stale count harmless.
+    period_start, period_end = get_current_day()
+    todays_credits = get_self_driving_credits_used_in_period_for_org(organization.id, period_start, period_end)
+
+    with transaction.atomic():
+        # filter().first() like the precheck above: the org can be deleted between the two
+        # reads, and a deleted org needs no refresh rather than a DoesNotExist from the task.
+        organization = Organization.objects.select_for_update().filter(id=organization_id).first()
+        if organization is None:
+            return
+        resource_usage = (organization.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value)
+        if not resource_usage:
+            return
+        if todays_credits > (resource_usage.get("todays_usage") or 0):
+            resource_usage["todays_usage"] = todays_credits
+            _patch_organization_usage_jsonb(
+                organization, [([QuotaResource.SIGNALS_CREDITS.value, "todays_usage"], todays_credits)]
+            )
+    # Evaluate from the freshest committed usage, not this task's snapshot: a newer concurrent
+    # refresh may have written a higher value while we held or waited on the lock.
+    organization.refresh_from_db(fields=["usage"])
+    update_org_billing_quotas(organization)
+
+
 def set_org_usage_summary(
     organization: Organization,
     new_usage: Optional[OrganizationUsageInfo] = None,
@@ -1186,6 +1238,16 @@ def update_all_orgs_billing_quotas(
                     org.refresh_from_db(fields=["usage", "customer_trust_scores", "never_drop_data"])
                     refresh_total_seconds += time() - refresh_call_start
                     refresh_count += 1
+                    if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
+                        # The queries-phase snapshot predates any push-refresh that fired during
+                        # this run (`refresh_org_self_driving_quota` raises `todays_usage` the
+                        # moment a PR lands); writing the older snapshot back would unpause an
+                        # over-limit org until the next tick. Recount live instead — as a count
+                        # of the current window it also keeps legitimate decreases (day
+                        # rollover, refunds) intact.
+                        todays_report["signals_credits"] = get_self_driving_credits_used_in_period_for_org(
+                            org_id, period_start, period_end
+                        )
 
                 _patch_todays_usage(org, todays_report)
 

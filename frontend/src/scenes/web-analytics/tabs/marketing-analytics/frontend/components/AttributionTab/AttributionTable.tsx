@@ -23,6 +23,7 @@ import {
 import {
     ATTRIBUTION_ROW_LIMIT,
     BREAKDOWN_LABELS,
+    MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID,
     MODEL_LABELS,
     marketingAttributionLogic,
 } from '../../logic/marketingAttributionLogic'
@@ -56,7 +57,8 @@ export function AttributionTable({
     attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element {
     const [key] = useState(() => `MarketingAttribution.${uniqueNode++}`)
-    const logic = dataNodeLogic({ query, key, dataNodeCollectionId: key })
+    // Registered under the tab's shared collection so the filter bar's ReloadAll reaches this query.
+    const logic = dataNodeLogic({ query, key, dataNodeCollectionId: MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID })
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
     const { breakdownBy, effectiveLookbackDays } = useValues(marketingAttributionLogic)

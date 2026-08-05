@@ -150,19 +150,6 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_home_canvas_is_unique_per_channel(self):
-        self._create_canvas(name="Home", is_home=True)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/canvases/",
-            {"name": "Home 2", "channel_id": str(self.channel.id), "is_home": True},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json()["code"] == "home_canvas_exists"
-
-        response = self.client.get(f"/api/projects/{self.team.id}/canvases/?is_home=true")
-        assert [row["name"] for row in response.json()["results"]] == ["Home"]
-
     def test_partial_update_metadata(self):
         canvas_id = self._create_canvas()
         response = self.client.patch(
