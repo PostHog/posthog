@@ -3586,6 +3586,9 @@ export interface LogMessage {
 /** Field to break down sparkline data by */
 export type LogsSparklineBreakdownBy = 'severity' | 'service'
 
+/** Metric the sparkline ranks breakdown values by before collapsing the tail into an "other" bucket */
+export type LogsSparklineRankBy = 'count' | 'bytes'
+
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
@@ -3618,6 +3621,12 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     after?: string
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
+    /**
+     * Metric used to rank breakdown values before the tail is collapsed into a single "other"
+     * bucket, so the returned row count stays bounded (used only by sparkline endpoint).
+     * Defaults to ranking by log count.
+     */
+    sparklineRankBy?: LogsSparklineRankBy
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
