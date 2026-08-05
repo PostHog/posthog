@@ -425,11 +425,15 @@ describe('ToolExecutor metrics', () => {
                 makeState([{ name: 'strict-tool' }])
             )
 
-            const call = mockTrackToolCall.mock.calls.find((c) => c[0] === 'strict-tool')
-            expect(call).not.toBeUndefined()
-            expect(call![2]).toBe(true)
+            // Exactly one event: the rejection returns before the handler runs, so
+            // neither the success nor the catch tracker can also fire. A second emit
+            // here would double-count the call in every error-rate metric.
+            const calls = mockTrackToolCall.mock.calls.filter((c) => c[0] === 'strict-tool')
+            expect(calls).toHaveLength(1)
+            const call = calls[0]!
+            expect(call[2]).toBe(true)
             // No handler ran, so the call carries no duration (mirrors the exec path).
-            expect(call![1]).toBe(0)
+            expect(call[1]).toBe(0)
             expect(trackToolCallExtras('strict-tool')).toMatchObject({
                 $mcp_error_type: 'validation',
                 // `:undefined` is the received type — the param was absent, not
