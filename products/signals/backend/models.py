@@ -65,6 +65,9 @@ class SignalSourceConfig(UUIDModel):
         CI_FLAKY_CHECK = "ci_flaky_check", "CI flaky check"
         CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch", "CI broken default branch"
         CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
+        FEEDBACK = "feedback", "Feedback"
+        REVIEW = "review", "Review"
+        SEARCH_OPPORTUNITY = "search_opportunity", "Search opportunity"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)

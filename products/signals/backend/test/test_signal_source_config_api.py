@@ -98,6 +98,33 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "source_type" in str(response.json())
 
+    # Mirrors the `SignalRecordKind` union in
+    # products/desktop/packages/shared/src/inbox-types.ts, the record kind every warehouse-backed
+    # inbox toggle posts as `source_type`. Catches a source shipping a record kind the config model
+    # doesn't accept yet — the failure mode behind both the feedback/review and search_opportunity gaps.
+    EXTERNAL_INBOX_RECORD_KINDS = ["issue", "ticket", "scanner_finding", "feedback", "review", "search_opportunity"]
+
+    @parameterized.expand([(kind,) for kind in EXTERNAL_INBOX_RECORD_KINDS])
+    def test_external_inbox_record_kind_is_a_valid_source_type_choice(self, record_kind: str):
+        assert record_kind in SignalSourceConfig.SourceType.values
+
+    @parameterized.expand(
+        [
+            ("uservoice", "feedback"),
+            ("judgeme_reviews", "review"),
+            ("google_search_console", "search_opportunity"),
+        ]
+    )
+    def test_create_source_config_for_every_inbox_record_kind(self, source_product: str, source_type: str):
+        response = self.client.post(
+            self._url(),
+            data={"source_product": source_product, "source_type": source_type, "enabled": True},
+            format="json",
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, data
+        assert data["source_type"] == source_type
+
     def test_create_session_analysis_cluster_rejected_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
