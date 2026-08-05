@@ -193,6 +193,10 @@ class Person(models.Model):
     # Updated by ingestion pipeline when processing events
     last_seen_at = models.DateTimeField(null=True, blank=True)
 
+    # Soft-delete tombstone: deleted persons keep their row (version bumped,
+    # properties cleared) so re-created keys revive above the ClickHouse tombstone
+    is_deleted = models.BooleanField(default=False, db_default=False)
+
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
     objects = PersonManager()
@@ -434,6 +438,10 @@ class PersonDistinctId(models.Model):
 
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table
     version = models.BigIntegerField(null=True, blank=True)
+
+    # Soft-delete tombstone: kept so a re-created distinct id conflicts with its
+    # tombstone and takes the revival path instead of restarting at version 0
+    is_deleted = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         # migrations managed via rust/persons_migrations

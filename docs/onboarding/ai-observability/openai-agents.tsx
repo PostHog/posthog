@@ -60,7 +60,7 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                 <>
                     <Markdown>
                         Initialize PostHog with your project token and host from [your project
-                        settings](https://app.posthog.com/settings/project), then call `instrument()` to register
+                        settings](https://app.posthog.com/settings/project). Then call `instrument()` to register
                         PostHog tracing with the OpenAI Agents SDK. This automatically captures all agent traces, spans,
                         and LLM generations.
                     </Markdown>
@@ -88,7 +88,7 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to
+                            **Note:** If you want to capture LLM events anonymously, **do not** pass a distinct ID to
                             `instrument()`. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
@@ -102,21 +102,34 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
             content: (
                 <>
                     <Markdown>
-                        Run your OpenAI agents as normal. PostHog automatically captures `$ai_generation` events for LLM
-                        calls and `$ai_span` events for agent execution, tool calls, and handoffs.
+                        {dedent`
+                            Run your OpenAI agents as normal. PostHog automatically captures \`$ai_generation\`
+                            events for LLM calls and \`$ai_span\` events for agent execution, tool calls, and
+                            handoffs. The example below defines a tool and lets the agent call it.
+                        `}
                     </Markdown>
 
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            from agents import Agent, Runner
+                            from agents import Agent, Runner, RunConfig, function_tool
+
+                            @function_tool
+                            def get_weather(city: str) -> str:
+                                """Get the weather for a city."""
+                                return f"The weather in {city} is sunny, 72F"
 
                             agent = Agent(
                                 name="Assistant",
                                 instructions="You are a helpful assistant.",
+                                tools=[get_weather],
                             )
 
-                            result = Runner.run_sync(agent, "Tell me a fun fact about hedgehogs")
+                            result = Runner.run_sync(
+                                agent,
+                                "What's the weather in Paris?",
+                                run_config=RunConfig(group_id="conversation-abc"),
+                            )
                             print(result.final_output)
                         `}
                     />
@@ -137,8 +150,10 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
             content: (
                 <>
                     <Markdown>
-                        PostHog captures the full trace hierarchy for complex agent workflows including handoffs and
-                        tool calls.
+                        {dedent`
+                            PostHog captures the full trace hierarchy for complex agent workflows, including
+                            handoffs between multiple agents.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -174,6 +189,13 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                             - Handoff spans showing the routing between agents
                             - Tool spans for \`get_weather\` function calls
                             - Generation spans for all LLM calls
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            As with the single-agent example above, PostHog captures every span in that list
+                            automatically. You write no extra code for the handoff itself.
                         `}
                     </Markdown>
                 </>

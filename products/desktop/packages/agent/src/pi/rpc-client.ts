@@ -4,21 +4,39 @@ import type { Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
+  type AgentSessionEvent,
   RpcClient,
   type RpcClientOptions,
+  type RpcEventListener,
 } from "@earendil-works/pi-coding-agent";
 import { safePiEnvironment } from "./rpc-environment";
-import type { PiQueueSnapshot } from "./types";
+import type {
+  PiExtensionEvent,
+  PiQueueSnapshot,
+  RpcExtensionUIResponse,
+} from "./types";
+
+export type PiRpcEvent = AgentSessionEvent | PiExtensionEvent;
+
+type PiRpcEventListener = (event: PiRpcEvent) => void;
 
 export type PiRpcClient = RpcClient & {
+  onEvent(listener: PiRpcEventListener): () => void;
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
+  respondToExtensionUI(response: RpcExtensionUIResponse): Promise<void>;
 };
 
 export interface PiRpcProviderOptions {
   region?: "us" | "eu" | "dev";
   apiKey: string;
   baseUrl?: string;
+}
+
+interface PiRpcBootstrap {
+  providerOptions: PiRpcProviderOptions;
+  projectTrusted?: boolean;
+  channelMode?: boolean;
 }
 
 type RpcClientProcessAccess = {
@@ -84,8 +102,18 @@ class SecurePiRpcClient extends RpcClient {
   constructor(
     private readonly secureOptions: RpcClientOptions,
     private readonly providerOptions: PiRpcProviderOptions,
+    private readonly projectTrusted: boolean,
+    private readonly channelMode: boolean,
   ) {
     super(secureOptions);
+  }
+
+  onEvent(listener: PiRpcEventListener): () => void;
+  override onEvent(listener: RpcEventListener): () => void;
+  override onEvent(
+    listener: PiRpcEventListener | RpcEventListener,
+  ): () => void {
+    return super.onEvent((event) => listener(event));
   }
 
   override async start(): Promise<void> {
@@ -162,7 +190,11 @@ class SecurePiRpcClient extends RpcClient {
     const bootstrapPipe = child.stdio[3] as Writable | null;
     bootstrapPipe?.on("error", () => {});
     bootstrapPipe?.end(
-      JSON.stringify({ providerOptions: this.providerOptions }),
+      JSON.stringify({
+        providerOptions: this.providerOptions,
+        projectTrusted: this.projectTrusted,
+        channelMode: this.channelMode,
+      } satisfies PiRpcBootstrap),
     );
 
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -180,6 +212,24 @@ class SecurePiRpcClient extends RpcClient {
 
   clearQueue(): Promise<PiQueueSnapshot> {
     return this.sendHostRequest("clear_queue");
+  }
+
+  respondToExtensionUI(response: RpcExtensionUIResponse): Promise<void> {
+    const child = (this as unknown as RpcClientInternals).process;
+    const stdin = child?.stdin;
+    if (!child || !stdin || stdin.destroyed || !stdin.writable) {
+      return Promise.reject(new Error("Pi RPC client is not writable"));
+    }
+
+    return new Promise((resolve, reject) => {
+      stdin.write(`${JSON.stringify(response)}\n`, (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 
   private sendHostRequest(
@@ -265,10 +315,18 @@ export type PiRpcClientOptions = Pick<
 > & {
   sessionFile?: string;
   providerOptions: PiRpcProviderOptions;
+  projectTrusted?: boolean;
+  channelMode?: boolean;
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
-  const { sessionFile, providerOptions, ...rpcOptions } = options;
+  const {
+    sessionFile,
+    providerOptions,
+    projectTrusted,
+    channelMode,
+    ...rpcOptions
+  } = options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
   const cliPath =
     rpcOptions.cliPath ??
@@ -281,5 +339,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       provider: "posthog",
     },
     providerOptions,
+    projectTrusted ?? false,
+    channelMode === true,
   );
 }
