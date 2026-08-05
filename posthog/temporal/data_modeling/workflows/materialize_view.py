@@ -166,6 +166,11 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=20),
+                # Temporal raises timeouts outside the activity, so they skip the transient
+                # classification and the duckgres suspension path never sees them. Without a
+                # total cap, a query that always times out would hold a duckgres worker for
+                # three full attempts every scheduled run.
+                schedule_to_close_timeout=dt.timedelta(minutes=25),
                 # The activity only raises for transient duckgres errors (deterministic
                 # query failures return a result), so retries never repeat a doomed query.
                 retry_policy=temporalio.common.RetryPolicy(
