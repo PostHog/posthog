@@ -37,7 +37,10 @@ export function CohortCriteriaRowBuilder({
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
-    const rowShape = ROWS[type]
+    // Stored criteria can carry a behavioral value that isn't a known ROWS key (legacy or
+    // otherwise unmapped). Fall back to the default event row so the cohort still renders and
+    // stays editable instead of throwing when we later read rowShape.fields.
+    const rowShape = ROWS[type] ?? ROWS[BehavioralEventType.PerformEvent]
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
