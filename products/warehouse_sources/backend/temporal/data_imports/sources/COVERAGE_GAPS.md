@@ -640,7 +640,8 @@ Seventeen tables (10 API endpoints plus 7 webhook event streams) and one of our 
 
 ### Postmark — needs confirmation
 
-Five tables. Delivery config is present, engagement is not.
+Five tables. Delivery config is present, engagement is not. `bounces` also accepts pushed rows
+through the Webhooks API (Bounce and SpamComplaint triggers).
 
 - [ ] Opens and clicks per message.
 - [ ] Outbound overview stats (sends, bounce rate, open rate, spam complaints).
@@ -718,12 +719,14 @@ Two tables (`forms`, `responses`).
 
 ### WooCommerce — needs confirmation
 
-Ten tables, decent coverage.
+Ten tables, decent coverage. Products, orders, coupons and customers can also sync via webhooks
+(`/webhooks`, HMAC-SHA256 signed deliveries) instead of polling.
 
 - [ ] Product variations.
 - [ ] Order refunds and order notes.
 - [ ] Reports endpoints.
-- [ ] Payment gateways, shipping methods, webhooks.
+- [ ] Payment gateways, shipping methods. Webhooks are now managed programmatically for sync, but
+      are not exposed as a table.
 
 ### Slack — needs confirmation
 
@@ -764,7 +767,7 @@ gaps, so that earlier "looks proportionate" read was wrong. See the appendix for
 The two worth pulling forward, because both are higher-adoption than most appendix entries:
 
 - **ActiveCampaign** — no `emailActivities` (per-contact opens and clicks), no e-commerce objects at all (`ecomOrders`, `ecomOrderProducts`, `ecomCustomers`), and no membership tables joining the contacts we sync to the lists and automations we also sync.
-- **Pipedrive** — no deal line items (`deals/{id}/products`), so deal revenue is only readable as a single number; `/deals` excludes archived deals, so closed pipeline history is silently missing; and no `deals/{id}/flow` changelog, so stage-transition and velocity analysis is impossible.
+- **Pipedrive** — no deal line items (`deals/{id}/products`), so deal revenue is only readable as a single number; `/deals` excludes archived deals, so closed pipeline history is silently missing; and no `deals/{id}/flow` changelog, so stage-transition and velocity analysis is impossible. Webhook ingest now supplements the poll for the seven API v2 entity tables (activities, deals, organizations, persons, pipelines, products, stages); the remaining v1-shaped tables stay poll-only.
 
 ## Full sweep results
 
