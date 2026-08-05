@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@posthog/quill";
 import { FolderPicker } from "@posthog/ui/features/folder-picker/FolderPicker";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { RepositoriesField } from "./RepositoriesField";
 
 interface TaskRepositoryDialogProps {
@@ -86,13 +86,18 @@ export function TaskRepositoryDialog({
   const [draftFolder, setDraftFolder] = useState(folder);
   const [saveToSpace, setSaveToSpace] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
-    setDraftRepositories(repositories);
-    setDraftIntegrationId(integrationId);
-    setDraftFolder(folder);
-    setSaveToSpace(false);
-  }, [open, repositories, integrationId, folder]);
+  // Snapshot the current selection into the draft when the dialog opens,
+  // adjusted during render so prop churn while open can't clobber edits.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setDraftRepositories(repositories);
+      setDraftIntegrationId(integrationId);
+      setDraftFolder(folder);
+      setSaveToSpace(false);
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
