@@ -41,7 +41,7 @@ class DataWarehouseSavedQueryVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         return DataWarehouseSavedQuery
 
@@ -55,12 +55,13 @@ class DataWarehouseSavedQueryVisitor(
         warehouse tables / PostHog tables are not copied here — they need their own source setup
         in the destination project and are surfaced as non-portable references instead.
         """
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
         parent_names = cls._resolve_parent_saved_query_names(resource)
         if not parent_names:
             return []
 
-        model = cls.get_model()
-        parents = model.objects.filter(  # type: ignore[attr-defined]
+        parents = DataWarehouseSavedQuery.objects.filter(
             team_id=resource.team_id,
             name__in=parent_names,
             deleted=False,
@@ -71,7 +72,7 @@ class DataWarehouseSavedQueryVisitor(
             edges.append(
                 ResourceTransferEdge(
                     name=f"saved_query_parent:{parent.name}",
-                    target_model=model,
+                    target_model=DataWarehouseSavedQuery,
                     target_primary_key=parent.pk,
                     rewrite_relation=cls._make_parent_name_rewriter(parent.pk, parent.name),
                 )
@@ -110,9 +111,10 @@ class DataWarehouseSavedQueryVisitor(
         is free in the destination we keep it unchanged so sibling queries that reference it by name
         still resolve.
         """
-        model = cls.get_model()
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
         taken: set[str] = set(
-            model.objects.filter(team=team, name__startswith=name).values_list("name", flat=True)  # type: ignore[attr-defined]
+            DataWarehouseSavedQuery.objects.filter(team=team, name__startswith=name).values_list("name", flat=True)
         )
         if name not in taken:
             return name
@@ -135,7 +137,7 @@ class DataWarehouseSavedQueryVisitor(
         if not sql:
             return set()
 
-        from products.data_modeling.backend.models.modeling import get_parents_from_model_query
+        from products.data_modeling.backend.facade.modeling import get_parents_from_model_query
 
         try:
             return get_parents_from_model_query(resource.team, resource.name, sql)
@@ -163,8 +165,8 @@ class DataWarehouseSavedQueryVisitor(
             if vertex is None or vertex.duplicated_resource is None:
                 return payload
 
-            new_name = vertex.duplicated_resource.name
-            if new_name == old_name:
+            new_name = getattr(vertex.duplicated_resource, "name", None)
+            if not new_name or new_name == old_name:
                 return payload
 
             query = payload.get("query")

@@ -6,7 +6,7 @@ from posthog.models.resource_transfer.inter_project_transferer import (
     duplicate_resource_to_new_team,
 )
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
 class TestDataWarehouseSavedQueryTransfer(BaseTest):
