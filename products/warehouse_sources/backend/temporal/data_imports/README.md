@@ -142,137 +142,16 @@ for index, schema_id in enumerate(schema_ids):
     print(f"{index + 1}/{len(schema_ids)}")
 ```
 
-## How to replay load messages for a stuck/failed job in PipelineV3
+## Recovering a stuck or failed load in PipelineV3
 
-When extraction completed but the load consumer failed (OOM, crash, retries exhausted), the parquet files are still in S3. You can replay the Kafka messages to re-trigger just the load phase without re-extracting from the source.
+There is no manual replay step for the load phase.
+The extraction-to-load hand-off is a durable Postgres batch queue (`pipeline_v3/postgres_queue/`), not fire-and-forget messages: batch rows survive consumer crashes, transient failures retry automatically with backoff (`waiting_retry`), a crashed consumer's lease expires and its batches are reclaimed, and a reconcile sweep fails the `ExternalDataJob` for runs whose batches ended up terminally `failed`.
 
-Run this on a `temporal-worker-data-warehouse` pod via `manage.py shell_plus`:
+If a job still ends up failed, re-run the sync with the snippets above (use `reset_pipeline: false` to keep existing data).
+Queue rows and their parquet files are pruned after the queue's retention window (see `postgres_queue/README.md`), so there is nothing to replay from S3 after that point either.
 
-```python
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import list_parquet_files, read_parquet
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import get_base_folder, get_data_folder, strip_s3_protocol
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import ExportSignalMessage, get_warpstream_kafka_producer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker import clear_retry_info
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import is_batch_already_processed
-from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCES_JOBS
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.s3 import get_s3_client
-
-schema_id = '...'  # UUID of the schema to replay
-dry_run = True  # Set to False to actually send messages
-skip_job_check = False  # If True, ignore job status in DB and replay whatever is in S3
-
-schema = ExternalDataSchema.objects.select_related('source').get(id=schema_id)
-source = schema.source
-team_id = schema.team_id
-
-if skip_job_check:
-    # Discover the latest run_uuid folder directly from S3 — strip the trailing run_uuid
-    # segment from get_base_folder to get the schema-level prefix
-    schema_base = get_base_folder(team_id, str(schema.id), '').rstrip('/')
-    schema_prefix = strip_s3_protocol(schema_base)
-    s3 = get_s3_client()
-    try:
-        run_folders = sorted(f.rstrip('/').split('/')[-1] for f in s3.ls(schema_prefix))
-    except FileNotFoundError:
-        run_folders = []
-    if not run_folders:
-        print(f"No S3 run folders found under {schema_prefix}")
-        job = None
-    else:
-        run_uuid = run_folders[-1]
-        job = ExternalDataJob.objects.filter(schema_id=schema_id, workflow_run_id=run_uuid).order_by('-created_at').first()
-        if job is None:
-            print(f"Found S3 run_uuid={run_uuid} but no matching ExternalDataJob")
-else:
-    # Find the latest failed or running job for this schema
-    job = (
-        ExternalDataJob.objects
-        .filter(schema_id=schema_id, status__in=[ExternalDataJob.Status.FAILED, ExternalDataJob.Status.RUNNING])
-        .order_by('-created_at')
-        .first()
-    )
-
-if job is None:
-    print(f"No job available for schema {schema_id}")
-else:
-    run_uuid = job.workflow_run_id
-    print(f"Found job {job.id} (status={job.status}, run_uuid={run_uuid})")
-    base_folder = get_base_folder(team_id, str(schema.id), run_uuid)
-    data_folder = get_data_folder(base_folder)
-    parquet_files = list_parquet_files(data_folder)
-    if not parquet_files:
-        print(f"No parquet files found in {data_folder}")
-    else:
-        print(f"Found {len(parquet_files)} parquet files in {data_folder}")
-    sync_type_config = schema.sync_type_config or {}
-    sync_type = schema.sync_type or 'full_refresh'
-    if sync_type == 'incremental':
-        sync_type_literal = 'incremental'
-    elif sync_type == 'append':
-        sync_type_literal = 'append'
-    else:
-        sync_type_literal = 'full_refresh'
-    total_rows = 0
-    messages = []
-    for i, s3_path in enumerate(parquet_files):
-        pa_table = read_parquet(s3_path)
-        row_count = pa_table.num_rows
-        total_rows += row_count
-        already_processed = is_batch_already_processed(team_id, str(schema.id), run_uuid, i)
-        messages.append({
-            'batch_index': i,
-            's3_path': s3_path,
-            'row_count': row_count,
-            'byte_size': pa_table.nbytes,
-            'already_processed': already_processed,
-        })
-        print(f"  batch {i}: {s3_path} ({row_count} rows) {'[SKIP - already processed]' if already_processed else ''}")
-    print(f"\nTotal: {len(messages)} batches, {total_rows} rows")
-    if not dry_run:
-        producer = get_warpstream_kafka_producer()
-        # Reset job status
-        job.status = ExternalDataJob.Status.RUNNING
-        job.latest_error = None
-        job.finished_at = None
-        job.save()
-        print(f"Reset job {job.id} to RUNNING")
-        for msg_info in messages:
-            # Clear retry info so previously-exhausted retries don't block
-            clear_retry_info(team_id, str(schema.id), run_uuid, msg_info['batch_index'])
-            is_final = msg_info['batch_index'] == len(messages) - 1
-            message = ExportSignalMessage(
-                team_id=team_id,
-                job_id=str(job.id),
-                schema_id=str(schema.id),
-                source_id=str(source.id),
-                resource_name=schema.name,
-                run_uuid=run_uuid,
-                batch_index=msg_info['batch_index'],
-                s3_path=msg_info['s3_path'],
-                row_count=msg_info['row_count'],
-                byte_size=msg_info['byte_size'],
-                is_final_batch=is_final,
-                total_batches=len(messages) if is_final else None,
-                total_rows=total_rows if is_final else None,
-                sync_type=sync_type_literal,
-                data_folder=data_folder if is_final else None,
-                schema_path=None,
-                primary_keys=sync_type_config.get('primary_keys'),
-                is_resume=True,
-                partition_count=sync_type_config.get('partition_count'),
-                partition_size=sync_type_config.get('partition_size'),
-                partition_keys=sync_type_config.get('partition_keys'),
-                partition_format=sync_type_config.get('partition_format'),
-                partition_mode=sync_type_config.get('partition_mode'),
-            )
-            key = f"{team_id}:{schema.id}"
-            producer.produce(topic=KAFKA_WAREHOUSE_SOURCES_JOBS, data=message.to_dict(), key=key)
-        producer.flush()
-        print(f"Sent {len(messages)} messages to {KAFKA_WAREHOUSE_SOURCES_JOBS}")
-    else:
-        print("\nDry run - set dry_run = False to send messages")
-```
+The Kafka-era replay runbook that used to live here reconstructed `ExportSignalMessage`s from S3 and re-produced them to the `data_warehouse_sources_jobs` topic.
+That transport was removed; see git history for the old procedure.
 
 ## How to clean up orphaned S3 data
 

@@ -6,6 +6,7 @@ import { AddressInfo } from 'net'
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
 import { logger } from '~/common/utils/logger'
 
+import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
 import { RecipientsManagerService } from '../../../src/cdp/services/managers/recipients-manager.service'
@@ -25,7 +26,8 @@ import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
+import { isConnectionLevelError } from '../utils/cdp-fetch'
+import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
@@ -50,7 +52,7 @@ const cleanLogs = (logs: string[]): string[] => {
 
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
-    let executor: HogExecutorService
+    let executor: HogExecutorAsyncService
     let hub: Hub
 
     beforeEach(async () => {
@@ -82,19 +84,23 @@ describe('Hog Executor', () => {
             new RecipientsManagerService(hub.postgres)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        executor = new HogExecutorService(
+        executor = new HogExecutorAsyncService(
+            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                siteUrl: hub.SITE_URL,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService,
-            undefined as any
+            {
+                teamManager: hub.teamManager,
+                hogInputsService,
+                emailService,
+                recipientTokensService,
+                // No push sends in this suite - the push queue type is covered by push-notification.service.test.ts
+                pushNotificationService: undefined as any,
+            }
         )
     })
 
@@ -115,7 +121,7 @@ describe('Hog Executor', () => {
                 ],
             }
 
-            const values = executor.getSensitiveValues(hogFunction, inputs)
+            const values = executor.hogExecutor.getSensitiveValues(hogFunction, inputs)
 
             // Without integration_multi + array handling these secrets leak into team-visible logs.
             expect(values).toContain('fcm-secret-token')
@@ -351,311 +357,7 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('filtering', () => {
-        it('builds the correct globals object when filtering', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            const inputGlobals = createHogExecutionGlobals({ groups: {} })
-            expect(inputGlobals.source).toBeUndefined()
-            const results = await executor.buildHogFunctionInvocations([fn], inputGlobals)
-
-            expect(results.invocations).toHaveLength(1)
-
-            expect(results.invocations[0].state.globals.source).toEqual({
-                name: 'Hog Function',
-                url: `http://localhost:8000/projects/1/functions/${fn.id}/configuration/`,
-            })
-        })
-
-        it('can filters incoming messages correctly', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({ groups: {} })
-            )
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({
-                    groups: {},
-                    event: {
-                        event: '$pageview',
-                        properties: {
-                            $current_url: 'https://posthog.com',
-                        },
-                    } as any,
-                })
-            )
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('can use elements_chain_texts', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.elements_text_filter,
-            })
-
-            const elementsChain = (buttonText: string) =>
-                `span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2"text="${buttonText}";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";button.LemonButton.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-default:attr__class="LemonButton LemonButton--secondary LemonButton--status-default LemonButton--has-icon"attr__type="button"nth-child="1"nth-of-type="1"text="${buttonText}";div.flex.gap-4.items-center:attr__class="flex gap-4 items-center"nth-child="1"nth-of-type="1";div.flex.flex-wrap.gap-4.justify-between:attr__class="flex gap-4 justify-between flex-wrap"nth-child="3"nth-of-type="3";div.flex.flex-1.flex-col.gap-4.h-full.relative.w-full:attr__class="relative w-full flex flex-col gap-4 flex-1 h-full"nth-child="1"nth-of-type="1";div.LemonTabs__content:attr__class="LemonTabs__content"nth-child="2"nth-of-type="1";div.LemonTabs.LemonTabs--medium:attr__class="LemonTabs LemonTabs--medium"attr__style="--lemon-tabs-slider-width: 48px; --lemon-tabs-slider-offset: 0px;"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
-
-            const hogGlobals1 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('Not our text'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const hogGlobals2 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('Reload'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('can use elements_chain_href', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.elements_href_filter,
-            })
-
-            const elementsChain = (link: string) =>
-                `span.LemonButton__content:attr__class="LemonButton__content"attr__href="${link}"href="${link}"nth-child="2"nth-of-type="2"text="Activity";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";a.LemonButton.LemonButton--full-width.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-alt.Link.NavbarButton:attr__class="Link LemonButton LemonButton--secondary LemonButton--status-alt LemonButton--full-width LemonButton--has-icon NavbarButton"attr__data-attr="menu-item-activity"attr__href="${link}"href="${link}"nth-child="1"nth-of-type="1"text="Activity";li.w-full:attr__class="w-full"nth-child="6"nth-of-type="6";ul:nth-child="1"nth-of-type="1";div.Navbar3000__top.ScrollableShadows__inner:attr__class="ScrollableShadows__inner Navbar3000__top"nth-child="1"nth-of-type="1";div.ScrollableShadows.ScrollableShadows--vertical:attr__class="ScrollableShadows ScrollableShadows--vertical"nth-child="1"nth-of-type="1";div.Navbar3000__content:attr__class="Navbar3000__content"nth-child="1"nth-of-type="1";nav.Navbar3000:attr__class="Navbar3000"nth-child="1"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
-
-            const hogGlobals1 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('/project/1/not-a-link'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const hogGlobals2 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('/project/1/activity/explore'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('can use elements_chain_tags and _ids', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.elements_tag_and_id_filter,
-            })
-
-            const elementsChain = (id: string) =>
-                `a.Link.font-semibold.text-text-3000.text-xl:attr__class="Link font-semibold text-xl text-text-3000"attr__href="/project/1/dashboard/1"attr__id="${id}"attr_id="${id}"href="/project/1/dashboard/1"nth-child="1"nth-of-type="1"text="My App Dashboard";div.ProjectHomepage__dashboardheader__title:attr__class="ProjectHomepage__dashboardheader__title"nth-child="1"nth-of-type="1";div.ProjectHomepage__dashboardheader:attr__class="ProjectHomepage__dashboardheader"nth-child="2"nth-of-type="2";div.ProjectHomepage:attr__class="ProjectHomepage"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
-
-            const hogGlobals1 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('notfound'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const hogGlobals2 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('homelink'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-    })
-
     describe('mappings', () => {
-        let fn: HogFunctionType
-        beforeEach(() => {
-            fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                mappings: [
-                    {
-                        // Filters for pageview or autocapture
-                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
-                        inputs: {
-                            url: {
-                                order: 0,
-                                value: 'https://example.com?q={event.event}',
-                                bytecode: [
-                                    '_H',
-                                    1,
-                                    32,
-                                    'https://example.com?q=',
-                                    32,
-                                    'event',
-                                    32,
-                                    'event',
-                                    1,
-                                    2,
-                                    2,
-                                    'concat',
-                                    2,
-                                ],
-                            },
-                        },
-                    },
-                    {
-                        // No filters so should match all events
-                        ...HOG_FILTERS_EXAMPLES.no_filters,
-                    },
-
-                    {
-                        // Broken filters so shouldn't match
-                        ...HOG_FILTERS_EXAMPLES.broken_filters,
-                    },
-                ],
-            })
-        })
-
-        it('can build mappings', async () => {
-            const pageviewGlobals = createHogExecutionGlobals({
-                event: {
-                    event: '$pageview',
-                    properties: {
-                        $current_url: 'https://posthog.com',
-                    },
-                } as any,
-            })
-
-            const results1 = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
-            expect(results1.invocations).toHaveLength(2)
-            expect(results1.metrics).toHaveLength(1)
-            expect(results1.logs).toHaveLength(1)
-            expect(results1.logs[0].message).toMatchInlineSnapshot(
-                `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
-            )
-
-            const results2 = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({
-                    event: {
-                        event: 'test',
-                    } as any,
-                })
-            )
-            expect(results2.invocations).toHaveLength(1)
-            expect(results2.metrics).toHaveLength(2)
-            expect(results2.logs).toHaveLength(1)
-
-            expect(results2.metrics[0].metric_name).toBe('filtered')
-            expect(results2.metrics[1].metric_name).toBe('filtering_failed')
-        })
-
-        it('generates the correct inputs', async () => {
-            const pageviewGlobals = createHogExecutionGlobals({
-                event: {
-                    event: '$pageview',
-                    properties: {
-                        $current_url: 'https://posthog.com',
-                    },
-                } as any,
-            })
-
-            const result = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
-            // First mapping has input overrides that should be applied
-            expect(result.invocations[0].state.globals.inputs.headers).toEqual({
-                version: 'v=',
-            })
-            expect(result.invocations[0].state.globals.inputs.url).toMatchInlineSnapshot(
-                `"https://example.com?q=$pageview"`
-            )
-            // Second mapping has no input overrides
-            expect(result.invocations[1].state.globals.inputs.headers).toEqual({
-                version: 'v=',
-            })
-            expect(result.invocations[1].state.globals.inputs.url).toMatchInlineSnapshot(
-                `"https://example.com/posthog-webhook"`
-            )
-        })
-
         it('rebuilds mapping inputs when an invocation arrives without inputs (rerun path)', async () => {
             // The rerun path strips `inputs` from the persisted globals and lets
             // the executor rebuild them. For mapping destinations the mapping's
@@ -1843,7 +1545,9 @@ describe('Hog Executor', () => {
                 },
             }
 
-            jest.spyOn(executor['hogInputsService'], 'loadIntegrationInputs').mockResolvedValue(mockIntegrationInputs)
+            jest.spyOn(executor['deps'].hogInputsService, 'loadIntegrationInputs').mockResolvedValue(
+                mockIntegrationInputs
+            )
 
             const invocation = createExampleInvocation()
             invocation.state.globals.inputs = mockIntegrationInputs
