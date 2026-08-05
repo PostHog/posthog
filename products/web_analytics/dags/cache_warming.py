@@ -1080,9 +1080,9 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                 breakdown = ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items()))
                 context.log.info(
                     f"Warming progress: {processed}/{total} ({100 * processed // total}%) "
-                    # Per-minute: cold passes run well under 1 shape/s, and the
-                    # integer /s rate rendered a healthy 14/min and a wedged
-                    # 1/min identically as "0/s".
+                    # Cold passes run well under 1 shape/s, so only per-minute
+                    # precision distinguishes slow-but-healthy progress from the
+                    # crawl the pass deadline guards against.
                     f"at {rate * 60:.0f}/min, ETA ~{eta_min:.0f}m — {breakdown}"
                 )
                 last_log_at = now
