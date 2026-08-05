@@ -32,7 +32,7 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailLookupHandler, EmailValidationHelper, validate_display_name
+from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
@@ -57,14 +57,10 @@ def _save_session_with_recovery(session: SessionBase) -> None:
         session.create()
 
 
-def _pending_verification_email_notice(user: User) -> str:
-    """Duplicate-email error copy for `user`, noting a pending verification email when one applies."""
-    if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        return (
-            "There is already an account with this email address. We've sent a "
-            "verification email to it, so check your inbox, or log in to resend it."
-        )
-    return "There is already an account with this email address."
+EMAIL_ALREADY_EXISTS_DETAIL = (
+    "There is already an account with this email address. Check your inbox for a "
+    "verification email, or log in to resend it."
+)
 
 
 def verify_email_or_login(request: Request, user: User) -> None:
@@ -401,13 +397,13 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
-        existing_user = None if settings.DEMO else EmailLookupHandler.get_user_by_email(email)
-        if existing_user is not None:
+        email_exists = False if settings.DEMO else EmailValidationHelper.user_exists(email)
+        if email_exists:
             return response.Response(
                 {
                     "email_exists": True,
                     "code": "account_exists",
-                    "detail": _pending_verification_email_notice(existing_user),
+                    "detail": EMAIL_ALREADY_EXISTS_DETAIL,
                 },
                 status=status.HTTP_409_CONFLICT,
             )
