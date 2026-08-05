@@ -1837,6 +1837,23 @@ class TaskPinResponseSerializer(serializers.Serializer):
     pinned = serializers.BooleanField(help_text="Current pin state for the requester.")
 
 
+class ModelChoiceSerializer(serializers.Serializer):
+    runtime_adapter = serializers.CharField(help_text="Runtime that drives this model, such as 'claude' or 'codex'.")
+    model = serializers.CharField(help_text="LLM model identifier to send when starting a run on this model.")
+    display_name = serializers.CharField(help_text="Display name for the model, such as 'Claude Opus 4.8'.")
+    supported_efforts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
+    )
+
+
+class ModelCatalogueResponseSerializer(serializers.Serializer):
+    models = ModelChoiceSerializer(
+        many=True,
+        help_text="Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable.",
+    )
+
+
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
     repository = serializers.CharField(required=True, help_text="Repository in org/repo format")
     window_days = serializers.IntegerField(required=False, default=7, min_value=1, max_value=30)

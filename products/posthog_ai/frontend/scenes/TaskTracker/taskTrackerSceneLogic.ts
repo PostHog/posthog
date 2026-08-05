@@ -11,6 +11,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
     ClaudeRuntimeAdapterEnumApi,
+    type ModelChoiceApi,
     OriginProductEnumApi,
     ReasoningEffortEnumApi,
     type TaskWriteApi,
@@ -23,6 +24,7 @@ import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import type { ComposerSeed } from '../../logics/composerSeedLogic'
+import { modelCatalogueLogic } from '../../logics/modelCatalogueLogic'
 import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
 import type { ActiveCreation } from '../../logics/runnerPanelLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
@@ -75,6 +77,7 @@ export interface taskTrackerSceneLogicValues {
     contextItems: AttachedContextItem[] // attachedContextLogic
     seed: ComposerSeed | null // composerSeedLogic
     integrations: IntegrationType[] | null // integrationsLogic
+    claudeModels: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     historyExpanded: boolean // runnerPanelLogic
@@ -313,6 +316,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['currentProjectId'],
             composerSeedLogic(props),
             ['seed'],
+            modelCatalogueLogic,
+            ['claudeModels'],
         ],
         actions: [
             runnerPanelLogic(props),
@@ -511,7 +516,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     branch: repositoryConfig.branch ?? null,
                     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
                     model,
-                    reasoning_effort: resolveEffortForModel(reasoningEffort, model),
+                    reasoning_effort: resolveEffortForModel(values.claudeModels, reasoningEffort, model),
                     initial_permission_mode: permissionMode,
                     // Interactive keeps the sandbox agent-server's event stream open across turns, so
                     // follow-up messages stream their reply over the same SSE (background runs seal the

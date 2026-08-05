@@ -11,6 +11,7 @@ import {
     Suggestions,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
+import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
 
@@ -27,6 +28,7 @@ export function TaskComposer(): JSX.Element {
         useActions(taskTrackerSceneLogic)
     const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline, consentBlocked } =
         useValues(taskTrackerSceneLogic)
+    const { claudeModels } = useValues(modelCatalogueLogic)
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
     // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
@@ -83,12 +85,14 @@ export function TaskComposer(): JSX.Element {
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
                                     />
                                     <ComposerModelEffortPickers
+                                        models={claudeModels}
                                         selectedModel={newTaskData.model}
                                         selectedEffort={newTaskData.reasoningEffort}
                                         onModelChange={(model) =>
                                             setNewTaskData({
                                                 model,
                                                 reasoningEffort: resolveEffortForModel(
+                                                    claudeModels,
                                                     newTaskData.reasoningEffort,
                                                     model
                                                 ),

@@ -43057,6 +43057,22 @@ export namespace Schemas {
       readonly last_seen_at: string | null;
     }
 
+    export interface ModelChoice {
+      /** Runtime that drives this model, such as 'claude' or 'codex'. */
+      runtime_adapter: string;
+      /** LLM model identifier to send when starting a run on this model. */
+      model: string;
+      /** Display name for the model, such as 'Claude Opus 4.8'. */
+      display_name: string;
+      /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
+      supported_efforts: string[];
+    }
+
+    export interface ModelCatalogueResponse {
+      /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
+      models: ModelChoice[];
+    }
+
     /**
      * * `FeatureFlag` - feature flag
      */

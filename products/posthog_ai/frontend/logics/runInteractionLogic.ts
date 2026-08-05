@@ -20,6 +20,7 @@ import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/
 import {
     ClaudeRuntimeAdapterEnumApi,
     type ClaudeTaskRunCreateSchemaApi,
+    type ModelChoiceApi,
     type ReasoningEffortEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -27,6 +28,7 @@ import { type AttachedContextItem, attachedContextItemKey } from '../types/conte
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
+import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
@@ -72,6 +74,7 @@ const MODE_CONFIG_ID = 'mode'
 export interface runInteractionLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
+    claudeModels: ModelChoiceApi[] // modelCatalogueLogic
     seenContextLinesByTask: Record<string, string[]> // attachedContextLogic
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
     currentProjectId: number | null // projectLogic
@@ -347,6 +350,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['contextItems', 'sentContextKeysByTask', 'seenContextLinesByTask'],
             aiConsentLogic,
             ['dataProcessingAccepted'],
+            modelCatalogueLogic,
+            ['claudeModels'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -535,9 +540,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             (override: string | null, current): string => override ?? current ?? DEFAULT_COMPOSER_MODEL,
         ],
         selectedEffort: [
-            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.selectedModel],
-            (override: string | null, current, model: string): ReasoningEffortEnumApi =>
-                resolveEffortForModel(override ?? current ?? DEFAULT_COMPOSER_EFFORT, model),
+            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.selectedModel, s.claudeModels],
+            (
+                override: string | null,
+                current: string | null | undefined,
+                model: string,
+                catalogue: ModelChoiceApi[]
+            ): ReasoningEffortEnumApi =>
+                resolveEffortForModel(catalogue, override ?? current ?? DEFAULT_COMPOSER_EFFORT, model),
         ],
         // The permission mode to display and launch with: the client-side override, else the session's live
         // mode (from the stream's `current_mode_update` frames), else the run's stored launch mode, else the
@@ -643,6 +653,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // successful sync so the next send retries an unsent change.
                     const activeModel = values.sentModel ?? props.currentModel ?? DEFAULT_COMPOSER_MODEL
                     const activeEffort = resolveEffortForModel(
+                        values.claudeModels,
                         values.sentEffort ?? props.currentEffort ?? DEFAULT_COMPOSER_EFFORT,
                         activeModel
                     )
@@ -711,7 +722,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             // unsupported value. No network here: the pick is synced to the agent at send time.
             setModel: ({ model }) => {
                 const currentEffort = values.effortOverride ?? props.currentEffort
-                const resolvedEffort = resolveEffortForModel(currentEffort, model)
+                const resolvedEffort = resolveEffortForModel(values.claudeModels, currentEffort, model)
                 if (resolvedEffort !== currentEffort) {
                     actions.setEffort(resolvedEffort)
                 }

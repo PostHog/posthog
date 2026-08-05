@@ -66,6 +66,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
 )
+from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
@@ -80,6 +81,7 @@ from products.tasks.backend.facade.streams import (
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
+    ModelCatalogueResponseSerializer,
     PinnedTaskIdsResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
@@ -434,6 +436,33 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if user_id is None:
             raise NotFound()
         return Response({"task_ids": tasks_facade.list_pinned_task_ids(self.team_id, user_id)})
+
+    @extend_schema(
+        responses={200: ModelCatalogueResponseSerializer},
+        summary="List available models",
+        description=(
+            "Return the models a task run may use, with the reasoning efforts each one supports. "
+            "Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. "
+            "An empty list means the gateway is unreachable — clients should fall back to their own default rather "
+            "than treating it as 'no models exist'."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="model_catalogue", required_scopes=["task:read"])
+    def model_catalogue(self, request, **kwargs):
+        choices = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+        return Response(
+            {
+                "models": [
+                    {
+                        "runtime_adapter": choice.runtime_adapter,
+                        "model": choice.model,
+                        "display_name": choice.label,
+                        "supported_efforts": list(choice.supported_efforts),
+                    }
+                    for choice in choices
+                ]
+            }
+        )
 
     @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
     @action(detail=True, methods=["post"], url_path="pin", required_scopes=["task:write"])

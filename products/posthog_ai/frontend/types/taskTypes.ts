@@ -68,6 +68,9 @@ export interface TaskRun {
     branch: string | null
     status: TaskRunStatus
     environment: TaskRunEnvironment
+    runtime_adapter: string | null
+    model: string | null
+    reasoning_effort: string | null
     log_url: string | null
     error_message: string | null
     output: Record<string, any> | null

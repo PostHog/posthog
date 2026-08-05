@@ -108,12 +108,14 @@ def non_admin_user():
 
 @pytest.fixture(autouse=True)
 def _stub_picker_facade():
-    """Stub `tasks.facade.run_config` and the LLM-gateway model fetch.
+    """Stub the tasks run-config module and the LLM-gateway model fetch.
 
-    The tasks facade pulls in `tasks.temporal` on import, which the test env
-    can't satisfy. The gateway fetch would hit a real network. Both get
-    replaced with deterministic in-memory fakes covering every model the
-    renderer and handler tests reference.
+    The tasks run-config module pulls in `tasks.temporal` on import, which the
+    test env can't satisfy — it is stubbed under both the name the facade
+    re-exports it as and the internal name the catalogue defers to. The gateway
+    fetch would hit a real network. All get replaced with deterministic
+    in-memory fakes covering every model the renderer and handler tests
+    reference.
     """
 
     class _Effort:
@@ -193,26 +195,25 @@ def _stub_picker_facade():
         _GatewayModel(id="gpt-5", owned_by="openai"),
         _GatewayModel(id="gpt-5.5", owned_by="openai"),
     )
-    llm_models_name = "products.slack_app.backend.services.llm_models"
-    fake_llm_models: Any = ModuleType(llm_models_name)
-    fake_llm_models.list_slack_app_models = lambda: gateway_models
-    fake_llm_models.GatewayModel = _GatewayModel
+    # The catalogue defers to the internal run-config module, so the stub has to stand in
+    # under that name as well as the facade name other slack_app services import.
+    utils_name = "products.tasks.backend.temporal.process_task.utils"
 
-    saved_facade = sys.modules.get(facade_name)
-    saved_llm = sys.modules.get(llm_models_name)
+    saved = {name: sys.modules.get(name) for name in (facade_name, utils_name)}
     sys.modules[facade_name] = fake
-    sys.modules[llm_models_name] = fake_llm_models
+    sys.modules[utils_name] = fake
     try:
-        yield
+        with patch(
+            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+            return_value=gateway_models,
+        ):
+            yield
     finally:
-        if saved_facade is None:
-            sys.modules.pop(facade_name, None)
-        else:
-            sys.modules[facade_name] = saved_facade
-        if saved_llm is None:
-            sys.modules.pop(llm_models_name, None)
-        else:
-            sys.modules[llm_models_name] = saved_llm
+        for name, module in saved.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
 
 
 # ---------------------------------------------------------------------------

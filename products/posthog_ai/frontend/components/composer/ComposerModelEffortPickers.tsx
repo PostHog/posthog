@@ -11,15 +11,12 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
 
-import {
-    COMPOSER_MODELS,
-    getEffortLabel,
-    getEffortsForModel,
-    getModelLabel,
-} from 'products/posthog_ai/frontend/utils/composerModels'
-import { ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { getEffortLabel, getEffortsForModel, getModelLabel } from 'products/posthog_ai/frontend/utils/composerModels'
+import { ModelChoiceApi, ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 export interface ComposerModelEffortPickersProps {
+    /** Models to offer, and the efforts each supports. Callers pass `modelCatalogueLogic`'s live catalogue. */
+    models: ModelChoiceApi[]
     selectedModel: string
     selectedEffort: ReasoningEffortEnumApi
     onModelChange: (model: string) => void
@@ -33,12 +30,13 @@ export interface ComposerModelEffortPickersProps {
  * renders the dropdowns and reports changes up.
  */
 export function ComposerModelEffortPickers({
+    models,
     selectedModel,
     selectedEffort,
     onModelChange,
     onEffortChange,
 }: ComposerModelEffortPickersProps): JSX.Element {
-    const effortOptions = getEffortsForModel(selectedModel)
+    const effortOptions = getEffortsForModel(models, selectedModel)
     const [modelOpen, setModelOpen] = useState(false)
     const [effortOpen, setEffortOpen] = useState(false)
 
@@ -48,7 +46,7 @@ export function ComposerModelEffortPickers({
                 <DropdownMenuTrigger
                     render={
                         <Button variant="outline" size="sm">
-                            {getModelLabel(selectedModel)}
+                            {getModelLabel(models, selectedModel)}
                             <IconChevronDown />
                         </Button>
                     }
@@ -62,9 +60,9 @@ export function ComposerModelEffortPickers({
                         }}
                     >
                         <DropdownMenuLabel>Model</DropdownMenuLabel>
-                        {COMPOSER_MODELS.map((option) => (
-                            <DropdownMenuRadioItem key={option.value} value={option.value}>
-                                {option.label}
+                        {models.map((option) => (
+                            <DropdownMenuRadioItem key={option.model} value={option.model}>
+                                {option.display_name}
                             </DropdownMenuRadioItem>
                         ))}
                     </DropdownMenuRadioGroup>
