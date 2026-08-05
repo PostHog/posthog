@@ -22,6 +22,7 @@ import {
     timeToDailyCron,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
+import { ScoutTagsEditor } from './ScoutTagsEditor'
 
 interface ScoutConfigControlsProps {
     config: SignalScoutConfig
@@ -178,6 +179,13 @@ export function ScoutConfigForm({
                     onChange={(checked) => onUpdate(config.id, { auto_pause_exempt: checked })}
                     aria-label={`${config.skill_name} opt out of auto-pause`}
                 />
+            </div>
+            <div className="flex flex-col gap-1">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Tags</span>
+                    <span className="text-[11.5px] text-muted">Use tags to group scouts and filter the list.</span>
+                </div>
+                <ScoutTagsEditor config={config} onUpdate={onUpdate} updating={updating} />
             </div>
             <ScoutSlackDestination
                 destination={config.output_destinations?.slack}

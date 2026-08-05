@@ -9146,6 +9146,31 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
             ],
         }
 
+    def _original_with_scalars(self, snapshot: dict) -> dict:
+        """The extended base the frontend sends: metric collections plus the scalar fields the
+        experiment surfaces PATCH, so the server can three-way merge scalars per field too."""
+        return {
+            **self._original(snapshot),
+            **{
+                field: snapshot.get(field)
+                for field in (
+                    "name",
+                    "description",
+                    "start_date",
+                    "end_date",
+                    "exposure_criteria",
+                    "stats_config",
+                    "running_time_calculation",
+                    "holdout_id",
+                    "conclusion",
+                    "conclusion_comment",
+                    "parameters",
+                    "excluded_variants",
+                    "only_count_matured_users",
+                )
+            },
+        }
+
     def _events(self, metrics: list) -> set[str]:
         return {metric["source"]["event"] for metric in metrics}
 
@@ -9277,7 +9302,7 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         else:
             self.assertEqual(current_value, their_value)
 
-    def test_stale_scalar_write_conflicts_with_any_concurrent_change(self) -> None:
+    def test_stale_scalar_write_without_base_value_conflicts_with_any_concurrent_change(self) -> None:
         snapshot = self._create_experiment("stale-scalar", metrics=[self._metric("base")])
         concurrent = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]})
         self.assertEqual(concurrent.status_code, status.HTTP_200_OK)
@@ -9293,6 +9318,143 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(stale_description_write.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("description", stale_description_write.json()["conflicting_fields"])
+
+    def test_stale_start_date_change_merges_over_concurrent_calculator_autosave(self) -> None:
+        # Incident replay: the running-time calculator auto-saves its estimate on results load,
+        # silently bumping the version; the user's start-date change from the same (now stale)
+        # tab must apply instead of 409ing. Also exercises the datetime base: the client echoes
+        # the ISO string it read while the row holds a datetime.
+        created = self._create_experiment("autosave-race", metrics=[self._metric("base")])
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{created['id']}/launch/")
+        self.assertEqual(launch.status_code, status.HTTP_200_OK, launch.json())
+        snapshot = launch.json()
+
+        autosave = self._patch(
+            snapshot["id"],
+            {"running_time_calculation": {"recommended_running_time": 12, "recommended_sample_size": 3400}},
+        )
+        self.assertEqual(autosave.status_code, status.HTTP_200_OK)
+
+        new_start = "2026-07-27T16:10:00Z"
+        stale_start_date_write = self._patch(
+            snapshot["id"],
+            {
+                "start_date": new_start,
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_start_date_write.status_code, status.HTTP_200_OK, stale_start_date_write.json())
+        result = stale_start_date_write.json()
+        self.assertEqual(parser.parse(result["start_date"]), parser.parse(new_start))
+        self.assertEqual(result["running_time_calculation"]["recommended_running_time"], 12)
+
+    @parameterized.expand(
+        [
+            ("with_scalar_base", True),
+            ("without_scalar_base", False),
+        ]
+    )
+    def test_stale_write_resending_unchanged_scalar_is_not_a_conflict(self, _name: str, with_base: bool) -> None:
+        # The distribution modal resends holdout_id even when the user only changed the variant
+        # split; an unchanged value must not conflict just because the write is stale.
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name=f"Concurrency holdout {_name}",
+            filters=[{"properties": [], "rollout_percentage": 10, "variant": "holdout-x"}],
+            created_by=self.user,
+        )
+        created = self._create_experiment(f"noop-holdout-{with_base}", metrics=[self._metric("base")])
+        linked = self._patch(created["id"], {"holdout_id": holdout.id})
+        self.assertEqual(linked.status_code, status.HTTP_200_OK)
+        snapshot = linked.json()
+
+        concurrent = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]})
+        self.assertEqual(concurrent.status_code, status.HTTP_200_OK)
+
+        stale_echo = self._patch(
+            snapshot["id"],
+            {
+                "holdout_id": holdout.id,
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot) if with_base else self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_echo.status_code, status.HTTP_200_OK, stale_echo.json())
+        self.assertEqual(stale_echo.json()["holdout_id"], holdout.id)
+        self.assertEqual(self._events(stale_echo.json()["metrics"]), {"base", "theirs"})
+
+    def test_stale_write_echoing_base_scalar_does_not_revert_concurrent_edit(self) -> None:
+        # A form save resends fields the user didn't touch; echoing the base value must not
+        # revert what a teammate changed meanwhile, while the user's own edit still applies.
+        snapshot = self._create_experiment("echo-base", metrics=[self._metric("base")])
+        their_edit = self._patch(snapshot["id"], {"description": "rewritten by a teammate"})
+        self.assertEqual(their_edit.status_code, status.HTTP_200_OK)
+
+        stale_form_save = self._patch(
+            snapshot["id"],
+            {
+                "description": snapshot["description"],
+                "name": "New name from the stale tab",
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_form_save.status_code, status.HTTP_200_OK, stale_form_save.json())
+        self.assertEqual(stale_form_save.json()["description"], "rewritten by a teammate")
+        self.assertEqual(stale_form_save.json()["name"], "New name from the stale tab")
+
+    def test_stale_same_scalar_field_double_edit_still_conflicts(self) -> None:
+        # All three values must differ: an edit that matches the base is not "my change"
+        # (the echo rule), and one that matches the current value is a no-op.
+        snapshot = self._create_experiment("double-scalar", metrics=[self._metric("base")])
+        their_edit = self._patch(snapshot["id"], {"description": "their rewrite"})
+        self.assertEqual(their_edit.status_code, status.HTTP_200_OK)
+
+        stale_conflicting_edit = self._patch(
+            snapshot["id"],
+            {
+                "description": "my rewrite",
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_conflicting_edit.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(stale_conflicting_edit.json()["conflicting_fields"], ["description"])
+        experiment = Experiment.objects.get(id=snapshot["id"])
+        self.assertEqual(experiment.description, "their rewrite")
+
+    def test_stale_variant_notes_write_merges_on_flag_linked_experiment(self) -> None:
+        # Incident replay for the variant notes/images path: reads project the linked flag's
+        # config into `parameters` while writes strip it before storage, so the client's base
+        # never matches the stored column byte-for-byte — the merge must compare `parameters`
+        # in stored shape instead of treating the projection as a concurrent edit.
+        snapshot = self._create_experiment("notes-over-autosave", metrics=[self._metric("base")])
+        self.assertIn("feature_flag_variants", snapshot["parameters"])
+
+        autosave = self._patch(
+            snapshot["id"],
+            {"running_time_calculation": {"recommended_running_time": 9, "recommended_sample_size": 1200}},
+        )
+        self.assertEqual(autosave.status_code, status.HTTP_200_OK)
+
+        stale_notes_write = self._patch(
+            snapshot["id"],
+            {
+                "parameters": {**snapshot["parameters"], "variant_notes": {"control": "baseline notes"}},
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_notes_write.status_code, status.HTTP_200_OK, stale_notes_write.json())
+        result = stale_notes_write.json()
+        self.assertEqual(result["parameters"]["variant_notes"], {"control": "baseline notes"})
+        self.assertEqual(result["running_time_calculation"]["recommended_running_time"], 9)
 
     def test_stale_reorder_keeps_relative_order_and_appends_concurrent_addition(self) -> None:
         snapshot = self._create_experiment("reorder", metrics=[self._metric("m1"), self._metric("m2")])
