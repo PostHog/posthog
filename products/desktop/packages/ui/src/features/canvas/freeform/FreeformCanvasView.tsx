@@ -96,9 +96,6 @@ export function FreeformCanvasView({
   const dashboardId = dashboardIdOf(threadId);
   const { runtimeError, browseVersionId } = useFreeformThread(threadId);
   const setBrowseVersion = useFreeformChatStore((s) => s.setBrowseVersion);
-  const setDisplayedVersion = useFreeformChatStore(
-    (s) => s.setDisplayedVersion,
-  );
   const setRuntimeError = useFreeformChatStore((s) => s.setRuntimeError);
 
   // Right-hand panel state (persisted minimize + width). `startedTaskId` is a
@@ -307,16 +304,16 @@ export function FreeformCanvasView({
   const displayedVersionId = browsing
     ? browseVersionId
     : (publishedBuild?.sourceVersionId ?? headVersionId);
+  const selectionVersionRef = useRef(displayedVersionId);
   useEffect(() => {
-    setDisplayedVersion(threadId, displayedVersionId);
+    if (selectionVersionRef.current === displayedVersionId) return;
+    selectionVersionRef.current = displayedVersionId;
     setTextSelection(null);
-  }, [displayedVersionId, setDisplayedVersion, threadId]);
+  }, [displayedVersionId]);
   const commentVersionLabel = useCallback(
     (versionId: string) => {
       const index = versions.findIndex((version) => version.id === versionId);
-      return index === -1
-        ? "Saved version"
-        : `v${versions.length - index}/${versions.length}`;
+      return index === -1 ? "Saved version" : `v${versions.length - index}`;
     },
     [versions],
   );

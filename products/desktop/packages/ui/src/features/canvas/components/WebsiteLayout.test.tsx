@@ -1,7 +1,7 @@
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
@@ -54,29 +54,32 @@ vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useDashboard,
   useDashboardMutations: () => ({}),
 }));
-vi.mock(
-  "@posthog/ui/features/sessions/components/ArtifactDocumentCommentAction",
-  () => ({
-    ArtifactDocumentCommentAction: ({
-      taskId,
-      context,
-      onCreated,
-    }: {
-      taskId: string;
-      context?: unknown;
-      onCreated?: (commentId: string) => void;
-    }) => (
-      <button
-        type="button"
-        data-testid="canvas-comment-action"
-        data-context={JSON.stringify(context)}
-        onClick={() => onCreated?.("comment-1")}
-      >
-        {taskId}
-      </button>
-    ),
+vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
+  useCommentsQuery: () => ({
+    data: [
+      {
+        id: "comment-1",
+        created_at: "2026-01-01T00:00:00Z",
+        content: "First",
+        item_id: "canvas-1",
+        item_context: { anchor: { kind: "document" } },
+        scope: "desktop_canvas",
+        source_comment: null,
+        completed_at: null,
+      },
+      {
+        id: "comment-2",
+        created_at: "2026-01-01T00:01:00Z",
+        content: "Second",
+        item_id: "canvas-1",
+        item_context: { anchor: { kind: "document" } },
+        scope: "desktop_canvas",
+        source_comment: null,
+        completed_at: null,
+      },
+    ],
   }),
-);
+}));
 vi.mock("@posthog/ui/features/canvas/stores/dashboardEditStore", () => ({
   useDashboardEditStore: (sel: (s: unknown) => unknown) =>
     sel({ setEditing: vi.fn() }),
@@ -90,7 +93,6 @@ vi.mock("@posthog/ui/features/canvas/freeform/CanvasFrameHost", () => ({
 }));
 
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
-import { useFreeformChatStore } from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { WebsiteLayout } from "./WebsiteLayout";
 
@@ -130,14 +132,7 @@ function renderLayout({
 }
 
 describe("WebsiteLayout task header actions", () => {
-  beforeEach(() => {
-    useFreeformChatStore.setState({ threads: {} });
-  });
-
-  it("offers document comments on a task-generated canvas", () => {
-    useFreeformChatStore
-      .getState()
-      .setDisplayedVersion("dashboard:canvas-1", "version-2");
+  it("shows the open comment count and opens canvas comments", () => {
     renderLayout({
       pathname: "/website/chan-1/dashboards/canvas-1",
       params: { channelId: "chan-1", dashboardId: "canvas-1" },
@@ -148,18 +143,11 @@ describe("WebsiteLayout task header actions", () => {
       },
     });
 
-    expect(screen.getByTestId("canvas-comment-action")).toHaveTextContent(
-      "task-1",
-    );
-    expect(screen.getByTestId("canvas-comment-action")).toHaveAttribute(
-      "data-context",
-      JSON.stringify({
-        anchor: { kind: "document" },
-        canvasVersionId: "version-2",
-      }),
+    expect(screen.getByRole("button", { name: /Comments/ })).toHaveTextContent(
+      "Comments2",
     );
     useCanvasChatPanelStore.setState({ collapsed: true, tab: "chat" });
-    fireEvent.click(screen.getByTestId("canvas-comment-action"));
+    fireEvent.click(screen.getByRole("button", { name: /Comments/ }));
     expect(useCanvasChatPanelStore.getState()).toMatchObject({
       collapsed: false,
       tab: "comments",

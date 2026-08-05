@@ -61,6 +61,7 @@ import type { HighlightResolution } from "@posthog/ui/features/sessions/componen
 import { readCommentContext } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import {
   useCommentsForTargetsQuery,
+  useCommentsQuery,
   useCreateComment,
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
@@ -319,10 +320,19 @@ export function TaskCommentsList({
     () => sources.map((source) => source.target),
     [sources],
   );
-  const commentsQuery = useCommentsForTargetsQuery(targets, task.id, {
-    live: true,
-    intervalMs: onlySource ? 5_000 : POLL_INTERVAL_MS,
-  });
+  const singleSourceComments = useCommentsQuery(
+    onlySource?.target ?? null,
+    task.id,
+  );
+  const taskComments = useCommentsForTargetsQuery(
+    onlySource ? [] : targets,
+    task.id,
+    {
+      live: true,
+      intervalMs: POLL_INTERVAL_MS,
+    },
+  );
+  const commentsQuery = onlySource ? singleSourceComments : taskComments;
   const prUrls = useMemo(
     () =>
       onlySource

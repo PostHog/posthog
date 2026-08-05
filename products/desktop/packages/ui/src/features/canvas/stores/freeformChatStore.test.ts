@@ -29,12 +29,10 @@ describe("freeformChatStore", () => {
     const { threads } = useFreeformChatStore.getState();
     expect(threads["dashboard:1"]).toEqual({
       browseVersionId: "v1",
-      displayedVersionId: null,
       runtimeError: "boom",
     });
     expect(threads["dashboard:2"]).toEqual({
       browseVersionId: null,
-      displayedVersionId: null,
       runtimeError: "other",
     });
   });
@@ -47,16 +45,5 @@ describe("freeformChatStore", () => {
     expect(useFreeformChatStore.getState().threads["dashboard:1"]).toEqual(
       EMPTY_FREEFORM_THREAD,
     );
-  });
-
-  it("tracks the immutable version currently rendered", () => {
-    useFreeformChatStore
-      .getState()
-      .setDisplayedVersion("dashboard:1", "version-2");
-
-    expect(
-      useFreeformChatStore.getState().threads["dashboard:1"]
-        ?.displayedVersionId,
-    ).toBe("version-2");
   });
 });

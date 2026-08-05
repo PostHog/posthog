@@ -88,8 +88,17 @@ vi.mock("@posthog/ui/features/code-review/hooks/usePrCommentActions", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
+  useCommentsQuery: (target: unknown) => {
+    if (target) mocks.queriedTargets.push([target]);
+    return {
+      data: mocks.comments,
+      isLoading: false,
+    };
+  },
   useCommentsForTargetsQuery: (targets: unknown) => {
-    mocks.queriedTargets.push(targets);
+    if (Array.isArray(targets) && targets.length > 0) {
+      mocks.queriedTargets.push(targets);
+    }
     return {
       data: mocks.comments,
       isLoading: false,
@@ -246,7 +255,7 @@ describe("TaskCommentsList", () => {
           url: null,
         }}
         canvasVersionId="version-2"
-        commentVersionLabel={() => "v2/3"}
+        commentVersionLabel={() => "v2"}
         onCanvasCommentOpen={onCanvasCommentOpen}
       />,
     );
@@ -256,7 +265,7 @@ describe("TaskCommentsList", () => {
     ]);
     expect(screen.getByText("Canvas feedback")).toBeInTheDocument();
     expect(screen.getByText("“important copy”")).toBeInTheDocument();
-    expect(screen.getByText(/Selected text · v2\/3/)).toBeInTheDocument();
+    expect(screen.getByText(/Selected text · v2/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Filter by source")).not.toBeInTheDocument();
     expect(screen.queryByText("Launch canvas")).not.toBeInTheDocument();
     expect(mocks.createdFor.at(-1)).toEqual({

@@ -1,5 +1,6 @@
 import {
   ArrowClockwiseIcon,
+  ChatCircleIcon,
   DotsThreeIcon,
   LinkIcon,
   PencilSimpleIcon,
@@ -42,10 +43,9 @@ import {
   useDashboardEditStore,
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
-import { useFreeformThread } from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
-import { ArtifactDocumentCommentAction } from "@posthog/ui/features/sessions/components/ArtifactDocumentCommentAction";
+import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
+import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -285,7 +285,18 @@ function CanvasBreadcrumb({
   const { renameDashboard } = useDashboardMutations();
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
-  const { displayedVersionId } = useFreeformThread(`dashboard:${dashboardId}`);
+  const commentTarget = {
+    scope: "desktop_canvas" as const,
+    itemId: dashboardId,
+  };
+  const comments = useCommentsQuery(
+    dashboard?.generationTaskId ? commentTarget : null,
+    dashboard?.generationTaskId ?? "",
+    { live: true },
+  );
+  const openCommentCount = buildCommentThreads(comments.data ?? []).filter(
+    (thread) => !thread.resolved,
+  ).length;
 
   return (
     <ChannelBreadcrumb
@@ -303,26 +314,13 @@ function CanvasBreadcrumb({
       trailing={
         <>
           {dashboard?.generationTaskId && (
-            <ArtifactDocumentCommentAction
-              target={{ scope: "desktop_canvas", itemId: dashboardId }}
-              taskId={dashboard.generationTaskId}
-              context={{
-                anchor: { kind: "document" },
-                ...(displayedVersionId
-                  ? { canvasVersionId: displayedVersionId }
-                  : {}),
-              }}
-              onCreated={(commentId) => {
-                openComments();
-                useCommentNavigationStore
-                  .getState()
-                  .requestCommentFocus(
-                    dashboard.generationTaskId as string,
-                    { scope: "desktop_canvas", itemId: dashboardId },
-                    commentId,
-                  );
-              }}
-            />
+            <Button size="sm" variant="outline" onClick={openComments}>
+              <ChatCircleIcon />
+              Comments
+              {openCommentCount > 0 && (
+                <span className="tabular-nums">{openCommentCount}</span>
+              )}
+            </Button>
           )}
           {trailing}
         </>
