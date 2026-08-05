@@ -14,6 +14,8 @@ import {
   ComboboxTrigger,
   InputGroupAddon,
   InputGroupButton,
+  Spinner,
+  Text,
 } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { defaultFilter } from "cmdk";
@@ -251,10 +253,23 @@ export function GitHubRepoPicker({
             ) : null}
           </ComboboxInput>
         ) : null}
-        <ComboboxEmpty>
-          {showInlineLoadingState
-            ? "Loading repositories..."
-            : "No repositories found."}
+        <ComboboxEmpty
+          className={
+            showInlineLoadingState
+              ? "flex-1 flex-col items-center justify-center gap-2"
+              : undefined
+          }
+        >
+          {showInlineLoadingState ? (
+            <>
+              <Spinner className="size-4" />
+              <Text size="sm" variant="muted">
+                Loading repositories
+              </Text>
+            </>
+          ) : (
+            "No repositories found."
+          )}
         </ComboboxEmpty>
         <ComboboxList
           className="flex-1"
