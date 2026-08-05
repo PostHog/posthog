@@ -3977,13 +3977,14 @@ mod tests {
 
     #[tokio::test]
     async fn import_mode_historical_batch_never_overflows() {
-        // Import's no-overflow guarantee on the v1 path. With AI routing off (the
-        // deployment config), every event in a historical batch is rerouted to
-        // AnalyticsHistorical before overflow stamping, which only touches
-        // AnalyticsMain/AiEvents. Even with the burst overflow limiter armed at
-        // burst=1 and all three events sharing one token:distinct_id — which would
-        // overflow the 2nd and 3rd in Events mode — nothing lands on
-        // events_overflow or the AI lanes.
+        // Import's no-overflow guarantee on the v1 path. Non-AI events in a
+        // historical batch reroute to AnalyticsHistorical before overflow
+        // stamping (which only touches AnalyticsMain), and $ai_* events divert
+        // to the AI lane, which cannot stamp overflow while the AI overflow
+        // valve is unset — the capture-import config. Even with the burst
+        // overflow limiter armed at burst=1 and all three events sharing one
+        // token:distinct_id — which would overflow the 2nd and 3rd in Events
+        // mode — nothing lands on events_overflow or the AI overflow lane.
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
             .with_overflow_limiter(1, 1)
@@ -4006,23 +4007,27 @@ mod tests {
         ts.mock_producer.with_records(|records| {
             assert_eq!(records.len(), 3, "all three historical events must publish");
             for r in records {
+                let expected = if r.payload.contains("$ai_generation") {
+                    "ai_events"
+                } else {
+                    "events_hist"
+                };
                 assert_eq!(
-                    r.topic, "events_hist",
-                    "Import must route every event to the historical topic, got {}",
-                    r.topic,
+                    r.topic, expected,
+                    "unexpected lane for a historical import event",
                 );
             }
         });
     }
 
     #[tokio::test]
-    async fn import_mode_keeps_ai_events_on_historical_lane() {
-        // Pins the no-overflow guarantee for imports: Import mode never routes
-        // AI events (`CaptureMode::routes_ai_events`), so a historical batch's
-        // $ai_* event stays on the historical lane. If Import routed AI events,
-        // v1 would assign AiEvents up front (apply_historical_rerouting only
-        // reroutes AnalyticsMain) and the AI lane would become reachable and
-        // overflowable from imports.
+    async fn import_mode_routes_ai_events_to_ai_lane() {
+        // A historical batch's $ai_* event diverts to the AI lane, winning
+        // over historical: only the AI lane has AI processing (cost
+        // enrichment, the ai_events double-write), so leaving it on the
+        // historical lane would import it incorrectly. Import's no-overflow
+        // guarantee holds by config: capture-import leaves the AI overflow
+        // valve unset, and an unarmed valve never stamps overflow.
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
             .build();
@@ -4036,7 +4041,7 @@ mod tests {
 
         ts.mock_producer.with_records(|records| {
             assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, "events_hist");
+            assert_eq!(records[0].topic, "ai_events");
         });
     }
 

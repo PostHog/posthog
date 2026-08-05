@@ -49,12 +49,15 @@ impl CaptureMode {
     }
 
     /// Whether the analytics pipelines divert `$ai_*` events to the dedicated
-    /// AI topic (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`). Only `Events` does: `Ai` deployments
-    /// already produce to the AI lane as their main topic, and `Import` must
-    /// keep historical backfills on the historical lane (the AI lane never
-    /// reroutes historical, so diverting there would make imports overflowable).
+    /// AI topic (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`). `Events` and `Import` do — the AI
+    /// lane is the only pipeline with AI processing (cost enrichment, the
+    /// ai_events double-write), so historical backfills must divert too or
+    /// their `$ai_*` events import incorrectly. `Ai` deployments don't: they
+    /// already produce to the AI lane as their main topic. Import deployments
+    /// keep their no-overflow guarantee by leaving the AI overflow valve
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) unset.
     pub fn routes_ai_events(&self) -> bool {
-        matches!(self, CaptureMode::Events)
+        matches!(self, CaptureMode::Events | CaptureMode::Import)
     }
 }
 
@@ -737,15 +740,12 @@ mod tests {
 
     #[test]
     fn capture_mode_ai_routing_policy() {
-        // Only Events-mode deployments divert $ai_* events to the AI topic:
-        // Ai deployments already produce to the AI lane as their main topic,
-        // and Import must keep historical backfills on the historical lane.
+        // Events and Import divert $ai_* events to the AI topic — only the AI
+        // lane has AI processing, so imports must divert too. Ai deployments
+        // already produce to the AI lane as their main topic.
         assert!(CaptureMode::Events.routes_ai_events());
-        for mode in [
-            CaptureMode::Recordings,
-            CaptureMode::Ai,
-            CaptureMode::Import,
-        ] {
+        assert!(CaptureMode::Import.routes_ai_events());
+        for mode in [CaptureMode::Recordings, CaptureMode::Ai] {
             assert!(
                 !mode.routes_ai_events(),
                 "{mode:?} must not route AI events"

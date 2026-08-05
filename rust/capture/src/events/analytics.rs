@@ -1272,11 +1272,12 @@ mod tests {
         );
     }
 
-    /// The `$ai_*` lane assignment follows the deployment's capture mode:
-    /// `Events` diverts every `$ai_*` event, `Import` keeps them on the
-    /// analytics lanes. Non-AI events stay on their normal route in every
-    /// mode. The topic itself is resolved in the kafka sink from
-    /// `DataType::AiEvents`, not here.
+    /// The `$ai_*` lane assignment holds across capture modes: `Events` and
+    /// `Import` both divert every `$ai_*` event (only the AI lane has AI
+    /// processing, so imports must divert too), winning over historical.
+    /// Non-AI events stay on their normal route in every mode. The topic
+    /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
+    /// here.
     #[rstest]
     #[case::events_mode(
         crate::config::CaptureMode::Events,
@@ -1287,7 +1288,7 @@ mod tests {
     #[case::import_mode(
         crate::config::CaptureMode::Import,
         true,
-        DataType::AnalyticsHistorical,
+        DataType::AiEvents,
         DataType::AnalyticsHistorical
     )]
     #[tokio::test]

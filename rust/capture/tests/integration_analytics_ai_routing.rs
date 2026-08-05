@@ -380,12 +380,12 @@ async fn ai_lane_overflow_isolated_from_analytics_limiter() {
     );
 }
 
-/// Import mode's no-overflow guarantee, end-to-end on the legacy path. Import
-/// never routes AI events (`CaptureMode::routes_ai_events`), so every event in
-/// a historical batch lands on `AnalyticsHistorical`, even with the overflow
-/// limiter force-keyed on the batch's `token:distinct_id`. Nothing reaches
-/// `AnalyticsMain` or `AiEvents` (the only overflowing lanes), so nothing can
-/// be stamped for overflow, and the GRL never runs.
+/// Import mode's no-overflow guarantee, end-to-end on the legacy path. Non-AI
+/// events in a historical batch land on `AnalyticsHistorical`; `$ai_*` events
+/// divert to the AI lane (only the AI lane has AI processing, so imports must
+/// divert too). With the AI overflow valve unset — the capture-import config —
+/// neither lane can stamp overflow, even with the overflow limiter force-keyed
+/// on the batch's `token:distinct_id`, and the GRL never runs.
 #[tokio::test]
 async fn import_mode_historical_batch_never_overflows() {
     let (router, sink) = setup_router_for_mode(
@@ -406,16 +406,19 @@ async fn import_mode_historical_batch_never_overflows() {
     );
 
     for event in &events {
+        let expected = if event.metadata.event_name == "$ai_generation" {
+            DataType::AiEvents
+        } else {
+            DataType::AnalyticsHistorical
+        };
         assert_eq!(
-            event.metadata.data_type,
-            DataType::AnalyticsHistorical,
-            "Import mode must route every event to the historical lane, got {:?} for {}",
-            event.metadata.data_type,
+            event.metadata.data_type, expected,
+            "unexpected lane for {}",
             event.metadata.event_name,
         );
         assert_eq!(
             event.metadata.overflow_reason, None,
-            "the historical lane must never overflow, even with the limiter force-keyed ({})",
+            "no lane may overflow in Import mode with the AI valve unset ({})",
             event.metadata.event_name,
         );
     }
