@@ -1,5 +1,7 @@
 from typing import Any, Optional, cast
 
+from django.db import IntegrityError, transaction
+
 from rest_framework import filters, response, serializers, viewsets
 
 from posthog.hogql import ast
@@ -151,10 +153,33 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def _duplicate_error(self, field_name: str, table_name: str) -> serializers.ValidationError:
+        return serializers.ValidationError(
+            {"field_name": [f'An expression named "{field_name}" already exists on table "{table_name}".']}
+        )
+
     def create(self, validated_data: dict[str, Any]) -> DataWarehouseExpression:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
-        return DataWarehouseExpression.objects.create(**validated_data)
+        try:
+            # atomic() takes a savepoint so the caught IntegrityError can't poison an
+            # enclosing transaction.
+            with transaction.atomic():
+                return DataWarehouseExpression.objects.create(**validated_data)
+        except IntegrityError:
+            # The unique constraints backstop the check-then-act duplicate validation above;
+            # losing that race must surface as the same 400, not a 500.
+            raise self._duplicate_error(validated_data["field_name"], validated_data["table_name"])
+
+    def update(self, instance: DataWarehouseExpression, validated_data: dict[str, Any]) -> DataWarehouseExpression:
+        try:
+            with transaction.atomic():
+                return super().update(instance, validated_data)
+        except IntegrityError:
+            raise self._duplicate_error(
+                validated_data.get("field_name", instance.field_name),
+                validated_data.get("table_name", instance.table_name),
+            )
 
 
 class DataWarehouseExpressionViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):

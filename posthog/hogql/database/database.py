@@ -1455,7 +1455,11 @@ class Database(BaseModel):
             data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
 
         with timings.measure("data_warehouse_expressions", emit_span=True):
-            expressions_query = DataWarehouseExpression.objects.for_team(team.pk).exclude(deleted=True)
+            # canonical=True with the already-loaded team: for_team's own resolution queries the
+            # default DB, which some callers (e.g. ClickHouse-backed tests) can't reach.
+            expressions_query = DataWarehouseExpression.objects.for_team(
+                team.parent_team_id or team.pk, canonical=True
+            ).exclude(deleted=True)
             # An expression is scoped either to one connection's direct-query database or to the
             # default warehouse database; never both.
             if is_direct_query:

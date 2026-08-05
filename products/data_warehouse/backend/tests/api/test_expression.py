@@ -1,8 +1,10 @@
+from types import SimpleNamespace
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -14,6 +16,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.data_tools.backend.models.expression import DataWarehouseExpression
+from products.data_warehouse.backend.presentation.views.expression import DataWarehouseExpressionSerializer
 
 
 class TestExpressionApi(APIBaseTest):
@@ -62,6 +65,17 @@ class TestExpressionApi(APIBaseTest):
         self.assertEqual(self._create().status_code, 201)
         response = self._create(expression="properties.$os")
         self.assertEqual(response.status_code, 400, response.content)
+
+    def test_losing_duplicate_race_surfaces_as_validation_error(self):
+        self.assertEqual(self._create().status_code, 201)
+
+        # Calling create() directly skips validate()'s duplicate check, like a request that
+        # passed validation concurrently and lost the race to the unique constraint.
+        serializer = DataWarehouseExpressionSerializer(
+            context={"team_id": self.team.pk, "request": SimpleNamespace(user=self.user)}
+        )
+        with team_scope(self.team.pk), self.assertRaises(DRFValidationError):
+            serializer.create({"table_name": "events", "field_name": "browser", "expression": "1"})
 
     def test_update_changes_expression_and_rejects_self_reference(self):
         expression_id = self._create().json()["id"]
