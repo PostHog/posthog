@@ -49,9 +49,13 @@ import { TicketActivityPanel } from './TicketActivityPanel'
 // them so the back arrow returns to the view the user came from rather than the
 // unfiltered ticket list.
 export function ticketListBackTo(searchParams: Record<string, any>): Breadcrumb {
+    // show_merged only controls which merged messages the ticket view pre-shows; it isn't a list
+    // filter, so drop it when returning to the list.
+    const listParams = { ...searchParams }
+    delete listParams.show_merged
     return {
         name: 'Ticket list',
-        path: combineUrl(urls.supportTickets(), searchParams).url,
+        path: combineUrl(urls.supportTickets(), listParams).url,
         key: 'supportTickets',
     }
 }

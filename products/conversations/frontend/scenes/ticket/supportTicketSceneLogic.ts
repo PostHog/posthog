@@ -1096,7 +1096,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // messages by default (vs. opening the root directly, which shows none).
                 if (ticket.merged_into_id && ticket.merged_into_ticket_number) {
                     router.actions.replace(urls.supportTicketDetail(ticket.merged_into_ticket_number), {
-                        show_merged: ticket.id,
+                        show_merged: ticket.ticket_number,
                     })
                     return
                 }
@@ -1112,10 +1112,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.loadMessages()
 
                 // If we arrived here by opening a merged ticket, pre-show that ticket's messages;
-                // opening the master directly leaves all merged messages hidden.
+                // opening the master directly leaves all merged messages hidden. The param is the
+                // human-readable ticket number, resolved to its id for the visibility state.
                 const showMerged = router.values.searchParams?.show_merged
-                if (showMerged && (ticket.merged_tickets || []).some((t: MergedTicketSummary) => t.id === showMerged)) {
-                    actions.setVisibleMergedTicketIds([showMerged])
+                const openedMerged =
+                    showMerged != null
+                        ? (ticket.merged_tickets || []).find(
+                              (t: MergedTicketSummary) => String(t.ticket_number) === String(showMerged)
+                          )
+                        : undefined
+                if (openedMerged) {
+                    actions.setVisibleMergedTicketIds([openedMerged.id])
                 }
 
                 impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
