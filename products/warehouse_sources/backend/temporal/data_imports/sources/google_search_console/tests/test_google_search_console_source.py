@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     GoogleSearchConsoleResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
+    PROPERTY_SCHEMAS,
     SEARCH_ANALYTICS_SCHEMAS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source import (
@@ -42,8 +43,10 @@ def test_get_source_config_fields():
 def test_get_schemas_returns_all_schemas_with_date_incremental():
     schemas = GoogleSearchConsoleSource().get_schemas(_config(), team_id=1)
 
-    assert {s.name for s in schemas} == set(SEARCH_ANALYTICS_SCHEMAS.keys())
+    assert {s.name for s in schemas} == set(SEARCH_ANALYTICS_SCHEMAS.keys()) | set(PROPERTY_SCHEMAS.keys())
     for schema in schemas:
+        if schema.name in PROPERTY_SCHEMAS:
+            continue
         assert schema.supports_incremental is True
         assert schema.supports_append is True
         assert schema.incremental_fields == [
@@ -56,10 +59,23 @@ def test_get_schemas_returns_all_schemas_with_date_incremental():
         ]
 
 
-def test_get_schemas_only_query_page_default():
+@pytest.mark.parametrize("name", sorted(PROPERTY_SCHEMAS.keys()))
+def test_property_schemas_are_not_incremental(name):
+    # `sites.list` and `sitemaps.list` return the current state with no timestamp to filter on,
+    # so offering incremental sync would checkpoint a watermark that can never advance.
+    schema = next(s for s in GoogleSearchConsoleSource().get_schemas(_config(), team_id=1) if s.name == name)
+
+    assert schema.supports_incremental is False
+    assert schema.supports_append is False
+    assert schema.incremental_fields == []
+
+
+def test_get_schemas_default_on_tables():
     schemas = GoogleSearchConsoleSource().get_schemas(_config(), team_id=1)
     by_default_on = {s.name for s in schemas if s.should_sync_default}
-    assert by_default_on == {"search_analytics_by_query_page"}
+    # Search analytics tables are opt-in apart from the most useful one; the property metadata
+    # tables are one cheap request each per sync, so they stay on.
+    assert by_default_on == {"search_analytics_by_query_page", *PROPERTY_SCHEMAS.keys()}
 
 
 def test_search_appearance_schema_uses_solo_dimension_with_date_in_pk():
@@ -77,6 +93,15 @@ def test_get_schemas_filters_by_names():
         _config(), team_id=1, names=["search_analytics_by_date", "search_analytics_by_query"]
     )
     assert {s.name for s in schemas} == {"search_analytics_by_date", "search_analytics_by_query"}
+
+
+def test_canonical_descriptions_cover_every_schema():
+    # A table shipped without a canonical entry silently falls back to LLM-generated
+    # descriptions, which is what the curated file exists to avoid.
+    source = GoogleSearchConsoleSource()
+    names = {s.name for s in source.get_schemas(_config(), team_id=1)}
+
+    assert names <= set(source.get_canonical_descriptions().keys())
 
 
 def test_get_resumable_source_manager_uses_resume_config():

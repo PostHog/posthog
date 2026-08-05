@@ -190,6 +190,9 @@ class DeltaWriter:
         try:
             import deltalite
 
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
+                get_governor,
+            )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
                 DELTALITE_WRITE_DURATION_SECONDS,
                 DELTALITE_WRITE_TOTAL,
@@ -198,19 +201,32 @@ class DeltaWriter:
             uri = await self._table.get_table_uri()
             storage_options = self._table.get_storage_options()
             partition_key = PARTITION_KEY if use_partitioning else None
+            n_partitions = (
+                pc.count_distinct(data[PARTITION_KEY]).as_py()
+                if use_partitioning and PARTITION_KEY in data.column_names
+                else None
+            )
 
-            def _upsert() -> Any:
-                table = deltalite.DeltaLiteTable.open(uri, storage_options)
-                return table.upsert(
-                    data,
-                    list(normalized_primary_keys),
-                    partition_key,
-                    commit_metadata=commit_metadata,
-                )
+            # Capacity planning: size this upsert's knobs to a fixed per-upsert slice of pod memory,
+            # so all MAX_CONCURRENT_ACTIVITIES upserts on this process are guaranteed to fit. deltalite
+            # always writes — the governor never falls back to the delta-rs MERGE for capacity, because
+            # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs at
+            # mpp=1 (governor logs a capacity_exceeded ops signal).
+            async with get_governor().admit(source_bytes=data.nbytes, n_partitions=n_partitions) as adm:
 
-            started = time.perf_counter()
-            stats = await asyncio.to_thread(_upsert)
-            duration_s = time.perf_counter() - started
+                def _upsert(upsert_kwargs: dict[str, int] = adm.upsert_kwargs) -> Any:
+                    table = deltalite.DeltaLiteTable.open(uri, storage_options)
+                    return table.upsert(
+                        data,
+                        list(normalized_primary_keys),
+                        partition_key,
+                        commit_metadata=commit_metadata,
+                        **upsert_kwargs,
+                    )
+
+                started = time.perf_counter()
+                stats = await asyncio.to_thread(_upsert)
+                duration_s = time.perf_counter() - started
         except Exception as e:  # noqa: BLE001 - pre-commit failure: nothing committed, fall back to MERGE
             await self._logger.awarning(
                 f"deltalite write failed; falling back to delta-rs MERGE (sync unaffected): {e}"
@@ -236,6 +252,12 @@ class DeltaWriter:
             await self._logger.ainfo(
                 "deltalite write: committed",
                 duration_ms=round(duration_s * 1000),
+                governor_mode=adm.mode,
+                governor_predicted_peak_mb=adm.predicted_peak_mb,
+                governor_observed_delta_mb=adm.observed_delta_mb,
+                governor_budget_mb=adm.budget_mb,
+                governor_capacity_exceeded=adm.capacity_exceeded,
+                governor_mpp=adm.planned_mpp,
                 **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
@@ -425,12 +447,18 @@ class DeltaWriter:
             if delta_table is None:
                 storage_options = self._table.get_storage_options()
                 delta_uri = await self._table.get_table_uri()
+                # mode="ignore": a zombie Temporal attempt (heartbeat-timed-out but still running
+                # while its retry starts — see this package's README) or a stale get_delta_table()
+                # check can race another writer that already created this table. "ignore" opens
+                # the winner's table instead of erroring; the write below then applies our data on
+                # top of it, so the race can only change who created the table, never the outcome.
                 delta_table = await asyncio.to_thread(
                     deltalake.DeltaTable.create,
                     table_uri=delta_uri,
                     schema=data.schema,
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="ignore",
                 )
 
             try:
@@ -460,12 +488,14 @@ class DeltaWriter:
             if delta_table is None:
                 storage_options = self._table.get_storage_options()
                 delta_uri = await self._table.get_table_uri()
+                # See the full_refresh branch above for why mode="ignore" is required here.
                 delta_table = await asyncio.to_thread(
                     deltalake.DeltaTable.create,
                     table_uri=delta_uri,
                     schema=data.schema,
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="ignore",
                 )
             else:
                 # An append re-casts each source column to its stored type, same as a merge. A decimal

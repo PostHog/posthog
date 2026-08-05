@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -45,7 +45,11 @@ class CostPrecomputeInvalidateAPITest(APIBaseTest):
         response = self._post(date_from="2026-07-18", date_to="2026-07-16")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "date_to" in response.json()
+        # The exception handler names the offending field under `attr` rather than as a top-level
+        # key, so `"date_to" in response.json()` passed for the wrong reason before.
+        body = response.json()
+        assert body["attr"] == "date_to"
+        assert body["detail"] == "must not be before date_from"
 
     def test_rejects_a_range_wider_than_the_cap(self):
         response = self._post(date_from="2020-01-01", date_to="2026-07-18")
@@ -92,16 +96,20 @@ class CostPrecomputeInvalidateAPITest(APIBaseTest):
         task.delay.assert_not_called()
 
     def test_rebuild_window_is_clamped_to_the_warmed_window(self):
-        # Asking to rebuild 2024 shouldn't queue work for rows nothing keeps warm.
+        # Asking to rebuild a year back shouldn't queue work for rows nothing keeps warm.
+        # The requested span stays under MAX_INVALIDATE_DAYS on purpose: past that the request is
+        # rejected outright and this would assert on a 400 body rather than on the clamp.
+        one_year_ago = date.today() - timedelta(days=364)
         with (
             patch(_INVALIDATE, return_value=_invalidation()),
             patch(_REBUILD_TASK) as task,
             patch(f"{_API}.REBUILD_MAX_WINDOW_DAYS", 90),
         ):
-            response = self._post(date_from="2024-01-01", date_to="2026-07-18")
+            response = self._post(date_from=one_year_ago.isoformat(), date_to=date.today().isoformat())
 
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         window = response.json()["rebuild"]["window"]
-        assert window["date_from"] > "2024-01-01"
+        assert window["date_from"] > one_year_ago.isoformat()
         assert task.delay.call_args.args[1] == window["date_from"]
 
     # --- Dry run ---

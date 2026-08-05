@@ -75,7 +75,7 @@ def _build_params(
     since_value: Any,
     until: int | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_SIZE}
+    params: dict[str, Any] = {"limit": PAGE_SIZE, **config.extra_params}
 
     if config.team_scoped and team_id:
         params["teamId"] = team_id
@@ -125,6 +125,19 @@ def _should_stop_desc(items: list[dict[str, Any]], field_name: str | None, cutof
     if not field_name or cutoff is None or not items:
         return False
     return any(item.get(field_name) is not None and item[field_name] <= cutoff for item in items)
+
+
+def _cursor_from_page(items: list[dict[str, Any]], field_name: str) -> int | None:
+    """Next `until` cursor for an endpoint that returns rows but no `pagination` envelope.
+
+    Rows arrive newest-first, so the oldest timestamp on this page bounds the next one. The value is
+    fed back unmodified rather than decremented: `until` is inclusive, so the boundary row is
+    re-fetched and merge dedupes it on the primary key, whereas stepping back a millisecond would
+    drop any row sharing that exact timestamp. A page whose rows all share one timestamp can't
+    advance the cursor; the caller's non-advancing-cursor guard ends the walk there.
+    """
+    timestamps = [item[field_name] for item in items if isinstance(item.get(field_name), int)]
+    return min(timestamps) if timestamps else None
 
 
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
@@ -193,6 +206,8 @@ def get_rows(
             break
 
         next_until = (data.get("pagination") or {}).get("next")
+        if next_until is None and config.cursor_from_field:
+            next_until = _cursor_from_page(items, config.cursor_from_field)
         stop_after_page = _should_stop_desc(items, field_name, cutoff)
 
         for item in items:
