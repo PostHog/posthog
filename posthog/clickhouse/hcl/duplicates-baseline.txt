@@ -1,7 +1,12 @@
-# Objects currently declared in >=2 composed layers (database.name), sorted.
+# Objects still declared in >=2 composed layers (database.name), sorted.
 # The locate -duplicates guard in check.sh fails on any duplicate NOT listed here.
-# This list only shrinks: as Phase 2 dedups a role into coshared/extend layers,
-# remove its objects. Must reach empty by Phase 4, after which the file is dropped.
+# This list only shrinks. Every remaining entry has a named blocker:
+#   - kafka_logs34_avro_mv, kafka_logs_avro_billing_metrics_mv,
+#     kafka_trace_spans_avro_mv: materialized views whose query differs per env;
+#     hclexp has no override = true and no patch form for MVs yet (chschema #169).
+#   - events, raw_sessions_v3, channel_definition: events-family replicas whose
+#     env copies carry mat_ columns; they resolve when the cloud env overlays
+#     move to posthog-cloud-infra (Phase 2), not by a restructure here.
 posthog.channel_definition
 posthog.events
 posthog.kafka_logs34_avro_mv
