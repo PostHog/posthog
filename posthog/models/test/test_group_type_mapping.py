@@ -331,6 +331,42 @@ class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
         strong_calls = [c for c in mock_fetch.call_args_list if c.kwargs.get("consistency") == "strong"]
         assert len(strong_calls) == 1
 
+    def test_replica_empty_with_stale_is_reconfirmed_from_primary(self):
+        # The real replica-drop case: a populated last-known-good exists and the primary
+        # still has the rows. Covered separately from the cold-cache edge because this is
+        # the path that fires during an actual replica lag incident.
+        self._set_stale(self.populated_pid)
+        rows = [{"group_type": "organization", "group_type_index": 0}]
+
+        with self._patch_fetch(
+            replica={self.populated_pid: [], self.empty_pid: []},
+            primary={self.populated_pid: rows},
+        ):
+            result = get_group_types_for_projects(self.project_ids)
+
+        assert result[self.populated_pid] == rows
+
+    def test_stale_key_outranks_confirmed_empty_marker(self):
+        # The marker and a populated last-known-good can only disagree via a race or a
+        # dropped safe_cache_delete. When they do, the stale key wins and the project is
+        # still reconfirmed — otherwise the marker would suppress the correction for its
+        # whole TTL, and the write-side guard (which checks the stale key first) would
+        # fire the exception this reconfirm exists to prevent.
+        self._set_stale(self.populated_pid)
+        safe_cache_set(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{self.populated_pid}", True, 3600)
+        rows = [{"group_type": "organization", "group_type_index": 0}]
+
+        with self._patch_fetch(
+            replica={self.populated_pid: [], self.empty_pid: []},
+            primary={self.populated_pid: rows},
+        ) as mock_fetch:
+            result = get_group_types_for_projects(self.project_ids)
+
+        assert result[self.populated_pid] == rows
+        strong_calls = [c for c in mock_fetch.call_args_list if c.kwargs.get("consistency") == "strong"]
+        assert len(strong_calls) == 1
+        assert self.populated_pid in strong_calls[0].args[1]
+
     def test_replica_empty_with_stale_but_primary_empty_stays_empty(self):
         # The last group type was genuinely deleted: the primary confirms empty, so we
         # trust it rather than resurrecting the (now outdated) last-known-good.

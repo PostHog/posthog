@@ -372,9 +372,10 @@ def _reconfirm_emptied_projects_against_primary(
     an empty mapping for a project that authoritatively has group types. That silent
     empty is what makes the downstream flag-cache write try to erase a populated
     mapping. Every project that reads empty is re-confirmed against the primary at strong
-    consistency — unless it carries a "confirmed empty" marker from a recent primary read
-    — and we trust that answer: the primary is authoritative for both "was dropped" and
-    "genuinely empty now" (e.g. the last group type was deleted).
+    consistency — unless it has no last-known-good and carries a "confirmed empty" marker
+    from a recent primary read — and we trust that answer: the primary is authoritative
+    for both "was dropped" and "genuinely empty now" (e.g. the last group type was
+    deleted).
 
     Reconfirming every empty (not only those with a populated last-known-good) closes the
     cold-cache edge — empty replica read, no stale key, project actually populated — that
@@ -393,9 +394,13 @@ def _reconfirm_emptied_projects_against_primary(
     for pid in project_ids:
         if result.get(pid):
             continue
-        if get_safe_cache(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{pid}"):
+        stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
+        # A populated last-known-good always wins over the marker: the two can only
+        # disagree via a race or a dropped safe_cache_delete, and the write-side guard
+        # resolves that disagreement the same way (stale key checked before the marker).
+        if stale is None and get_safe_cache(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{pid}"):
             continue
-        suspects[pid] = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
+        suspects[pid] = stale
     if not suspects:
         return result
 
