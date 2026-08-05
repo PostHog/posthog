@@ -103,11 +103,12 @@ export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?
                     </>
                 )}
             </div>
+            {/* -ml-1.5 offsets the xsmall horizontal padding so the label lines up with the field
+                labels above, without zeroing the button's padding (and shrinking its hit area). */}
             <LemonButton
                 size="xsmall"
                 type="tertiary"
-                noPadding
-                className="mt-2 text-muted-alt"
+                className="mt-1 -ml-1.5 text-muted-alt"
                 icon={<IconChevronDown className={expanded ? 'rotate-180' : '-rotate-90'} />}
                 onClick={() => setExpanded(!expanded)}
             >
