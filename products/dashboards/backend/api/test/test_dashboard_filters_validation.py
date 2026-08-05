@@ -70,6 +70,22 @@ class TestDashboardTileFiltersOverridesValidation(SimpleTestCase):
         with self.assertRaises(serializers.ValidationError):
             DashboardSerializer._extract_display_defaults({"filters_overrides": []})
 
+    def test_preserves_ignore_dashboard_filters_flag_and_maps_legacy_keys(self):
+        # `ignoreDashboardFilters` is tile-only (TileFilters), not a DashboardFilter field, so the
+        # unknown-key normalization must not strip it; every tile-override save goes through here.
+        result = DashboardSerializer._extract_display_defaults(
+            {"filters_overrides": {"ignoreDashboardFilters": True, "filter_test_accounts": True, "date_from": "-7d"}}
+        )
+        assert result["filters_overrides"] == {
+            "ignoreDashboardFilters": True,
+            "filterTestAccounts": True,
+            "date_from": "-7d",
+        }
+
+    def test_preserves_false_ignore_dashboard_filters_flag(self):
+        result = DashboardSerializer._extract_display_defaults({"filters_overrides": {"ignoreDashboardFilters": False}})
+        assert result["filters_overrides"] == {"ignoreDashboardFilters": False}
+
     def test_allows_clearing_tile_filters_overrides(self):
         result = DashboardSerializer._extract_display_defaults({"filters_overrides": None})
         assert result["filters_overrides"] is None

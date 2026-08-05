@@ -33,6 +33,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.event_usage import AnalyticsProps
 from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
@@ -154,7 +155,13 @@ def process_query_dict(
 
     tag_queries(query=upgraded_query_json)
 
-    dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
+    # Callers pass persisted `Dashboard.filters` blobs (e.g. cache warming) or merged filter dicts
+    # here, so legacy keys must be normalized away before the extra="forbid" model sees them.
+    dashboard_filters = (
+        DashboardFilter.model_validate(normalize_dashboard_filters(dashboard_filters_json))
+        if dashboard_filters_json
+        else None
+    )
     variables_override = (
         [HogQLVariable.model_validate(n) for n in variables_override_json.values()] if variables_override_json else None
     )

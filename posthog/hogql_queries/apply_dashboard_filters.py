@@ -193,8 +193,19 @@ def normalize_dashboard_filters_properties(filters: dict) -> dict:
 
 # Legacy dashboard-filter keys that map 1:1 onto a modern DashboardFilter field. Persisted
 # `Dashboard.filters` blobs and REST clients built against the legacy insight filter format
-# still use the snake_case spelling.
-_LEGACY_FILTER_KEY_ALIASES = {"filter_test_accounts": "filterTestAccounts"}
+# still use the snake_case spelling. Legacy `explicit_date` values are the strings
+# "true"/"false" (see posthog/models/filters/mixins/common.py), which pydantic coerces to bool.
+_LEGACY_FILTER_KEY_ALIASES = {
+    "filter_test_accounts": "filterTestAccounts",
+    "explicit_date": "explicitDate",
+}
+
+
+def dropped_dashboard_filter_keys(filters: dict) -> list[str]:
+    """Keys `normalize_dashboard_filters` drops because they have no modern DashboardFilter field."""
+    return sorted(
+        key for key in filters if _LEGACY_FILTER_KEY_ALIASES.get(key, key) not in DashboardFilter.model_fields
+    )
 
 
 def normalize_dashboard_filters(filters: dict) -> dict:
@@ -302,8 +313,9 @@ def resolve_effective_dashboard_filters(
         else _without_ignore_flag(base_filters or {})
     )
     # `merge_filters_by_priority` can early-return a raw layer (and a single layer is unmerged), so
-    # `properties` may still be a group dict here — normalize before it reaches `DashboardFilter`.
-    effective_filters = normalize_dashboard_filters_properties(effective_filters)
+    # legacy keys may survive and `properties` may still be a group dict here — normalize the whole
+    # dict before it reaches `DashboardFilter` in downstream consumers like `process_query_dict`.
+    effective_filters = normalize_dashboard_filters(effective_filters)
     if effective_filters and not _has_data_warehouse_series(query):
         query = remove_query_properties_overridden_by(query, effective_filters)
     return query, effective_filters
@@ -315,6 +327,8 @@ def dashboard_filter_from_dict(filters: dict) -> DashboardFilter:
     Callers like Insight.get_effective_query pass client-supplied filter dicts here without going
     through the merge functions, so this is the final guard before the extra="forbid" model: the
     tile-only ignoreDashboardFilters flag and legacy keys are normalized away instead of raising.
+    The tolerance is key-level only; invalid values on known fields, and property shapes
+    `flatten_property_leaves` rejects, still raise.
     """
     return DashboardFilter(**normalize_dashboard_filters(filters))
 

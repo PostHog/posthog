@@ -70,7 +70,7 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
-from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters
+from posthog.hogql_queries.apply_dashboard_filters import dropped_dashboard_filter_keys, normalize_dashboard_filters
 from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
@@ -1330,6 +1330,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             normalized = normalize_dashboard_filters(request_filters)
         except ValueError as error:
             raise serializers.ValidationError({"properties": str(error)}) from error
+        dropped_keys = dropped_dashboard_filter_keys(request_filters)
+        if dropped_keys:
+            # Dropping (instead of a 400) keeps saves working for dashboards whose persisted blob
+            # already carries legacy keys, since the app echoes those back on every save.
+            logger.warning("dashboard_filters_dropped_unknown_keys", dropped_keys=dropped_keys)
         try:
             DashboardFilter(**normalized)
         except pydantic.ValidationError as error:
@@ -1691,6 +1696,22 @@ class DashboardSerializer(DashboardMetadataSerializer):
     }
 
     @staticmethod
+    def _validated_tile_filters_overrides(tile_filters: Any) -> dict:
+        """Validate tile `filters_overrides` while preserving the tile-only ignoreDashboardFilters flag.
+
+        Tile overrides carry DashboardFilter's fields plus `ignoreDashboardFilters` (see TileFilters),
+        which `_validated_filters` would drop as an unknown key, so it is set aside and re-attached."""
+        if not isinstance(tile_filters, dict):
+            raise serializers.ValidationError("Filters must be a dictionary")
+        ignore_flag = tile_filters.get("ignoreDashboardFilters")
+        validated = DashboardSerializer._validated_filters(
+            {key: value for key, value in tile_filters.items() if key != "ignoreDashboardFilters"}
+        )
+        if ignore_flag is not None:
+            validated["ignoreDashboardFilters"] = ignore_flag
+        return validated
+
+    @staticmethod
     def _extract_display_defaults(tile_data: dict) -> dict:
         defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
         # `filters_overrides` is opaque JSON with the same `properties` shape ambiguity as dashboard
@@ -1699,7 +1720,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if "filters_overrides" in defaults:
             tile_filters = defaults["filters_overrides"]
             if tile_filters is not None:
-                defaults["filters_overrides"] = DashboardSerializer._validated_filters(tile_filters)
+                defaults["filters_overrides"] = DashboardSerializer._validated_tile_filters_overrides(tile_filters)
         return defaults
 
     @staticmethod

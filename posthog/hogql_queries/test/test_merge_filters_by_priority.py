@@ -218,6 +218,11 @@ class TestDashboardFilterFromDict(SimpleTestCase):
                 {"filter_test_accounts": True, "filterTestAccounts": False},
                 DashboardFilter(filterTestAccounts=False),
             ),
+            (
+                "legacy explicit-date alias maps with its legacy string value",
+                {"explicit_date": "true", "date_from": "2024-01-01 12:00:00", "date_to": "2024-01-01 14:00:00"},
+                DashboardFilter(explicitDate=True, date_from="2024-01-01 12:00:00", date_to="2024-01-01 14:00:00"),
+            ),
         ]
     )
     def test_legacy_keys_are_normalized_instead_of_raising(self, _name, filters, expected):
@@ -248,6 +253,15 @@ class TestResolveEffectiveDashboardFilters(SimpleTestCase):
         )
         assert effective["properties"] == [prop]
         assert effective["date_from"] == "-7d"
+
+    def test_normalizes_legacy_keys_in_effective_filters(self):
+        # The effective filters feed process_query_dict, which validates them with the
+        # extra="forbid" DashboardFilter; a surviving legacy key used to fail every tile compute.
+        query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
+        _, effective = resolve_effective_dashboard_filters(
+            query, {"filter_test_accounts": True, "breakdown": None, "date_from": "-7d"}, None
+        )
+        assert effective == {"filterTestAccounts": True, "date_from": "-7d"}
 
 
 class TestIgnoreDashboardFilters(SimpleTestCase):
