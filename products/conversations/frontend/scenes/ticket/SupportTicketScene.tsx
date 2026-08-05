@@ -33,6 +33,7 @@ import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
+import { MergedTicketsBar } from './MergedTicketsBar'
 import { TicketActions } from './MergeTicketModal'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
@@ -84,6 +85,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         assignee,
         tags,
         chatMessages,
+        showSourcePills,
         messagesLoading,
         messageSending,
         hasMoreMessages,
@@ -229,6 +231,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 </LemonBanner>
             )}
 
+            <MergedTicketsBar />
+
             <div className="flex flex-col lg:flex-row items-start lg:min-h-0 lg:flex-1">
                 <div
                     style={{ width: chatPanelWidth(desiredSize) }}
@@ -239,6 +243,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     <ChatView
                         threadExtras={reportTimelineExtras(linkedReports)}
                         messages={chatMessages}
+                        showSourcePills={showSourcePills}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}
                         hasMoreMessages={hasMoreMessages}

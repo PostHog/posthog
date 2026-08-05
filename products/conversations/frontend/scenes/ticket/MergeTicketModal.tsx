@@ -10,12 +10,10 @@ import {
     LemonModal,
     LemonTag,
     LemonTextArea,
-    Link,
 } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
-import type { Ticket } from '../../types'
+import { MessageList } from '../../components/Chat/MessageList'
+import type { ChatMessage, Ticket } from '../../types'
 import { customerLabel, mergeTicketModalLogic } from './mergeTicketModalLogic'
 
 function ticketSummary(ticket: Ticket): string {
@@ -25,6 +23,37 @@ function ticketSummary(ticket: Ticket): string {
 interface TicketActionsProps {
     sourceTicket: Ticket
     onMerged: () => void
+}
+
+function ConversationPane({
+    title,
+    subtitle,
+    messages,
+    loading,
+    emptyMessage,
+}: {
+    title: string
+    subtitle?: string
+    messages: ChatMessage[]
+    loading: boolean
+    emptyMessage: string
+}): JSX.Element {
+    return (
+        <div className="flex flex-col flex-1 min-w-0 border rounded overflow-hidden">
+            <div className="px-3 py-2 border-b bg-surface-secondary">
+                <div className="text-sm font-semibold truncate">{title}</div>
+                {subtitle && <div className="text-xs text-muted-alt truncate">{subtitle}</div>}
+            </div>
+            <MessageList
+                messages={messages}
+                messagesLoading={loading}
+                emptyMessage={emptyMessage}
+                minHeight="300px"
+                maxHeight="45vh"
+                className="px-3 py-2"
+            />
+        </div>
+    )
 }
 
 /** "Actions" dropdown shown next to Save changes, plus the merge modal it opens. */
@@ -74,6 +103,10 @@ function MergeTicketModal({ sourceTicket, onMerged }: TicketActionsProps): JSX.E
         sourceSendToCustomer,
         targetSendToCustomer,
         submitting,
+        sourceChatMessages,
+        sourceMessagesLoading,
+        targetChatMessages,
+        targetMessagesLoading,
     } = useValues(logic)
     const {
         closeMergeModal,
@@ -113,6 +146,7 @@ function MergeTicketModal({ sourceTicket, onMerged }: TicketActionsProps): JSX.E
             onClose={closeMergeModal}
             title="Merge ticket"
             description="This ticket will be marked resolved, assigned to you, and linked to the ticket you pick."
+            width="min(1100px, 90vw)"
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeMergeModal}>
@@ -129,7 +163,7 @@ function MergeTicketModal({ sourceTicket, onMerged }: TicketActionsProps): JSX.E
                 </>
             }
         >
-            <div className="flex flex-col gap-4 min-w-[520px]">
+            <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1">
                     <label className="font-semibold text-xs">Merge into</label>
                     <LemonInputSelect
@@ -147,6 +181,28 @@ function MergeTicketModal({ sourceTicket, onMerged }: TicketActionsProps): JSX.E
                                 {searchQuery.trim() ? 'No matching tickets' : 'No other tickets from this customer'}
                             </span>
                         }
+                    />
+                </div>
+
+                {/* Side-by-side conversations: current ticket on the left, chosen target on the right. */}
+                <div className="flex gap-3">
+                    <ConversationPane
+                        title={`This ticket · #${sourceTicket.ticket_number}`}
+                        subtitle={customerLabel(sourceTicket)}
+                        messages={sourceChatMessages}
+                        loading={sourceMessagesLoading}
+                        emptyMessage="No messages"
+                    />
+                    <ConversationPane
+                        title={
+                            selectedTarget
+                                ? `Merge into · #${selectedTarget.ticket_number}`
+                                : 'Select a ticket to merge into'
+                        }
+                        subtitle={selectedTarget ? customerLabel(selectedTarget) : undefined}
+                        messages={targetChatMessages}
+                        loading={targetMessagesLoading}
+                        emptyMessage={selectedTarget ? 'No messages' : 'Pick a ticket on the left to preview it here'}
                     />
                 </div>
 
@@ -169,55 +225,53 @@ function MergeTicketModal({ sourceTicket, onMerged }: TicketActionsProps): JSX.E
                     </LemonBanner>
                 )}
 
-                <div className="flex flex-col gap-2 border-t pt-3">
-                    <div className="flex items-center justify-between">
-                        <label className="font-semibold text-xs">Note on this ticket</label>
-                        {selectedTarget && <LemonTag type="muted">links to #{selectedTarget.ticket_number}</LemonTag>}
+                <div className="flex gap-3">
+                    <div className="flex flex-col gap-2 flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                            <label className="font-semibold text-xs">Note on this ticket</label>
+                            {selectedTarget && (
+                                <LemonTag type="muted">links to #{selectedTarget.ticket_number}</LemonTag>
+                            )}
+                        </div>
+                        <LemonTextArea
+                            value={sourceNote}
+                            onChange={setSourceNote}
+                            placeholder="Optional message to add alongside the link…"
+                            minRows={2}
+                        />
+                        <LemonCheckbox
+                            checked={sourceSendToCustomer}
+                            onChange={setSourceSendToCustomer}
+                            label="Send to the customer"
+                        />
+                        {!sourceSendToCustomer && (
+                            <span className="text-xs text-muted-alt">Added as a private note.</span>
+                        )}
                     </div>
-                    <LemonTextArea
-                        value={sourceNote}
-                        onChange={setSourceNote}
-                        placeholder="Optional message to add alongside the link…"
-                        minRows={2}
-                    />
-                    <LemonCheckbox
-                        checked={sourceSendToCustomer}
-                        onChange={setSourceSendToCustomer}
-                        label="Send to the customer"
-                    />
-                    {!sourceSendToCustomer && <span className="text-xs text-muted-alt">Added as a private note.</span>}
-                </div>
 
-                <div className="flex flex-col gap-2 border-t pt-3">
-                    <div className="flex items-center justify-between">
-                        <label className="font-semibold text-xs">
-                            Note on {selectedTarget ? `ticket #${selectedTarget.ticket_number}` : 'the target ticket'}
-                        </label>
-                        <LemonTag type="muted">links to #{sourceTicket.ticket_number}</LemonTag>
+                    <div className="flex flex-col gap-2 flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                            <label className="font-semibold text-xs">
+                                Note on {selectedTarget ? `#${selectedTarget.ticket_number}` : 'the target ticket'}
+                            </label>
+                            <LemonTag type="muted">links to #{sourceTicket.ticket_number}</LemonTag>
+                        </div>
+                        <LemonTextArea
+                            value={targetNote}
+                            onChange={setTargetNote}
+                            placeholder="Optional message to add alongside the link…"
+                            minRows={2}
+                        />
+                        <LemonCheckbox
+                            checked={targetSendToCustomer}
+                            onChange={setTargetSendToCustomer}
+                            label="Send to the customer"
+                        />
+                        {!targetSendToCustomer && (
+                            <span className="text-xs text-muted-alt">Added as a private note.</span>
+                        )}
                     </div>
-                    <LemonTextArea
-                        value={targetNote}
-                        onChange={setTargetNote}
-                        placeholder="Optional message to add alongside the link…"
-                        minRows={2}
-                    />
-                    <LemonCheckbox
-                        checked={targetSendToCustomer}
-                        onChange={setTargetSendToCustomer}
-                        label="Send to the customer"
-                    />
-                    {!targetSendToCustomer && <span className="text-xs text-muted-alt">Added as a private note.</span>}
                 </div>
-
-                {sourceTicket.merged_into_id && (
-                    <LemonBanner type="info">
-                        This ticket is already merged into{' '}
-                        <Link to={urls.supportTicketDetail(sourceTicket.merged_into_ticket_number as number)}>
-                            #{sourceTicket.merged_into_ticket_number}
-                        </Link>
-                        .
-                    </LemonBanner>
-                )}
             </div>
         </LemonModal>
     )

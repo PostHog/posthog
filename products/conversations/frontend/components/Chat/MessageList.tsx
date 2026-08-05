@@ -31,16 +31,8 @@ export interface MessageListProps {
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
-    /** Non-message timeline entries, placed among the messages by their own timestamp. Opt-in, so a
-     * customer-facing view never receives team-only content. */
-    extras?: TimelineExtra[]
-}
-
-/** A non-message entry in the thread, e.g. an agent's findings. `at` is what orders it among the
- * messages; `element` carries its own React key. */
-export interface TimelineExtra {
-    at: string
-    element: JSX.Element
+    /** When multiple tickets are interleaved, show a color-coded source-ticket pill on each message. */
+    showSourcePills?: boolean
 }
 
 export function MessageList({
@@ -61,7 +53,7 @@ export function MessageList({
     showAiReplyFeedback = false,
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
-    extras = [],
+    showSourcePills = false,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -270,6 +262,41 @@ export function MessageList({
                         See new messages
                     </LemonButton>
                 </div>
+            )}
+            {messagesLoading && messages.length === 0 ? (
+                <div className="flex items-center justify-center h-full">
+                    <Spinner />
+                </div>
+            ) : messages.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-muted-alt text-sm">{emptyMessage}</div>
+            ) : (
+                <>
+                    {messages.map((message) => {
+                        const isCustomer = message.authorType === 'customer'
+                        return (
+                            <Message
+                                key={message.id}
+                                message={message}
+                                isCustomer={isCustomerView ? !isCustomer : isCustomer}
+                                deliveryStatus={deliveryStatusMap.get(message.id)}
+                                showAiReplyFeedback={
+                                    showAiReplyFeedback &&
+                                    message.id === latestAiMessageId &&
+                                    message.authorType === 'AI'
+                                }
+                                aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
+                                onSubmitAiReplyFeedback={
+                                    onSubmitAiReplyFeedback
+                                        ? (rating, feedbackText) =>
+                                              onSubmitAiReplyFeedback(message.id, rating, feedbackText)
+                                        : undefined
+                                }
+                                showSourcePill={showSourcePills}
+                            />
+                        )
+                    })}
+                    <div ref={messagesEndRef} />
+                </>
             )}
         </div>
     )

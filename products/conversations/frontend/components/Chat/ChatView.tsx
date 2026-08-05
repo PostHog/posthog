@@ -63,6 +63,8 @@ export interface ChatViewProps {
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    /** When multiple tickets are interleaved, show a color-coded source-ticket pill on each message. */
+    showSourcePills?: boolean
 }
 
 export function ChatView({
@@ -98,6 +100,7 @@ export function ChatView({
     showAiReplyFeedback,
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
+    showSourcePills = false,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -121,7 +124,7 @@ export function ChatView({
                 showAiReplyFeedback={showAiReplyFeedback}
                 aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
-                extras={threadExtras}
+                showSourcePills={showSourcePills}
             />
             <div className="border-t pt-3">
                 <MessageInput
