@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 34 enabled ops
+ * PostHog API - MCP 36 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -4473,6 +4473,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
+        version: zod
+            .number()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check."
+            ),
+        original_experiment: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.'
+            ),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
@@ -8231,6 +8243,18 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
+        version: zod
+            .number()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check."
+            ),
+        original_experiment: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.'
+            ),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
@@ -11961,6 +11985,18 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe(
                 'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
+        version: zod
+            .number()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check."
+            ),
+        original_experiment: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.'
+            ),
     })
     .describe(
         'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``\/``metrics_secondary``\/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
@@ -12004,6 +12040,8 @@ export const experimentsEndCreateBodyConclusionCommentMax = 4000
 export const experimentsEndCreateBodyOpenCleanupPrDefault = false
 export const experimentsEndCreateBodyRepositoryMax = 255
 
+export const experimentsEndCreateBodySetRepositoryAsTeamDefaultDefault = false
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -12034,7 +12072,13 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsEndCreateBodyRepositoryMax)
         .nullish()
         .describe(
-            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used."
+        ),
+    set_repository_as_team_default: zod
+        .boolean()
+        .default(experimentsEndCreateBodySetRepositoryAsTeamDefaultDefault)
+        .describe(
+            "When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise)."
         ),
 })
 
@@ -12231,6 +12275,7 @@ export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
 export const experimentsShipVariantCreateBodyOpenCleanupPrDefault = false
 export const experimentsShipVariantCreateBodyRepositoryMax = 255
 
+export const experimentsShipVariantCreateBodySetRepositoryAsTeamDefaultDefault = false
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -12263,7 +12308,13 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsShipVariantCreateBodyRepositoryMax)
         .nullish()
         .describe(
-            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used."
+        ),
+    set_repository_as_team_default: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodySetRepositoryAsTeamDefaultDefault)
+        .describe(
+            "When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise)."
         ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
@@ -12444,6 +12495,72 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
             .describe('Raw control-group statistics. When provided, the server derives baseline_value and variance.'),
     })
     .describe('Inputs for estimating the recommended sample size and running time of an experiment.')
+
+/**
+ * Create an experiment that compares N versions of an LLM prompt using a metric template.
+ *
+ * The user picks 2+ versions of an existing LLMPrompt and 1+ metric templates
+ * (cost / latency / eval_pass_rate). The endpoint builds the matching variants
+ * (control + test-N, each named after its prompt version) and attaches one
+ * metric per selected template, each scoped to the prompt's $ai_prompt_name.
+ * Resulting experiment is in draft state.
+ */
+export const ExperimentsCreateFromPromptCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsCreateFromPromptCreateBodyVersionsMin = 2
+export const experimentsCreateFromPromptCreateBodyVersionsMax = 10
+
+export const experimentsCreateFromPromptCreateBodyTemplatesMax = 3
+
+export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object({
+    prompt_name: zod
+        .string()
+        .describe('The name of the LLM prompt to experiment on. Must already exist for this team.'),
+    versions: zod
+        .array(zod.number().min(1))
+        .min(experimentsCreateFromPromptCreateBodyVersionsMin)
+        .max(experimentsCreateFromPromptCreateBodyVersionsMax)
+        .describe(
+            'Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.'
+        ),
+    templates: zod
+        .array(
+            zod
+                .enum(['cost', 'latency', 'eval_pass_rate'])
+                .describe('\* `cost` - cost\n\* `latency` - latency\n\* `eval_pass_rate` - eval_pass_rate')
+        )
+        .min(1)
+        .max(experimentsCreateFromPromptCreateBodyTemplatesMax)
+        .describe(
+            'One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.'
+        ),
+    name: zod
+        .string()
+        .optional()
+        .describe('Optional experiment name. If omitted, a name is generated from the prompt and versions.'),
+    feature_flag_key: zod
+        .string()
+        .optional()
+        .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
+    description: zod.string().optional().describe('Optional experiment description.'),
+})
+
+/**
+ * List the LLM metric templates that can be passed to `create_from_prompt`.
+ */
+export const ExperimentsPromptTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 /**
  * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.

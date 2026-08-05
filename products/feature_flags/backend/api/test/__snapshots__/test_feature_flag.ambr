@@ -510,6 +510,7 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -962,6 +963,7 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -1361,6 +1363,7 @@
          "posthog_experiment"."end_date",
          "posthog_experiment"."created_at",
          "posthog_experiment"."updated_at",
+         "posthog_experiment"."version",
          "posthog_experiment"."archived",
          "posthog_experiment"."feature_flag_auto_archived",
          "posthog_experiment"."deleted",
@@ -1474,6 +1477,7 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -1550,6 +1554,7 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -1603,7 +1608,7 @@
     (SELECT 1 AS "a"
      FROM "posthog_team" U0
      WHERE (U0."project_id" = ("posthog_team"."project_id")
-            AND ((U0."session_recording_linked_flag" -> 'id'))::integer = ("posthog_featureflag"."id"))
+            AND U0."session_recording_linked_flag" @> (JSONB_BUILD_OBJECT(('id')::text, "posthog_featureflag"."id")))
      LIMIT 1) AS "is_used_in_replay_settings_annotation",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -1711,6 +1716,7 @@
          "posthog_experiment"."end_date",
          "posthog_experiment"."created_at",
          "posthog_experiment"."updated_at",
+         "posthog_experiment"."version",
          "posthog_experiment"."archived",
          "posthog_experiment"."feature_flag_auto_archived",
          "posthog_experiment"."deleted",

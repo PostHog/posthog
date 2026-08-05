@@ -78,6 +78,7 @@ def _job_row(
     labels: str = '["depot-ubuntu-22.04-4"]',
     started: str = "2026-01-01 00:00:00",
     completed: str = "2026-01-01 00:02:00",
+    head_branch: str = "main",
 ) -> dict[str, Any]:
     return {
         "id": job_id,
@@ -88,7 +89,7 @@ def _job_row(
         "status": "completed",
         "conclusion": conclusion,
         "head_sha": "sha60",
-        "head_branch": "main",
+        "head_branch": head_branch,
         "labels": labels,
         "runner_name": "runner-1",
         "runner_group_name": "depot",
@@ -209,6 +210,20 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                 # A non-CI workflow so the CI workflow-health assertions stay at 2 runs.
                 _run_row(
                     2003, "Deploy", "sha10b", "completed", "success", _ago(1), _ago(1), pr_number=10, run_attempt=2
+                ),
+                # PR 10 queued to merge: the gate run is credited to PR 10 (its branch names it) but
+                # its head SHA is a rebase the queue made, so it must not read as a third push.
+                _run_row(
+                    2004,
+                    "Deploy",
+                    "sha10queue",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=9001,
+                    head_branch="trunk-merge/pr-10/cabec75e-5181-4429-aea5-0501a52d0688",
+                    actor="trunk-io[bot]",
                 ),
             ],
         )

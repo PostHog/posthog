@@ -48,6 +48,27 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Record a note left with the thumbs rating at the end of a report. The rating itself is a product-analytics event; this endpoint exists to carry the note into the scout steering channel. For a report authored by a scout, the note is forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer and the call is a no-op success. The report's state is never changed.
+ * @summary Leave feedback on a report
+ */
+export const signalsReportsFeedbackCreateBodyNoteMax = 4000
+
+export const SignalsReportsFeedbackCreateBody = /* @__PURE__ */ zod.object({
+    sentiment: zod
+        .enum(['positive', 'negative'])
+        .describe('\* `positive` - positive\n\* `negative` - negative')
+        .describe(
+            "The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).\n\n\* `positive` - positive\n\* `negative` - negative"
+        ),
+    note: zod
+        .string()
+        .max(signalsReportsFeedbackCreateBodyNoteMax)
+        .describe(
+            'Free-form note explaining the rating. Capped at 4000 characters. Only submitted alongside a note — a bare thumb carries none — and, for a report authored by a scout, forwarded to that scout as a steering note.'
+        ),
+})
+
+/**
  * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
  * @summary Post an inline review comment on a report's implementation PR
  */
@@ -296,7 +317,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
  * @summary Create a scout
  */
 export const signalsScoutCreateBodyNameMax = 64
@@ -397,6 +418,13 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+                network_access: zod
+                    .enum(['trusted', 'full'])
+                    .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+                    .optional()
+                    .describe(
+                        "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+                    ),
                 auto_pause_exempt: zod
                     .boolean()
                     .optional()
@@ -410,6 +438,12 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
                     ),
+                structured_output_schema: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+                    ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
             .optional()
@@ -420,7 +454,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .describe('Create a runnable custom scout and its config in one atomic request.')
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
@@ -475,6 +509,13 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+        network_access: zod
+            .enum(['trusted', 'full'])
+            .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+            .optional()
+            .describe(
+                "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+            ),
         auto_pause_exempt: zod
             .boolean()
             .optional()
@@ -488,6 +529,12 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
+        structured_output_schema: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+            ),
         skill_name: zod
             .string()
             .max(signalsScoutConfigCreateBodySkillNameMax)
@@ -500,7 +547,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (trusted-domain allowlist vs full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
@@ -567,11 +614,24 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'
             ),
+        structured_output_schema: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+            ),
+        network_access: zod
+            .enum(['trusted', 'full'])
+            .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+            .optional()
+            .describe(
+                "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers. Applies from the scout's next run.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+            ),
         auto_pause_exempt: zod
             .boolean()
             .optional()
             .describe(
-                'Exempt this scout from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste.'
+                'Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet.'
             ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
@@ -1004,6 +1064,43 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.
+ * @summary Record structured output for a run
+ */
+export const signalsScoutRecordOutputBodyRecordsItemSubjectMax = 200
+
+export const signalsScoutRecordOutputBodyRecordsMax = 100
+
+export const SignalsScoutRecordOutputBody = /* @__PURE__ */ zod
+    .object({
+        records: zod
+            .array(
+                zod
+                    .object({
+                        payload: zod
+                            .record(zod.string(), zod.unknown())
+                            .describe(
+                                "The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written."
+                            ),
+                        subject: zod
+                            .string()
+                            .max(signalsScoutRecordOutputBodyRecordsItemSubjectMax)
+                            .nullish()
+                            .describe(
+                                "Optional key naming what this record is about — a report id, URL, account key — so per-entity lookups don't need to parse `payload`. Omit for a run-level record."
+                            ),
+                    })
+                    .describe('One record submitted through `scout-record-output`.')
+            )
+            .min(1)
+            .max(signalsScoutRecordOutputBodyRecordsMax)
+            .describe(
+                "Records to record, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record."
+            ),
+    })
+    .describe('Request body for `scout-record-output`: a batch of schema-validated records.')
 
 /**
  * Batched form of the per-run emissions endpoint: return the findings every requested `SignalScoutRun` emitted, flattened newest-first, in a single request. Each row carries its `run_id`, so the caller can regroup by run. The findings UI uses this to load the whole recent window in one round-trip instead of one request per run. Strictly team-scoped — run ids belonging to another team contribute no rows (no per-run 404; one stale id never fails the batch).

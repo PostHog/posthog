@@ -610,17 +610,22 @@ impl PodHandle {
     /// ownership state. Purely local: no etcd writes, callable with no
     /// lease.
     ///
-    /// The order per partition is load-bearing: `release_partition`
-    /// unfences and drops the cache without waiting, so releasing first
-    /// would let a write admitted before the lease was lost complete
-    /// its produce and ack after the replacement owner's warm — an
-    /// acked write the new owner never sees. Draining first (fence,
-    /// then wait for the inflight counter) guarantees that once this
-    /// returns, nothing this pod admitted can ack. Each drain is
-    /// bounded by the drain timeout; a partition that cannot quiesce
-    /// fails the fence, which the caller poisons — the process restart
-    /// then clears the stuck in-flight work by death, exactly as the
-    /// pre-supervisor design did. The window before the lease loss is
+    /// The order per partition is load-bearing for what release
+    /// exposes, not for the writes already in flight: an admitted write
+    /// completes its produce and acks whatever this function does —
+    /// neither the fence nor a withheld release can stop it. Draining
+    /// first (fence, then wait for the inflight counter) means the
+    /// release that follows unfences a partition with nothing left in
+    /// flight — no fresh admission lands on a leaseless pod, and the
+    /// cache is not dropped out from under a handler still using it —
+    /// and once this returns cleanly, everything this pod admitted had
+    /// acked before any partition was let go. Each drain is bounded by
+    /// the drain timeout; a partition that cannot quiesce stays fenced,
+    /// held, and unreleased — its in-flight work's fate belongs to the
+    /// broker (fenced, or committed below the successor's cutoff; with
+    /// fencing off it is the documented unfenced residual) — and the
+    /// caller poisons the run so the process restart clears it by
+    /// death, exactly as the pre-supervisor design did. The window before the lease loss is
     /// even *detected* (up to one heartbeat tick) remains the
     /// documented zombie residual; this closes only the part the local
     /// fence itself controls.
@@ -652,23 +657,68 @@ impl PodHandle {
                         Error::invalid_state(format!(
                             "self-fence drain timed out for partition {partition}"
                         ))
-                    })?
+                    })??;
+                Ok::<u32, Error>(partition)
             });
         }
+        // Failures are collected rather than propagated. This runs
+        // because the pod has lost the right to serve, so giving the
+        // partitions up matters more than reporting why one of them
+        // resisted — returning on the first error would leave every
+        // other partition still served by a pod with no lease, which is
+        // the zombie this function exists to prevent.
+        let mut failures: Vec<String> = Vec::new();
+        let mut quiesced: HashSet<u32> = HashSet::new();
         while let Some(joined) = drains.join_next().await {
-            joined
-                .map_err(|e| Error::invalid_state(format!("self-fence drain panicked: {e}")))??;
+            match joined {
+                Ok(Ok(partition)) => {
+                    quiesced.insert(partition);
+                }
+                Ok(Err(e)) => failures.push(e.to_string()),
+                Err(e) => failures.push(format!("self-fence drain panicked: {e}")),
+            }
         }
 
-        // Phase 2: with nothing in flight anywhere, release each
-        // partition (dropping cache and serving authority) and clear
-        // the local ownership state.
+        // Phase 2: release each partition that quiesced — dropping its
+        // cache and serving authority — and clear the local ownership
+        // state for it.
+        //
+        // Only the ones that quiesced. A write still in flight acks
+        // whether or not its partition is released — nothing can stop
+        // it — so what releasing an un-quiesced partition would actually
+        // do is unfence fresh admissions on a pod with no lease, drop
+        // the cache out from under the handlers still using it, and
+        // erase the record that the partition was never given up. One
+        // left fenced and unreleased stays that way until the process
+        // restarts, which is the outcome its drain timing out already
+        // implies.
         for partition in held {
-            self.handler.release_partition(partition).await?;
+            if !quiesced.contains(&partition) {
+                continue;
+            }
+            if let Err(e) = self.handler.release_partition(partition).await {
+                failures.push(format!("release of partition {partition}: {e}"));
+                // Still held: the handler may retain the cache and the
+                // serving authority, so forgetting it here would make the
+                // closing gauge read a partition as given up that was
+                // not. The run is about to end poisoned either way.
+                continue;
+            }
             self.warmed_partitions.lock().await.remove(&partition);
             self.fenced_partitions.lock().await.remove(&partition);
         }
-        gauge!("personhog_coordination_partitions_held").set(0.0);
+        // Whatever is left, not zero. A partition whose drain never
+        // quiesced is still held, and reporting none held would hide it
+        // at the one moment the count is worth reading.
+        gauge!("personhog_coordination_partitions_held")
+            .set(self.held_partition_count().await as f64);
+        if !failures.is_empty() {
+            return Err(Error::invalid_state(format!(
+                "self-fence completed with {} failure(s): {}",
+                failures.len(),
+                failures.join("; ")
+            )));
+        }
         Ok(())
     }
 
@@ -901,9 +951,16 @@ impl PodHandle {
                 // admission depend on an undocumented handler side
                 // effect. Resuming after a warm that already unfenced is
                 // an idempotent no-op.
-                if self.fenced_partitions.lock().await.remove(&partition) {
+                // Clear the local record only once the handler has
+                // actually resumed: `resume_partition` can fail (it may
+                // re-take broker-side state), and forgetting the fence
+                // first would leave the data plane fenced with no branch
+                // left to re-enter — writes rejected forever while the
+                // convergence reports success.
+                if self.fenced_partitions.lock().await.contains(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: resuming writes");
                     self.handler.resume_partition(partition).await?;
+                    self.fenced_partitions.lock().await.remove(&partition);
                     did_work = true;
                 }
             }
@@ -919,6 +976,13 @@ impl PodHandle {
                     tracing::info!(pod, partition, "converging to Drained: fencing + draining");
                     did_work = true;
                 }
+                // Recorded before the handler runs, not after. The
+                // handler fences the data plane as its first act and can
+                // fail afterwards; a record written only on success would
+                // leave writes fenced with no branch left to re-enter,
+                // since `resume_partition` below is reachable only
+                // through this set.
+                self.fenced_partitions.lock().await.insert(partition);
                 let start = Instant::now();
                 self.handler.drain_partition_inflight(partition).await?;
                 if newly_fencing {
@@ -928,7 +992,6 @@ impl PodHandle {
                     histogram!("personhog_coordination_partition_drain_ms")
                         .record(start.elapsed().as_secs_f64() * 1000.0);
                 }
-                self.fenced_partitions.lock().await.insert(partition);
                 if ack {
                     let handoff = handoff.expect("Drained state only derives from a handoff");
                     self.store
@@ -936,6 +999,7 @@ impl PodHandle {
                             pod_name: pod.clone(),
                             partition,
                             acked_at: util::now_seconds(),
+                            acked_at_ms: 0,
                             handoff_id: handoff.handoff_id.clone(),
                         })
                         .await?;
@@ -991,22 +1055,28 @@ impl PodHandle {
                         pod_name: pod.clone(),
                         partition,
                         acked_at: util::now_seconds(),
+                        acked_at_ms: 0,
                         handoff_id: handoff.handoff_id.clone(),
                     })
                     .await?;
                 tracing::info!(pod, partition, "warmed ack written");
             }
             DesiredState::Released => {
-                let was_warmed = self
-                    .warmed_partitions
-                    .lock()
-                    .await
-                    .remove(&partition)
-                    .is_some();
-                let was_fenced = self.fenced_partitions.lock().await.remove(&partition);
+                // Forgotten only after the handler returns, matching the
+                // discipline the other arms document. Removing first put
+                // a suspension point between forgetting and releasing: a
+                // lane dropped there — or a release that failed — left
+                // the partition in neither map, so no convergence ever
+                // dispatched for it again and its cache, floors, and
+                // producer leaked for the life of the process. Release is
+                // idempotent, so a retry that re-runs it costs nothing.
+                let was_warmed = self.warmed_partitions.lock().await.contains_key(&partition);
+                let was_fenced = self.fenced_partitions.lock().await.contains(&partition);
                 if was_warmed || was_fenced {
                     tracing::info!(pod, partition, "converging to Released: releasing");
                     self.handler.release_partition(partition).await?;
+                    self.warmed_partitions.lock().await.remove(&partition);
+                    self.fenced_partitions.lock().await.remove(&partition);
                     counter!("personhog_coordination_partition_releases_total").increment(1);
                     self.drain_notify.notify_one();
                     did_work = true;
@@ -1178,7 +1248,14 @@ impl PodHandle {
                     for event in resp.events() {
                         let partition = match event.event_type() {
                             EventType::Put => match parse_watch_value::<HandoffState>(event) {
-                                Ok(handoff) => Some(handoff.partition),
+                                Ok(handoff) => {
+                                    util::record_phase_watch_delivery(
+                                        "pod",
+                                        handoff.phase,
+                                        handoff.phase_entered_at_ms,
+                                    );
+                                    Some(handoff.partition)
+                                }
                                 Err(e) => {
                                     tracing::error!(pod = %self.config.pod_name, error = %e, "failed to parse handoff");
                                     None

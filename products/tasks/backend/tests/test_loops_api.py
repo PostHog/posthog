@@ -23,21 +23,13 @@ try:
 except ImportError:
     pass
 
-from posthog.models import (
-    FileSystem,
-    Organization,
-    OrganizationMembership,
-    PersonalAPIKey,
-    ProjectSecretAPIKey,
-    Team,
-    User,
-)
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, ProjectSecretAPIKey, Team, User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
 from products.tasks.backend.facade import loops as loops_facade
-from products.tasks.backend.models import Loop, LoopTrigger, Task, TaskRun
+from products.tasks.backend.models import Channel, Loop, LoopTrigger, Task, TaskRun
 from products.tasks.backend.presentation.views.loops import MAX_LOOP_TRIGGER_PAYLOAD_BYTES
 
 
@@ -774,10 +766,28 @@ class LoopVisibilityAPITest(LoopsAPITestCase):
 class LoopContextVisibilityAPITest(LoopsAPITestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.folder = FileSystem.objects.create(team=self.team, path="Growth Team", type="folder", surface="desktop")
+        self.channel = Channel(team=self.team, name="growth-team", created_by=self.owner)
+        self.channel.save()
 
     def _context_target(self) -> dict:
-        return {"folder_id": str(self.folder.id), "name": "Growth Team", "outputs": {"post_to_feed": True}}
+        return {"channel_id": str(self.channel.id), "name": "Growth Team", "outputs": {"post_to_feed": True}}
+
+    def test_create_rejects_another_members_personal_channel(self):
+        channel = Channel.objects.unscoped().create(
+            team=self.team,
+            name="me",
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=self.peer,
+        )
+        target = {**self._context_target(), "channel_id": str(channel.id)}
+
+        response = self.owner_client.post(
+            self._loops_url(),
+            self._valid_loop_payload(visibility="team", context_target=target),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
     @parameterized.expand(
         [
@@ -809,7 +819,7 @@ class LoopContextVisibilityAPITest(LoopsAPITestCase):
 
         current = self.owner_client.get(self._loop_url(loop_id)).json()
         if expected_status == status.HTTP_200_OK:
-            self.assertEqual(current["context_target"]["folder_id"], str(self.folder.id))
+            self.assertEqual(current["context_target"]["channel_id"], str(self.channel.id))
         else:
             self.assertIsNone(current["context_target"])
 
@@ -972,7 +982,7 @@ class LoopGithubTriggerValidationAPITest(LoopsAPITestCase):
     def setUp(self) -> None:
         super().setUp()
         self.integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
-        mock_github = self._start_patch("products.tasks.backend.facade.loops.GitHubIntegration")
+        mock_github = self._start_patch("products.tasks.backend.github_repository_access.GitHubIntegration")
         mock_github.return_value.list_all_cached_repositories.return_value = [{"full_name": "acme/repo"}]
 
     def _github_trigger(self, events: list, filters: dict | None = None) -> dict:
@@ -1264,7 +1274,7 @@ class LoopInternalFacadeTest(LoopsAPITestCase):
                 },
             )
 
-    @patch("products.tasks.backend.facade.loops.GitHubIntegration")
+    @patch("products.tasks.backend.github_repository_access.GitHubIntegration")
     def test_repository_access_requires_an_exact_cache_match(self, mock_github):
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
         mock_github.return_value.list_all_cached_repositories.return_value = [{"full_name": "acme/allowed"}]
@@ -1274,7 +1284,7 @@ class LoopInternalFacadeTest(LoopsAPITestCase):
         )
         self.assertFalse(loops_facade.repository_accessible_via_integration(self.team.id, integration.id, "acme/other"))
 
-    @patch("products.tasks.backend.facade.loops.GitHubIntegration")
+    @patch("products.tasks.backend.github_repository_access.GitHubIntegration")
     def test_repository_access_fails_closed_when_the_repo_list_is_unavailable(self, mock_github):
         # A cold or invalidated cache that can't be refreshed must reject, not authorize: otherwise a
         # member could point a loop at another project's private repo reachable by the shared install.

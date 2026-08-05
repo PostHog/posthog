@@ -1,4 +1,5 @@
 import uuid
+import smtplib
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -22,6 +23,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.hogql.errors import QueryError
 
+from posthog.email import EmailDeliveryError
 from posthog.errors import CHQueryErrorS3Error
 from posthog.models import OrganizationMembership
 from posthog.models.instance_setting import set_instance_setting
@@ -41,6 +43,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
+    deliver_subscription_v2,
     fetch_due_subscriptions_activity,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -53,6 +56,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.delivery_common import deliver_email
 from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -101,6 +105,66 @@ async def test_subscription_workflows_accept_legacy_previous_target_payload() ->
     assert update_inputs.previous_target_value == "old@example.com"
 
 
+async def test_email_delivery_error_is_non_retryable(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[],
+        total_insight_count=0,
+    )
+
+    async def fail_send(_email: str) -> None:
+        raise EmailDeliveryError("provider rejected delivery")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"):
+        with pytest.raises(ApplicationError) as error:
+            await deliver_email(subscription, inputs, [], fail_send)
+
+    assert error.value.non_retryable is True
+    assert error.value.details[0]["recipient_results"][0]["status"] == "failed"
+
+
+async def test_mixed_permanent_and_transient_failures_are_retryable(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(team=team, target_value="a@posthog.com,b@posthog.com")
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[],
+        total_insight_count=0,
+    )
+
+    async def mixed_send(email: str) -> None:
+        if email == "a@posthog.com":
+            raise EmailDeliveryError("permanent rejection")
+        raise smtplib.SMTPException("transient relay timeout")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"):
+        with pytest.raises(smtplib.SMTPException):
+            await deliver_email(subscription, inputs, [], mixed_send)
+
+
+async def test_non_retryable_error_details_are_bounded(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(
+        team=team, target_value=",".join(f"user{i}@posthog.com" for i in range(120))
+    )
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[],
+        total_insight_count=0,
+    )
+
+    async def fail_send(_email: str) -> None:
+        raise EmailDeliveryError("permanent rejection")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"):
+        with pytest.raises(ApplicationError) as error:
+            await deliver_email(subscription, inputs, [], fail_send)
+
+    details = error.value.details[0]["recipient_results"]
+    assert error.value.non_retryable is True
+    assert len(details) == 51  # 50 capped results + truncation sentinel
+    assert details[-1]["truncated_count"] == 70
+
+
 SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
@@ -110,6 +174,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
+        deliver_subscription_v2,
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
@@ -124,6 +189,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
+        deliver_subscription_v2,
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
@@ -1526,6 +1592,8 @@ async def test_deliver_subscription_workflow_end_to_end(
 
     # 2 recipients
     assert mock_send_email.call_count == 2
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription=subscription)
+    assert {call.kwargs["delivery_id"] for call in mock_send_email.call_args_list} == {delivery.id}
 
     # Both started and completed events flow through posthog.slo.events
     started_calls = [

@@ -78,6 +78,7 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
             ("app_mention_no_integration", "app_mention", "no_integration", 202, True),
             ("member_joined_channel_routes", "member_joined_channel", "handled_locally", 202, True),
             ("message_dm_routes", "message", "handled_locally", 202, True),
+            ("app_uninstalled_routes", "app_uninstalled", "handled_locally", 202, True),
             ("non_handled_event_type_skips_routing", "reaction_added", "handled_locally", 202, False),
         ]
     )
@@ -200,6 +201,63 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.assert_called_once()
         mock_sync_connect.return_value.start_workflow.assert_called_once()
         mock_asyncio_run.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("fans_out_to_other_region", False, 1),
+            ("proxied_does_not_fan_out_again", True, 0),
+        ]
+    )
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_app_uninstalled_clears_workspace_profile_cache(
+        self, _name, proxied: bool, expected_proxy_calls: int, mock_proxy
+    ):
+        # An uninstall must clear the workspace's cached Slack profiles (stale emails
+        # otherwise break user resolution after a reinstall) while leaving other
+        # workspaces' cache rows and the Integration row itself untouched.
+        other_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T99999",
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+        SlackUserProfileCache.objects.create(
+            integration=other_integration,
+            slack_user_id="U999",
+            email="other@example.com",
+        )
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        headers = {"x-posthog-region-proxied": "1"} if proxied else {}
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com", headers=headers)
+        result = route_posthog_code_event_to_relevant_region(request, {"type": "app_uninstalled"}, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert not SlackUserProfileCache.objects.filter(integration=self.posthog_code_integration).exists()
+        assert SlackUserProfileCache.objects.filter(integration=other_integration).exists()
+        assert Integration.objects.filter(id=self.posthog_code_integration.id).exists()
+        assert mock_proxy.call_count == expected_proxy_calls
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.services.slack_user_info.SlackUserProfileCache.objects.filter")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_app_uninstalled_db_failure_still_acks_and_fans_out(self, mock_filter, mock_proxy):
+        # A transient DB error during the cache clear must not raise: Slack acks
+        # retries without reprocessing, so a 500 would lose the event — and the
+        # cross-region fan-out that follows the clear would be skipped too.
+        from django.db.utils import DatabaseError
+
+        mock_filter.side_effect = DatabaseError("connection lost")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, {"type": "app_uninstalled"}, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_proxy.assert_called_once()
 
     @parameterized.expand(
         [
@@ -471,7 +529,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         # The user belongs to ``self.organization`` only, so only that integration
         # should be the mention target — ``other_integration`` is filtered out.
         assert workflow_inputs.integration_id == self.posthog_code_integration.id
@@ -525,7 +583,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         assert workflow_inputs.integration_id == self.posthog_code_integration.id
         assert workflow_inputs.integration_id != private_integration.id
 
@@ -542,7 +600,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         assert workflow_inputs.user_id == self.user.id
 
     @patch("products.slack_app.backend.api.asyncio.run")
@@ -1375,16 +1433,15 @@ class TestQueueWorkflowDispatch(TestCase):
         ]
     )
     @patch("products.slack_app.backend.api.SlackIntegration")
-    @patch("products.slack_app.backend.api.is_slack_app_queue_workflow_enabled", return_value=True)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_flag_on_signal_with_starts_conversation_workflow(
-        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_flag, mock_slack
+    def test_signal_with_starts_conversation_workflow(
+        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_slack
     ):
-        # With the flag on, every message in a conversation must land in ONE
-        # per-thread workflow via signal-with-start — the conversation ID
-        # anchors on the thread root so followups reach the same instance.
+        # Every message in a conversation must land in ONE per-thread workflow
+        # via signal-with-start — the conversation ID anchors on the thread
+        # root so followups reach the same instance.
         from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
