@@ -15274,7 +15274,10 @@ export namespace Schemas {
        * * `number` - number
        * * `string` - string */
       type: OutputFieldTypeEnum;
-      /** Shown to the LLM to describe what this key means. */
+      /**
+         * Shown to the LLM to describe what this key means. At most 400 characters.
+         * @maxLength 400
+         */
       description?: string;
     }
 
@@ -15285,13 +15288,13 @@ export namespace Schemas {
       name: string;
       /** Server-assigned version identity, e.g. v3. */
       version: string;
-      /** System prompt; {email} is replaced with the signup email domain at runtime. */
+      /** System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters. */
       prompt_text: string;
       /** Gateway model id this version was authored against. */
       model: string;
       /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
       input_fields: string[];
-      /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+      /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
       output_fields: OutputField[];
       /** Whether the batch runner currently computes this version. */
       is_active: boolean;
@@ -64610,7 +64613,10 @@ export namespace Schemas {
          * @maxLength 128
          */
       label: string;
-      /** System prompt; {email} is replaced with the signup email domain at runtime. */
+      /**
+         * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+         * @maxLength 20000
+         */
       prompt_text: string;
       /**
          * Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves.
@@ -64619,7 +64625,7 @@ export namespace Schemas {
       model: string;
       /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
       input_fields?: string[];
-      /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+      /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
       output_fields: OutputField[];
       /**
          * Number of the most recently archived, distinct orgs to classify (1-10). Each sampled org costs one LLM call, so keep this bounded during iteration.
@@ -64944,7 +64950,10 @@ export namespace Schemas {
          * @maxLength 128
          */
       version?: string;
-      /** System prompt; {email} is replaced with the signup email domain at runtime. */
+      /**
+         * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+         * @maxLength 20000
+         */
       prompt_text: string;
       /**
          * Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves.
@@ -64953,7 +64962,7 @@ export namespace Schemas {
       model: string;
       /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
       input_fields?: string[];
-      /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+      /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
       output_fields: OutputField[];
     }
 

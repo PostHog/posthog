@@ -51,6 +51,14 @@ MAX_INPUT_DEPTH = 6
 # not a reservation, so the headroom is free.
 MAX_OUTPUT_TOKENS = 4000
 
+# Bounds on the prompt config's own authored content (prompt_text, output_fields) - not the
+# archived payload data above. Defined here, not in ai_enrichment_serializers.py, so any other
+# consumer of EnrichmentPromptConfig content (e.g. the admin form) can share the same numbers
+# instead of drifting to its own.
+MAX_PROMPT_TEXT_CHARS = 20_000
+MAX_OUTPUT_FIELDS = 20
+MAX_OUTPUT_FIELD_DESCRIPTION_CHARS = 400
+
 _TRUNCATED_AT_MAX_DEPTH = "…(truncated: exceeded max input nesting depth)"
 
 
@@ -401,9 +409,13 @@ def _response_meta(response: Any) -> dict[str, Any]:
     return meta
 
 
-def _unknown_output(config: EnrichmentPromptConfig, signup_domain: str | None, reason: str) -> dict[str, Any]:
+def unknown_output(config: EnrichmentPromptConfig, signup_domain: str | None, reason: str) -> dict[str, Any]:
     """Only the configured keys, same as a real call: why the run was skipped goes in meta, which
-    is reserved for provenance, because a schema need not have a "reasoning" key."""
+    is reserved for provenance, because a schema need not have a "reasoning" key. Public: besides
+    classify_payload's own short-circuits below, enrichment/lab.py's classify_fetch_for_run calls
+    this directly for its own consent-revoked-mid-run short-circuit, which must never reach
+    classify_payload (and therefore the LLM) in the first place.
+    """
     output: dict[str, Any] = {}
     verdict_key = verdict_field_key(config)
     if verdict_key is not None:
@@ -415,9 +427,9 @@ def _unknown_output(config: EnrichmentPromptConfig, signup_domain: str | None, r
 
 def is_unknown_output(output: dict[str, Any]) -> bool:
     """The authoritative "was this skipped" marker for accounting. verdict_field_key can be None
-    (a schema with no boolean field), in which case _unknown_output writes no verdict key at all -
+    (a schema with no boolean field), in which case unknown_output writes no verdict key at all -
     so callers that count unknowns by checking a verdict key miss every skipped row under such a
-    schema. meta.skipped is set on every _unknown_output call regardless of schema shape."""
+    schema. meta.skipped is set on every unknown_output call regardless of schema shape."""
     return bool(output.get("meta", {}).get("skipped"))
 
 
@@ -429,14 +441,14 @@ def classify_payload(
     # Not-found fetches archive core.py's _MISS_PAYLOAD ({"companyFound": False}); that's
     # evidence of absence, not a thin signal to guess from, so skip the LLM entirely.
     if not payload or payload.get("companyFound") is False:
-        return _unknown_output(config, signup_domain, "missing or empty archived payload")
+        return unknown_output(config, signup_domain, "missing or empty archived payload")
 
     # Checked after resolving, not before: a payload that's present but has none of the configured
     # paths would otherwise bill a call to ask the model about "Company data: {}".
     extracted = extract_input_fields(payload, config.input_fields)
     inputs = bound_inputs(extracted)
     if not inputs:
-        return _unknown_output(config, signup_domain, "archived payload has none of the configured input fields")
+        return unknown_output(config, signup_domain, "archived payload has none of the configured input fields")
 
     messages = build_messages(config, inputs, signup_domain)
     output, meta = _call_and_parse(config, messages, client)

@@ -13,6 +13,9 @@ from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.enrichment.lab import DEFAULT_SAMPLE_SIZE, DRAFT_VERSION_SENTINEL, MAX_SAMPLE_SIZE
 from products.growth.backend.enrichment.labels import (
+    MAX_OUTPUT_FIELD_DESCRIPTION_CHARS,
+    MAX_OUTPUT_FIELDS,
+    MAX_PROMPT_TEXT_CHARS,
     OUTPUT_FIELD_KEY_RE,
     OUTPUT_FIELD_TYPES,
     RESERVED_OUTPUT_FIELD_KEYS,
@@ -26,10 +29,13 @@ _OUTPUT_FIELDS_HELP = (
     "Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the "
     "classifier's entire output contract - the label is a human name and is never an output key, so renaming a "
     "label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not "
-    "be 'meta' or 'inputs'."
+    f"be 'meta' or 'inputs'. At most {MAX_OUTPUT_FIELDS} fields."
 )
 
-_PROMPT_TEXT_HELP = "System prompt; {email} is replaced with the signup email domain at runtime."
+_PROMPT_TEXT_HELP = (
+    "System prompt; {email} is replaced with the signup email domain at runtime. "
+    f"At most {MAX_PROMPT_TEXT_CHARS} characters."
+)
 
 _MODEL_HELP = "Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves."
 
@@ -52,7 +58,9 @@ class OutputFieldSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         default="",
-        help_text="Shown to the LLM to describe what this key means.",
+        max_length=MAX_OUTPUT_FIELD_DESCRIPTION_CHARS,
+        help_text=f"Shown to the LLM to describe what this key means. At most {MAX_OUTPUT_FIELD_DESCRIPTION_CHARS} "
+        "characters.",
     )
 
     def validate_key(self, value: str) -> str:
@@ -61,8 +69,12 @@ class OutputFieldSerializer(serializers.Serializer):
         return value
 
 
-def _validate_output_field_keys_are_unique(value: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Uniqueness is the one rule OutputFieldSerializer cannot enforce per item."""
+def _validate_output_fields_list(value: list[dict[str, str]]) -> list[dict[str, str]]:
+    """The two rules OutputFieldSerializer cannot enforce per item: uniqueness across the list,
+    and a cap on the list's own length (unlike max_length on a single field, list-item-count
+    limits aren't expressible on a `many=True` nested serializer)."""
+    if len(value) > MAX_OUTPUT_FIELDS:
+        raise serializers.ValidationError(f"At most {MAX_OUTPUT_FIELDS} output fields are allowed, got {len(value)}.")
     keys = [field["key"] for field in value]
     duplicates = {key for key in keys if keys.count(key) > 1}
     if duplicates:
@@ -175,7 +187,7 @@ class SaveRequestSerializer(serializers.Serializer):
         "server-suggested next version for this label. Versions are immutable once created - there is no "
         "update endpoint - and (label, version) must be unique.",
     )
-    prompt_text = serializers.CharField(help_text=_PROMPT_TEXT_HELP)
+    prompt_text = serializers.CharField(max_length=MAX_PROMPT_TEXT_CHARS, help_text=_PROMPT_TEXT_HELP)
     model = serializers.CharField(max_length=128, help_text=_MODEL_HELP)
     input_fields = serializers.ListField(
         child=serializers.CharField(), required=False, default=list, help_text=_INPUT_FIELDS_HELP
@@ -193,7 +205,7 @@ class SaveRequestSerializer(serializers.Serializer):
         return value
 
     def validate_output_fields(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
-        return _validate_output_field_keys_are_unique(value)
+        return _validate_output_fields_list(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         _validate_config_shape(attrs)
@@ -206,7 +218,7 @@ class RunRequestSerializer(serializers.Serializer):
         help_text="Label this draft config computes, e.g. ai_pilled. Need not already exist - run classifies "
         "against an in-memory config only and persists nothing.",
     )
-    prompt_text = serializers.CharField(help_text=_PROMPT_TEXT_HELP)
+    prompt_text = serializers.CharField(max_length=MAX_PROMPT_TEXT_CHARS, help_text=_PROMPT_TEXT_HELP)
     model = serializers.CharField(max_length=128, help_text=_MODEL_HELP)
     input_fields = serializers.ListField(
         child=serializers.CharField(), required=False, default=list, help_text=_INPUT_FIELDS_HELP
@@ -222,7 +234,7 @@ class RunRequestSerializer(serializers.Serializer):
     )
 
     def validate_output_fields(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
-        return _validate_output_field_keys_are_unique(value)
+        return _validate_output_fields_list(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # capture_path: this endpoint spends real LLM money the moment it starts streaming, so a

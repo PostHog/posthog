@@ -12,13 +12,21 @@ from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from django.db import close_old_connections, connection
+
 import structlog
 from openai import OpenAI
 
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
 
-from products.growth.backend.enrichment.labels import bound_inputs, classify_payload, extract_input_fields
+from products.growth.backend.enrichment.labels import (
+    ai_processing_approved,
+    bound_inputs,
+    classify_payload,
+    extract_input_fields,
+    unknown_output,
+)
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
@@ -101,9 +109,22 @@ def classify_fetch_for_run(
     else:
         inputs = bound_inputs(extract_input_fields(fetch.payload, config.input_fields))
     try:
+        # Thread-local DB connection: drop any stale one left by this pool thread's previous
+        # iteration before the consent recheck query below - same pattern as
+        # enrichment_label_batch.py's threaded worker. Closed again in `finally` so it isn't held
+        # open past this iteration, into this worker thread's next one.
+        close_old_connections()
+        # Re-checked here, not just at the prefetch filter in _build_run_inputs: a run streams
+        # over several seconds to minutes, long enough for an admin to revoke consent mid-run. A
+        # stale approval read before streaming started must not still reach the LLM.
+        if not ai_processing_approved(fetch.organization_id):
+            output = unknown_output(config, signup_domain, "AI processing consent was revoked mid-run")
+            return company, signup_domain, output, None, {}
         output = classify_payload(config, fetch.payload, signup_domain, client)
     except Exception as e:
         return company, signup_domain, None, _run_error(config, e, "classify_fetch_for_run"), inputs
+    finally:
+        connection.close()
     return company, signup_domain, output, None, inputs
 
 

@@ -94,10 +94,12 @@ def _build_run_inputs(sample: int) -> list[tuple[OrganizationEnrichmentFetch, st
     """All the ORM work a run needs, done up front on the request thread: workers only make LLM
     calls (see stream_run_classifications), so no query runs mid-stream. Only orgs with AI
     processing consent are eligible - the same gate the batch runner and dry-run command apply
-    per row (enrichment_label_batch.py, enrichment_label_dry_run.py via ai_processing_approved) -
-    applied as a query filter here since a lab run is a single short request, not a long-running
-    job where consent could change mid-flight. `=True` also excludes the nullable column's unset
-    (NULL) state, matching ai_processing_approved's "only an explicit True approves".
+    per row (enrichment_label_batch.py, enrichment_label_dry_run.py via ai_processing_approved).
+    This is a coarse first pass, not the last word: `=True` also excludes the nullable column's
+    unset (NULL) state, matching ai_processing_approved's "only an explicit True approves", but a
+    run can still stream for seconds to minutes, long enough for consent to be revoked after this
+    filter runs - classify_fetch_for_run (enrichment/lab.py) rechecks per row immediately before
+    each classification for that reason.
     """
     fetches = list(
         recent_latest_fetches_qs()

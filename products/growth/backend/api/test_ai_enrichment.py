@@ -1,8 +1,9 @@
 import json
 import uuid
 import asyncio
+from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -12,7 +13,17 @@ from rest_framework import status
 
 from posthog.models.organization import Organization
 
+from products.growth.backend.api.ai_enrichment_serializers import (
+    OutputFieldSerializer,
+    RunRequestSerializer,
+    SaveRequestSerializer,
+)
 from products.growth.backend.enrichment import lab as lab_module
+from products.growth.backend.enrichment.labels import (
+    MAX_OUTPUT_FIELD_DESCRIPTION_CHARS,
+    MAX_OUTPUT_FIELDS,
+    MAX_PROMPT_TEXT_CHARS,
+)
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 # Deliberately unlike any label name used below: output keys come from output_fields, never
@@ -331,6 +342,11 @@ class TestAIEnrichmentAPI(APIBaseTest):
             # output_fields is the whole output contract, so an empty one is a config that
             # asks the model for nothing and stores nothing.
             ("empty", []),
+            ("too_many_fields", [{"key": f"f{i}", "type": "boolean"} for i in range(MAX_OUTPUT_FIELDS + 1)]),
+            (
+                "description_too_long",
+                [{"key": "flag", "type": "boolean", "description": "x" * (MAX_OUTPUT_FIELD_DESCRIPTION_CHARS + 1)}],
+            ),
         ]
     )
     def test_save_rejects_invalid_output_fields_schema(self, _name, output_fields):
@@ -378,6 +394,179 @@ class TestAIEnrichmentAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, method)
         config.refresh_from_db()
         self.assertEqual(config.prompt_text, "judge it. Email: {email}")
+
+    def test_run_rechecks_consent_immediately_before_classification_and_skips_a_mid_run_revocation(self):
+        # The sample is consent-filtered once, up front, at prefetch (_build_run_inputs) - but a
+        # run streams over seconds to minutes, long enough for an admin to revoke consent after
+        # that filter already ran. This organization passes the prefetch filter (consent approved
+        # by default in APIBaseTest), so only classify_fetch_for_run's own recheck can catch it.
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        client = _mock_llm_client()
+
+        with (
+            patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client),
+            patch("products.growth.backend.enrichment.lab.ai_processing_approved", return_value=False),
+        ):
+            response = self.client.post(
+                "/api/growth_ai_enrichment/run/",
+                {
+                    "label": "mid_run_revoke_label",
+                    "prompt_text": "x",
+                    "model": "gpt-5-mini",
+                    "input_fields": ["name"],
+                    "output_fields": _OUTPUT_FIELDS,
+                    "sample": 1,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
+        verdict_rows = [row for row in rows if "summary" not in row]
+        client.chat.completions.create.assert_not_called()
+        self.assertTrue(verdict_rows[0]["meta"]["skipped"])
+
+    @parameterized.expand(
+        [
+            ("too_many_fields", [{"key": f"f{i}", "type": "boolean"} for i in range(MAX_OUTPUT_FIELDS + 1)]),
+            (
+                "description_too_long",
+                [{"key": "flag", "type": "boolean", "description": "x" * (MAX_OUTPUT_FIELD_DESCRIPTION_CHARS + 1)}],
+            ),
+        ]
+    )
+    def test_run_rejects_output_fields_over_the_caps(self, _name, output_fields):
+        # Wiring guard for RunRequestSerializer: the boundary logic itself is proven in
+        # TestSaveAndRunSerializerCaps without a request round trip, this only confirms the
+        # viewset still surfaces that as a 400 on this endpoint too, same as /save/ above.
+        response = self.client.post(
+            "/api/growth_ai_enrichment/run/",
+            {
+                "label": "run_cap_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "output_fields": output_fields,
+                "sample": 1,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_run_rejects_sample_over_the_max(self):
+        # This endpoint spends real LLM money per sampled org - the max (10) must be enforced
+        # before any candidates are fetched or any LLM client is built.
+        response = self.client.post(
+            "/api/growth_ai_enrichment/run/",
+            {
+                "label": "test_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "output_fields": _OUTPUT_FIELDS,
+                "sample": 11,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "sample")
+
+    def test_run_rejects_an_invalid_draft_config_with_400_not_500(self):
+        # A config error (too many input_fields for bound_inputs to carry) must surface as a
+        # normal 400 raised before streaming starts, not an unhandled 500 - and definitely not a
+        # 200 stream that only reveals the problem mid-flight.
+        response = self.client.post(
+            "/api/growth_ai_enrichment/run/",
+            {
+                "label": "bad_config_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "input_fields": [f"field_{i}" for i in range(41)],
+                "output_fields": _OUTPUT_FIELDS,
+                "sample": 1,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_run_constructs_its_client_with_max_retries_zero(self):
+        # tenacity already owns retries inside classify_payload; the SDK's own retries stacking
+        # on top would multiply spend on every 429 tenacity is already backing off from.
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        client = _mock_llm_client()
+
+        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client) as get_client:
+            response = self.client.post(
+                "/api/growth_ai_enrichment/run/",
+                {
+                    "label": "test_label",
+                    "prompt_text": "x",
+                    "model": "gpt-5-mini",
+                    "input_fields": ["name"],
+                    "output_fields": _OUTPUT_FIELDS,
+                    "sample": 1,
+                },
+                format="json",
+            )
+            _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
+
+        get_client.assert_called_once_with(product="growth")
+        client.with_options.assert_called_once_with(max_retries=0)
+
+    def test_run_is_throttled_for_session_auth(self):
+        # The global throttles are PersonalApiKeyRateThrottle subclasses, a structural no-op for
+        # session-authenticated requests with no personal API key - this endpoint needs its own,
+        # since each allowed call can cost several real LLM completions.
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        payload = {
+            "label": "throttle_label",
+            "prompt_text": "x",
+            "model": "gpt-5-mini",
+            "input_fields": ["name"],
+            "output_fields": _OUTPUT_FIELDS,
+            "sample": 1,
+        }
+
+        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=_mock_llm_client()):
+            statuses = []
+            for _ in range(11):
+                response = self.client.post("/api/growth_ai_enrichment/run/", payload, format="json")
+                if response.status_code == status.HTTP_200_OK:
+                    _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
+                statuses.append(response.status_code)
+
+        self.assertEqual(statuses.count(status.HTTP_200_OK), 10)
+        self.assertEqual(statuses[-1], status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
+    """/run/ hands each sampled fetch to a real ThreadPoolExecutor worker (classify_fetch_for_run,
+    enrichment/lab.py), which opens its own DB connection to recheck consent. Under plain
+    APIBaseTest (TestCase), that worker connection cannot see this test's own DB writes - they
+    sit in TestCase's outer, never-committed transaction, invisible to any other connection - so
+    a fresh query from the worker thread finds no such organization at all and the consent
+    recheck false-negatives on every row. NonAtomicAPIBaseTest (TransactionTestCase) commits for
+    real instead. Tests here are the ones whose assertions depend on classify_fetch_for_run
+    actually reaching classify_payload; pure-validation and pre-streaming /run/ tests stay on the
+    faster TestAIEnrichmentAPI above.
+
+    CLASS_DATA_LEVEL_SETUP = False: TransactionTestCase flushes every table between tests (see
+    _fixture_teardown), including the org/team/user setUpTestData creates - fixtures made once in
+    setUpClass would only exist for this class's first test. Per-test setup recreates them fresh
+    each time instead.
+    """
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        lab_module._model_list_cache.update({"models": None, "expires_at": 0.0})
 
     def test_run_streams_ndjson_verdicts_for_an_unsaved_draft_and_persists_nothing(self):
         OrganizationEnrichmentFetch.objects.create(
@@ -512,67 +701,6 @@ class TestAIEnrichmentAPI(APIBaseTest):
         ]
         self.assertTrue(all("Declined Co" not in payload for payload in sent_payloads))
 
-    def test_run_rejects_sample_over_the_max(self):
-        # This endpoint spends real LLM money per sampled org - the max (10) must be enforced
-        # before any candidates are fetched or any LLM client is built.
-        response = self.client.post(
-            "/api/growth_ai_enrichment/run/",
-            {
-                "label": "test_label",
-                "prompt_text": "x",
-                "model": "gpt-5-mini",
-                "output_fields": _OUTPUT_FIELDS,
-                "sample": 11,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "sample")
-
-    def test_run_rejects_an_invalid_draft_config_with_400_not_500(self):
-        # A config error (too many input_fields for bound_inputs to carry) must surface as a
-        # normal 400 raised before streaming starts, not an unhandled 500 - and definitely not a
-        # 200 stream that only reveals the problem mid-flight.
-        response = self.client.post(
-            "/api/growth_ai_enrichment/run/",
-            {
-                "label": "bad_config_label",
-                "prompt_text": "x",
-                "model": "gpt-5-mini",
-                "input_fields": [f"field_{i}" for i in range(41)],
-                "output_fields": _OUTPUT_FIELDS,
-                "sample": 1,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_run_constructs_its_client_with_max_retries_zero(self):
-        # tenacity already owns retries inside classify_payload; the SDK's own retries stacking
-        # on top would multiply spend on every 429 tenacity is already backing off from.
-        OrganizationEnrichmentFetch.objects.create(
-            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
-        )
-        client = _mock_llm_client()
-
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client) as get_client:
-            response = self.client.post(
-                "/api/growth_ai_enrichment/run/",
-                {
-                    "label": "test_label",
-                    "prompt_text": "x",
-                    "model": "gpt-5-mini",
-                    "input_fields": ["name"],
-                    "output_fields": _OUTPUT_FIELDS,
-                    "sample": 1,
-                },
-                format="json",
-            )
-            _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
-
-        get_client.assert_called_once_with(product="growth")
-        client.with_options.assert_called_once_with(max_retries=0)
-
     def test_run_captures_and_reports_a_per_row_failure_without_500ing_the_whole_stream(self):
         OrganizationEnrichmentFetch.objects.create(
             organization=self.organization, provider="harmonic", payload={"name": "Acme"}
@@ -614,33 +742,6 @@ class TestAIEnrichmentAPI(APIBaseTest):
         self.assertEqual(summary_row["summary"], {"classified": 0, "unknown": 0, "errors": 1})
         mock_capture.assert_called_once()
 
-    def test_run_is_throttled_for_session_auth(self):
-        # The global throttles are PersonalApiKeyRateThrottle subclasses, a structural no-op for
-        # session-authenticated requests with no personal API key - this endpoint needs its own,
-        # since each allowed call can cost several real LLM completions.
-        OrganizationEnrichmentFetch.objects.create(
-            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
-        )
-        payload = {
-            "label": "throttle_label",
-            "prompt_text": "x",
-            "model": "gpt-5-mini",
-            "input_fields": ["name"],
-            "output_fields": _OUTPUT_FIELDS,
-            "sample": 1,
-        }
-
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=_mock_llm_client()):
-            statuses = []
-            for _ in range(11):
-                response = self.client.post("/api/growth_ai_enrichment/run/", payload, format="json")
-                if response.status_code == status.HTTP_200_OK:
-                    _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
-                statuses.append(response.status_code)
-
-        self.assertEqual(statuses.count(status.HTTP_200_OK), 10)
-        self.assertEqual(statuses[-1], status.HTTP_429_TOO_MANY_REQUESTS)
-
 
 class TestRunError(SimpleTestCase):
     """No DB needed: _run_error is pure string formatting plus a capture_exception call."""
@@ -653,3 +754,76 @@ class TestRunError(SimpleTestCase):
             formatted = lab_module._run_error(config, RuntimeError(long_message), "test")
 
         self.assertIn(long_message, formatted)
+
+
+class TestSaveAndRunSerializerCaps(SimpleTestCase):
+    """Field-level max_length/count caps run inside is_valid()'s to_internal_value phase, before
+    the object-level validate() that needs a request context - no DB needed. The /save/ and
+    /run/ 400 tests above are the wiring guard that each viewset still calls is_valid() at all;
+    these are the boundary tests themselves, run once per request serializer since
+    SaveRequestSerializer and RunRequestSerializer each declare prompt_text's max_length and
+    output_fields independently, even though both delegate to the same shared helpers."""
+
+    def _valid_payload(self, **overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "label": "cap_test_label",
+            "prompt_text": "judge it.",
+            "model": "gpt-5-mini",
+            "output_fields": [{"key": "flag", "type": "boolean", "description": ""}],
+        }
+        payload.update(overrides)
+        return payload
+
+    @parameterized.expand([("save", SaveRequestSerializer), ("run", RunRequestSerializer)])
+    def test_prompt_text_over_the_char_cap_is_rejected(self, _name, serializer_class):
+        serializer = serializer_class(data=self._valid_payload(prompt_text="x" * (MAX_PROMPT_TEXT_CHARS + 1)))
+
+        self.assertFalse(serializer.is_valid())
+        self.assertEqual(serializer.errors["prompt_text"][0].code, "max_length")
+
+    @parameterized.expand([("save", SaveRequestSerializer), ("run", RunRequestSerializer)])
+    def test_prompt_text_at_the_char_cap_is_accepted(self, _name, serializer_class):
+        serializer = serializer_class(data=self._valid_payload(prompt_text="x" * MAX_PROMPT_TEXT_CHARS))
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    @parameterized.expand([("save", SaveRequestSerializer), ("run", RunRequestSerializer)])
+    def test_output_fields_over_the_count_cap_is_rejected(self, _name, serializer_class):
+        too_many = [{"key": f"field_{i}", "type": "boolean", "description": ""} for i in range(MAX_OUTPUT_FIELDS + 1)]
+        serializer = serializer_class(data=self._valid_payload(output_fields=too_many))
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(f"At most {MAX_OUTPUT_FIELDS}", str(serializer.errors["output_fields"]))
+
+    @parameterized.expand([("save", SaveRequestSerializer), ("run", RunRequestSerializer)])
+    def test_output_fields_at_the_count_cap_is_accepted(self, _name, serializer_class):
+        exactly_max = [{"key": f"field_{i}", "type": "boolean", "description": ""} for i in range(MAX_OUTPUT_FIELDS)]
+        serializer = serializer_class(data=self._valid_payload(output_fields=exactly_max))
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_output_field_description_over_the_char_cap_is_rejected(self):
+        serializer = OutputFieldSerializer(
+            data={"key": "flag", "type": "boolean", "description": "x" * (MAX_OUTPUT_FIELD_DESCRIPTION_CHARS + 1)}
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertEqual(serializer.errors["description"][0].code, "max_length")
+
+    def test_output_field_description_at_the_char_cap_is_accepted(self):
+        serializer = OutputFieldSerializer(
+            data={"key": "flag", "type": "boolean", "description": "x" * MAX_OUTPUT_FIELD_DESCRIPTION_CHARS}
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    @parameterized.expand([("save", SaveRequestSerializer), ("run", RunRequestSerializer)])
+    def test_output_field_description_cap_propagates_through_the_nested_list(self, _name, serializer_class):
+        # OutputFieldSerializer is nested (many=True) under both request serializers - this
+        # confirms the cap actually reaches a caller through that nesting, not just when
+        # OutputFieldSerializer is exercised standalone above.
+        too_long = [{"key": "flag", "type": "boolean", "description": "x" * (MAX_OUTPUT_FIELD_DESCRIPTION_CHARS + 1)}]
+        serializer = serializer_class(data=self._valid_payload(output_fields=too_long))
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("description", serializer.errors["output_fields"][0])
