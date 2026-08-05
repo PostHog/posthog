@@ -540,7 +540,7 @@ describe('infiniteListLogic', () => {
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)
 
-        it('falls back to the empty state instead of spinning forever when the fetch fails', async () => {
+        it('surfaces the error state instead of spinning forever or claiming no results', async () => {
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
@@ -562,18 +562,86 @@ describe('infiniteListLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     showLoadingState: false,
-                    showEmptyState: true,
+                    // A failure must not read as "this event doesn't exist" - that sends people
+                    // hunting for a tracking bug instead of retrying.
+                    showEmptyState: false,
+                    showErrorState: true,
                 })
 
-            // The failure lands on the same empty state as a genuine no-match, so telemetry is
-            // the only prod signal that the backend blipped — losing this capture makes the
-            // worst case ("event exists, fetch failed") invisible.
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
             expect(failedCalls).toHaveLength(1)
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
             })
+        })
+
+        it('gives up on a request that never responds', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => new Promise(() => {}),
+                },
+            })
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const hangingLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'hangingList',
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                })
+                hangingLogic.mount()
+                hangingLogic.actions.setSearchQuery('user_signed_up')
+
+                // Past the debounce, so the request is in flight rather than still queued.
+                await jest.advanceTimersByTimeAsync(600)
+                expect(hangingLogic.values.showLoadingState).toBe(true)
+
+                await jest.advanceTimersByTimeAsync(30000)
+                expect(hangingLogic.values.showErrorState).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('clears the error state when a retry succeeds', async () => {
+            let attempts = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => {
+                        attempts += 1
+                        return attempts === 1
+                            ? [500, { detail: 'server error' }]
+                            : [200, { results: [{ name: 'user_signed_up', id: 'uuid-1' }], count: 1 }]
+                    },
+                },
+            })
+            initKeaTests()
+            const retryingLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'retryingList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            retryingLogic.mount()
+            await expectLogic(retryingLogic, () => {
+                retryingLogic.actions.setSearchQuery('user_signed_up')
+            })
+                .toDispatchActions(['loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({ showErrorState: true })
+
+            await expectLogic(retryingLogic, () => {
+                retryingLogic.actions.retryRemoteItems()
+            })
+                .toDispatchActions(['retryRemoteItems', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showErrorState: false,
+                    showEmptyState: false,
+                })
+            expect(retryingLogic.values.totalResultCount).toBeGreaterThan(0)
         })
     })
 
