@@ -41,6 +41,7 @@ import {
 } from './accountsColumnConfigLogic'
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
+import { sortAccountRows } from './accountsSort'
 import { AccountsEvents } from './constants'
 
 // Shape the backend emits for the `name` column — see accounts_query_runner._calculate.
@@ -504,6 +505,21 @@ function useContextColumns(): Record<string, QueryContextColumn> {
     }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias])
 }
 
+// Client-side sort of the loaded rows, wired through the DataTable's rows
+// transformer. Active only when the whole matching set is loaded (`canSortClientSide`);
+// while the list is paginated the query carries an `orderBy` and the server returns
+// rows already globally sorted, so we leave them in place.
+function useSortedRowsTransformer(): QueryContext<DataTableNode>['dataTableRowsTransformer'] {
+    const { sortOrder, canSortClientSide } = useValues(accountsLogic)
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    return useMemo(() => {
+        if (!canSortClientSide || !sortOrder) {
+            return undefined
+        }
+        return (rows) => sortAccountRows(rows, sortOrder, visibleColumnNames)
+    }, [canSortClientSide, sortOrder, visibleColumnNames])
+}
+
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
     const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     const { expandedAccountIds } = useValues(accountsExpansionLogic)
@@ -600,6 +616,7 @@ export function AccountsHogQLTable(): JSX.Element {
     const { responseLoading, response } = useValues(dataNodeLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
+    const dataTableRowsTransformer = useSortedRowsTransformer()
     // A null source means the query is still waiting on the relationship
     // definitions — same skeleton as the initial fetch, not an empty table.
     if ((responseLoading || !accountsQuerySource) && !response) {
@@ -616,6 +633,7 @@ export function AccountsHogQLTable(): JSX.Element {
                 context={{
                     columns: contextColumns,
                     expandable,
+                    dataTableRowsTransformer,
                     dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
                     emptyStateHeading: 'There are no matching accounts for this query',
                     emptyStateDetail: 'Try adjusting the filters or refreshing',

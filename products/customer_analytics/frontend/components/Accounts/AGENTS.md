@@ -85,7 +85,22 @@ Value suggestions load from`GET /api/projects/:team_id/custom_property_definitio
 
 **Tile display** (title / subtitle / value format). A tile also carries two optional presentation fields, independent of the metric: `caption` (custom subtitle) and `format` (`TileValueFormat` = `unit`/`currency`/`percentage`, a subset of `OverviewGrid`'s `WebAnalyticsItemKind` so `format ?? 'unit'` maps 1:1 to the render `kind`). `tileCaption(tile)` resolves the subtitle: the trimmed custom `caption` when set, else `autoCaption(tile)` (the derived `agg of col × n` / `col op val` text; `count` has no derived caption, so a custom one is the only subtitle it can show). The editor edits `caption` (empty → `undefined`) and `format` (`unit` → `undefined`); both flow through the row's `emit(patch)` merge so a metric edit never drops them. Render formatting lives in `OverviewGrid.formatItem`: `currency` uses the team `baseCurrency`, `percentage` treats the value as already in percent units (`85` → "85%", combine with `scale × 100` for a 0-1 fraction). Both fields ride along in `properties.tiles` (no backend/schema/migration) and default cleanly for older saved/legacy tiles.
 
-Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemoved`), else the backend gets an `orderBy` referencing a missing alias.
+### Sorting (hybrid client / server)
+
+Clicking a column header toggles `accountsLogic.sortOrder` (asc → desc → off, `toggleSort`).
+How that sort is applied depends on whether the whole matching set is already loaded, tracked by the `canSortClientSide` selector (`!listHasMoreData && !listPaginated`):
+
+- **Fully loaded (the common case — one page, no "Load more"):** `canSortClientSide` is true.
+  The list query carries **no** `orderBy`, so toggling a header does not change the query and never refetches.
+  Instead `AccountsHogQLTable` reorders the loaded rows in the browser via the DataTable's `dataTableRowsTransformer` context seam, calling `sortAccountRows` (in `accountsSort.ts`) — sorting is instant.
+  `sortAccountRows` reads each cell by its position in the row's result array (the name tuple sorts by `.name`, relationship/tag arrays join to a string, numbers sort numerically), is stable, and always sinks empty cells to the bottom in both directions.
+- **Paginated (more rows than one page):** `canSortClientSide` is false, so the query carries an `orderBy` (built via `orderByExpression`, so numeric custom properties sort numerically server-side too) and ClickHouse sorts the **entire** set and returns the globally-correct top page; the transformer is inactive (rows are shown in server order). Toggling a header refetches, as before.
+
+`listPaginated` is what makes this safe: it is set when the user pages past the first page (`loadNextData`, connected from the list `dataNodeLogic`) and reset on every fresh load (`loadData`).
+Without it, paging to the end of a large list would flip `listHasMoreData` to false mid-session, drop the `orderBy`, and reset the query back to page one — discarding the accumulated rows.
+Resetting on fresh load lets a filtered-down set (now ≤ one page) return to instant client-side sort.
+
+Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemoved`); otherwise a server-side sort would reference a missing SELECT alias.
 
 ## The expanded row
 
