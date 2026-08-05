@@ -21,7 +21,6 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { UUIDT } from '~/common/utils/utils'
 import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
@@ -238,7 +237,6 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             groupRepository: infra.groupRepository,
             personRepository: infra.personRepository,
             cookielessManager: infra.cookielessManager,
-            aiSubpipelineFactory: createAiEventSubpipeline,
             hogTransformer: createHogTransformerService(infra.config, {
                 geoipService: infra.geoipService,
                 postgres: infra.postgres,
