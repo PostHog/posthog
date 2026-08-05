@@ -9215,6 +9215,7 @@ export enum ProductIntentContext {
 
     // Tasks
     TASK_CREATED = 'task_created',
+    LOOP_CREATED = 'loop_created',
 
     // Toolbar
     TOOLBAR_LAUNCHED = 'toolbar_launched',

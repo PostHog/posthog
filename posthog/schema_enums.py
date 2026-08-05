@@ -3409,6 +3409,7 @@ class ProductIntentContext(StrEnum):
     NOTEBOOK_CREATED = "notebook_created"
     PRODUCT_TOUR_CREATED = "product_tour_created"
     TASK_CREATED = "task_created"
+    LOOP_CREATED = "loop_created"
     TOOLBAR_LAUNCHED = "toolbar_launched"
     VERCEL_INTEGRATION = "vercel_integration"
     ENDPOINTS_VIEWED = "endpoints_viewed"

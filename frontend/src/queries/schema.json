@@ -36446,6 +36446,7 @@
                 "notebook_created",
                 "product_tour_created",
                 "task_created",
+                "loop_created",
                 "toolbar_launched",
                 "vercel_integration",
                 "endpoints_viewed",

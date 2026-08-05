@@ -24,9 +24,12 @@ except ImportError:
     pass
 
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, ProjectSecretAPIKey, Team, User
+from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
+from posthog.schema_enums import ProductIntentContext, ProductKey
 
 from products.tasks.backend.facade import loops as loops_facade
 from products.tasks.backend.models import Channel, Loop, LoopTrigger, Task, TaskRun
@@ -168,8 +171,22 @@ class LoopCRUDAPITest(LoopsAPITestCase):
         self.mock_delete_loop_schedules.assert_called_once()
         self.mock_pause_loop_schedules.assert_not_called()
         self.assertTrue(Loop.objects.unscoped().get(id=loop_id).deleted)
-
         self.assertEqual(self.owner_client.get(self._loop_url(loop_id)).status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_loop_records_tasks_product_intent_for_sidebar(self):
+        self._create_loop(self.owner_client)
+
+        intent = ProductIntent.objects.get(team=self.team, product_type=ProductKey.TASKS)
+        self.assertEqual(intent.contexts, {ProductIntentContext.LOOP_CREATED: 1})
+        self.assertTrue(
+            UserProductList.objects.filter(
+                user=self.owner,
+                team=self.team,
+                product_path="Tasks",
+                enabled=True,
+                reason=UserProductList.Reason.PRODUCT_INTENT,
+            ).exists()
+        )
 
 
 class LoopBehaviorsAPITest(LoopsAPITestCase):

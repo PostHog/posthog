@@ -145,6 +145,7 @@ from products.tasks.backend.presentation.serializers import (
     WarmTaskResponseSerializer,
     WizardCloudRunSerializer,
 )
+from products.tasks.backend.product_intent import record_tasks_product_intent
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -349,6 +350,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._user_id(),
             validated_data=dict(serializer.validated_data),
             client_provenance=get_task_client_provenance(request),
+        )
+        record_tasks_product_intent(
+            team=self.team,
+            user=request.user,
+            metadata={"origin_product": task.origin_product},
         )
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)

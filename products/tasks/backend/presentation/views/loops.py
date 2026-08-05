@@ -17,6 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
+from posthog.schema_enums import ProductIntentContext
 
 from products.tasks.backend.facade import (
     access as tasks_access,
@@ -33,6 +34,7 @@ from products.tasks.backend.presentation.serializers_loops import (
     LoopSkillBundlesWriteSerializer,
     LoopWriteSerializer,
 )
+from products.tasks.backend.product_intent import record_tasks_product_intent
 
 MAX_LOOP_TRIGGER_PAYLOAD_BYTES = 64 * 1024
 # Whole-request ceiling for the skill_bundles replace, enforced from Content-Length
@@ -242,6 +244,12 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return _loop_limit_response(exc)
         except loops_facade.LoopValidationError as exc:
             raise ValidationError(str(exc))
+        record_tasks_product_intent(
+            team=self.team,
+            user=request.user,
+            context=ProductIntentContext.LOOP_CREATED,
+            metadata={"origin_product": loop.origin_product, "artifact": "loop"},
+        )
         return Response(LoopSerializer(loop).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(

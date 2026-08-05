@@ -25,10 +25,13 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
+from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
@@ -1547,6 +1550,30 @@ class TestTaskAPI(BaseTaskAPITest):
 
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+
+    def test_create_task_records_tasks_product_intent_for_sidebar(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        intent = ProductIntent.objects.get(team=self.team, product_type=ProductKey.TASKS)
+        self.assertEqual(intent.contexts, {ProductIntentContext.TASK_CREATED: 1})
+        self.assertTrue(
+            UserProductList.objects.filter(
+                user=self.user,
+                team=self.team,
+                product_path="Tasks",
+                enabled=True,
+                reason=UserProductList.Reason.PRODUCT_INTENT,
+            ).exists()
+        )
 
     def test_create_task_with_hogdesk_origin_product(self):
         # HogDesk creates Code tasks from a support ticket's Code chat with this

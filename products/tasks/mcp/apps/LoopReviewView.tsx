@@ -237,7 +237,7 @@ export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): 
                         <p className="text-base font-medium text-foreground">{created}</p>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                        You'll find it on the Loops page. Edit, pause, or run it anytime.
+                        You'll find it from Tasks in the sidebar. Edit, pause, or run it anytime.
                     </p>
                 </CardContent>
             </Card>
