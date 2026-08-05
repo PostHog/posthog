@@ -34,10 +34,10 @@ import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/ty
 import type { TeamPublicType, TeamType } from '~/types'
 
 import { savedPrewarmCreate } from 'products/web_analytics/frontend/generated/api'
-import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
-import { ReplayIframeData, getStoredRecordingBackground } from '../../replayIframeData'
 
+import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
 import type { PagePreflight } from '../../components/heatmapsBrowserLogic'
+import { ReplayIframeData, getStoredRecordingBackground } from '../../replayIframeData'
 import { HeatmapCreationContext, heatmapLogic } from './heatmapLogic'
 
 export type HeatmapCreationStep = 'page' | 'background' | 'review'

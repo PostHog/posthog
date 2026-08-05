@@ -17,16 +17,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/types'
 
-import { HeatmapAdvancedSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapAdvancedSettings'
-import { HeatmapRecording } from 'products/web_analytics/frontend/heatmaps/components/HeatmapRecording'
-import { HeatmapRecordingFallback } from 'products/web_analytics/frontend/heatmaps/components/HeatmapRecordingFallback'
-import {
-    heatmapsBrowserLogic,
-    isUrlPattern,
-} from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
-import { HeatmapsEnableCapture } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsEnableCapture'
-import { HeatmapsInvalidURL } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsInvalidURL'
-
+import { HeatmapAdvancedSettings } from '../../components/HeatmapAdvancedSettings'
+import { HeatmapRecording } from '../../components/HeatmapRecording'
+import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
+import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { HeatmapsEnableCapture } from '../../components/HeatmapsEnableCapture'
+import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
 import { HeatmapCreationStep, heatmapCreationLogic } from './heatmapCreationLogic'
 import { heatmapLogic } from './heatmapLogic'
 import { HeatmapNewSceneLegacy } from './HeatmapNewSceneLegacy'

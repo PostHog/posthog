@@ -17,11 +17,10 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/types'
 
-import { HeatmapAdvancedSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapAdvancedSettings'
-import { heatmapsBrowserLogic } from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
-import { HeatmapsForbiddenURL } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsForbiddenURL'
-import { HeatmapsInvalidURL } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsInvalidURL'
-
+import { HeatmapAdvancedSettings } from '../../components/HeatmapAdvancedSettings'
+import { heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
+import { HeatmapsForbiddenURL } from '../../components/HeatmapsForbiddenURL'
+import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
 import { heatmapLogic } from './heatmapLogic'
 
 export function HeatmapNewSceneLegacy(): JSX.Element {

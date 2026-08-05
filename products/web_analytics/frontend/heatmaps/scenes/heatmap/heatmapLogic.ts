@@ -24,11 +24,9 @@ import {
     savedRetrieve,
 } from 'products/web_analytics/frontend/generated/api'
 import type { SavedHeatmapRequestApi } from 'products/web_analytics/frontend/generated/api.schemas'
-import {
-    heatmapsBrowserLogic,
-    isUrlPattern,
-} from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
-import { heatmapsSceneLogic } from 'products/web_analytics/frontend/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
+
+import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { heatmapsSceneLogic } from '../heatmaps/heatmapsSceneLogic'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
 

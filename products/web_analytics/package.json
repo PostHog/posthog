@@ -9,10 +9,10 @@
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:",
-        "query-selector-shadow-dom": "^1.0.0"
+        "query-selector-shadow-dom": "catalog:"
     },
     "devDependencies": {
-        "@types/query-selector-shadow-dom": "^1.0.0",
+        "@types/query-selector-shadow-dom": "catalog:",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {

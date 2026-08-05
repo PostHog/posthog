@@ -6,12 +6,12 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { HeatmapAdvancedSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapAdvancedSettings'
-import { HeatmapRecordingFallback } from 'products/web_analytics/frontend/heatmaps/components/HeatmapRecordingFallback'
-import { heatmapsBrowserLogic } from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
-import { HeatmapsForbiddenURL } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsForbiddenURL'
-import { HeatmapsInvalidURL } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsInvalidURL'
-import { heatmapLogic } from 'products/web_analytics/frontend/heatmaps/scenes/heatmap/heatmapLogic'
+import { heatmapLogic } from '../scenes/heatmap/heatmapLogic'
+import { HeatmapAdvancedSettings } from './HeatmapAdvancedSettings'
+import { HeatmapRecordingFallback } from './HeatmapRecordingFallback'
+import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { HeatmapsForbiddenURL } from './HeatmapsForbiddenURL'
+import { HeatmapsInvalidURL } from './HeatmapsInvalidURL'
 
 export function HeatmapHeader(): JSX.Element {
     const {

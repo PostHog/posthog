@@ -7,12 +7,11 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { FixedReplayHeatmapBrowser } from 'products/web_analytics/frontend/heatmaps/components/FixedReplayHeatmapBrowser'
-import { HeatmapsWarnings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsWarnings'
-
 import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
+import { FixedReplayHeatmapBrowser } from './FixedReplayHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { HeatmapsWarnings } from './HeatmapsWarnings'
 import { recordingClickmapLogic } from './recordingClickmapLogic'
 
 function UrlSearchHeader(): JSX.Element {

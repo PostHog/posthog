@@ -22,9 +22,8 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { FilterPanel } from 'products/web_analytics/frontend/heatmaps/components/FilterPanel'
-import { HeatmapHeader } from 'products/web_analytics/frontend/heatmaps/components/HeatmapHeader'
-
+import { FilterPanel } from '../../components/FilterPanel'
+import { HeatmapHeader } from '../../components/HeatmapHeader'
 import { heatmapLogic } from './heatmapLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)

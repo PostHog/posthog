@@ -3,7 +3,7 @@ import React from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 
-import { heatmapsBrowserLogic } from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
+import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 export function IframeHeatmapBrowser({
     iframeRef,

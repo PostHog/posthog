@@ -3,8 +3,8 @@ import React from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 
-import { heatmapsBrowserLogic } from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
-import { RecordingClickmapOverlay } from 'products/web_analytics/frontend/heatmaps/components/RecordingClickmapOverlay'
+import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { RecordingClickmapOverlay } from './RecordingClickmapOverlay'
 
 export function FixedReplayHeatmapBrowser({
     iframeRef,

@@ -20,8 +20,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, HeatmapScreenshotType } from '~/types'
 
-import { HeatmapsWarnings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsWarnings'
-
+import { HeatmapsWarnings } from '../../components/HeatmapsWarnings'
 import { HEATMAPS_PER_PAGE, heatmapsSceneLogic } from './heatmapsSceneLogic'
 
 export const scene: SceneExport = {

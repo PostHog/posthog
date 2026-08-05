@@ -20,10 +20,9 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { FixedReplayHeatmapBrowser } from 'products/web_analytics/frontend/heatmaps/components/FixedReplayHeatmapBrowser'
-
 import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
+import { FixedReplayHeatmapBrowser } from './FixedReplayHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { recordingClickmapLogic } from './recordingClickmapLogic'

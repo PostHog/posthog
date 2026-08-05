@@ -41,11 +41,6 @@ import { downloadFile } from 'lib/utils/dom'
 import { clamp } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import {
-    MAX_REPLAY_IFRAME_HTML_CHARS,
-    ReplayIframeData,
-    persistReplayIframeData,
-} from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -60,6 +55,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
+import {
+    MAX_REPLAY_IFRAME_HTML_CHARS,
+    ReplayIframeData,
+    persistReplayIframeData,
+} from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { PreflightStatus, SessionRecordingSnapshotSource, SessionRecordingType, UserType } from '../../../types'
