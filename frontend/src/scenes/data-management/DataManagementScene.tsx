@@ -283,10 +283,10 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                 } else if (tab === DataManagementTab.Revenue) {
                     return [
                         {
-                            key: Scene.RevenueAnalytics,
-                            name: sceneConfigurations[Scene.RevenueAnalytics].name,
+                            key: 'RevenueDefinitions',
+                            name: 'Revenue analytics',
                             path: urls.revenueSettings(),
-                            iconType: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default_icon_type',
+                            iconType: 'revenue_analytics',
                         },
                     ]
                 } else if (tab === DataManagementTab.Comments) {

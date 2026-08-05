@@ -10,10 +10,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -25,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipedrive import (
     PipedriveSourceConfig,
 )
@@ -114,6 +111,7 @@ You can find your personal API token in Pipedrive under **Settings > Personal pr
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Full refresh only: Pipedrive's v1 collections have no server-side updated_after
         # filter, and the v2 `updated_since` filter is unverified (no credentials to curl with).
@@ -127,7 +125,11 @@ You can find your personal API token in Pipedrive under **Settings > Personal pr
         return schemas
 
     def validate_credentials(
-        self, config: PipedriveSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PipedriveSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             status = validate_pipedrive_credentials(config.company_domain, config.api_token)

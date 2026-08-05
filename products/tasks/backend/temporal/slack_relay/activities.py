@@ -360,6 +360,7 @@ class RelaySlackMessageInput:
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.temporal.process_task.utils import get_message_actor
@@ -385,6 +386,11 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     if not text:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
         return
+
+    # Rewrite echoed ``<@U…|name>`` tokens to the bare ``<@U…>`` so the mentions the agent
+    # composed actually notify their targets. Done before splitting/conversion: the bare form
+    # is shorter (never enlarges a chunk) and the mrkdwn converter passes it through untouched.
+    text = normalize_labeled_mentions_to_bare(text)
 
     # Living-artifacts gating lives in the service: has_pending_slack_file_artifacts
     # (and deliver_pending_slack_file_artifacts below) return falsy when the

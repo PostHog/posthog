@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uptimerobot import (
     UptimerobotSourceConfig,
 )
@@ -87,7 +84,19 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
             # raises with this stable prefix when the API rejects the key. Retrying can never fix a
             # credential problem, so stop the sync.
             AUTH_ERROR_PREFIX: "Your UptimeRobot API key is invalid or has been revoked. Create a new read-only API key under Integrations & API in your UptimeRobot dashboard, then reconnect.",
+            # A monitor-specific API key is only scoped to one monitor, so getAlertContacts/getMWindows/
+            # getPSPs come back as a raw HTTP 403 (not an in-body {"stat": "fail"} error, so it bypasses
+            # AUTH_ERROR_PREFIX above and instead raises via response.raise_for_status()). Match the
+            # stable domain, not the per-request method in the URL path. Retrying can't grant a scoped
+            # key access it was never issued.
+            "403 Client Error: Forbidden for url: https://api.uptimerobot.com": "Your UptimeRobot API key doesn't have permission to sync this table. Monitor-specific API keys only grant access to a single monitor, so alert contacts, maintenance windows, and status pages won't sync with one. Reconnect with a full-account read-only API key under Integrations & API in your UptimeRobot dashboard.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # 429/5xx are already retried internally with backoff (see uptimerobot.py's tenacity-wrapped
+        # _post); if those retries still exhaust, the failure is transient and self-recovering, so
+        # let Temporal retry the activity without surfacing it as tracked exception noise.
+        return {"UptimeRobot API error (retryable)"}
 
     def get_schemas(
         self,
@@ -96,6 +105,7 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "monitor_logs":
@@ -124,7 +134,11 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
         return schemas
 
     def validate_credentials(
-        self, config: UptimerobotSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UptimerobotSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_uptimerobot_credentials(config.api_key)
 

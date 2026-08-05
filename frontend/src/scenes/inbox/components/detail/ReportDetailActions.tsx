@@ -54,13 +54,14 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions as data: Archive/Restore and Create PR. Discuss is rendered separately as a
- * standalone dropdown button (`DiscussReportButton`) since it opens a question popover rather than
- * firing on click. Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses the shared
- * `useReportArchive` dialog flow. Callers render these inline or inside a menu.
+ * Detail-pane actions as data: Archive/Restore, Refund, and Create PR. Discuss is rendered
+ * separately as a standalone dropdown button (`DiscussReportButton`) since it opens a question
+ * popover rather than firing on click; rating a report lives at the end of the body
+ * (`ReportFeedbackFooter`). Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses the
+ * shared `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
-    const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
+    const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
@@ -111,7 +112,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         label: 'Refund',
         icon: <IconReceipt />,
         loading: isRefunding,
-        tooltip: "Refund this PR – you won't pay for it and it won't count toward your included PRs",
+        tooltip: "Refund this PR. You won't pay for it and it won't count toward your included PRs.",
         disabledReason: refundDisabledReason ?? undefined,
         onClick: onRefundClick,
     }
@@ -144,8 +145,8 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     // A resolved report is terminal – its PR already merged, so only Discuss (rendered separately)
-    // and Refund apply. The PR can still be refunded (auto-approved by design; the weekly review
-    // watches refunded-then-merged).
+    // applies. The PR can still be refunded (auto-approved by design; the weekly review watches
+    // refunded-then-merged).
     if (isResolved) {
         return canRefund ? [refund] : []
     }
@@ -190,6 +191,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             icon: <IconPullRequest />,
             loading: isCreatingPr,
             tooltip: 'Have Self-driving open a pull request for this report',
+            disabledReason: aiConsentDisabledReason ?? undefined,
             onClick: () => {
                 captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
                 createPrFromReport(report)

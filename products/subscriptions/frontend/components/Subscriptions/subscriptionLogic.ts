@@ -113,6 +113,9 @@ function subscriptionSaveErrorMessage(error: unknown): string {
     return 'Could not save subscription. Please try again.'
 }
 
+// Frequencies a deep link may prefill. Anything else is ignored rather than trusted into the form.
+const FREQUENCY_PREFILL_VALUES: SubscriptionType['frequency'][] = ['daily', 'weekly', 'monthly']
+
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     resource_type: SubscriptionResourceTypes.Insight,
     frequency: 'weekly',
@@ -684,6 +687,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     urlToAction(({ actions, props, cache, values }) => ({
         '/*/*/subscriptions/new': (_, searchParams) => {
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            if (searchParams.resource_type === SubscriptionResourceTypes.AiPrompt) {
+                actions.setSubscriptionValue('resource_type', SubscriptionResourceTypes.AiPrompt)
+            }
             // ?prefill=nudge is set by the subscribe-nudge notification / toast, possibly opened in a
             // fresh session days later — the prefill is built here from URL + context, not kea state.
             if (
@@ -729,6 +735,23 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION, resource_type: SubscriptionResourceTypes.AiPrompt })
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
+            }
+            // Products link here with a ready-made report (e.g. the MCP analytics recurring-report
+            // cards) so the user picks a destination instead of writing a prompt. Set through
+            // setSubscriptionValues so the form starts dirty — the prefill is a deliberate change,
+            // not a pristine default, so "Create" doesn't need a no-op edit first.
+            const prefill: Partial<SubscriptionType> = {}
+            if (typeof searchParams.prompt === 'string' && searchParams.prompt) {
+                prefill.prompt = searchParams.prompt.slice(0, AI_PROMPT_MAX_LENGTH)
+            }
+            if (typeof searchParams.title === 'string' && searchParams.title) {
+                prefill.title = searchParams.title
+            }
+            if (FREQUENCY_PREFILL_VALUES.includes(searchParams.frequency)) {
+                prefill.frequency = searchParams.frequency
+            }
+            if (Object.keys(prefill).length > 0) {
+                actions.setSubscriptionValues(prefill)
             }
         },
         '/subscriptions/:id/edit': () => {

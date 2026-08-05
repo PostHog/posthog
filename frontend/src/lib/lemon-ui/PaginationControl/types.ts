@@ -21,6 +21,12 @@ export interface PaginationManual extends PaginationBase {
     onForward?: () => void
     /** Previous page navigation handler. */
     onBackward?: () => void
+    /**
+     * Set to false to stop page changes from being pushed to the URL as a `page` search param.
+     * Only for tables whose page state lives entirely in their own logic: handler-less controlled
+     * tables navigate exclusively through that URL param, so they must keep the default.
+     */
+    useUrl?: boolean
 }
 
 export type PaginationState<T> = {

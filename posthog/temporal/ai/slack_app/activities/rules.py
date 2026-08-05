@@ -124,8 +124,11 @@ def handle_posthog_code_slack_mention_command_activity(
 
     event = inputs.event
     channel = event.get("channel")
-    # Empty anchor posts at the channel root — correct for a slash command invoked outside a thread.
-    thread_ts = event.get("thread_ts") or event.get("ts") or ""
+    # Anchor the reply to the thread only when the command was posted in one. For a top-level
+    # mention (or a slash command outside a thread) the empty anchor posts at the channel root,
+    # where the user actually sees it — a thread-anchored ephemeral is only rendered to someone
+    # already viewing that thread, so it reads as no response.
+    thread_ts = event.get("thread_ts") or ""
     slack_user_id = event.get("user")
     if not channel or not slack_user_id:
         return PostHogCodeSlackMentionCommandResult(status="done")

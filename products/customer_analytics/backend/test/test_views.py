@@ -6,18 +6,21 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.conversations.backend.models.ticket import Ticket
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import (
     Account,
@@ -30,7 +33,6 @@ from products.customer_analytics.backend.models import (
     DisplayType,
     TargetType,
 )
-from products.customer_analytics.backend.models.account import AccountAssignment
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
@@ -427,7 +429,7 @@ class TestAccountViewSet(APIBaseTest):
             {
                 "name": "Acme Corp",
                 "external_id": "acme-123",
-                "properties": {"csm": {"id": self.user.id, "email": self.user.email}},
+                "properties": {"stripe_customer_id": "cus_123"},
             },
             format="json",
         )
@@ -437,14 +439,14 @@ class TestAccountViewSet(APIBaseTest):
         self.assertIn("id", data)
         self.assertEqual(data["name"], "Acme Corp")
         self.assertEqual(data["external_id"], "acme-123")
-        self.assertEqual(data["properties"]["csm"], {"id": self.user.id, "email": self.user.email})
+        self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
         account = Account.objects.unscoped().get(id=data["id"])  # nosemgrep: idor-lookup-without-team
         self.assertEqual(account.created_by, self.user)
         self.assertEqual(account.team, self.team)
-        self.assertEqual(account.properties.csm, AccountAssignment(id=self.user.id, email=self.user.email))
+        self.assertEqual(account.properties.stripe_customer_id, "cus_123")
 
     def test_create_minimal_payload_uses_defaults(self):
         response = self.client.post(self.endpoint_base, {"name": "Bare Account"}, format="json")
@@ -473,7 +475,7 @@ class TestAccountViewSet(APIBaseTest):
     def test_retrieve(self):
         account = self._create_account(
             external_id="ext-1",
-            properties={"csm": {"id": self.user.id, "email": self.user.email}},
+            properties={"stripe_customer_id": "cus_123"},
         )
 
         response = self.client.get(f"{self.endpoint_base}{account.id}/")
@@ -483,16 +485,27 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["id"], str(account.id))
         self.assertEqual(data["name"], "Acme Corp")
         self.assertEqual(data["external_id"], "ext-1")
-        self.assertEqual(data["properties"]["csm"], {"id": self.user.id, "email": self.user.email})
+        self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
+
+    def test_retrieve_hides_retired_role_keys_in_stored_rows(self):
+        # Rows not yet cleaned by backfill_account_relationships must not leak role keys:
+        # the frontend read-modify-writes `properties`, and echoing them back would 400.
+        account = self._create_account(
+            _properties={"csm": {"id": self.user.id, "email": self.user.email}, "billing_id": "B-1"}
+        )
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(response.json()["properties"], {"billing_id": "B-1"})
 
     def test_update(self):
-        account = self._create_account(properties={"csm": {"id": self.user.id, "email": self.user.email}})
+        account = self._create_account(properties={"stripe_customer_id": "cus_123"})
 
         response = self.client.patch(
             f"{self.endpoint_base}{account.id}/",
             {
                 "name": "Renamed",
-                "properties": {"account_owner": {"id": self.user.id, "email": self.user.email}},
+                "properties": {"sfdc_id": "001xx"},
             },
             format="json",
         )
@@ -500,7 +513,7 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         account.refresh_from_db()
         self.assertEqual(account.name, "Renamed")
-        self.assertEqual(account.properties.account_owner, AccountAssignment(id=self.user.id, email=self.user.email))
+        self.assertEqual(account.properties.sfdc_id, "001xx")
 
     def test_delete(self):
         account = self._create_account()
@@ -618,13 +631,8 @@ class TestAccountViewSet(APIBaseTest):
                 "properties",
             ),
             (
-                "properties_assignment_missing_email",
-                {"name": "Acme", "properties": {"csm": {"id": 1}}},
-                "properties",
-            ),
-            (
-                "properties_assignment_wrong_id_type",
-                {"name": "Acme", "properties": {"csm": {"id": "not-an-int", "email": "a@b.co"}}},
+                "properties_retired_role_key",
+                {"name": "Acme", "properties": {"csm": {"id": 1, "email": "a@b.co"}}},
                 "properties",
             ),
         ]
@@ -830,72 +838,21 @@ class TestAccountViewSet(APIBaseTest):
         new_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
         self.assertGreater(new_logs, initial_logs)
 
-    def test_list_accounts_filter_by_csm_user_id(self):
-        self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="B", _properties={"csm": {"id": 9, "email": "b@x.com"}})
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
-        names = [r["name"] for r in response.json()["results"]]
-        assert names == ["A"]
-
-    @parameterized.expand(
-        [
-            # `_properties` defaults to {} — every role key is absent.
-            ("absent_keys", {"_properties": {}}),
-            # The manager fills every role key with an explicit JSON null.
-            ("null_valued_keys", {"properties": {}}),
-        ]
-    )
-    def test_list_accounts_filter_by_csm_unassigned(self, _name, unassigned_kwargs):
-        self._create_account(name="Assigned", properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="Unassigned", **unassigned_kwargs)
-        response = self.client.get(f"{self.endpoint_base}?csm=unassigned")
-        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
-
-    def test_list_accounts_filter_by_account_executive_user_id(self):
-        self._create_account(name="A", _properties={"account_executive": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="B")
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_executive=7")
-        assert [r["name"] for r in response.json()["results"]] == ["A"]
-
-    def test_list_accounts_filter_by_account_owner_user_id(self):
-        self._create_account(name="A", _properties={"account_owner": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="B")
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_owner=7")
-        assert [r["name"] for r in response.json()["results"]] == ["A"]
-
-    @parameterized.expand(
-        [
-            # `_properties` defaults to {} — every role key is absent.
-            ("absent_keys", {"_properties": {}}),
-            # The manager fills every role key with an explicit JSON null.
-            ("null_valued_keys", {"properties": {}}),
-        ]
-    )
-    def test_list_accounts_filter_all_roles_unassigned(self, _name, unassigned_kwargs):
-        # Created through the manager, so every role key is present and csm has a real id.
-        self._create_account(name="Has CSM", properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="Unassigned", **unassigned_kwargs)
+    def test_list_accounts_filter_all_roles_unassigned(self):
+        definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM"
+        )
+        assigned = self._create_account(name="Has CSM")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, account=assigned, definition=definition, user=self.user
+        )
+        ended = self._create_account(name="Ended CSM")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, account=ended, definition=definition, user=self.user, ended_at=timezone.now()
+        )
+        self._create_account(name="Unassigned")
         response = self.client.get(f"{self.endpoint_base}?all_roles_unassigned=true")
-        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
-
-    def test_list_accounts_filter_combined_role_and_tags(self):
-        account_a = self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        account_b = self._create_account(name="B", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        account_c = self._create_account(name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
-        set_tags_on_object(["enterprise"], account_a)
-        set_tags_on_object(["startup"], account_b)
-        set_tags_on_object(["enterprise"], account_c)
-        response = self.client.get(f'/api/environments/{self.team.id}/accounts/?csm=7&tags=["enterprise"]')
-        assert [r["name"] for r in response.json()["results"]] == ["A"]
-
-    def test_list_accounts_invalid_csm_value_is_ignored(self):
-        # Malformed user id should be a no-op (return both accounts), not "match nothing".
-        self._create_account(name="A")
-        self._create_account(name="B", _properties={"csm": {"id": 7, "email": "b@x.com"}})
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=not-a-user")
-        assert response.status_code == status.HTTP_200_OK
-        names = sorted(r["name"] for r in response.json()["results"])
-        assert names == ["A", "B"]
+        assert sorted(r["name"] for r in response.json()["results"]) == ["Ended CSM", "Unassigned"]
 
     def test_list_accounts_ordering_by_name_asc(self):
         # Create in alphabetical order so default `-created_at` order is [Banana, Apple];
@@ -948,17 +905,6 @@ class TestAccountViewSet(APIBaseTest):
         self._create_account(name="Acme Corp")
         response = self.client.get(f"{self.endpoint_base}?search=acme")
         assert len(response.json()["results"]) == 1
-
-    def test_list_accounts_role_filter_respects_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization, name="other")
-        self._create_account(
-            team=other_team,
-            name="OtherTeamAccount",
-            _properties={"csm": {"id": 7, "email": "a@x.com"}},
-        )
-        self._create_account(name="MyAccount", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
-        assert [r["name"] for r in response.json()["results"]] == ["MyAccount"]
 
     def test_retrieve_returns_empty_notebooks_when_none_linked(self):
         account = self._create_account()
@@ -2009,6 +1955,260 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
+    def _create_person_source(self):
+        definition, schema = self._person_definition_and_schema()
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(definition.id),
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "distinct_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        return created.json()["id"]
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_person_source_actions_are_flag_gated(self, _flag):
+        # Regression: sync/backfill must 400 when WAREHOUSE_PERSON_PROPERTIES is off. The gate lives in
+        # the facade; a viewset refactor that dropped it would ship an ungated (billable) trigger.
+        source_id = self._create_person_source()
+        for action in ("sync", "backfill"):
+            response = self.client.post(f"{self.endpoint}{source_id}/{action}/")
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, (action, response.content)
+
+    @patch("products.warehouse_sources.backend.facade.temporal.start_person_property_backfill", return_value=True)
+    @patch("products.warehouse_sources.backend.facade.temporal.trigger_schema_sync")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_person_source_actions_when_enabled(self, _flag, mock_trigger_sync, mock_start_backfill):
+        # Wiring guard: the actions route through the facade to the temporal seam, return the typed
+        # response, and the backfill pre-creates a running run the runs feed then surfaces.
+        source_id = self._create_person_source()
+
+        synced = self.client.post(f"{self.endpoint}{source_id}/sync/")
+        assert synced.status_code == status.HTTP_202_ACCEPTED, synced.content
+        assert synced.json()["status"] == "triggered"
+        mock_trigger_sync.assert_called_once()
+
+        backfilled = self.client.post(f"{self.endpoint}{source_id}/backfill/")
+        assert backfilled.status_code == status.HTTP_202_ACCEPTED, backfilled.content
+        assert backfilled.json() == {"status": "started", "already_running": False}
+        mock_start_backfill.assert_called_once()
+
+        runs = self.client.get(f"{self.endpoint}{source_id}/runs/")
+        assert runs.status_code == status.HTTP_200_OK
+        assert any(run["status"] == "running" for run in runs.json()["results"])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_create_group_definition_and_source_round_trip(self, _flag):
+        # Group support: a group definition carries a group_type_index, and its source binds the same
+        # warehouse way as a person source (external_data_schema + column_property_map + key_column).
+        definitions_endpoint = f"/api/projects/{self.team.id}/custom_property_definitions/"
+        definition = self.client.post(
+            definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        assert definition.json()["group_type_index"] == 0
+
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        assert created.json()["external_data_schema"] == str(schema.id)
+
+    @parameterized.expand(
+        [
+            ("group_without_index", {"target_type": "group"}),
+            ("index_without_group", {"target_type": "person", "group_type_index": 0}),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_type_index_validation(self, _name, extra, _flag):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/custom_property_definitions/",
+            {"name": "X", "display_type": "text", **extra},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+
+class TestCustomPropertyGroupScope(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.definitions_endpoint = f"/api/projects/{self.team.id}/custom_property_definitions/"
+        self.sources_endpoint = f"/api/projects/{self.team.id}/custom_property_sources/"
+
+    def _token(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        return value
+
+    @parameterized.expand(
+        [
+            ("account_only", ["account:write", "group:read"], status.HTTP_403_FORBIDDEN),
+            ("with_group_write", ["account:write", "group:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_definition_create_requires_group_write_scope(self, _name, scopes, expected, _flag):
+        # Group-target definitions write group properties, so an account-scoped token must also carry
+        # group:write — a regression that drops this guard would let an account-only key configure the
+        # group-writing pipeline.
+        token = self._token(scopes)
+        response = self.client.post(
+            self.definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == expected, response.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_source_mutation_requires_group_write_scope(self, _flag):
+        # An account-only token must not be able to enable/mutate a source feeding a group definition.
+        # The group def + source are set up as an admin session, which the scope check exempts.
+        definition = self.client.post(
+            self.definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.sources_endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        source_id = created.json()["id"]
+
+        token = self._token(["account:write", "group:read"])
+        patched = self.client.patch(
+            f"{self.sources_endpoint}{source_id}/",
+            {"is_enabled": False},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert patched.status_code == status.HTTP_403_FORBIDDEN, patched.content
+
+    def _create_group_definition_and_source(self):
+        definition = self.client.post(
+            self.definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.sources_endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        return definition.json()["id"], created.json()["id"]
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_definition_reads_require_group_read_scope(self, _flag):
+        # A token without group read must not see group-target definitions in the list or detail;
+        # group:read makes them visible again.
+        def_id, _ = self._create_group_definition_and_source()
+
+        account_token = self._token(["account:read"])
+        listed = self.client.get(self.definitions_endpoint, headers={"authorization": f"Bearer {account_token}"})
+        assert listed.status_code == status.HTTP_200_OK, listed.content
+        assert def_id not in [d["id"] for d in listed.json()["results"]]
+        detail = self.client.get(
+            f"{self.definitions_endpoint}{def_id}/", headers={"authorization": f"Bearer {account_token}"}
+        )
+        assert detail.status_code == status.HTTP_404_NOT_FOUND, detail.content
+
+        group_token = self._token(["account:read", "group:read"])
+        listed2 = self.client.get(self.definitions_endpoint, headers={"authorization": f"Bearer {group_token}"})
+        assert def_id in [d["id"] for d in listed2.json()["results"]]
+        detail2 = self.client.get(
+            f"{self.definitions_endpoint}{def_id}/", headers={"authorization": f"Bearer {group_token}"}
+        )
+        assert detail2.status_code == status.HTTP_200_OK, detail2.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_source_reads_require_group_read_scope(self, _flag):
+        # Sources feeding a group definition are hidden from list and detail without group read.
+        # (The runs action rejects personal API keys outright, so it isn't reachable via a token.)
+        _, source_id = self._create_group_definition_and_source()
+
+        account_token = self._token(["account:read"])
+        listed = self.client.get(self.sources_endpoint, headers={"authorization": f"Bearer {account_token}"})
+        assert listed.status_code == status.HTTP_200_OK, listed.content
+        assert source_id not in [s["id"] for s in listed.json()["results"]]
+        detail = self.client.get(
+            f"{self.sources_endpoint}{source_id}/", headers={"authorization": f"Bearer {account_token}"}
+        )
+        assert detail.status_code == status.HTTP_404_NOT_FOUND, detail.content
+
+        group_token = self._token(["account:read", "group:read"])
+        detail2 = self.client.get(
+            f"{self.sources_endpoint}{source_id}/", headers={"authorization": f"Bearer {group_token}"}
+        )
+        assert detail2.status_code == status.HTTP_200_OK, detail2.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_definition_value_suggestions_require_group_read_scope(self, _flag):
+        # The values action loads a definition by id, so it must apply the same group-read gate as
+        # list/detail — an account-only token must not read a group-target definition's suggestions.
+        def_id, _ = self._create_group_definition_and_source()
+
+        account_token = self._token(["account:read"])
+        denied = self.client.get(
+            f"{self.definitions_endpoint}values/?key={def_id}",
+            headers={"authorization": f"Bearer {account_token}"},
+        )
+        assert denied.status_code == status.HTTP_404_NOT_FOUND, denied.content
+
+        group_token = self._token(["account:read", "group:read"])
+        allowed = self.client.get(
+            f"{self.definitions_endpoint}values/?key={def_id}",
+            headers={"authorization": f"Bearer {group_token}"},
+        )
+        assert allowed.status_code == status.HTTP_200_OK, allowed.content
+
 
 class TestAccountNotesViewSet(APIBaseTest):
     def setUp(self):
@@ -2096,33 +2296,36 @@ class TestAccountNotesViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_list_filter_by_assigned_to(self):
-        # "My accounts" on the Notes tab: notes on accounts where the user is CSM or AE.
-        # account_owner is deliberately not treated as "assigned" (mirrors the accounts list).
-        csm_account = Account.objects.unscoped().create(
-            team=self.team, name="CSM Co", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        # "My accounts" on the Notes tab: notes on accounts where the user actively holds any
+        # relationship (mirrors the accounts list runner's assignedToUserIds).
+        definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM"
         )
-        ae_account = Account.objects.unscoped().create(
-            team=self.team,
-            name="AE Co",
-            _properties={"account_executive": {"id": self.user.id, "email": self.user.email}},
+        other_user = User.objects.create_and_join(self.organization, "other-holder@posthog.com", None)
+        assigned_account = Account.objects.unscoped().create(team=self.team, name="Assigned Co")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, account=assigned_account, definition=definition, user=self.user
         )
-        owner_account = Account.objects.unscoped().create(
-            team=self.team,
-            name="Owner Co",
-            _properties={"account_owner": {"id": self.user.id, "email": self.user.email}},
+        ended_account = Account.objects.unscoped().create(team=self.team, name="Ended Co")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=ended_account,
+            definition=definition,
+            user=self.user,
+            ended_at=timezone.now(),
         )
-        other_account = Account.objects.unscoped().create(
-            team=self.team, name="Other Co", _properties={"csm": {"id": 999999, "email": "someone@x.com"}}
+        other_account = Account.objects.unscoped().create(team=self.team, name="Other Co")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, account=other_account, definition=definition, user=other_user
         )
-        self._link_note(title="CSM note", account=csm_account)
-        self._link_note(title="AE note", account=ae_account)
-        self._link_note(title="Owner note", account=owner_account)
+        self._link_note(title="Assigned note", account=assigned_account)
+        self._link_note(title="Ended note", account=ended_account)
         self._link_note(title="Other note", account=other_account)
 
         response = self.client.get(f"{self.endpoint_base}?assigned_to={self.user.id}")
 
         titles = {n["title"] for n in response.json()["results"]}
-        self.assertEqual(titles, {"CSM note", "AE note"})
+        self.assertEqual(titles, {"Assigned note"})
 
     @parameterized.expand(
         [
@@ -2390,3 +2593,72 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         response = self.client.post(f"{self.endpoint}{rel.id}/end/")
 
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+
+class TestAccountSupportTicketViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-1")
+        self.endpoint = f"/api/environments/{self.team.id}/accounts/{self.account.id}/support_tickets/"
+
+    def test_list_returns_tickets_for_the_accounts_org(self):
+        Ticket.objects.create(
+            team=self.team,
+            ticket_number=7,
+            widget_session_id="s7",
+            distinct_id="d7",
+            organization_id="acme-1",
+            status="open",
+        )
+        Ticket.objects.create(
+            team=self.team, ticket_number=8, widget_session_id="s8", distinct_id="d8", organization_id="other-org"
+        )
+
+        response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual([t["ticket_number"] for t in data], [7])
+        self.assertEqual(data[0]["status"], "open")
+        self.assertTrue(data[0]["deep_link"].endswith(f"/project/{self.team.id}/support/tickets/7"))
+
+    def test_list_is_empty_when_account_has_no_external_id(self):
+        unlinked = Account.objects.unscoped().create(team=self.team, name="Unlinked", external_id=None)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/{unlinked.id}/support_tickets/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json(), [])
+
+    def test_account_viewer_denied_tickets_cannot_read_them(self):
+        Ticket.objects.create(
+            team=self.team,
+            ticket_number=9,
+            widget_session_id="s9",
+            distinct_id="d9",
+            organization_id="acme-1",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "ticket-denied@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(viewer)
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(self.endpoint).status_code)

@@ -1,6 +1,8 @@
+import uuid
 from collections.abc import Callable
 from typing import Any, Literal
 
+from django.conf import settings
 from django.db import close_old_connections, transaction
 
 import s3fs
@@ -10,6 +12,10 @@ import structlog
 import pyarrow.compute as pc
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
@@ -18,19 +24,29 @@ from products.data_warehouse.backend.facade.api import update_external_job_statu
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    SCD2_VALID_FROM_COLUMN,
+    SCD2_VALID_TO_COLUMN,
+    TOAST_OMITTED_COLUMN,
+    enrich_delete_rows,
+    enrich_toast_omitted_rows,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     run_post_load_operations,
     supports_partial_data_loading,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    append_partition_key_to_table,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
@@ -63,7 +79,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_refresh", "append"]:
-    """Convert sync type to write type for DeltaTableHelper."""
+    """Convert sync type to write type for DeltaTableRef."""
     if sync_type in ("incremental", "cdc"):
         return "incremental"
     elif sync_type == "append":
@@ -92,6 +108,94 @@ def _read_existing_rows_by_first_pk(
         key = existing.column(first_pk).cast(pa.string())
         wanted = pa.array(first_components, pa.string())
         return existing.filter(pc.is_in(key, value_set=wanted))
+
+
+def _enrich_cdc_rows(
+    pa_table: pa.Table,
+    *,
+    primary_keys: list[str] | None,
+    cdc_write_mode: str | None,
+    existing_delta_table: deltalake.DeltaTable | None,
+    batch_index: int,
+) -> pa.Table:
+    """Cross-batch CDC enrichment against the existing DeltaLake state.
+
+    Batch-internal enrichment was already applied in the extraction activity; this
+    fills what only the target table knows:
+    - DELETE rows with no preceding INSERT/UPDATE for the same PK in the batch.
+    - Unchanged-TOAST (omitted) UPDATE columns whose last value is not in the batch.
+
+    Always strips TOAST_OMITTED_COLUMN before returning — it is transport metadata
+    for this enrichment and must never reach DeltaLake.
+    """
+    if cdc_write_mode is None:
+        return pa_table
+
+    if primary_keys and existing_delta_table is not None and CDC_OP_COLUMN in pa_table.column_names:
+        present_pks = [col for col in primary_keys if col in pa_table.column_names]
+        if present_pks:
+            ops = pa_table.column(CDC_OP_COLUMN).to_pylist()
+            pk_arrays = [pa_table.column(col).to_pylist() for col in present_pks]
+            delete_key_set: set[tuple[Any, ...]] = set()
+            for i, op in enumerate(ops):
+                if op == "D":
+                    delete_key_set.add(tuple(arr[i] for arr in pk_arrays))
+
+            toast_key_set: set[tuple[Any, ...]] = set()
+            if TOAST_OMITTED_COLUMN in pa_table.column_names:
+                omitted_lists = pa_table.column(TOAST_OMITTED_COLUMN).to_pylist()
+                for i, omitted in enumerate(omitted_lists):
+                    if omitted:
+                        toast_key_set.add(tuple(arr[i] for arr in pk_arrays))
+
+            enrich_key_set = delete_key_set | toast_key_set
+            if enrich_key_set:
+                logger.debug(
+                    "cdc_delete_enrichment",
+                    delete_row_count=len(delete_key_set),
+                    toast_omitted_row_count=len(toast_key_set),
+                    primary_key_count=len(present_pks),
+                    cdc_write_mode=cdc_write_mode,
+                    batch_index=batch_index,
+                )
+                # Delta-rs: single-column IN avoids tuple filters (weak NULL semantics).
+                # For composite PKs that IN is a superset — narrow in PyArrow below.
+                first_pk = present_pks[0]
+                first_components = list({t[0] for t in enrich_key_set})
+                existing_rows = _read_existing_rows_by_first_pk(existing_delta_table, first_pk, first_components)
+
+                # For composite PKs the IN filter is a superset — narrow to exact matches.
+                if len(present_pks) > 1 and existing_rows.num_rows > 0:
+                    if all(col in existing_rows.column_names for col in present_pks):
+                        ex_pk_arrays = [existing_rows.column(col).to_pylist() for col in present_pks]
+                        match_indices = [
+                            j
+                            for j in range(existing_rows.num_rows)
+                            if tuple(arr[j] for arr in ex_pk_arrays) in enrich_key_set
+                        ]
+                        # Explicit int64 so an empty result doesn't infer a null-typed index array.
+                        existing_rows = existing_rows.take(pa.array(match_indices, type=pa.int64()))
+                    else:
+                        existing_rows = existing_rows.take(pa.array([], type=pa.int64()))
+
+                # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
+                # enrich with the most recent state rather than a historical one.
+                if (
+                    cdc_write_mode == "scd2_append"
+                    and existing_rows.num_rows > 0
+                    and SCD2_VALID_TO_COLUMN in existing_rows.column_names
+                ):
+                    existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
+
+                # TOAST fill first so DELETE enrichment copies resolved values,
+                # not the nulls standing in for omitted columns.
+                pa_table = enrich_toast_omitted_rows(pa_table, primary_keys, existing_rows)
+                pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+
+    if TOAST_OMITTED_COLUMN in pa_table.column_names:
+        pa_table = pa_table.drop_columns([TOAST_OMITTED_COLUMN])
+
+    return pa_table
 
 
 def _apply_partitioning(
@@ -221,7 +325,7 @@ async def _handle_partial_data_loading(
     )
 
 
-def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> None:
+def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> str | None:
     """Run post-load operations for a final batch whose data was already written to Delta Lake.
 
     The batch data (S3 read, partitioning, Delta Lake write) was already handled when
@@ -230,12 +334,14 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
     All async operations are run within a single async_to_sync call to avoid
     event loop lifecycle issues with aiohttp/s3fs clients.
+
+    Returns the prepared queryable_folder, or None if post-load couldn't run.
     """
     # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
     # previously closed event loop (async_to_sync creates/destroys loops).
     s3fs.S3FileSystem.clear_instance_cache()
 
-    async def _run() -> None:
+    async def _run() -> str | None:
         job = await ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").aget(
             id=export_signal.job_id
         )
@@ -243,20 +349,20 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         if schema is None:
             raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
 
-        delta_table_helper = DeltaTableHelper(
+        delta_table_ref = DeltaTableRef(
             resource_name=export_signal.resource_name,
             job=job,
             logger=logger,
         )
 
-        delta_table = await delta_table_helper.get_delta_table()
+        delta_table = await delta_table_ref.get_delta_table()
         if delta_table is None:
             logger.error(
                 "no_delta_table_for_post_load",
                 external_data_job_id=export_signal.job_id,
                 batch_index=export_signal.batch_index,
             )
-            return
+            return None
 
         pa_table = read_parquet(export_signal.s3_path)
         internal_schema = HogQLSchema()
@@ -264,21 +370,21 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         internal_schema.add_pyarrow_table(pa_table)
         table_schema_dict = internal_schema.to_hogql_types()
 
-        await run_post_load_operations(
+        prepared_queryable_folder = await run_post_load_operations(
             job=job,
             schema=schema,
             source=schema.source,
-            delta_table_helper=delta_table_helper,
+            delta_table_ref=delta_table_ref,
             row_count=export_signal.total_rows or 0,
-            file_uris=delta_table.file_uris(),
             table_schema_dict=table_schema_dict,
             resource_name=export_signal.resource_name,
             logger=logger,
         )
 
         logger.debug("post_load_operations_complete_for_already_processed_batch")
+        return prepared_queryable_folder
 
-    async_to_sync(_run)()
+    return async_to_sync(_run)()
 
 
 def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
@@ -345,6 +451,172 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         )
 
     _release_pipeline_lock_for_job(export_signal)
+
+
+def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
+    # These fire-and-forget starts run outside a Temporal workflow, so unlike
+    # `workflow.start_child_workflow` they get none of the server-side retry a durable
+    # workflow command would have — a bare client RPC timeout would otherwise drop the
+    # trigger permanently.
+    return isinstance(exc, RPCError) and exc.status in (RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE)
+
+
+def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:
+    """Fire-and-forget start of `ducklake-register.data-imports` after a V3 final batch lands.
+
+    V2 triggers this as a child workflow after `import_data_activity_sync`, but V3's
+    `external-data-job` ends at extraction — the prepared Parquet generation only exists
+    once this consumer's post-load operations prepare it, so the trigger lives here
+    instead. The child starts only when this consumer's `*_load` deployment has Temporal
+    client env vars configured; without them the trigger is skipped (load still succeeds).
+    """
+    if export_signal.cdc_write_mode == "scd2_append" or export_signal.sync_type == "cdc":
+        # CDC finals land once per flush tick, so registering each one would copy a full
+        # prepared generation into DuckLake continuously. An `incremental_merge` tick does
+        # advance schema.table, so this leaves CDC schemas out of per-generation
+        # registration entirely — a deliberate gap until that cadence is worked out.
+        # scd2_append writes go to the _cdc companion, which the registration's staleness
+        # check discards anyway.
+        return
+
+    try:
+        from posthog.temporal.common.client import async_connect
+
+        from products.managed_warehouse.backend.facade.temporal import (
+            DuckLakeRegisterDataImportsInputs,
+            DuckLakeRegisterDataImportsWorkflow,
+            build_register_data_imports_workflow_id,
+        )
+
+        # Connect and start inside one event loop: sync_connect() builds the client in
+        # asgiref's loop, and the start would then run on the loop async_to_sync spins up
+        # here. Start is fire-and-forget — we only need the start ack, not the result.
+        @retry(
+            retry=retry_if_exception(_is_retryable_temporal_rpc_error),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential_jitter(initial=1, max=5),
+            reraise=True,
+        )
+        async def _start() -> None:
+            temporal = await async_connect()
+            await temporal.start_workflow(
+                DuckLakeRegisterDataImportsWorkflow.run,
+                DuckLakeRegisterDataImportsInputs(
+                    team_id=export_signal.team_id,
+                    job_id=export_signal.job_id,
+                    schema_id=uuid.UUID(export_signal.schema_id),
+                    prepared_queryable_folder=prepared_queryable_folder,
+                ),
+                id=build_register_data_imports_workflow_id(
+                    team_id=export_signal.team_id,
+                    schema_id=export_signal.schema_id,
+                    job_id=export_signal.job_id,
+                    prepared_queryable_folder=prepared_queryable_folder,
+                ),
+                task_queue=settings.DUCKLAKE_TASK_QUEUE,
+            )
+
+        async_to_sync(_start)()
+        logger.info(
+            "ducklake_registration_workflow_started",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+        )
+    except WorkflowAlreadyStartedError:
+        # The id is scoped to this prepared generation, so a collision means this exact
+        # generation is already being registered and dropping the duplicate is correct.
+        logger.info(
+            "ducklake_registration_workflow_already_started",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+        )
+    except Exception as e:
+        logger.error(
+            "failed_to_start_ducklake_registration_workflow",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+            exc_info=True,
+        )
+        capture_exception(e)
+
+
+def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
+    """Fire-and-forget start of `data-import-post-import` after a V3 final batch lands.
+
+    V2 starts the same workflow from `external-data-job` after the COMPLETED status
+    write, but on V3 that workflow ends at extraction — the loaded table only exists
+    once this consumer's post-load operations and job completion finish, so the trigger
+    lives here instead. Same tolerance as `_trigger_ducklake_register_data_imports`: the
+    start only happens when this `*_load` deployment has Temporal client env vars
+    configured; any failure is logged and captured without failing the load.
+    """
+    if export_signal.cdc_write_mode == "scd2_append" or export_signal.sync_type == "cdc":
+        # CDC finals land once per flush tick; running the post-import fan-out on every
+        # tick would spam these steps continuously. This also mirrors the pre-existing
+        # workflow behavior: CDC streaming schemas return early from `external-data-job`
+        # with skip_post_import_activities, so these steps never ran per tick there
+        # either. Deliberate gap, same as the DuckLake registration trigger above.
+        return
+
+    try:
+        from posthog.temporal.common.client import async_connect
+
+        from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+            PostImportWorkflow,
+            PostImportWorkflowInputs,
+            build_post_import_workflow_id,
+        )
+
+        # Connect and start inside one event loop (see the DuckLake trigger above).
+        # ALLOW_DUPLICATE_FAILED_ONLY keyed by job id: a redelivered final batch can't
+        # double-run a completed post-import, but can retry a failed one.
+        @retry(
+            retry=retry_if_exception(_is_retryable_temporal_rpc_error),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential_jitter(initial=1, max=5),
+            reraise=True,
+        )
+        async def _start() -> None:
+            temporal = await async_connect()
+            await temporal.start_workflow(
+                PostImportWorkflow.run,
+                PostImportWorkflowInputs(
+                    team_id=export_signal.team_id,
+                    job_id=export_signal.job_id,
+                    schema_id=export_signal.schema_id,
+                    source_id=export_signal.source_id,
+                ),
+                id=build_post_import_workflow_id(export_signal.job_id),
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+            )
+
+        async_to_sync(_start)()
+        logger.info(
+            "post_import_workflow_started",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+        )
+    except WorkflowAlreadyStartedError:
+        logger.info(
+            "post_import_workflow_already_started",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+        )
+    except Exception as e:
+        logger.error(
+            "failed_to_start_post_import_workflow",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+            exc_info=True,
+        )
+        capture_exception(e)
 
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
@@ -416,7 +688,7 @@ def process_message(
 
         # Build the helper early so the idempotency check can use it as a
         # delta-history fallback when the Redis dedup flag is missing — the case
-        # where the writer crashed between `write_to_deltalake` committing and
+        # where the writer crashed between `DeltaWriter.write` committing and
         # `mark_batch_as_processed` being called.
         job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
             id=export_signal.job_id
@@ -425,7 +697,7 @@ def process_message(
         if schema is None:
             raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
 
-        delta_table_helper = DeltaTableHelper(
+        delta_table_ref = DeltaTableRef(
             resource_name=export_signal.resource_name,
             job=job,
             logger=logger,
@@ -437,7 +709,7 @@ def process_message(
             export_signal.schema_id,
             export_signal.run_uuid,
             export_signal.batch_index,
-            delta_table_helper=delta_table_helper,
+            delta_table_ref=delta_table_ref,
         )
 
         if already_processed and not export_signal.is_final_batch:
@@ -461,12 +733,15 @@ def process_message(
             )
             if verify_ownership is not None:
                 verify_ownership()
-            _run_post_load_for_already_processed_batch(export_signal)
+            prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
             # Post-load can run minutes (compaction, S3 prep) — re-check before
             # completion promotes the cursor and releases the lock under a new owner.
             if verify_ownership is not None:
                 verify_ownership()
             _mark_job_completed(export_signal)
+            if prepared_queryable_folder:
+                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
+            _trigger_post_import_workflow(export_signal)
             return
 
         logger.debug(
@@ -493,7 +768,7 @@ def process_message(
             column_names=pa_table.column_names,
         )
 
-        existing_delta_table = async_to_sync(delta_table_helper.get_delta_table)()
+        existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
 
         pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
 
@@ -511,66 +786,13 @@ def process_message(
             "batch_index": str(export_signal.batch_index),
         }
 
-        # Cross-batch DELETE enrichment: fill data columns on DELETE rows from the
-        # existing DeltaLake state. Batch-internal enrichment was already applied
-        # in the extraction activity; this handles standalone DELETEs that arrive
-        # in a batch with no preceding INSERT/UPDATE for the same PK.
-        if cdc_write_mode is not None and primary_keys and existing_delta_table is not None:
-            from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
-                CDC_OP_COLUMN,
-                SCD2_VALID_TO_COLUMN,
-                enrich_delete_rows,
-            )
-
-            if CDC_OP_COLUMN in pa_table.column_names:
-                present_pks = [col for col in primary_keys if col in pa_table.column_names]
-                if present_pks:
-                    ops = pa_table.column(CDC_OP_COLUMN).to_pylist()
-                    pk_arrays = [pa_table.column(col).to_pylist() for col in present_pks]
-                    delete_key_set: set[tuple[Any, ...]] = set()
-                    for i, op in enumerate(ops):
-                        if op == "D":
-                            delete_key_set.add(tuple(arr[i] for arr in pk_arrays))
-
-                    if delete_key_set:
-                        logger.debug(
-                            "cdc_delete_enrichment",
-                            delete_row_count=len(delete_key_set),
-                            primary_key_count=len(present_pks),
-                            cdc_write_mode=cdc_write_mode,
-                            batch_index=export_signal.batch_index,
-                        )
-                        # Delta-rs: single-column IN avoids tuple filters (weak NULL semantics).
-                        # For composite PKs that IN is a superset — narrow in PyArrow below.
-                        first_pk = present_pks[0]
-                        first_components = list({t[0] for t in delete_key_set})
-                        existing_rows = _read_existing_rows_by_first_pk(
-                            existing_delta_table, first_pk, first_components
-                        )
-
-                        # For composite PKs the IN filter is a superset — narrow to exact matches.
-                        if len(present_pks) > 1 and existing_rows.num_rows > 0:
-                            if all(col in existing_rows.column_names for col in present_pks):
-                                ex_pk_arrays = [existing_rows.column(col).to_pylist() for col in present_pks]
-                                match_indices = [
-                                    j
-                                    for j in range(existing_rows.num_rows)
-                                    if tuple(arr[j] for arr in ex_pk_arrays) in delete_key_set
-                                ]
-                                existing_rows = existing_rows.take(match_indices)
-                            else:
-                                existing_rows = existing_rows.take([])
-
-                        # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
-                        # enrich the DELETE with the most recent state rather than a historical one.
-                        if (
-                            cdc_write_mode == "scd2_append"
-                            and existing_rows.num_rows > 0
-                            and SCD2_VALID_TO_COLUMN in existing_rows.column_names
-                        ):
-                            existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
-
-                        pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+        pa_table = _enrich_cdc_rows(
+            pa_table,
+            primary_keys=primary_keys,
+            cdc_write_mode=cdc_write_mode,
+            existing_delta_table=existing_delta_table,
+            batch_index=export_signal.batch_index,
+        )
 
         if existing_delta_table is not None:
             pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
@@ -588,7 +810,12 @@ def process_message(
             with DELTA_WRITE_DURATION_SECONDS.labels(
                 team_id=team_id_str, schema_id=schema_id_str, write_type="scd2_append"
             ).time():
-                delta_table = async_to_sync(delta_table_helper.write_scd2_to_deltalake)(
+                scd2_writer = Scd2DeltaWriter(
+                    delta_table_ref,
+                    valid_from_column=SCD2_VALID_FROM_COLUMN,
+                    valid_to_column=SCD2_VALID_TO_COLUMN,
+                )
+                delta_table = async_to_sync(scd2_writer.write)(
                     data=pa_table,
                     primary_keys=primary_keys or [],
                     commit_metadata=commit_metadata,
@@ -610,7 +837,7 @@ def process_message(
             with DELTA_WRITE_DURATION_SECONDS.labels(
                 team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
             ).time():
-                delta_table = async_to_sync(delta_table_helper.write_to_deltalake)(
+                delta_table = async_to_sync(DeltaWriter(delta_table_ref).write)(
                     data=pa_table,
                     write_type=write_type,
                     should_overwrite_table=should_overwrite_table,
@@ -662,17 +889,15 @@ def process_message(
             if verify_ownership is not None:
                 verify_ownership()
 
-            async_to_sync(run_post_load_operations)(
+            prepared_queryable_folder = async_to_sync(run_post_load_operations)(
                 job=job,
                 schema=schema,
                 source=schema.source,
-                delta_table_helper=delta_table_helper,
+                delta_table_ref=delta_table_ref,
                 row_count=export_signal.total_rows or 0,
-                file_uris=delta_table.file_uris(),
                 table_schema_dict=internal_schema.to_hogql_types(),
                 resource_name=export_signal.resource_name,
                 logger=logger,
-                cdc_table_mode=export_signal.cdc_table_mode,
                 cdc_write_mode=export_signal.cdc_write_mode,
             )
 
@@ -682,6 +907,11 @@ def process_message(
                 verify_ownership()
 
             _mark_job_completed(export_signal)
+
+            if prepared_queryable_folder:
+                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
+
+            _trigger_post_import_workflow(export_signal)
 
             logger.debug("post_load_operations_complete")
 

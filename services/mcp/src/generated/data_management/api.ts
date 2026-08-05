@@ -16,7 +16,7 @@ export const IngestionWarningsV2ListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -42,7 +42,7 @@ export const IngestionWarningsV2ListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['count', 'last_seen'])
         .optional()
         .describe(
-            "Sort order for warning types: 'count' (most frequent first, the default) or 'last_seen' (most recent first).\n\n* `count` - count\n* `last_seen` - last_seen"
+            "Sort order for warning types: 'count' (most frequent first, the default) or 'last_seen' (most recent first).\n\n\* `count` - count\n\* `last_seen` - last_seen"
         ),
     q: zod
         .string()
@@ -61,7 +61,7 @@ export const IngestionWarningsV2ListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['info', 'warning', 'error'])
         .optional()
         .describe(
-            "Only return warnings with this severity. Warnings from producers that don't yet emit a severity have severity 'warning'.\n\n* `info` - info\n* `warning` - warning\n* `error` - error"
+            "Only return warnings with this severity. Warnings from producers that don't yet emit a severity have severity 'warning'.\n\n\* `info` - info\n\* `warning` - warning\n\* `error` - error"
         ),
     since: zod
         .string()

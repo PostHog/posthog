@@ -6,7 +6,7 @@ import { type ChartTheme, type Series } from '@posthog/quill-charts'
 import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import {
     type BuildBarConfigArgs,
     type SqlLineSeriesMeta,
@@ -24,7 +24,7 @@ export interface SqlChartModel<TConfig> {
 }
 
 export function useSqlChartModel<TConfig extends object>(
-    { xData, yData, visualizationType, chartSettings, dashboardId, goalLines }: LineGraphProps,
+    { xData, yData, visualizationType, chartSettings, dashboardId, goalLines }: SqlChartProps,
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)

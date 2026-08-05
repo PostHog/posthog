@@ -1,7 +1,7 @@
 import dataclasses
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal, Optional, cast
+from typing import Literal, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -28,14 +28,8 @@ from posthog.clickhouse.events_json import (
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
 )
-from posthog.clickhouse.materialized_columns import (
-    MATERIALIZATION_VALID_TABLES,
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
+from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
 from posthog.clickhouse.property_groups import property_groups
-from posthog.property_columns import PropertyName, TableColumn
 from posthog.schema_enums import PropertyGroupsMode
 
 from products.event_definitions.backend.property_type import PropertyType
@@ -323,10 +317,10 @@ def _plan_property_source(
             table_name=table_name, field_name=field_name, property_name=property_name, context=context
         )
 
-    materialized_column = get_materialized_column_for_property(
-        cast(TablesWithMaterializedColumns, table_name),
-        cast(TableColumn, field_name),
-        cast(PropertyName, property_name),
+    materialized_column = (
+        context.property_metadata.materialized_column(table_name, field_name, property_name)
+        if context.property_metadata is not None
+        else None
     )
     if materialized_column is not None:
         return PropertySourcePlan(
@@ -461,11 +455,11 @@ def _materialized_column_physical_type(materialized_column: MaterializedColumn) 
 
 def get_dmat_column(context: HogQLContext, table_name: str, field_name: str, property_name: str) -> str | None:
     """Dynamically materialized (dmat) column name for a property, if a slot is assigned."""
-    if context.property_swapper is None:
+    if context.property_metadata is None:
         return None
     if table_name != "events" or field_name != "properties":
         return None
-    prop_info = context.property_swapper.event_properties.get(property_name)
+    prop_info = context.property_metadata.event_properties.get(property_name)
     if prop_info is None:
         return None
     return prop_info.get("dmat")
@@ -498,20 +492,20 @@ def _semantic_type_from_property_definition_type(property_type: str | None) -> a
 def _property_info_for_property_type(
     property_type: ast.PropertyType, context: HogQLContext
 ) -> dict[str, str | None] | None:
-    if context.property_swapper is None or len(property_type.chain) != 1:
+    if context.property_metadata is None or len(property_type.chain) != 1:
         return None
 
     property_name = str(property_type.chain[0])
     scope = _property_scope(property_type, context)
     if scope == PropertyScope.EVENT:
-        return context.property_swapper.event_properties.get(property_name)
+        return context.property_metadata.event_properties.get(property_name)
     if scope == PropertyScope.PERSON:
-        return context.property_swapper.person_properties.get(property_name)
+        return context.property_metadata.person_properties.get(property_name)
     if scope == PropertyScope.GROUP:
         group_property_name = _group_property_name(property_type, context, property_name)
         if group_property_name is None:
             return None
-        return context.property_swapper.group_properties.get(group_property_name)
+        return context.property_metadata.group_properties.get(group_property_name)
     return None
 
 

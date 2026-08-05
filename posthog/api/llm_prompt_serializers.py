@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.ai_observability.backend.activity_logging import prompt_activity_item_id
 from products.ai_observability.backend.models.llm_prompt import (
     LLMPrompt,
     LLMPromptLabel,
@@ -39,14 +40,33 @@ def validate_prompt_name_value(value: str) -> str:
     return value
 
 
-def validate_prompt_payload_size(prompt_payload: Any) -> Any:
+def validate_prompt_payload_size(prompt_payload: Any, *, field_label: str = "Prompt payload") -> Any:
     prompt_payload_bytes = len(json.dumps(prompt_payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     if prompt_payload_bytes > MAX_PROMPT_PAYLOAD_BYTES:
         raise serializers.ValidationError(
-            f"Prompt payload must be {MAX_PROMPT_PAYLOAD_BYTES} bytes or fewer.",
+            f"{field_label} must be {MAX_PROMPT_PAYLOAD_BYTES} bytes or fewer.",
             code="max_size",
         )
     return prompt_payload
+
+
+def validate_prompt_config_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise serializers.ValidationError(
+            'Config must be a JSON object, e.g. {"model": "your-model-name", "temperature": 0}.',
+            code="invalid_config",
+        )
+    return validate_prompt_payload_size(value, field_label="Config")
+
+
+# The API only accepts an object or null for config (validate_prompt_config_value), so the
+# schema says so too — a bare JSONField would generate `unknown` and let generated clients
+# send strings or arrays the API rejects.
+@extend_schema_field({"type": "object", "nullable": True})
+class LLMPromptConfigField(serializers.JSONField):
+    pass
 
 
 RESERVED_PROMPT_LABEL_NAMES = {"latest"}
@@ -82,11 +102,33 @@ def validate_prompt_label_name_value(value: str) -> str:
     return value
 
 
+# Maps accepted order_by values to queryset ordering fields. Lives here so the list
+# query serializer can declare the choices; the viewset imports it for the lookup.
+ALLOWED_LIST_ORDERINGS = {
+    "name": "name",
+    "-name": "-name",
+    "created_at": "created_at",
+    "-created_at": "-created_at",
+    "updated_at": "updated_at",
+    "-updated_at": "-updated_at",
+    "version": "version",
+    "-version": "-version",
+    "latest_version": "latest_version",
+    "-latest_version": "-latest_version",
+    "version_count": "version_count",
+    "-version_count": "-version_count",
+    "first_version_created_at": "first_version_created_at",
+    "-first_version_created_at": "-first_version_created_at",
+    "prompt_size_bytes": "prompt_size_bytes",
+    "-prompt_size_bytes": "-prompt_size_bytes",
+}
+
 CONTENT_MODE_CHOICES = ["full", "preview", "none"]
 CONTENT_MODE_HELP = (
     "Controls how much prompt content is included in the response. "
     "'full' includes the full prompt, 'preview' includes a short prompt_preview, "
-    "and 'none' omits prompt content entirely. The outline field is always included."
+    "and 'none' omits prompt content entirely. The config field is only included with 'full'. "
+    "The outline field is always included."
 )
 
 
@@ -135,6 +177,12 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
     created_by_id = serializers.IntegerField(
         required=False,
         help_text="Filter prompts by the ID of the user who created them.",
+    )
+    order_by = serializers.ChoiceField(
+        choices=list(ALLOWED_LIST_ORDERINGS),
+        required=False,
+        default="-created_at",
+        help_text="Field to sort the prompt list by. Prefix with '-' for descending order.",
     )
     content = serializers.ChoiceField(
         choices=CONTENT_MODE_CHOICES,
@@ -196,6 +244,16 @@ class LLMPromptPublishSerializer(serializers.Serializer):
             "Mutually exclusive with prompt."
         ),
     )
+    config = LLMPromptConfigField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "JSON object with model parameters or any agent configuration to store with this version. "
+            "If omitted, the current version's config is carried forward; pass null to clear it. "
+            "Can be combined with either prompt or edits. "
+            "Don't store secrets here: config is returned to anyone who can read the prompt."
+        ),
+    )
     base_version = serializers.IntegerField(
         min_value=1,
         help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
@@ -209,6 +267,9 @@ class LLMPromptPublishSerializer(serializers.Serializer):
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
+
+    def validate_config(self, value: Any) -> Any:
+        return validate_prompt_config_value(value)
 
     def validate_version_description(self, value: str) -> str | None:
         return value.strip() or None
@@ -224,20 +285,30 @@ class LLMPromptPublishSerializer(serializers.Serializer):
 
         if has_prompt and has_edits:
             raise serializers.ValidationError("Provide either 'prompt' or 'edits', not both.")
-        if not has_prompt and not has_edits:
-            raise serializers.ValidationError("Either 'prompt' or 'edits' is required.")
+        if not has_prompt and not has_edits and "config" not in attrs:
+            raise serializers.ValidationError("Either 'prompt', 'edits' or 'config' is required.")
 
         return attrs
 
 
 class LLMPromptSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    config = LLMPromptConfigField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional JSON object with model parameters or any agent configuration "
+            "(e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. "
+            "Don't store secrets here: config is returned to anyone who can read the prompt."
+        ),
+    )
     is_latest = serializers.SerializerMethodField()
     latest_version = serializers.SerializerMethodField()
     version_count = serializers.SerializerMethodField()
     first_version_created_at = serializers.SerializerMethodField()
     outline = serializers.SerializerMethodField()
     labels = serializers.SerializerMethodField()
+    activity_item_id = serializers.SerializerMethodField()
 
     class Meta:
         model = LLMPrompt
@@ -245,6 +316,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "prompt",
+            "config",
             "version",
             "version_description",
             "created_by",
@@ -257,6 +329,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "first_version_created_at",
             "outline",
             "labels",
+            "activity_item_id",
         ]
         read_only_fields = [
             "id",
@@ -271,6 +344,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "first_version_created_at",
             "outline",
             "labels",
+            "activity_item_id",
         ]
         extra_kwargs = {
             "name": {"help_text": "Unique prompt name using letters, numbers, hyphens, and underscores only."},
@@ -283,6 +357,14 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     @extend_schema_field(LLMPromptOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMPrompt) -> list[dict[str, Any]]:
         return get_prompt_outline(instance.prompt)
+
+    @extend_schema_field(
+        serializers.CharField(
+            help_text="Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters."
+        )
+    )
+    def get_activity_item_id(self, instance: LLMPrompt) -> str:
+        return prompt_activity_item_id(instance.name)
 
     @extend_schema_field(
         serializers.ListField(
@@ -322,6 +404,9 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
 
+    def validate_config(self, value: Any) -> Any:
+        return validate_prompt_config_value(value)
+
     def validate_version_description(self, value: str | None) -> str | None:
         if value is None:
             return None
@@ -348,6 +433,12 @@ class LLMPromptSerializer(serializers.ModelSerializer):
                 code="immutable",
             )
 
+        if "config" in attrs:
+            raise serializers.ValidationError(
+                {"config": "Config is versioned and cannot be updated in place. Create a new version instead."},
+                code="immutable",
+            )
+
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> LLMPrompt:
@@ -362,16 +453,28 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         )
 
 
+class LLMPromptLabelSummarySerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Label name, e.g. 'production'.")
+    version = serializers.IntegerField(help_text="Prompt version this label currently points to.")
+
+
 class LLMPromptListSerializer(LLMPromptSerializer):
     prompt_size_bytes = serializers.SerializerMethodField()
     prompt_preview = serializers.SerializerMethodField()
+    all_labels = serializers.SerializerMethodField()
 
     class Meta(LLMPromptSerializer.Meta):
-        fields = [*LLMPromptSerializer.Meta.fields, "prompt_preview", "prompt_size_bytes"]
+        fields = [*LLMPromptSerializer.Meta.fields, "prompt_preview", "prompt_size_bytes", "all_labels"]
         read_only_fields = fields
 
     def get_prompt_size_bytes(self, instance: LLMPrompt) -> int:
         return int(getattr(instance, "prompt_size_bytes", 0))
+
+    @extend_schema_field(LLMPromptLabelSummarySerializer(many=True))
+    def get_all_labels(self, instance: LLMPrompt) -> list[dict[str, Any]]:
+        # The list queryset holds latest-version rows, whose own `labels` miss labels
+        # pointing at older versions; the viewset injects the full per-prompt map.
+        return self.context.get("prompt_labels_by_name", {}).get(instance.name, [])
 
     def get_prompt_preview(self, instance: LLMPrompt) -> str:
         prompt = instance.prompt
@@ -384,8 +487,10 @@ class LLMPromptListSerializer(LLMPromptSerializer):
         if content_mode == "none":
             data.pop("prompt", None)
             data.pop("prompt_preview", None)
+            data.pop("config", None)
         elif content_mode == "preview":
             data.pop("prompt", None)
+            data.pop("config", None)
         else:
             data.pop("prompt_preview", None)
         return data
@@ -425,6 +530,14 @@ class LLMPromptPublicSerializer(serializers.Serializer):
         required=False,
         help_text="Full prompt content. Omitted when 'content=preview' or 'content=none'.",
     )
+    config = LLMPromptConfigField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "JSON object with model parameters or any agent configuration stored with this version, "
+            "or null when the version has none. Omitted when 'content=preview' or 'content=none'."
+        ),
+    )
     prompt_preview = serializers.CharField(
         required=False,
         help_text="First 160 characters of the prompt. Only present when 'content=preview'.",
@@ -455,12 +568,6 @@ class LLMPromptDuplicateSerializer(serializers.Serializer):
 
     def validate_new_name(self, value: str) -> str:
         return validate_prompt_name_value(value)
-
-
-class LLMPromptResolveResponseSerializer(serializers.Serializer):
-    prompt = LLMPromptSerializer()
-    versions = LLMPromptVersionSummarySerializer(many=True)
-    has_more = serializers.BooleanField()
 
 
 class LLMPromptSetLabelSerializer(serializers.Serializer):
@@ -496,3 +603,13 @@ class LLMPromptLabelSerializer(serializers.ModelSerializer):
 
     def get_version(self, instance: LLMPromptLabel) -> int:
         return instance.prompt.version
+
+
+class LLMPromptResolveResponseSerializer(serializers.Serializer):
+    prompt = LLMPromptSerializer()
+    versions = LLMPromptVersionSummarySerializer(many=True)
+    has_more = serializers.BooleanField()
+    labels = LLMPromptLabelSerializer(
+        many=True,
+        help_text="All labels on this prompt with the version each one currently points to, across all versions (not just the returned page).",
+    )

@@ -30,7 +30,7 @@ hogli lint:skills
 # 4. Build locally to verify rendered output
 hogli build:skills
 
-# 5. Test locally with PostHog Code or a coding agent
+# 5. Test locally with PostHog Desktop or a coding agent
 hogli sync:skill -- --name <skill-name>
 
 # 6. Delete the test skill (optional)
@@ -59,7 +59,7 @@ but need guidance on _which_ tools to use, in _what order_, with _what constrain
 
 The decision flow:
 
-1. **Ask PostHog Code or Claude Code to do X.** If it works on its own, you don't need a skill.
+1. **Ask PostHog Desktop or Claude Code to do X.** If it works on its own, you don't need a skill.
 2. **If it can't do X, fix the tool prompts first.**
    Tool names, descriptions, and schemas are the cheapest lever — most "the agent doesn't know how to do X" problems are really "the tool description doesn't explain how to do X."
    See [Adding tools to the MCP server](/handbook/engineering/ai/implementing-mcp-tools).
@@ -378,10 +378,10 @@ CI builds the `dist/skills.zip` artifact and publishes it to two downstream repo
   any agent that follows Anthropic's skills layout (Claude Code, Claude Desktop, etc.).
 - [`PostHog/ai-plugin`](https://github.com/PostHog/ai-plugin) –
   the plugin distribution used by coding agents that consume PostHog capabilities
-  (PostHog Code, PostHog AI). The plugin bundles the skills alongside the MCP tool definitions
+  (PostHog Desktop, PostHog AI). The plugin bundles the skills alongside the MCP tool definitions
   so agents get the "how" and the "what" together.
 
-PostHog Code already consumes skills automatically, and PostHog AI consumes the same set.
+PostHog Desktop already consumes skills automatically, and PostHog AI consumes the same set.
 Because both repositories are updated from the same `dist/skills.zip` on every merge to `master`,
 you don't need to handle distribution yourself –
 merge your skill and it shows up in both places on the next CI run.

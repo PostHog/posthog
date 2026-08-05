@@ -12,6 +12,13 @@ class EvaluatePromptSuggestionInputs(BaseModel, frozen=True):
     team_id: int
     # How many rated sessions to re-run. None means the cap. Can lower the cap, never raise it.
     session_limit: int | None = None
+    # The edited config the user is testing. None re-runs the stored suggested_config. Defaulted so an
+    # in-flight run replaying without this field decodes it as "test the suggestion" (its original behavior).
+    config_override: dict[str, Any] | None = None
+    # `evaluation.started_at` as stamped when this run was requested. Usage receipt ids are keyed on it,
+    # so it is frozen into the inputs rather than re-read from the mutable row mid-run. Defaulted so an
+    # in-flight run replaying without this field falls back to re-reading, its original behavior.
+    started_at: str | None = None
 
 
 class EvaluationSession(BaseModel, frozen=True):
@@ -27,6 +34,9 @@ class SelectEvaluationSessionsInputs(BaseModel, frozen=True):
     suggestion_id: UUID
     team_id: int
     session_limit: int | None = None
+    config_override: dict[str, Any] | None = None
+    # See `EvaluatePromptSuggestionInputs.started_at`; None restamps, its original behavior.
+    started_at: str | None = None
 
 
 class SelectEvaluationSessionsOutput(BaseModel, frozen=True):
@@ -44,6 +54,10 @@ class RecordEvaluationResultInputs(BaseModel, frozen=True):
     # The fresh scanner output, None when the run errored.
     after_output: dict[str, Any] | None = None
     error: str | None = None
+    # Defaulted to False so an in-flight run replaying without this field decodes it as a non-preview run.
+    preview: bool = False
+    # See `EvaluatePromptSuggestionInputs.started_at`; None falls back to re-reading the row.
+    started_at: str | None = None
 
 
 class FinalizeEvaluationInputs(BaseModel, frozen=True):

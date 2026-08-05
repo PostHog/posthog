@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
     ENDPOINTS,
     CheckoutComResumeConfig,
@@ -34,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkoutcom import (
     CheckoutComSourceConfig,
 )
@@ -127,12 +124,17 @@ Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Disputes support a server-side `from` filter on last_update.
         return build_endpoint_schemas(ENDPOINTS, {"disputes": _DISPUTES_INCREMENTAL_FIELDS}, names)
 
     def validate_credentials(
-        self, config: CheckoutComSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CheckoutComSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_checkout_credentials(config.environment, config.client_id, config.client_secret):
             return True, None

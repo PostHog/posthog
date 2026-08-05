@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mux import MuxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux import MuxResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import ENDPOINTS, MUX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.source import MuxSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -40,13 +40,22 @@ class TestMuxSourceConfig:
 
 
 class TestMuxSchemas:
-    def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
+    def test_get_schemas_returns_every_endpoint(self) -> None:
         schemas = MuxSource().get_schemas(_config(), team_id=1)
         assert {s.name for s in schemas} == set(ENDPOINTS)
-        for schema in schemas:
-            assert schema.supports_incremental is False
+
+    def test_get_schemas_incremental_matches_endpoint_config(self) -> None:
+        # Only video views expose a server-side timestamp filter, so it's the one incremental table;
+        # append is never offered because the incremental overlap needs merge-dedupe. This guards the
+        # regression where every endpoint was reported as full refresh.
+        schemas = {s.name: s for s in MuxSource().get_schemas(_config(), team_id=1)}
+        for name, schema in schemas.items():
+            assert schema.supports_incremental is MUX_ENDPOINTS[name].supports_incremental
             assert schema.supports_append is False
-            assert schema.incremental_fields == []
+        assert schemas["video_views"].supports_incremental is True
+        assert [f["field"] for f in schemas["video_views"].incremental_fields] == ["view_end"]
+        assert schemas["assets"].supports_incremental is False
+        assert schemas["assets"].incremental_fields == []
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = MuxSource().get_schemas(_config(), team_id=1, names=["assets"])
@@ -128,15 +137,20 @@ class TestMuxResumableWiring:
         monkeypatch.setattr(source_module, "mux_source", fake_mux_source)
 
         inputs = MagicMock()
-        inputs.schema_name = "assets"
+        inputs.schema_name = "video_views"
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2023-01-01T00:00:00Z"
         manager = MagicMock()
         result = MuxSource().source_for_pipeline(_config(), manager, inputs)
 
         assert result is sentinel
         assert captured["access_token_id"] == "my-token-id"
         assert captured["secret_key"] == "my-secret"
-        assert captured["endpoint"] == "assets"
+        assert captured["endpoint"] == "video_views"
         assert captured["resumable_source_manager"] is manager
+        # Incremental context must reach the transport so it can build the `timeframe[]` lower bound.
+        assert captured["should_use_incremental_field"] is True
+        assert captured["db_incremental_field_last_value"] == "2023-01-01T00:00:00Z"
 
 
 class TestMuxCanonicalDescriptions:
@@ -147,4 +161,7 @@ class TestMuxCanonicalDescriptions:
         assert set(descriptions.keys()) == set(ENDPOINTS)
         for endpoint, entry in descriptions.items():
             assert entry.get("description")
-            assert entry.get("columns", {}).get("id"), f"{endpoint} missing id column description"
+            columns = entry.get("columns", {})
+            # Every primary-key column must be documented so joins/keys are self-describing.
+            for pk in MUX_ENDPOINTS[endpoint].primary_keys:
+                assert columns.get(pk), f"{endpoint} missing '{pk}' column description"

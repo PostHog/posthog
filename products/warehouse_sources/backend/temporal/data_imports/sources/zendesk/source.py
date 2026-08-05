@@ -9,16 +9,13 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
     ZendeskSourceConfig,
 )
@@ -27,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.se
     INCREMENTAL_FIELDS as ZENDESK_INCREMENTAL_FIELDS,
     PARTITION_FIELDS,
     SUPPORT_ENDPOINTS,
+    ZENDESK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import (
     normalize_subdomain,
@@ -70,6 +68,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -81,13 +80,26 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             for endpoint in list(BASE_ENDPOINTS)
             + [resource for resource, endpoint_url, data_key, cursor_paginated in SUPPORT_ENDPOINTS]
         ]
+        schemas += [
+            SourceSchema(
+                name=endpoint_config.name,
+                supports_incremental=bool(endpoint_config.incremental_fields),
+                supports_append=bool(endpoint_config.incremental_fields),
+                incremental_fields=endpoint_config.incremental_fields,
+            )
+            for endpoint_config in ZENDESK_ENDPOINTS.values()
+        ]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
     def validate_credentials(
-        self, config: ZendeskSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ZendeskSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         subdomain = normalize_subdomain(config.subdomain)
         subdomain_regex = re.compile("^[a-zA-Z0-9-]+$")
@@ -155,15 +167,22 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            incremental_field_name=inputs.incremental_field,
         )
+        # The original nine endpoints aren't in the declarative catalog; they keep the `id`
+        # primary key and ascending sort they have always used.
+        endpoint_config = ZENDESK_ENDPOINTS.get(inputs.schema_name)
         response = SourceResponse(
             name=resource.name,
             items=lambda: resource,
-            primary_keys=["id"],
+            primary_keys=endpoint_config.primary_key if endpoint_config else ["id"],
             column_hints=resource.column_hints,
+            sort_mode=endpoint_config.sort_mode if endpoint_config else "asc",
         )
 
         partition_key = PARTITION_FIELDS.get(inputs.schema_name, None)
+        if partition_key is None and endpoint_config is not None:
+            partition_key = endpoint_config.partition_key
 
         # All partition keys are datetime
         if partition_key:

@@ -7,6 +7,10 @@ from unittest import mock
 
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.constants import (
+    LIGHTSPEED_RETAIL_API_VERSION_2_0,
+    LIGHTSPEED_RETAIL_API_VERSION_2026_01,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail import (
     LightspeedRetailResumeConfig,
     _base_url,
@@ -54,7 +58,9 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
@@ -62,6 +68,7 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
 
 def _run(manager: mock.MagicMock, endpoint: str = "sales", **kwargs: Any) -> list[Any]:
+    kwargs.setdefault("api_version", LIGHTSPEED_RETAIL_API_VERSION_2026_01)
     response = lightspeed_retail_source(
         "mystore", "token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
     )
@@ -87,8 +94,9 @@ class TestCleanDomainPrefix:
         with pytest.raises(ValueError):
             _clean_domain_prefix(value)
 
-    def test_base_url(self):
-        assert _base_url("mystore") == "https://mystore.retail.lightspeed.app/api/2.0"
+    @pytest.mark.parametrize("api_version", [LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2026_01])
+    def test_base_url_carries_the_version_path_segment(self, api_version):
+        assert _base_url("mystore", api_version) == f"https://mystore.retail.lightspeed.app/api/{api_version}"
 
 
 class TestToVersion:
@@ -123,17 +131,27 @@ class TestValidateCredentials:
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("mystore", "token") is expected
+        assert validate_credentials("mystore", "token", LIGHTSPEED_RETAIL_API_VERSION_2026_01) is expected
+
+    @pytest.mark.parametrize("api_version", [LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2026_01])
+    @mock.patch(LR_SESSION_PATCH)
+    def test_validate_credentials_probes_the_pinned_version(self, mock_session, api_version):
+        mock_session.return_value.get.return_value.status_code = 200
+
+        assert validate_credentials("mystore", "token", api_version) is True
+
+        url = mock_session.return_value.get.call_args.args[0]
+        assert url.startswith(f"https://mystore.retail.lightspeed.app/api/{api_version}/outlets")
 
     @mock.patch(LR_SESSION_PATCH)
     def test_validate_credentials_rejects_bad_prefix_without_request(self, mock_session):
-        assert validate_credentials("my store!", "token") is False
+        assert validate_credentials("my store!", "token", LIGHTSPEED_RETAIL_API_VERSION_2026_01) is False
         mock_session.return_value.get.assert_not_called()
 
     @mock.patch(LR_SESSION_PATCH)
     def test_validate_credentials_swallows_transport_error(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("mystore", "token") is False
+        assert validate_credentials("mystore", "token", LIGHTSPEED_RETAIL_API_VERSION_2026_01) is False
 
 
 class TestGetRows:
@@ -235,6 +253,16 @@ class TestGetRows:
         assert session.send.call_count == 2
         assert params[1]["after"] == 0
 
+    @pytest.mark.parametrize("api_version", [LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2026_01])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requests_target_the_pinned_version(self, mock_session, api_version):
+        session = mock_session.return_value
+        _wire(session, [_response([])])
+
+        _run(_make_manager(), api_version=api_version)
+
+        assert session.send.call_args.args[0].url == f"https://mystore.retail.lightspeed.app/api/{api_version}/sales"
+
 
 class TestLightspeedRetailSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
@@ -243,7 +271,13 @@ class TestLightspeedRetailSourceResponse:
         mock_session.return_value.headers = {}
         config = LIGHTSPEED_RETAIL_ENDPOINTS[endpoint]
         response = lightspeed_retail_source(
-            "mystore", "token", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            "mystore",
+            "token",
+            endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+            api_version=LIGHTSPEED_RETAIL_API_VERSION_2026_01,
         )
 
         assert response.name == endpoint

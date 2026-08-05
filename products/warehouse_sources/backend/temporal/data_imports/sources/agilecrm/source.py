@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.agilecrm import (
     AgileCRMResumeConfig,
     agilecrm_source,
@@ -29,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.agilecrm import (
     AgileCRMSourceConfig,
 )
@@ -120,13 +117,18 @@ Your domain is the subdomain of your Agile CRM URL — for `https://acme.agilecr
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Agile CRM documents no server-side updated-since/created-after filter on any list endpoint,
         # so every table is full refresh only.
         return build_endpoint_schemas(ENDPOINTS, {}, names)
 
     def validate_credentials(
-        self, config: AgileCRMSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AgileCRMSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_agilecrm_credentials(config.domain, config.email, config.api_key):
             return True, None

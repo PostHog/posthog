@@ -10,6 +10,7 @@ import {
     DataCatalogMetricsCreateBody,
     DataCatalogMetricsPartialUpdateBody,
     DataCatalogMetricsPartialUpdateParams,
+    DataCatalogMetricsRefreshFromInsightCreateParams,
     DataCatalogMetricsRunCreateBody,
     DataCatalogMetricsRunCreateParams,
     DataCatalogMetricsRunCreateQueryParams,
@@ -51,6 +52,7 @@ const dataCatalogCertificationCertifyPrepare = (): ToolBase<
             messageTemplate:
                 "About to mark certification '{id}' as certified (agents should prefer this source). Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -73,6 +75,7 @@ const dataCatalogCertificationCertifyExecute = (): ToolBase<
             purpose: 'data-catalog-certification-certify',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -115,6 +118,7 @@ const dataCatalogCertificationDeprecatePrepare = (): ToolBase<
             messageTemplate:
                 "About to mark certification '{id}' as deprecated (agents should avoid this source). Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -137,6 +141,7 @@ const dataCatalogCertificationDeprecateExecute = (): ToolBase<
             purpose: 'data-catalog-certification-deprecate',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -178,6 +183,9 @@ const dataCatalogCertificationPropose = (): ToolBase<
         if (params.notes !== undefined) {
             body['notes'] = params.notes
         }
+        if (params.proposed_status !== undefined) {
+            body['proposed_status'] = params.proposed_status
+        }
         const result = await context.api.request<Schemas.DataCatalogCertification>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/certifications/`,
@@ -212,6 +220,7 @@ const dataCatalogMetricApprovePrepare = (): ToolBase<
             messageTemplate:
                 "About to approve metric '{name}' as a canonical, human-vouched metric. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -231,6 +240,7 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
             purpose: 'data-catalog-metric-approve',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -372,6 +382,26 @@ const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchem
     },
 })
 
+const DataCatalogMetricsRefreshFromInsightCreateSchema = DataCatalogMetricsRefreshFromInsightCreateParams.omit({
+    project_id: true,
+})
+
+const dataCatalogMetricsRefreshFromInsightCreate = (): ToolBase<
+    typeof DataCatalogMetricsRefreshFromInsightCreateSchema,
+    Schemas.DataCatalogMetric
+> => ({
+    name: 'data-catalog-metrics-refresh-from-insight-create',
+    schema: DataCatalogMetricsRefreshFromInsightCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof DataCatalogMetricsRefreshFromInsightCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataCatalogMetric>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/refresh_from_insight/`,
+        })
+        return result
+    },
+})
+
 const DataCatalogRelationshipAcceptSchema = DataCatalogRelationshipProposalsAcceptCreateParams.omit({
     project_id: true,
 })
@@ -399,6 +429,7 @@ const dataCatalogRelationshipAcceptPrepare = (): ToolBase<
             messageTemplate:
                 "About to accept relationship proposal '{id}', promoting it to a real warehouse join. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -421,6 +452,7 @@ const dataCatalogRelationshipAcceptExecute = (): ToolBase<
             purpose: 'data-catalog-relationship-accept',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -510,6 +542,7 @@ const dataCatalogRelationshipRejectPrepare = (): ToolBase<
             messageTemplate:
                 "About to reject relationship proposal '{id}'. This permanently suppresses re-proposing the pair. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -532,6 +565,7 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
             purpose: 'data-catalog-relationship-reject',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -563,6 +597,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-metric-create': dataCatalogMetricCreate,
     'data-catalog-metric-run': dataCatalogMetricRun,
     'data-catalog-metric-update': dataCatalogMetricUpdate,
+    'data-catalog-metrics-refresh-from-insight-create': dataCatalogMetricsRefreshFromInsightCreate,
     'data-catalog-relationship-accept-prepare': dataCatalogRelationshipAcceptPrepare,
     'data-catalog-relationship-accept-execute': dataCatalogRelationshipAcceptExecute,
     'data-catalog-relationship-propose': dataCatalogRelationshipPropose,

@@ -6,4 +6,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class USCensusSourceConfig(config.Config):
-    pass
+    api_key: str
+    custom_dataset: str | None = None
+    custom_variables: str | None = None
+    custom_geography: str | None = None
+    custom_geography_filter: str | None = None

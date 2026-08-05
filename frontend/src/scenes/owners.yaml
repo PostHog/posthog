@@ -71,12 +71,8 @@ rules:
       owners: team-ai-observability
     - match: '/onboarding/legacy/sdks/surveys/'
       owners: team-surveys
-    - match: '/organization/'
-      owners: team-growth
     - match: ['/paths-v2/', '/paths/', '/persons-management/', '/persons/']
       owners: team-product-analytics
-    - match: ['/project-homepage/', '/project/']
-      owners: team-growth
     - match: '/resource-transfer/'
       owners: team-platform-features
     - match: ['/retention/', '/saved-insights/']
@@ -85,7 +81,7 @@ rules:
       owners: team-replay
     - match: '/sessions/'
       owners: team-analytics-platform
-    - match: ['/settings/', '/startups/']
+    - match: '/startups/'
       owners: team-growth
     - match: '/surveys/'
       owners: team-surveys

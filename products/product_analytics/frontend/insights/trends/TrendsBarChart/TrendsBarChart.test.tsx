@@ -231,13 +231,17 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
 
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
-        expect(getHogChart().xAxisLabel()).toBe('Total events')
-        expect(getHogChart().yAxisLabel()).toBe('Series')
-        expect(
-            getHogChart()
-                .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
-                ?.getAttribute('transform')
-        ).toContain('rotate(-90')
+        // Axis titles are a layout-dependent overlay that commits a tick after the
+        // chart's aria-label appears, so read them through waitFor rather than synchronously.
+        await waitFor(() => {
+            expect(getHogChart().xAxisLabel()).toBe('Total events')
+            expect(getHogChart().yAxisLabel()).toBe('Series')
+            expect(
+                getHogChart()
+                    .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
+                    ?.getAttribute('transform')
+            ).toContain('rotate(-90')
+        })
     })
 
     // Five hedgehog breakdowns → by default one series carrying five per-bar colors across five
@@ -461,6 +465,26 @@ describe('TrendsBarChart (ActionsUnstackedBar)', () => {
         await waitFor(
             () => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+})
+
+describe('TrendsBarChart (ActionsStackedBar)', () => {
+    // Regression for #66497: ActionsStackedBar is a deprecated alias of ActionsBar on trends
+    // queries — never emitted by the UI, but accepted from the API/MCP. It used to fall through
+    // the trends render dispatch and produce a blank tile; getDisplay() now normalizes it.
+    it('renders the stacked bar chart instead of a blank tile', async () => {
+        renderInsight({
+            query: buildTrendsQuery({
+                trendsFilter: { display: ChartDisplayType.ActionsStackedBar },
+            }),
+        })
+
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('trend-bar-graph')).toBeInTheDocument()
             },
             { timeout: 5000 }
         )

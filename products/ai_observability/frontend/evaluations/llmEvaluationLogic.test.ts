@@ -4,10 +4,11 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { TestHogResponseApi } from '../generated/api.schemas'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
-import { DEFAULT_HOG_SOURCE, DEFAULT_TRACE_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
+import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -336,7 +337,7 @@ describe('llmEvaluationLogic', () => {
             await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
         })
 
-        it('seeds the trace Hog default when switching to hog with a trace target', async () => {
+        it('uses the target-independent Hog default for a trace target', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
             logic.actions.setEvaluationTarget('trace')
@@ -344,12 +345,12 @@ describe('llmEvaluationLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 evaluation: expect.objectContaining({
-                    evaluation_config: { source: DEFAULT_TRACE_HOG_SOURCE },
+                    evaluation_config: { source: DEFAULT_HOG_SOURCE },
                 }),
             })
         })
 
-        it('swaps the untouched Hog default when the target changes', async () => {
+        it('keeps the untouched Hog default when the target changes', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
             logic.actions.setEvaluationType('hog')
@@ -359,7 +360,30 @@ describe('llmEvaluationLogic', () => {
 
             logic.actions.setEvaluationTarget('trace')
             await expectLogic(logic).toMatchValues({
-                evaluation: expect.objectContaining({ evaluation_config: { source: DEFAULT_TRACE_HOG_SOURCE } }),
+                evaluation: expect.objectContaining({ evaluation_config: { source: DEFAULT_HOG_SOURCE } }),
+            })
+        })
+
+        it('replaces the legacy generation default when switching to trace', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.loadEvaluationSuccess({
+                ...mockEvaluation,
+                evaluation_type: 'hog',
+                evaluation_config: {
+                    source: `// Check that the output is not empty
+let result := length(output) > 0
+if (not result) {
+    print('Output is empty')
+}
+return result`,
+                },
+                model_configuration: null,
+            })
+            logic.actions.setEvaluationTarget('trace')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({ evaluation_config: { source: DEFAULT_HOG_SOURCE } }),
             })
         })
 
@@ -374,6 +398,68 @@ describe('llmEvaluationLogic', () => {
                 evaluation: expect.objectContaining({
                     evaluation_config: expect.objectContaining({ source: 'return length(events) > 5' }),
                 }),
+            })
+        })
+
+        it('seeds a fixed window settle config when switching target to trace', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'fixed_window',
+                window_seconds: 30 * 60,
+            })
+        })
+
+        it('seeds inactivity defaults when switching settle strategy', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'inactivity',
+                quiet_period_seconds: 5 * 60,
+                max_age_seconds: 2 * 60 * 60,
+            })
+        })
+
+        it('patches a single settle field without clobbering the rest', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+            logic.actions.patchTargetConfig({ quiet_period_seconds: 60 })
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'inactivity',
+                quiet_period_seconds: 60,
+                max_age_seconds: 2 * 60 * 60,
+            })
+        })
+
+        it('reseeds the fixed window when switching strategy back', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+            logic.actions.setSettleStrategy('fixed_window')
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'fixed_window',
+                window_seconds: 30 * 60,
+            })
+        })
+
+        it('reseeding fixed window over an inactivity bag leaves no inactivity keys', () => {
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+            logic.actions.setSettleStrategy('fixed_window')
+            logic.actions.patchTargetConfig({ window_seconds: 900 })
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'fixed_window',
+                window_seconds: 900,
             })
         })
     })
@@ -557,6 +643,19 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        describe('breadcrumbs', () => {
+            it('does not show the template picker while an existing evaluation loads', () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+
+                expect(logic.values.evaluation).toBeNull()
+                expect(logic.values.breadcrumbs.map((breadcrumb) => breadcrumb.name)).toEqual([
+                    'Evaluations',
+                    'New Evaluation',
+                ])
+            })
+        })
+
         describe('runsSummary', () => {
             beforeEach(() => {
                 logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
@@ -670,19 +769,45 @@ describe('llmEvaluationLogic', () => {
                 })
             })
 
-            it('applies template when provided', async () => {
-                logic = llmEvaluationLogic({ evaluationId: 'new', templateKey: 'factuality' })
+            it.each([
+                {
+                    name: 'LLM judge',
+                    templateKey: 'relevance',
+                    expectedEvaluation: {
+                        name: 'Relevance',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: expect.stringContaining('relevant') },
+                        output_type: 'boolean',
+                    },
+                },
+                {
+                    name: 'Hog',
+                    templateKey: 'cost_latency',
+                    expectedEvaluation: {
+                        name: 'Cost & latency',
+                        evaluation_type: 'hog',
+                        evaluation_config: { source: expect.stringContaining('latency'), bytecode: [] },
+                        output_type: 'boolean',
+                    },
+                },
+                {
+                    name: 'sentiment',
+                    templateKey: 'sentiment',
+                    expectedEvaluation: {
+                        name: 'Sentiment analysis',
+                        evaluation_type: 'sentiment',
+                        evaluation_config: { source: 'user_messages' },
+                        output_type: 'sentiment',
+                    },
+                },
+            ])('applies the $name template', async ({ templateKey, expectedEvaluation }) => {
+                logic = llmEvaluationLogic({ evaluationId: 'new', templateKey })
                 logic.mount()
 
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
                 await expectLogic(logic).toMatchValues({
-                    evaluation: expect.objectContaining({
-                        name: expect.any(String),
-                        evaluation_config: expect.objectContaining({
-                            prompt: expect.any(String),
-                        }),
-                    }),
+                    evaluation: expect.objectContaining(expectedEvaluation),
                 })
             })
         })
@@ -1216,6 +1341,96 @@ describe('llmEvaluationLogic', () => {
                     model_configuration: null,
                 }),
             })
+        })
+    })
+
+    describe('Hog sample testing', () => {
+        it('sends the trace aggregation window and clears completed results when it changes', async () => {
+            let requestBody: Record<string, unknown> | undefined
+            useMocks({
+                post: {
+                    '/api/projects/:teamId/evaluations/test_hog/': async ({ request }) => {
+                        requestBody = (await request.json()) as Record<string, unknown>
+                        return {
+                            results: [
+                                {
+                                    sample_id: 'trace-1',
+                                    sample_type: 'trace',
+                                    event_uuid: null,
+                                    trace_id: 'trace-1',
+                                    input_preview: 'hello',
+                                    output_preview: 'world',
+                                    result: true,
+                                    reasoning: null,
+                                    error: null,
+                                },
+                            ],
+                        }
+                    },
+                },
+            })
+            logic = llmEvaluationLogic({ evaluationId: 'new' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.patchTargetConfig({ window_seconds: 120 })
+            logic.actions.testHogOnSample()
+
+            await expectLogic(logic)
+                .toDispatchActions(['testHogOnSampleSuccess'])
+                .toMatchValues({
+                    hogTestResults: [expect.objectContaining({ sample_id: 'trace-1', sample_type: 'trace' })],
+                })
+            expect(requestBody).toMatchObject({
+                target: 'trace',
+                target_config: { window_seconds: 120 },
+            })
+
+            logic.actions.patchTargetConfig({ window_seconds: 240 })
+            await expectLogic(logic).toMatchValues({ hogTestResults: null })
+        })
+
+        it('does not restore results from a request whose target changed in flight', async () => {
+            let resolveRequest: (value: TestHogResponseApi) => void = () => {}
+            const pendingResponse = new Promise<TestHogResponseApi>((resolve) => {
+                resolveRequest = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:teamId/evaluations/test_hog/': () => pendingResponse,
+                },
+            })
+            logic = llmEvaluationLogic({ evaluationId: 'new' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.testHogOnSample()
+            await expectLogic(logic).toMatchValues({ hogTestResultsLoading: true })
+
+            logic.actions.setEvaluationTarget('trace')
+            await expectLogic(logic).toMatchValues({ hogTestResults: null })
+            resolveRequest({
+                results: [
+                    {
+                        sample_id: 'generation-1',
+                        sample_type: 'generation',
+                        event_uuid: 'generation-1',
+                        trace_id: 'trace-1',
+                        input_preview: 'hello',
+                        output_preview: 'world',
+                        result: true,
+                        reasoning: '',
+                        error: null,
+                    },
+                ],
+            })
+
+            await expectLogic(logic)
+                .toDispatchActions(['testHogOnSampleSuccess'])
+                .toMatchValues({ hogTestResults: null })
         })
     })
 

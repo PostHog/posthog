@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class OPUSWatchSourceConfig(config.Config):
-    pass
+    api_key: str
+    start_date: str | None = None

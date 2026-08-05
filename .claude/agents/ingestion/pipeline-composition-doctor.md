@@ -50,6 +50,7 @@ Before reviewing or writing any code, read these files:
 - `nodejs/src/ingestion/framework/docs/11-retries.test.ts` — per-step retry option, isRetriable, exhaustion behavior
 - `nodejs/src/ingestion/framework/docs/12-filter-map.test.ts` — filterMap(), context enrichment
 - `nodejs/src/ingestion/framework/docs/13-conventions.test.ts` — pipeline factory functions, naming
+- `nodejs/src/ingestion/framework/docs/17-fan-out-fan-in.test.ts` — fanOut().via().fanIn(), per-element sub-work
 - `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` — real-world composition example
 
 Also read any files the user points you to.
@@ -185,6 +186,39 @@ function createMyPipeline(config: Config): ChunkPipeline<Input, Output> {
 
 // BAD - module-level singleton
 const myPipeline = startPipeline<Input>().pipe(createStepA(defaultConfig)).build()
+```
+
+### 10. Fan-out/fan-in for per-element sub-work
+
+When one element carries N independent pieces of work (e.g. per-blob uploads), use the staged
+`fanOut(fn).via((sub) => …).fanIn(fn)` stage — never hand-rolled concurrency inside a step.
+Cardinality is restored at the parent level (N elements in, N results out), so the chunk
+invariant holds. Sequencing is compile-time enforced: `.fanOut()` and `.via()` return
+intermediates with a single method each; only `.fanIn()` yields a buildable pipeline.
+
+- `maxConcurrency` goes on the sub `concurrently` block — one cap across all parents' subs, so
+  budget it for the whole chunk, not one element.
+- `retry` goes on the per-sub step, so a transient failure retries only that sub-element's work.
+- Parents emit unordered as they complete (same contract as `concurrentlyPerGroup`) — compose
+  the stage only where downstream is order-insensitive.
+- A `p-limit`/`Promise.all` worker pool inside a step is the flag that this stage fits instead.
+
+```typescript
+// GOOD - pipeline-level concurrency cap and per-sub retry
+builder
+  .fanOut(extractBlobsFanOut)
+  .via((sub) =>
+    sub.concurrently((b) => b.pipe(uploadBlobStep, { retry: { name: 'upload', tries: 5 } }), { maxConcurrency: 8 })
+  )
+  .fanIn(mergeBlobPointersFanIn)
+
+// BAD - hand-rolled concurrency inside a step, invisible to the framework
+function createOffloadStep(): ProcessingStep<Input, Input> {
+  return async function offloadStep(input) {
+    await mapWithConcurrency(input.blobs, 8, uploadBlob) // reinvents maxConcurrency and retry
+    return ok(input)
+  }
+}
 ```
 
 ## Output format

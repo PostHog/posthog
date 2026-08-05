@@ -2,9 +2,9 @@ import { JSONContent } from '@tiptap/core'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketStatus } from '../../types'
+import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
 import { MessageInput } from './MessageInput'
-import { MessageList } from './MessageList'
+import { MessageList, type TimelineExtra } from './MessageList'
 
 export interface ChatViewProps {
     messages: ChatMessage[]
@@ -24,6 +24,8 @@ export interface ChatViewProps {
     header?: React.ReactNode
     minHeight?: string
     maxHeight?: string
+    /** Channel the ticket came from; drives the reply placeholder and send-button logo */
+    channel?: TicketChannel
     /** Whether to show the "Send as private" option in the message input */
     showPrivateOption?: boolean
     /** Number of team messages that haven't been read by the customer */
@@ -40,8 +42,12 @@ export interface ChatViewProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode
+    /** Non-message thread entries, placed by their own timestamp (e.g. team-only agent findings) */
+    threadExtras?: TimelineExtra[]
     /** Blocks sending customer-facing messages (private notes stay available) */
     replyDisabledReason?: string | JSX.Element
+    /** Blocks sending entirely, including private notes (e.g. the user lacks edit access) */
+    sendDisabledReason?: string | JSX.Element
     /** Whether draft mode is on: tints the composer green and confirms the recipient before sending */
     draftMode?: boolean
     /** Called when the draft-mode toggle changes */
@@ -49,12 +55,13 @@ export interface ChatViewProps {
     /** Recipient description shown in the draft-mode send confirmation */
     sendConfirmationMessage?: string
     /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
-    sendAndSetStatusOptions?: { value: TicketStatus; label: string }[]
+    sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist */
     unsavedTicketChanges?: string[]
     latestAiMessageId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
+    aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
 }
 
@@ -69,15 +76,18 @@ export function ChatView({
     header,
     minHeight,
     maxHeight,
+    channel,
     showPrivateOption = false,
     unreadCustomerCount,
     showDeliveryStatus = false,
     draftContent,
     onDraftChange,
     isPrivate,
+    threadExtras,
     onPrivateChange,
     extraActions,
     replyDisabledReason,
+    sendDisabledReason,
     draftMode,
     onDraftModeChange,
     sendConfirmationMessage,
@@ -86,6 +96,7 @@ export function ChatView({
     latestAiMessageId,
     feedbackByMessageId,
     showAiReplyFeedback,
+    aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
@@ -108,12 +119,15 @@ export function ChatView({
                 latestAiMessageId={latestAiMessageId}
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
+                aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
+                extras={threadExtras}
             />
             <div className="border-t pt-3">
                 <MessageInput
                     onSendMessage={onSendMessage}
                     messageSending={messageSending}
+                    channel={channel}
                     showPrivateOption={showPrivateOption}
                     draftContent={draftContent}
                     onDraftChange={onDraftChange}
@@ -121,6 +135,7 @@ export function ChatView({
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
                     replyDisabledReason={replyDisabledReason}
+                    sendDisabledReason={sendDisabledReason}
                     draftMode={draftMode}
                     onDraftModeChange={onDraftModeChange}
                     sendConfirmationMessage={sendConfirmationMessage}

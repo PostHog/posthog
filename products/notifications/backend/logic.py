@@ -36,10 +36,12 @@ def _publish_to_kafka(event: NotificationEvent) -> None:
                 "title": event.title,
                 "body": event.body,
                 "resource_type": event.resource_type or "",
+                # The client groups rows by (type, target, resource) — a live-pushed notification
+                # without resource_id would land in the wrong group until the next refetch.
+                "resource_id": event.resource_id or "",
                 "source_url": event.source_url,
                 "source_type": event.source_type,
                 "source_id": event.source_id,
-                "archivable": event.archivable,
                 "resolved_user_ids": event.resolved_user_ids,
                 "created_at": event.created_at.isoformat(),
             },
@@ -216,7 +218,6 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
         source_id=data.source_id,
         target_type=data.target_type,
         target_id=data.target_id,
-        archivable=data.archivable,
         resolved_user_ids=resolved_user_ids,
         metadata=data.metadata,
     )

@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.payfit import (
     PayFitResumeConfig,
@@ -89,6 +86,7 @@ You can create an API key from the **API access** tab on the [integrations page]
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — PayFit exposes no server-side updated_after/since
         # filter on any list endpoint, so there is no incremental cursor to advance.
@@ -107,7 +105,11 @@ You can create an API key from the **API access** tab on the [integrations page]
         return schemas
 
     def validate_credentials(
-        self, config: PayFitSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PayFitSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # PayFit API keys carry per-endpoint scopes, so probe the specific endpoint when asked for
         # one schema; at source-create only the token itself is validated (via introspection).

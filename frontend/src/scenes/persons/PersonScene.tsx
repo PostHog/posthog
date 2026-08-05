@@ -11,6 +11,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -18,6 +19,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
@@ -39,7 +42,14 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    PersonType,
+    PersonsTabType,
+    PropertyDefinitionType,
+} from '~/types'
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
@@ -50,6 +60,7 @@ import { PersonCohorts } from './PersonCohorts'
 import { PersonEmailsTab } from './PersonEmailsTab'
 import { PersonLogsTab } from './PersonLogsTab'
 import PersonProfileCanvas from './PersonProfileCanvas'
+import { PersonPushNotificationsTab } from './PersonPushNotificationsTab'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
@@ -137,6 +148,11 @@ interface LaunchToolbarButtonProps {
 function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
+    const toolbarAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Toolbar,
+        AccessControlLevel.Viewer
+    )
+
     const handleLaunchToolbar = async (targetUrl: string): Promise<void> => {
         if (!currentTeam?.app_urls?.length) {
             lemonToast.error('No authorized URLs configured. Please add a URL in Toolbar settings.')
@@ -173,6 +189,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
             }))}
             placeholder="Launch toolbar with this user's feature flags"
             onChange={(value) => value && handleLaunchToolbar(value)}
+            disabledReason={toolbarAccessDisabledReason}
         />
     )
 }
@@ -210,6 +227,7 @@ export function PersonScene(): JSX.Element | null {
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
     const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${mountedPersonsLogic.key}`
@@ -406,6 +424,18 @@ export function PersonScene(): JSX.Element | null {
                               key: PersonsTabType.EMAILS,
                               label: <span data-attr="persons-emails-tab">Emails</span>,
                               content: <PersonEmailsTab teamId={currentTeam?.id ?? 0} personId={String(person.uuid)} />,
+                          }
+                        : false,
+                    person.uuid && featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS]
+                        ? {
+                              key: PersonsTabType.PUSH_NOTIFICATIONS,
+                              label: <span data-attr="persons-push-notifications-tab">Push notifications</span>,
+                              content: (
+                                  <PersonPushNotificationsTab
+                                      teamId={currentTeam?.id ?? 0}
+                                      personId={String(person.uuid)}
+                                  />
+                              ),
                           }
                         : false,
                     {

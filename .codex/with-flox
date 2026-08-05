@@ -38,7 +38,6 @@ done < <(find "$repo_root/tools/phrocs" -type f \( -name '*.go' -o -name 'go.mod
 
 toolchain_variables=(
     ACLOCAL_PATH
-    AGENT_PREVIEW_SECRET
     BUILDENV_NIX
     CARGO_TARGET_DIR
     CLICKHOUSE_DATABASE

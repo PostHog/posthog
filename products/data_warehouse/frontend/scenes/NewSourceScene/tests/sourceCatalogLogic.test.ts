@@ -8,10 +8,12 @@ import { availableSourcesLogic } from '../availableSourcesLogic'
 import { sourceCatalogLogic } from '../sourceCatalogLogic'
 
 const AVAILABLE_SOURCES: Record<string, SourceConfig> = {
+    // Featured, so it must lead the browse list even though `Stripe` sorts after `Mango`.
     Stripe: {
         name: 'Stripe',
         iconPath: '',
         caption: '',
+        featured: true,
         fields: [],
     } as unknown as SourceConfig,
     // `Apple` sorts alphabetically first but is unreleased, so connectable-first ordering must
@@ -19,6 +21,9 @@ const AVAILABLE_SOURCES: Record<string, SourceConfig> = {
     Zebra: { name: 'Zebra', label: 'Zebra', fields: [] } as unknown as SourceConfig,
     Mango: { name: 'Mango', label: 'Mango', fields: [] } as unknown as SourceConfig,
     Apple: { name: 'Apple', label: 'Apple', unreleasedSource: true, fields: [] } as unknown as SourceConfig,
+    // Connectable, and shares the "apple" token with the unreleased `Apple` above so a search for
+    // "apple" fuzzy-matches both — used to assert connectable results outrank "Coming soon" ones.
+    ApplePay: { name: 'ApplePay', label: 'Apple Pay', fields: [] } as unknown as SourceConfig,
 }
 
 describe('sourceCatalogLogic', () => {
@@ -69,6 +74,28 @@ describe('sourceCatalogLogic', () => {
         const names = items.map((item) => item.name)
         expect(names.indexOf('Mango')).toBeLessThan(names.indexOf('Apple'))
         expect(names.indexOf('Zebra')).toBeLessThan(names.indexOf('Apple'))
+    })
+
+    it('leads the browse list with featured sources', () => {
+        const logic = sourceCatalogLogic()
+        const names = logic.values.filteredItems.map((item) => item.name)
+
+        // `Stripe` is featured, so it must come before the plain connectable sources even though
+        // it sorts after `Mango` alphabetically.
+        expect(names.indexOf('Stripe')).toBeLessThan(names.indexOf('Mango'))
+        expect(names.indexOf('Stripe')).toBeLessThan(names.indexOf('Zebra'))
+    })
+
+    it('ranks connectable search matches above "Coming soon" ones', () => {
+        const logic = sourceCatalogLogic()
+        logic.actions.setSearch('apple')
+
+        // Both `Apple` (unreleased → "Coming soon") and `Apple Pay` (connectable) match, but a
+        // search must never lead with a tile the user can't act on.
+        const names = logic.values.filteredItems.map((item) => item.name)
+        expect(names).toContain('ApplePay')
+        expect(names).toContain('Apple')
+        expect(names.indexOf('ApplePay')).toBeLessThan(names.indexOf('Apple'))
     })
 
     it('surfaces self-managed file-storage connectors when searching for a file format', () => {
