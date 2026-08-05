@@ -21,7 +21,7 @@ permissions:
 
 env:
     # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
-    SCHEMA_CACHE_EPOCH: v1
+    SCHEMA_CACHE_EPOCH: v2
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
@@ -222,10 +222,21 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # The workers-pool project in vitest.config.mts parses wrangler.jsonc
             # up front and needs `assets.directory` (./public/) populated and
@@ -466,6 +477,18 @@ jobs:
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                       exit 0
                   fi
+                  # Routing decides which app labels reach the dump, and the prime step below
+                  # replays them from the checked-out copy, so these inputs belong in the key. A PR
+                  # that edits any of them matches no master dump, the merge-base one included:
+                  # drop both keys and let migrations run from scratch.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                      exit 0
+                  fi
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
@@ -478,7 +501,7 @@ jobs:
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 

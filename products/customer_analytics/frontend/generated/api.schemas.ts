@@ -723,7 +723,7 @@ export interface CustomPropertyOptionApi {
  */
 export interface CustomPropertySyncRunApi {
     readonly id: string
-    /** What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'. */
+    /** What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the automatic backfill run when a mapping is created or re-enabled). */
     readonly trigger: string
     /** Run status: 'running', 'completed', or 'failed'. */
     readonly status: string

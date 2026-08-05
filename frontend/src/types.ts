@@ -5609,6 +5609,7 @@ export enum ExporterFormat {
     GIF = 'image/gif',
     HCL = 'text/hcl',
     MARKDOWN = 'text/markdown',
+    JSONL = 'application/x-ndjson',
 }
 
 /** Exporting directly from the browser to a file */
@@ -6333,8 +6334,10 @@ export interface DataModelingJob {
     error: string | null
     created_at: string
     last_run_at: string
+    /** When the job row last changed; for finished jobs this approximates when the run ended. */
+    updated_at?: string
     workflow_id: string
-    workflow_run_id: string
+    workflow_run_id: string | null
 }
 
 export interface SimpleExternalDataSourceSchema {
@@ -7683,6 +7686,11 @@ export type OAuthApplicationPublicMetadata = {
     required_scopes?: string[]
     /** Server-computed read-only form of a `*` grant; the consent page must not derive this client-side. */
     wildcard_read_scopes?: string[]
+    /**
+     * The app's resolved scope ceiling. `/authorize` clamps the request to this set, so a requested
+     * scope missing from it is dropped rather than granted and must not be rendered as a consent row.
+     */
+    grantable_scopes?: string[]
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
@@ -7837,6 +7845,8 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
+    PATH_CLEANING = 'path_cleaning',
+    AI_REPORTS = 'ai_reports',
 }
 
 // Managed viewset

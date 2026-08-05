@@ -124,7 +124,11 @@ pub(crate) fn make_consumer(
         .set("group.id", group_id)
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
-        .set("auto.offset.reset", "earliest");
+        .set("auto.offset.reset", "earliest")
+        // Only committed transactions: with fencing on, aborted windows
+        // and zombie leftovers must never reach the cache. Identical
+        // behavior on a topic without transactional records.
+        .set("isolation.level", "read_committed");
     if kafka.kafka_tls {
         cfg.set("security.protocol", "ssl")
             .set("enable.ssl.certificate.verification", "false");
@@ -473,19 +477,40 @@ pub async fn warm_from_kafka(
     let mut buffered: Vec<(PersonCacheKey, CachedPerson, i64)> = Vec::new();
     let mut last_offset: i64 = -1;
 
+    // A transactionally-produced range can end in control records
+    // (commit/abort markers) that `recv` never delivers, so reaching the
+    // HWM is only observable through the fetch position advancing past
+    // them. Poll in short slices and consult the position when quiet;
+    // `cfg.recv_timeout` still bounds the total quiet time before the
+    // warm is declared stalled.
+    let poll_slice = Duration::from_millis(100).min(cfg.recv_timeout);
+    let mut quiet_since = Instant::now();
+
     loop {
-        let msg = match timeout(cfg.recv_timeout, consumer.recv()).await {
+        let msg = match timeout(poll_slice, consumer.recv()).await {
             Ok(Ok(m)) => m,
             Ok(Err(e)) => {
                 return Err(CoordError::invalid_state(format!("warm recv: {e}")));
             }
             Err(_) => {
-                return Err(CoordError::invalid_state(format!(
-                    "warm timeout; consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
-                    count = buffered.len()
-                )));
+                let position_reached = consumer
+                    .position()
+                    .map_err(|e| CoordError::invalid_state(format!("warm position: {e}")))?
+                    .find_partition(&cfg.topic, partition_i32)
+                    .is_some_and(|elem| matches!(elem.offset(), Offset::Offset(p) if p >= hwm));
+                if position_reached {
+                    break;
+                }
+                if quiet_since.elapsed() >= cfg.recv_timeout {
+                    return Err(CoordError::invalid_state(format!(
+                        "warm timeout; consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
+                        count = buffered.len()
+                    )));
+                }
+                continue;
             }
         };
+        quiet_since = Instant::now();
 
         let offset = msg.offset();
         last_offset = offset;

@@ -24,7 +24,14 @@ import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
 import { toast } from "../../../primitives/toast";
@@ -149,6 +156,13 @@ interface TaskInputProps {
    * the chip is non-interactive (only dismissable).
    */
   onContextChipClick?: () => void;
+  /**
+   * A space picker chip rendered first in the selector row above the composer
+   * (beside the workspace-mode chip). Channels new-task screen only — /code
+   * has no spaces to pick. Called with the composer's in-flight state so the
+   * picker can hold shut mid-submit, like every other chip in the row.
+   */
+  spaceSelector?: (props: { disabled: boolean }) => ReactNode;
 }
 
 export function TaskInput({
@@ -168,6 +182,7 @@ export function TaskInput({
   suggestions,
   onSuggestionSelect,
   onContextChipClick,
+  spaceSelector,
 }: TaskInputProps = {}) {
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const trpc = useHostTRPC();
@@ -1108,7 +1123,6 @@ export function TaskInput({
       useDraftStore.getState().actions.clearCommands(promptSessionId);
     };
   }, [promptSessionId, skills]);
-  const hasHistory = useTaskInputHistoryStore((s) => s.entries.length > 0);
   const getPromptHistory = useCallback(
     () => useTaskInputHistoryStore.getState().entries.map((e) => e.text),
     [],
@@ -1121,13 +1135,6 @@ export function TaskInput({
     () => !(editorRef.current?.isEmpty() ?? true),
     [],
   );
-  const hints = [
-    "@ to add files",
-    "/ for skills",
-    hasHistory ? "\u2191\u2193 for history" : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
 
   useAutoFocusOnTyping(editorRef, isCreatingTask);
 
@@ -1215,13 +1222,14 @@ export function TaskInput({
                 top: suggestions && suggestions.length > 0 ? "38%" : "50%",
                 transform: "translate(-50%, -50%)",
               }}
-              className="absolute left-1/2 z-[1] flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
+              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
               <Flex
                 gap="2"
                 align="center"
-                className="absolute bottom-full left-0 mb-2 min-w-0"
+                className="absolute bottom-full left-0 mb-1 min-w-0 gap-1"
               >
+                {spaceSelector?.({ disabled: isCreatingTask })}
                 <WorkspaceModeSelect
                   value={workspaceMode}
                   onChange={setWorkspaceMode}
@@ -1381,7 +1389,7 @@ export function TaskInput({
                   placeholder={
                     autoresearchDraft
                       ? "Example: Reduce memory usage measured by `pnpm bench:memory` without changing behavior."
-                      : `What do you want to ship? ${hints}`
+                      : `What do you want to ship?`
                   }
                   editorHeight="large"
                   disabled={isCreatingTask}
@@ -1396,7 +1404,7 @@ export function TaskInput({
                     (runtime === "pi" && !currentPiModel)
                   }
                   tourTarget="task-input"
-                  attachmentsPrefix={
+                  submitAdornment={
                     includeChannelContext ? (
                       <ChannelContextChip
                         channelName={channelName}

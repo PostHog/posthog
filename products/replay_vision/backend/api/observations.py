@@ -61,6 +61,10 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.scanner_access import (
+    scanner_for_reading_observations,
+    scanners_for_reading_observations,
+)
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 from products.tasks.backend.facade import api as tasks_facade
@@ -726,7 +730,7 @@ class ReplayObservationViewSet(
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
         except (KeyError, ValueError):
             raise NotFound()
-        scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
+        scanner = scanner_for_reading_observations(self.team_id, scanner_id)
         if scanner is None:
             raise NotFound()
         # Observations expose recording-derived output, so they inherit the scanner's RBAC and also require session_recording read.
@@ -1096,7 +1100,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         # row rather than its scanner, so scope explicitly to the scanners this caller can read.
         readable_scanner_ids = list(
             self.user_access_control.filter_queryset_by_access_level(
-                ReplayScanner.objects.filter(team_id=self.team_id)
+                scanners_for_reading_observations(self.team_id)
             ).values_list("id", flat=True)
         )
         queryset = (

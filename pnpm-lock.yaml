@@ -1179,8 +1179,8 @@ importers:
         specifier: ^1.7.11
         version: 1.7.11(react@18.3.1)
       react-grid-layout:
-        specifier: ^2.2.3
-        version: 2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^2.2.4
+        version: 2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-intersection-observer:
         specifier: ^9.5.3
         version: 9.5.3(react@18.3.1)
@@ -3567,6 +3567,13 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+    devDependencies:
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/messaging: {}
 
@@ -20063,8 +20070,8 @@ packages:
     peerDependencies:
       react: 18.3.1
 
-  react-grid-layout@2.2.3:
-    resolution: {integrity: sha512-OAEJHBxmfuxQfVtZwRzmsokijGlBgzYIJ7MUlLk/VSa43SaGzu15w5D0P2RDrfX5EvP9POMbL6bFrai/huDzbQ==}
+  react-grid-layout@2.2.4:
+    resolution: {integrity: sha512-Eb57FsgOMYOfsUGrMI1ku/FFR+dPNPrE8qo+3hwZubpqVSy4GO9v52DeX50Tl3JDYAlCypP4rmw7Vrqk/zOIvA==}
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
@@ -42569,7 +42576,7 @@ snapshots:
       react: 18.3.1
       unlayer-types: 1.460.0
 
-  react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       clsx: 2.1.1
       fast-equals: 4.0.3
