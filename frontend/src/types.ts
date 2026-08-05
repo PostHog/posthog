@@ -7845,6 +7845,7 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
+    ROLE_NOTIFICATIONS = 'role_notifications',
 }
 
 // Managed viewset
