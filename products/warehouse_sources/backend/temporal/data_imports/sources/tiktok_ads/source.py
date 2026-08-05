@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     tiktok_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_APP_TOKEN_MISMATCH_MESSAGE,
     TIKTOK_AUTH_ERROR_CODES,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_CODES,
@@ -153,7 +154,9 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             # Transient and TikTok/network-side: map to the same actionable "try again" message.
             raise IntegrationAccountListingError(TIKTOK_TRANSIENT_ERROR_MESSAGE) from e
         except TikTokAdsAPIError as e:
-            if e.api_code in TIKTOK_AUTH_ERROR_CODES:
+            if e.api_code in TIKTOK_AUTH_ERROR_CODES or (
+                e.api_code == 40000 and TIKTOK_APP_TOKEN_MISMATCH_MESSAGE in str(e)
+            ):
                 raise IntegrationAccountListingError(
                     "TikTok rejected the credentials for this integration. Please reconnect your TikTok Ads "
                     "integration and make sure the connected account can access your advertiser accounts."
