@@ -76,7 +76,8 @@ pub struct Config {
     // value is generated fresh at write time, so a coarser period only means a staler
     // last_seen_at in the DB. Its only consumers are staleness filters, so read them before
     // raising this: `?exclude_stale=true` compares against 30 days, but the event-screenshots
-    // Temporal workflow shortlists event types on a 3 hour window.
+    // Temporal workflow shortlists event types on a 3 hour window. Must be positive: flooring
+    // is what bounds this table's write volume, so startup fails rather than run without it.
     #[envconfig(from = "EVENTDEF_LAST_SEEN_FLOOR_SECS", default = "3600")]
     pub eventdef_last_seen_floor_secs: i64,
 

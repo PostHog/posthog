@@ -1,6 +1,7 @@
 use chrono::Utc;
 use property_defs_rs::types::{
     detect_property_type, floor_last_seen, last_seen_jitter_seed, Event, PropertyValueType, Update,
+    DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS,
 };
 use rstest::rstest;
 use serde_json::{json, Map, Number, Value};
@@ -27,11 +28,17 @@ fn test_floor_last_seen_lands_in_the_current_window(#[case] period_secs: i64) {
     }
 }
 
-// The whole point of the period is that it reaches the dedup key. EventDefinition's Hash and Eq
-// both cover last_seen_at, so two periods must produce keys that don't compare equal, and the
-// default entry point has to agree with the documented default period.
+// The whole point of the period is that it reaches the dedup key: EventDefinition's Hash and Eq
+// both cover last_seen_at. Asserting hourly != daily keys here would be wrong, because the daily
+// window start is always also an hourly window start (3600 divides 86400 and both offsets are the
+// seed mod 3600), so the two keys legitimately coincide for one hour of every day. Instead,
+// compute the expected window independently and bracket Utc::now(): this can never false-fail,
+// and if the period stops reaching floor_last_seen it fails whenever the default and requested
+// windows differ, which is 23 of every 24 hours.
 #[test]
-fn test_flooring_period_changes_the_event_definition_dedup_key() {
+fn test_flooring_period_reaches_the_event_definition_dedup_key() {
+    const DAILY: i64 = 86400;
+
     let event = || Event {
         team_id: 111,
         project_id: 111,
@@ -44,17 +51,25 @@ fn test_flooring_period_changes_the_event_definition_dedup_key() {
         other => panic!("expected an event definition first, got {other:?}"),
     };
 
-    let hourly = def_of(event().into_updates_with(10_000, 3600));
-    let daily = def_of(event().into_updates_with(10_000, 86400));
+    let before = Utc::now();
+    let daily = def_of(event().into_updates_with(10_000, DAILY));
     let defaulted = def_of(event().into_updates(10_000));
+    let after = Utc::now();
 
-    assert_ne!(
-        hourly, daily,
-        "a coarser period must produce a different dedup key, or it cannot reduce writes"
+    let seed = last_seen_jitter_seed(111, "$pageview");
+    assert!(
+        daily.last_seen_at == floor_last_seen(before, DAILY, seed)
+            || daily.last_seen_at == floor_last_seen(after, DAILY, seed),
+        "the explicit period must reach floor_last_seen, got {}",
+        daily.last_seen_at
     );
-    assert_eq!(
-        hourly, defaulted,
-        "into_updates must agree with the documented default period"
+    assert!(
+        defaulted.last_seen_at
+            == floor_last_seen(before, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, seed)
+            || defaulted.last_seen_at
+                == floor_last_seen(after, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, seed),
+        "into_updates must floor at the documented default period, got {}",
+        defaulted.last_seen_at
     );
 }
 
@@ -119,14 +134,20 @@ fn test_window_advances_by_exactly_one_period() {
     }
 }
 
-// The period is env-driven, so a misconfigured deploy has to degrade to "no flooring" rather than
-// producing a nonsense window or dividing by zero on every event.
+// "No flooring" must not be expressible: an unfloored last_seen_at makes every event a unique
+// dedup key, so the cache filters nothing and the full event stream reaches
+// posthog_eventdefinition as row updates. Startup validation rejects a non-positive config
+// value loudly; this pins the function-level backstop that clamps to the default instead of
+// dividing by zero or passing the value through.
 #[rstest]
 #[case(0)]
 #[case(-1)]
-fn test_non_positive_period_disables_flooring(#[case] period_secs: i64) {
+fn test_non_positive_period_floors_at_the_default(#[case] period_secs: i64) {
     let now = Utc::now();
-    assert_eq!(floor_last_seen(now, period_secs, 12345), now);
+    assert_eq!(
+        floor_last_seen(now, period_secs, 12345),
+        floor_last_seen(now, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, 12345)
+    );
 }
 
 #[test]
