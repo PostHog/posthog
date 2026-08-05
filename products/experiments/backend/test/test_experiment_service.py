@@ -7126,9 +7126,9 @@ class TestScalarConcurrencyResolution(SimpleTestCase):
         # stats_config/exposure_criteria/parameters are unrestricted JSONFields, so a stale
         # write can nest a few thousand levels in a few KB of body; resolving it must not
         # recurse past the interpreter stack.
-        def nested(depth: int, leaf: str) -> dict:
-            value: Any = leaf
-            for _ in range(depth):
+        def nested(depth: int, leaf: str) -> dict[str, Any]:
+            value: dict[str, Any] = {"a": leaf}
+            for _ in range(depth - 1):
                 value = {"a": value}
             return value
 
