@@ -239,6 +239,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
         !scannerEstimateLoading && scannerEstimate?.matched_sessions_in_window === 0
             ? scannerEstimate.window_days
             : null
+    const experimentTargetingEnabled = !!featureFlags[FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
@@ -297,7 +298,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    {!attached && (
+                                    {!attached && experimentTargetingEnabled && (
                                         <LemonButton
                                             size="xsmall"
                                             type="secondary"
