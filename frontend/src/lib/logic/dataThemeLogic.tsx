@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, path, props, reducers, selectors, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -101,7 +101,12 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
         themes: [
             props.themes || null,
             {
-                loadThemes: async () => await api.dataColorThemes.list(),
+                loadThemes: async () => {
+                    if (!ApiConfig.hasCurrentTeamId()) {
+                        return null
+                    }
+                    return await api.dataColorThemes.list()
+                },
             },
         ],
     })),

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 
@@ -58,7 +58,7 @@ export const variableDataLogic = kea<variableDataLogicType>([
             [] as Variable[],
             {
                 loadVariables: async () => {
-                    if (isSharedView()) {
+                    if (isSharedView() || !ApiConfig.hasCurrentTeamId()) {
                         return []
                     }
                     const insights = await api.insightVariables.list()
