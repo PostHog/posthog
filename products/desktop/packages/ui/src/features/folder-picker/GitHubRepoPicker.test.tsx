@@ -61,7 +61,11 @@ describe("GitHubRepoPicker", () => {
       onLoadMore: vi.fn(),
     };
     const { container, rerender } = render(
-      <GitHubRepoPicker {...props} repositories={firstPage} isLoadingMore />,
+      <GitHubRepoPicker
+        {...props}
+        repositories={firstPage}
+        isLoadingMore={false}
+      />,
     );
     const list = container.ownerDocument.querySelector(
       "[data-slot='combobox-list']",
@@ -69,7 +73,15 @@ describe("GitHubRepoPicker", () => {
     if (!(list instanceof HTMLElement)) {
       throw new Error("Expected the repository results list to render");
     }
-    list.scrollTop = 240;
+    Object.defineProperties(list, {
+      clientHeight: { value: 360 },
+      scrollHeight: { value: 600 },
+      scrollTop: { value: 240, writable: true },
+    });
+    fireEvent.scroll(list);
+    rerender(
+      <GitHubRepoPicker {...props} repositories={firstPage} isLoadingMore />,
+    );
 
     expect(screen.getByText("posthog/repository-0")).toBeInTheDocument();
     expect(screen.queryByText("Loading more")).not.toBeInTheDocument();
@@ -78,6 +90,8 @@ describe("GitHubRepoPicker", () => {
 
     expect(screen.getByText("Loading more")).toBeInTheDocument();
     expect(list.scrollTop).toBe(240);
+
+    list.scrollTop = 0;
 
     rerender(
       <GitHubRepoPicker

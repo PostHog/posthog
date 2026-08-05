@@ -19,7 +19,14 @@ import {
 } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { defaultFilter } from "cmdk";
-import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 const COMBOBOX_INITIAL_LIMIT = 50;
 const LOAD_MORE_INDICATOR_DELAY_MS = 200;
@@ -88,7 +95,10 @@ export function GitHubRepoPicker({
   const buttonSize = size === "2" ? "lg" : "sm";
   const buttonTextClass = size === "2" ? "text-[13px]" : "";
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const loadMoreRequestKeyRef = useRef<string | null>(null);
+  const preservePaginationScrollRef = useRef(false);
+  const paginationScrollTopRef = useRef(0);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(COMBOBOX_INITIAL_LIMIT);
@@ -129,6 +139,19 @@ export function GitHubRepoPicker({
     }
   }, [onlyRepo, value, onChange]);
 
+  useLayoutEffect(() => {
+    if (!preservePaginationScrollRef.current || !listRef.current) return;
+
+    if (repositories.length === 0) {
+      preservePaginationScrollRef.current = false;
+      return;
+    }
+    listRef.current.scrollTop = paginationScrollTopRef.current;
+    if (!isLoadingMore && !showLoadingMore) {
+      preservePaginationScrollRef.current = false;
+    }
+  }, [isLoadingMore, repositories.length, showLoadingMore]);
+
   const loadMoreAtScrollEnd = () => {
     const requestKey = remoteMode
       ? `${trimmedSearchQuery}:${repositories.length}`
@@ -136,6 +159,8 @@ export function GitHubRepoPicker({
     if (!hasMore || isLoading || loadMoreRequestKeyRef.current === requestKey)
       return;
     loadMoreRequestKeyRef.current = requestKey;
+    preservePaginationScrollRef.current = true;
+    paginationScrollTopRef.current = listRef.current?.scrollTop ?? 0;
 
     if (remoteMode) {
       onLoadMore?.();
@@ -214,6 +239,7 @@ export function GitHubRepoPicker({
         setUncontrolledOpen(nextOpen);
         onOpenChange?.(nextOpen);
         if (!nextOpen) {
+          preservePaginationScrollRef.current = false;
           setUncontrolledSearchQuery("");
           onSearchQueryChange?.("");
           setVisibleLimit(COMBOBOX_INITIAL_LIMIT);
@@ -221,6 +247,7 @@ export function GitHubRepoPicker({
       }}
       inputValue={searchQuery}
       onInputValueChange={(nextSearchQuery) => {
+        preservePaginationScrollRef.current = false;
         setUncontrolledSearchQuery(nextSearchQuery);
         onSearchQueryChange?.(nextSearchQuery);
         setVisibleLimit(COMBOBOX_INITIAL_LIMIT);
@@ -300,9 +327,13 @@ export function GitHubRepoPicker({
           )}
         </ComboboxEmpty>
         <ComboboxList
+          ref={listRef}
           className="flex-1"
           onScroll={(event) => {
             const list = event.currentTarget;
+            if (preservePaginationScrollRef.current) {
+              paginationScrollTopRef.current = list.scrollTop;
+            }
             if (list.scrollHeight - list.scrollTop - list.clientHeight <= 32) {
               loadMoreAtScrollEnd();
             }
