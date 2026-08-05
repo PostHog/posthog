@@ -50,6 +50,7 @@ class EvaluationQuerySet(models.QuerySet):
 class EvaluationTarget(models.TextChoices):
     GENERATION = "generation", "Generation"
     TRACE = "trace", "Trace"
+    SESSION = "session", "Session"
 
 
 class Evaluation(ModelActivityMixin, UUIDTModel):

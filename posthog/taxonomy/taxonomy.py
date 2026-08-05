@@ -2466,8 +2466,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_target_type": {
             "label": "AI Target Type (LLM)",
-            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
-            "examples": ["generation_uuid", "trace_id"],
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`, `trace_id` resolves against the `$ai_trace_id` property, and `session_id` resolves against the `$ai_session_id` property.",
+            "examples": ["generation_uuid", "trace_id", "session_id"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",

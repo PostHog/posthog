@@ -33,6 +33,12 @@ export interface PiRpcProviderOptions {
   baseUrl?: string;
 }
 
+interface PiRpcBootstrap {
+  providerOptions: PiRpcProviderOptions;
+  projectTrusted?: boolean;
+  channelMode?: boolean;
+}
+
 type RpcClientProcessAccess = {
   process?: ChildProcess;
 };
@@ -97,6 +103,7 @@ class SecurePiRpcClient extends RpcClient {
     private readonly secureOptions: RpcClientOptions,
     private readonly providerOptions: PiRpcProviderOptions,
     private readonly projectTrusted: boolean,
+    private readonly channelMode: boolean,
   ) {
     super(secureOptions);
   }
@@ -186,7 +193,8 @@ class SecurePiRpcClient extends RpcClient {
       JSON.stringify({
         providerOptions: this.providerOptions,
         projectTrusted: this.projectTrusted,
-      }),
+        channelMode: this.channelMode,
+      } satisfies PiRpcBootstrap),
     );
 
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -308,11 +316,17 @@ export type PiRpcClientOptions = Pick<
   sessionFile?: string;
   providerOptions: PiRpcProviderOptions;
   projectTrusted?: boolean;
+  channelMode?: boolean;
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
-  const { sessionFile, providerOptions, projectTrusted, ...rpcOptions } =
-    options;
+  const {
+    sessionFile,
+    providerOptions,
+    projectTrusted,
+    channelMode,
+    ...rpcOptions
+  } = options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
   const cliPath =
     rpcOptions.cliPath ??
@@ -326,5 +340,6 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     },
     providerOptions,
     projectTrusted ?? false,
+    channelMode === true,
   );
 }

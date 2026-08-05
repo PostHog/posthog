@@ -2338,6 +2338,61 @@ business_knowledge_chunks: PostgresTable = PostgresTable(
 )
 
 
+canvases: PostgresTable = PostgresTable(
+    name="canvases",
+    postgres_table_name="posthog_canvas",
+    access_scope="canvas",
+    # Mirror the REST API's default filter: soft-deleted canvases are not exposed.
+    predicates=[parse_expr("deleted != true")],
+    description="Canvases (agent-built sandboxed browser apps, filed into channels); one row per canvas (soft-deleted canvases are excluded).",
+    fields={
+        "id": StringDatabaseField(name="id", description="Canvas UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "channel_id": StringDatabaseField(
+            name="channel_id", description="Channel the canvas is filed into (tasks Channel UUID)."
+        ),
+        "name": StringDatabaseField(name="name", description="Canvas name."),
+        "template_id": StringDatabaseField(
+            name="template_id", description="Template the canvas was created from, e.g. 'freeform'."
+        ),
+        "context": StringDatabaseField(
+            name="context", description="Author-written context (markdown) passed to generation tasks."
+        ),
+        "generation_task_id": StringDatabaseField(
+            name="generation_task_id",
+            nullable=True,
+            description="Task currently generating this canvas; joins to tasks.id.",
+        ),
+        "pinned_at": DateTimeDatabaseField(
+            name="pinned_at",
+            nullable=True,
+            description="When the canvas was pinned to its channel; NULL if not pinned.",
+        ),
+        "current_source_version_id": StringDatabaseField(
+            name="current_source_version_id",
+            nullable=True,
+            description="The canvas's head source version; NULL until the first publish.",
+        ),
+        "published_build_id": StringDatabaseField(
+            name="published_build_id",
+            nullable=True,
+            description="Build whose artifact the canvas app currently renders; NULL until the first successful build.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the canvas."
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
+            description="1 if the canvas has been deleted, 0 otherwise (always 0 here due to the table filter).",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the canvas was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the canvas was last updated."),
+    },
+)
+
+
 tags: PostgresTable = PostgresTable(
     name="tags",
     postgres_table_name="posthog_tag",
@@ -2379,6 +2434,7 @@ class SystemTables(TableNode):
             name="business_knowledge_documents", table=business_knowledge_documents
         ),
         "business_knowledge_sources": TableNode(name="business_knowledge_sources", table=business_knowledge_sources),
+        "canvases": TableNode(name="canvases", table=canvases),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "custom_property_definitions": TableNode(name="custom_property_definitions", table=custom_property_definitions),

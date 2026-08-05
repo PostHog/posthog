@@ -84,10 +84,21 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         query: RecordingsQuery,
         allow_event_property_expansion: bool = False,
         hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
+        sample_factor: Optional[float] = None,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
         self._allow_event_property_expansion = allow_event_property_expansion
+        self._sample_factor = sample_factor
+        self.emitted_sampled_subquery = False
+
+    def _events_join(self, sample: bool = True) -> ast.JoinExpr:
+        join = ast.JoinExpr(table=ast.Field(chain=["events"]))
+        # Only positive session-selectors sample; a sampled exclusion blocklist would under-exclude.
+        if sample and self._sample_factor is not None:
+            join.sample = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self._sample_factor)))
+            self.emitted_sampled_subquery = True
+        return join
 
     @staticmethod
     def _event_predicates(
@@ -134,9 +145,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return ast.SelectQuery(
             select=select_expr if isinstance(select_expr, list) else [select_expr],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"]),
-            ),
+            select_from=self._events_join(),
             where=self._where_predicates(where_expr),
             having=self._having_predicates(),
             group_by=group_by,
@@ -270,7 +279,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=self._events_join(),
             where=ast.And(
                 exprs=[
                     ast.CompareOperation(
@@ -730,7 +739,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=self._events_join(sample=False),
             where=self._where_predicates(where_expr),
             group_by=[_event_session_id_field()],
             limit=ast.Constant(value=1000000),

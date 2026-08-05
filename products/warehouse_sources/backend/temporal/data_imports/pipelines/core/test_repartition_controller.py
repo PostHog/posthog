@@ -363,11 +363,15 @@ class TestRepartitionActivity:
 
     def _run(self, inputs: RepartitionActivityInputs, repartition_mock: AsyncMock):
         # Mock HeartbeaterSync (no real heartbeat thread / activity context needed) and the primitive,
-        # so these exercise the activity's decision + bookkeeping, not the rewrite itself.
+        # so these exercise the activity's decision + bookkeeping, not the rewrite itself. The rollout
+        # flag is forced on because it now gates the queued rewrite as well as detection, so every
+        # caller of this helper (all of which stage a pending target and expect it to be acted on)
+        # would otherwise be released by the gate before reaching the bookkeeping under test.
         with (
             patch.object(repartition_table, "HeartbeaterSync"),
             patch.object(repartition_table, "repartition_table_in_place", new=repartition_mock),
             patch.object(repartition_table, "capture_repartition_event") as capture,
+            patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
         ):
             # ActivityEnvironment.run is synchronous for a sync activity — call it directly.
             ActivityEnvironment().run(maybe_repartition_table_activity, inputs)
@@ -543,6 +547,7 @@ class TestRepartitionActivity:
             patch.object(repartition_table, "HeartbeaterSync"),
             patch.object(repartition_table, "repartition_table_in_place", new=mocked),
             patch.object(repartition_table, "capture_repartition_event") as capture,
+            patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
         ):
             with pytest.raises((asyncio.CancelledError, CancelledError)):
                 ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
@@ -651,6 +656,7 @@ class TestRepartitionActivity:
             patch.object(repartition_table, "repartition_table_in_place", new=mocked),
             patch.object(repartition_table, "capture_repartition_event") as capture,
             patch.object(repartition_table, "_still_claimant", return_value=still_claimant),
+            patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
         ):
             ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
         assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
@@ -728,6 +734,7 @@ class TestRepartitionActivity:
             patch.object(repartition_table, "HeartbeaterSync"),
             patch.object(repartition_table, "repartition_table_in_place", new=mocked),
             patch.object(repartition_table, "capture_repartition_event"),
+            patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
         ):
             ActivityEnvironment().run(
                 maybe_repartition_table_activity,
