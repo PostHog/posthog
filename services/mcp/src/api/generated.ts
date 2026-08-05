@@ -36678,6 +36678,14 @@ export namespace Schemas {
       Service: 'service',
     } as const;
 
+    export type LogsSparklineRankBy = typeof LogsSparklineRankBy[keyof typeof LogsSparklineRankBy];
+
+
+    export const LogsSparklineRankBy = {
+      Count: 'count',
+      Bytes: 'bytes',
+    } as const;
+
     export interface LogsQuery {
       /** Cursor for fetching the next page of results */
       after?: string | null;
@@ -36703,6 +36711,8 @@ export namespace Schemas {
       severityLevels: LogSeverityLevel[];
       /** Field to break down sparkline data by (used only by sparkline endpoint) */
       sparklineBreakdownBy?: LogsSparklineBreakdownBy | null;
+      /** Metric used to rank breakdown values before the tail is collapsed into a single "other" bucket, so the returned row count stays bounded (used only by sparkline endpoint). Defaults to ranking by log count. */
+      sparklineRankBy?: LogsSparklineRankBy | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -71108,6 +71118,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `count` - count
+     * * `bytes` - bytes
+     */
+    export type SparklineRankByEnum = typeof SparklineRankByEnum[keyof typeof SparklineRankByEnum];
+
+
+    export const SparklineRankByEnum = {
+      Count: 'count',
+      Bytes: 'bytes',
+    } as const;
+
+    /**
      * Raw cached payload as stored in Redis, or null on a miss.
      * @nullable
      */
@@ -76185,6 +76207,11 @@ export namespace Schemas {
        * * `severity` - severity
        * * `service` - service */
       sparklineBreakdownBy?: SparklineBreakdownByEnum;
+      /** Rank breakdown values by "count" (default) or "bytes" before collapsing the tail into "other".
+       *
+       * * `count` - count
+       * * `bytes` - bytes */
+      sparklineRankBy?: SparklineRankByEnum;
       /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
       personId?: string;
     }
