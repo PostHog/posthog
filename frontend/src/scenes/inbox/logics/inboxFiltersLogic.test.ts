@@ -153,4 +153,37 @@ describe('inboxFiltersLogic', () => {
             ])
         })
     })
+
+    describe('scout filters', () => {
+        let logic: ReturnType<typeof inboxFiltersLogic.build>
+
+        beforeEach(() => {
+            localStorage.clear()
+            initKeaTests()
+            useMocks({ get: { '/api/projects/:team_id/signals/reports/available_reviewers/': () => [200, {}] } })
+            logic = inboxFiltersLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('clears scouts without resetting the other filters', () => {
+            logic.actions.setFilters({
+                ...DEFAULT_STATE,
+                sourceProductFilter: ['error_tracking'],
+                scoutFilter: ['error-tracking-scout', 'ci-flakes-scout'],
+                priorityFilter: ['P1'],
+                searchQuery: 'checkout',
+            })
+
+            expectLogic(logic, () => logic.actions.clearScoutFilter()).toMatchValues({
+                sourceProductFilter: ['error_tracking'],
+                scoutFilter: [],
+                priorityFilter: ['P1'],
+                searchQuery: 'checkout',
+            })
+        })
+    })
 })

@@ -242,6 +242,11 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     post_pr_created_thread_update(task_run, pr_url)
     if not recorded:
         return
+    from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keep the heavy facade module off the webhook import path
+        _refresh_self_driving_quota_for_pr,
+    )
+
+    _refresh_self_driving_quota_for_pr(task_run, None)
     # Publish-only (no append_log): the S3 run log has a live writer — the agent is streaming
     # log batches at exactly this moment — and append_log's read-modify-write would race it.
     # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.

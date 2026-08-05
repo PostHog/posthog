@@ -16,6 +16,7 @@ import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/qu
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
+import { QuotaMeterBar } from './QuotaMeterBar'
 import { VisionInsightChart } from './VisionInsightChart'
 
 const RECORDING_OBSERVED_EVENT = '$recording_observed'
@@ -75,9 +76,13 @@ export function VisionUsageTab(): JSX.Element {
               }`
             : undefined
 
-    const spenders = usageScanners.filter((s: ReplayScanner) => s.credits_this_month > 0)
-    const zeroSpendCount = usageScanners.length - spenders.length
-    const totalCredits = spenders.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
+    const rows = usageScanners.filter(
+        (s: ReplayScanner) => s.credits_this_month > 0 || (s.enabled && (s.estimated_monthly_credits ?? 0) > 0)
+    )
+    const hiddenCount = usageScanners.length - rows.length
+    const totalCredits = rows.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
+    // A $0 limit really blocks scanning, but as a bar denominator it deliberately counts as "no limit".
+    const creditLimit = hasCap && quota.credit_limit > 0 ? quota.credit_limit : null
 
     // The period window comes from the quota, so dispatching before it lands would abort the in-flight query
     // and refetch. A failed load still resolves (the loader keeps the last snapshot) so this can't hang.
@@ -154,7 +159,7 @@ export function VisionUsageTab(): JSX.Element {
         {
             title: 'Sampling',
             key: 'sampling_rate',
-            tooltip: 'The main cost lever: lower sampling scans fewer of the matching sessions.',
+            tooltip: "Lower sampling scans fewer of the matching sessions. It's the main cost lever.",
             render: (_, scanner) => (
                 <span className="text-sm tabular-nums">
                     {(scanner.sampling_rate * 100).toFixed(scanner.sampling_rate < 0.1 ? 2 : 1)}%
@@ -162,9 +167,49 @@ export function VisionUsageTab(): JSX.Element {
             ),
         },
         {
-            title: 'Share of spend',
+            title: 'Estimated monthly spend',
+            key: 'estimated_monthly_credits',
+            width: '20%',
+            tooltip:
+                "Based on the scanner's filters and sampling. The bar shows how much of the spend limit it would take up. Updates when the scanner is saved.",
+            render: (_, scanner) => {
+                // The fleet projection skips disabled scanners, so an estimate here wouldn't add up to the meter.
+                if (!scanner.enabled || scanner.estimated_monthly_credits === null) {
+                    return <span className="text-muted">—</span>
+                }
+                const estimatedCredits = scanner.estimated_monthly_credits
+                if (creditLimit === null) {
+                    return (
+                        <span className="text-sm tabular-nums">
+                            ~{formatCreditsMaybeUsd(estimatedCredits, showUsd)}
+                        </span>
+                    )
+                }
+                const limitPct = (estimatedCredits / creditLimit) * 100
+                const limitPctLabel = limitPct > 0 && limitPct < 1 ? '< 1' : String(Math.round(limitPct))
+                return (
+                    <div className="flex flex-col gap-1">
+                        <span className="text-sm tabular-nums flex items-baseline justify-between gap-2">
+                            ~{formatCreditsMaybeUsd(estimatedCredits, showUsd)}
+                            <span className="text-muted">{limitPctLabel}% of spend limit</span>
+                        </span>
+                        <QuotaMeterBar
+                            size="small"
+                            usedPct={0}
+                            projected={limitPct > 0 ? [{ pct: limitPct, barClass: 'bg-accent', striped: true }] : []}
+                            valueNow={limitPct}
+                            label={`Estimated ${limitPctLabel}% of the monthly spend limit`}
+                        />
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Spend this period',
             key: 'credits_this_month',
             width: '30%',
+            className: 'pl-6',
+            tooltip: 'How much of the total spend this period came from this scanner.',
             render: (_, scanner) => {
                 const sharePct = totalCredits > 0 ? Math.round((scanner.credits_this_month / totalCredits) * 100) : 0
                 return (
@@ -226,14 +271,14 @@ export function VisionUsageTab(): JSX.Element {
             )}
             <LemonTable
                 columns={columns}
-                dataSource={spenders}
+                dataSource={rows}
                 loading={usageScannersLoading}
                 rowKey={(scanner) => scanner.id}
                 emptyState="No spend this period yet. Costs appear here once scanners produce observations."
                 footer={
-                    zeroSpendCount > 0 ? (
+                    hiddenCount > 0 ? (
                         <div className="px-3 py-2 text-xs text-muted">
-                            {zeroSpendCount} scanner{zeroSpendCount === 1 ? '' : 's'} with no spend this period
+                            {hiddenCount} scanner{hiddenCount === 1 ? '' : 's'} with no spend or estimate this period
                         </div>
                     ) : undefined
                 }
