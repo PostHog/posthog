@@ -3,9 +3,10 @@ import { useValues } from 'kea'
 import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { dataModelingLogic } from 'scenes/data-warehouse/scene/dataModelingLogic'
 
 import { DataModelingSyncInterval } from '~/types'
+
+import { dataModelingLogic } from 'products/data_warehouse/frontend/data-warehouse/scene/dataModelingLogic'
 
 const CREATE_NEW_DAG_VALUE = '__create_new__'
 

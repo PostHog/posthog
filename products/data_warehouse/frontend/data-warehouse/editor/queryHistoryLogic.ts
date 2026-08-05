@@ -1,11 +1,10 @@
 import { MakeLogicType, connect, kea, path, props } from 'kea'
 
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import type { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import type { PaginationManual } from 'lib/lemon-ui/PaginationControl/index'
 
 import { ActivityScope } from '~/types'
-
-import type { HumanizedActivityLogItem } from '../../../lib/components/ActivityLog/humanizeActivity'
-import type { PaginationManual } from '../../../lib/lemon-ui/PaginationControl/index'
 
 export type QueryHistoryLogicProps = {
     id: string

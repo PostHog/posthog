@@ -86,7 +86,6 @@
         "experiments": ["playwright/e2e/experiments/"],
         "cohorts": ["playwright/e2e/product-analytics/cohorts.spec.ts"],
         "trends": ["playwright/e2e/product-analytics/"],
-        "data-warehouse": ["playwright/e2e/sql-editor*.spec.ts"],
         "dashboard": [
             "playwright/e2e/product-analytics/dashboards.spec.ts",
             "playwright/e2e/shared-dashboard-styling.spec.ts",

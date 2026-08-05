@@ -38,7 +38,14 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { biEditorLogic } from 'scenes/data-warehouse/editor/bi/biEditorLogic'
+import { urls } from 'scenes/urls'
+
+import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
+import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { biEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/bi/biEditorLogic'
 import {
     BI_FIELD_DRAG_MIME_TYPE,
     BIDataSource,
@@ -47,17 +54,10 @@ import {
     getBIFieldId,
     isBIFieldCompatible,
     serializeBIField,
-} from 'scenes/data-warehouse/editor/bi/biEditorTypes'
-import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
-import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { urls } from 'scenes/urls'
-
-import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
+} from 'products/data_warehouse/frontend/data-warehouse/editor/bi/biEditorTypes'
+import { POSTHOG_WAREHOUSE } from 'products/data_warehouse/frontend/data-warehouse/editor/connectionSelectorLogic'
+import { OutputTab } from 'products/data_warehouse/frontend/data-warehouse/editor/outputPaneLogic'
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 

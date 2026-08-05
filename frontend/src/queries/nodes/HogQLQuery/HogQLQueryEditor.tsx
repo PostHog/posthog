@@ -13,10 +13,11 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { CodeEditorLogicProps, codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery } from '~/queries/schema/schema-general'
+
+import { dataWarehouseSettingsSceneLogic } from 'products/data_warehouse/frontend/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 

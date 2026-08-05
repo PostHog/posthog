@@ -4,9 +4,10 @@ import { router, urlToAction } from 'kea-router'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
+
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorModes'
 
 export const METRICS_SQL_EDITOR_TAB_ID = 'metrics-sql-editor'
 

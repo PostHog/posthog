@@ -24,7 +24,6 @@ import {
 import { BuildTaxonomicGroupsContext } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { distinctPrimaryPropertiesForEvents } from 'lib/utils/events'
-import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -34,6 +33,7 @@ import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesMode
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
 
+import { dataWarehouseSettingsSceneLogic } from 'products/data_warehouse/frontend/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 /**

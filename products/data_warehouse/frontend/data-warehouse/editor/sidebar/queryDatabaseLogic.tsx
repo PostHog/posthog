@@ -17,6 +17,7 @@ import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import type { PaginatedResponse } from 'lib/api'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -24,7 +25,6 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -35,6 +35,7 @@ import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
+import type { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
 import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
@@ -42,14 +43,13 @@ import {
     DataWarehouseViewLink,
     QueryTabState,
 } from '~/types'
+import type { ExternalDataSource, UserType } from '~/types'
 
+import { POSTHOG_WAREHOUSE } from 'products/data_warehouse/frontend/data-warehouse/editor/connectionSelectorLogic'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
-import type { PaginatedResponse } from '../../../../lib/api'
-import type { DatabaseSchemaViewTable } from '../../../../queries/schema/schema-general'
-import type { ExternalDataSource, UserType } from '../../../../types'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { viewLinkLogic } from '../../viewLinkLogic'
 import { draftsLogic } from '../draftsLogic'

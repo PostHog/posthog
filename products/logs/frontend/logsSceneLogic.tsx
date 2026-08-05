@@ -7,10 +7,10 @@ import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tr
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils/url'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
 
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorModes'
 import {
     DEFAULT_ORDER_BY,
     DEFAULT_VIEW_MODE,

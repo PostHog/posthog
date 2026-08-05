@@ -18,14 +18,14 @@ import {
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-
 import type {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaQueryResponse,
-} from '../../../queries/schema/schema-general'
-import type { DataWarehouseSavedQuery } from '../../../types'
+} from '~/queries/schema/schema-general'
+import type { DataWarehouseSavedQuery } from '~/types'
+
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 
 export interface DataWarehouseSceneLogicProps {
@@ -378,7 +378,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
             (
                 views: DatabaseSchemaViewTable[],
-                dataWarehouseSavedQueryMapById: Record<string, import('../../../types').DataWarehouseSavedQuery>
+                dataWarehouseSavedQueryMapById: Record<string, import('~/types').DataWarehouseSavedQuery>
             ): DatabaseSchemaTable[] => {
                 return views
                     .filter((view) => !dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
@@ -392,7 +392,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
             (
                 views: DatabaseSchemaViewTable[],
-                dataWarehouseSavedQueryMapById: Record<string, import('../../../types').DataWarehouseSavedQuery>
+                dataWarehouseSavedQueryMapById: Record<string, import('~/types').DataWarehouseSavedQuery>
             ): DatabaseSchemaMaterializedViewTable[] => {
                 return views
                     .filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)

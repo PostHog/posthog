@@ -1,12 +1,13 @@
 import { MakeLogicType, connect, kea, key, listeners, path, props } from 'kea'
 import posthog from 'posthog-js'
 
-import { SaveAsMenuItem } from 'scenes/data-warehouse/editor/editorSceneLogic'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
+import { SaveAsMenuItem } from 'products/data_warehouse/frontend/data-warehouse/editor/editorSceneLogic'
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorModes'
 
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
 

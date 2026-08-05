@@ -1,11 +1,12 @@
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 import { DataWarehouseViewLink } from '~/types'
+
+import { viewLinkLogic } from 'products/data_warehouse/frontend/data-warehouse/viewLinkLogic'
 
 import {
     dataCatalogRelationshipProposalsAcceptCreate,

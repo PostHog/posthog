@@ -3,14 +3,15 @@ import { useActions, useValues } from 'kea'
 import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { Query } from '~/queries/Query/Query'
 import { HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+
+import { SQLEditor } from 'products/data_warehouse/frontend/data-warehouse/editor/SQLEditor'
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorModes'
 
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic } from '../endpointSceneLogic'

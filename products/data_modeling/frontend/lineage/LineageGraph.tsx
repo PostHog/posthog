@@ -7,10 +7,10 @@ import { ReactNode } from 'react'
 import { IconArchive } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { ElkDirection } from 'scenes/data-warehouse/scene/modeling/types'
-
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingEdge, DataModelingNode } from '~/types'
+
+import { ElkDirection } from 'products/data_warehouse/frontend/data-warehouse/scene/modeling/types'
 
 import { lineageGraphLogic } from './lineageGraphLogic'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'

@@ -31,8 +31,6 @@ rules:
       owners: team-analytics-platform
     - match: '/data-pipelines/'
       owners: team-workflows
-    - match: '/data-warehouse/'
-      owners: team-data-stack
     - match: '/experiments/'
       owners: team-experiments
     - match: '/exports/'

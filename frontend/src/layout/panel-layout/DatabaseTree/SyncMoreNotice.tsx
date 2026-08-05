@@ -4,12 +4,12 @@ import { router } from 'kea-router'
 import { IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { queryDatabaseLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'

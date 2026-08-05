@@ -243,7 +243,7 @@
             "files": [
                 "frontend/src/lib/monaco/**",
                 "frontend/src/lib/components/MonacoDiffEditor.tsx",
-                "frontend/src/scenes/data-warehouse/editor/sqlEditorLogic.tsx",
+                "products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic.tsx",
                 "frontend/src/scenes/hog-functions/configuration/HogFunctionTest.tsx"
             ],
             "rules": {

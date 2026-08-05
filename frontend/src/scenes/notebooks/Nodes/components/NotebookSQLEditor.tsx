@@ -4,14 +4,15 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { DataVisualizationNode, HogQLQuery, NodeKind, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { convertDataTableNodeToDataVisualizationNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+
+import { OutputTab, outputPaneLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/outputPaneLogic'
+import { SQLEditor, SQLEditorPanel } from 'products/data_warehouse/frontend/data-warehouse/editor/SQLEditor'
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorModes'
 
 import { notebookKernelInfoLogic } from '../../Notebook/notebookKernelInfoLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeAttributes, NotebookNodeProps } from '../../types'

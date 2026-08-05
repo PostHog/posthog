@@ -9,10 +9,9 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import type { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, DataWarehouseSavedQueryFolder } from '~/types'
-
-import type { DatabaseSchemaViewTable } from '../../../queries/schema/schema-general'
-import type { UserType } from '../../../types'
+import type { UserType } from '~/types'
 
 // Materialization is async: enabling it flips `is_materialized` either synchronously (the
 // /materialize action) or later, when the Temporal job runs (scheduled sync frequency). After
@@ -539,7 +538,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     selectors({
         shouldShowEmptyState: [
             (s) => [s.views, s.databaseLoading],
-            (views: import('../../../queries/schema').DatabaseSchemaViewTable[], databaseLoading: boolean): boolean => {
+            (views: import('~/queries/schema').DatabaseSchemaViewTable[], databaseLoading: boolean): boolean => {
                 return views?.length == 0 && !databaseLoading
             },
         ],

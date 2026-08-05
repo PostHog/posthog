@@ -6,21 +6,21 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import type {
+    DatabaseSchemaEndpointTable,
+    DatabaseSchemaManagedViewTable,
+    DatabaseSchemaQueryResponse,
+    DatabaseSchemaViewTable,
+} from '~/queries/schema/schema-general'
 import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryRunHistory,
 } from '~/types'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type {
-    DatabaseSchemaEndpointTable,
-    DatabaseSchemaManagedViewTable,
-    DatabaseSchemaQueryResponse,
-    DatabaseSchemaViewTable,
-} from '../../../queries/schema/schema-general'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 
 export const PAGE_SIZE = 10

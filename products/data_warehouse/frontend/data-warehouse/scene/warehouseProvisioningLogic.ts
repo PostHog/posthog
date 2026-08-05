@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { Region } from '~/types'
+import type { PreflightStatus } from '~/types'
 
 import {
     dataWarehouseCheckDatabaseNameRetrieve,
@@ -21,9 +22,7 @@ import {
     dataWarehouseWarehouseStatusRetrieve,
 } from 'products/data_warehouse/frontend/generated/api'
 import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
-
-import type { WarehouseStatusResponseStateEnumApi } from '../../../../../products/data_warehouse/frontend/generated/api.schemas'
-import type { PreflightStatus } from '../../../types'
+import type { WarehouseStatusResponseStateEnumApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 // The warehouse name becomes the connection's SNI subdomain (a DNS-1123 label), so it
 // mirrors the backend validator in products/data_warehouse/backend/api/managed_warehouse.py:

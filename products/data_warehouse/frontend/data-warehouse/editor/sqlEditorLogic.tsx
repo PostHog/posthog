@@ -33,6 +33,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
+import type { PaginatedResponse } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -46,7 +47,6 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
@@ -87,17 +87,21 @@ import {
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
 import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
+import {
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+} from 'products/data_warehouse/frontend/data-warehouse/editor/sql-utils'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
-
-import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
-import type { PaginatedResponse } from '../../../lib/api'
+import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 // Mirrors MANAGED_WAREHOUSE_SOURCE_PREFIX in products/warehouse_sources/backend/models/external_data_source.py.
 export const MANAGED_WAREHOUSE_SOURCE_PREFIX = 'managed_warehouse'
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/schema-general'
-import type { DataModelingDAG, DataWarehouseSavedQueryFolder, UserType } from '../../../types'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
+import type { DatabaseSchemaQueryResponse, Node } from '~/queries/schema/schema-general'
+import type { DataModelingDAG, DataWarehouseSavedQueryFolder, UserType } from '~/types'
+
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { dataModelingLogic } from '../scene/dataModelingLogic'

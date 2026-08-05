@@ -27,13 +27,14 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-import { validateSavedQueryName } from 'scenes/data-warehouse/saved_queries/savedQueryNameValidation'
-import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+
+import { dataWarehouseViewsLogic } from 'products/data_warehouse/frontend/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { validateSavedQueryName } from 'products/data_warehouse/frontend/data-warehouse/saved_queries/savedQueryNameValidation'
+import { dataWarehouseSettingsSceneLogic } from 'products/data_warehouse/frontend/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery } from '../../../types'

@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
     scenes: {
         DataOps: {
             name: 'Data ops',
-            import: () => import('./DataWarehouseScene'),
+            import: () => import('./frontend/data-warehouse/DataWarehouseScene'),
             projectBased: true,
             activityScope: 'DataWarehouse',
             description: "Manage your organization's shared data warehouse.",
@@ -32,6 +32,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
         },
         SQLEditor: {
+            import: () => import('./frontend/data-warehouse/editor/EditorScene'),
             projectBased: true,
             name: 'SQL editor',
             layout: 'app-raw-no-header',
@@ -70,6 +71,7 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
+        '/sql': ['SQLEditor', 'sqlEditor'],
         '/models': ['Models', 'models'],
         '/models/dags': ['Models', 'models'],
         '/models/:id': ['NodeDetail', 'nodeDetail'],

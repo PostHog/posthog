@@ -3,12 +3,16 @@ import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { computeJobDuration, jobLogsWindow } from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataModelingJob, LogEntryLevel } from '~/types'
+
+import {
+    computeJobDuration,
+    jobLogsWindow,
+} from 'products/data_warehouse/frontend/data-warehouse/saved_queries/materializationJobUtils'
 
 import { STATUS_TAG_SETTINGS } from './nodeDetailConstants'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'

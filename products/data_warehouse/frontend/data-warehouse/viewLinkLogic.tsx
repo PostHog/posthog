@@ -9,11 +9,11 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
+import type { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, DataWarehouseViewLinkValidation } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
-import type { DatabaseSchemaTable } from '../../queries/schema/schema-general'
 import { ViewLinkKeyLabel } from './ViewLinkModal'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {

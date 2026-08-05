@@ -8,12 +8,16 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { ConnectionSelector } from 'scenes/data-warehouse/editor/ConnectionSelector'
-import { DATABASE_TREE_COLLAPSE_THRESHOLD, editorSizingLogic } from 'scenes/data-warehouse/editor/editorSizingLogic'
-import { DatabaseSearchField } from 'scenes/data-warehouse/editor/sidebar/DatabaseSearchField'
-import { QueryDatabase } from 'scenes/data-warehouse/editor/sidebar/QueryDatabase'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
+
+import { ConnectionSelector } from 'products/data_warehouse/frontend/data-warehouse/editor/ConnectionSelector'
+import {
+    DATABASE_TREE_COLLAPSE_THRESHOLD,
+    editorSizingLogic,
+} from 'products/data_warehouse/frontend/data-warehouse/editor/editorSizingLogic'
+import { DatabaseSearchField } from 'products/data_warehouse/frontend/data-warehouse/editor/sidebar/DatabaseSearchField'
+import { QueryDatabase } from 'products/data_warehouse/frontend/data-warehouse/editor/sidebar/QueryDatabase'
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
+import { ViewLinkModal } from 'products/data_warehouse/frontend/data-warehouse/ViewLinkModal'
 
 import { SyncMoreNotice } from './SyncMoreNotice'
 

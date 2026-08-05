@@ -1,23 +1,23 @@
-jest.mock('scenes/data-warehouse/editor/SQLEditor', () => ({
+jest.mock('products/data_warehouse/frontend/data-warehouse/editor/SQLEditor', () => ({
     SQLEditor: () => null,
     SQLEditorPanel: {
         Output: 'output',
     },
 }))
 
-jest.mock('scenes/data-warehouse/editor/sqlEditorLogic', () => ({
+jest.mock('products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic', () => ({
     sqlEditorLogic: jest.fn(),
 }))
 
 import { act, render, waitFor } from '@testing-library/react'
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 
-import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-
 import { DataVisualizationNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
+
+import { OutputTab, outputPaneLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/outputPaneLogic'
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
 
 import {
     EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,

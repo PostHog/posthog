@@ -3,10 +3,11 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
 import { DataModelingNode } from '~/types'
+
+import { dataWarehouseViewsLogic } from 'products/data_warehouse/frontend/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import type { DataWarehouseSavedQuery } from '../../types'
 

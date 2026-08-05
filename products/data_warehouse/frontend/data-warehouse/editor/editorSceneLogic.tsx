@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { uuid } from 'lib/utils/dom'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
@@ -15,9 +16,8 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { notebooksModel } from '~/models/notebooksModel'
 import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
+import type { DataWarehouseSavedQuery, LinkBreadcrumb, QueryBasedInsightModel } from '~/types'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { DataWarehouseSavedQuery, LinkBreadcrumb, QueryBasedInsightModel } from '../../../types'
 import { NEW_QUERY, normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
 import type { QueryTab, SqlEditorSource } from './sqlEditorLogic'
 
@@ -154,7 +154,7 @@ export interface editorSceneLogicActions {
         onCreate?:
             | ((
                   notebook: import('node_modules/kea/lib').BuiltLogic<
-                      import('../../notebooks/Notebook/notebookLogic').notebookLogicType
+                      import('scenes/notebooks/Notebook/notebookLogic').notebookLogicType
                   >
               ) => void)
             | undefined,
@@ -165,7 +165,7 @@ export interface editorSceneLogicActions {
         onCreate:
             | ((
                   notebook: import('node_modules/kea/lib').BuiltLogic<
-                      import('../../notebooks/Notebook/notebookLogic').notebookLogicType
+                      import('scenes/notebooks/Notebook/notebookLogic').notebookLogicType
                   >
               ) => void)
             | undefined
@@ -476,7 +476,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             (
                 editorSource: import('./sqlEditorLogic').SqlEditorSource,
                 dashboardId: number | null,
-                featureFlags: import('../../../lib/logic/featureFlagLogic').FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
                 const metricsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG]
                 const saveAsInsightItem: SaveAsMenuItem = {

@@ -12,9 +12,10 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } from '~/types'
 
+import { OutputTab } from 'products/data_warehouse/frontend/data-warehouse/editor/outputPaneLogic'
+
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
-import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
 import type { InboxTabKey } from './inbox/types'
 import type { ModelsSceneTab } from './models/modelsSceneLogic'

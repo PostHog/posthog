@@ -20,10 +20,15 @@ import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { TableCombobox } from 'scenes/data-warehouse/TableCombobox'
-import { JoinKeyMode, KeySelectOption, viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
+
+import { TableCombobox } from 'products/data_warehouse/frontend/data-warehouse/TableCombobox'
+import {
+    JoinKeyMode,
+    KeySelectOption,
+    viewLinkLogic,
+} from 'products/data_warehouse/frontend/data-warehouse/viewLinkLogic'
 
 export type Mode = 'revenue_analytics'
 export interface ViewLinkModalProps {

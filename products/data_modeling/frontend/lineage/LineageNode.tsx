@@ -6,10 +6,10 @@ import { IconActivity, IconClockRewind, IconPencil, IconPlay, IconPlayFilled, Ic
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { ElkDirection, NodeHandle } from 'scenes/data-warehouse/scene/modeling/types'
 
 import { DataModelingJobStatus, DataModelingNode } from '~/types'
 
+import { ElkDirection, NodeHandle } from 'products/data_warehouse/frontend/data-warehouse/scene/modeling/types'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'

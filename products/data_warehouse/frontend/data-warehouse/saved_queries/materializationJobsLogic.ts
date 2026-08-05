@@ -17,12 +17,12 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, PaginatedResponse } from 'lib/api'
+import type { CountedPaginatedResponse } from 'lib/api'
 
 import { DataModelingJob, DataWarehouseSavedQuery } from '~/types'
 
 import { warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
 
-import type { CountedPaginatedResponse } from '../../../lib/api'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 
 const REFRESH_INTERVAL = 10000

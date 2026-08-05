@@ -1,9 +1,9 @@
 import { MakeLogicType, connect, kea, key, listeners, path, props } from 'kea'
 import posthog from 'posthog-js'
 
-import { SaveAsMenuItem } from 'scenes/data-warehouse/editor/editorSceneLogic'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import { SaveAsMenuItem } from 'products/data_warehouse/frontend/data-warehouse/editor/editorSceneLogic'
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorModes'
 
 export interface LogsSqlEditorTrackingLogicProps {
     sqlEditorTabId: string

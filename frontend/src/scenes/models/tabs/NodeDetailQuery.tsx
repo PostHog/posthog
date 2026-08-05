@@ -3,12 +3,12 @@ import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, u
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
+
+import { SQLEditor } from 'products/data_warehouse/frontend/data-warehouse/editor/SQLEditor'
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorModes'
 
 import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
 

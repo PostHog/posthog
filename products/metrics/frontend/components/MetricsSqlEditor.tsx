@@ -4,12 +4,13 @@ import { useEffect } from 'react'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
+
+import { SQLEditor } from 'products/data_warehouse/frontend/data-warehouse/editor/SQLEditor'
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorModes'
 
 import { METRICS_SQL_EDITOR_TAB_ID, metricsSceneLogic } from '../metricsSceneLogic'
 import { metricsSqlEditorTrackingLogic } from './metricsSqlEditorTrackingLogic'

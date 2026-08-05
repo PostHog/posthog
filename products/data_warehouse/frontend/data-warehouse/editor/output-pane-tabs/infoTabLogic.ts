@@ -1,16 +1,18 @@
 import { MakeLogicType, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 
 import type {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaTable,
     DatabaseSchemaViewTable,
     HogQLMetadataResponse,
-} from '../../../../queries/schema/schema-general'
-import type { DataWarehouseSavedQuery } from '../../../../types'
+} from '~/queries/schema/schema-general'
+import type { DataWarehouseSavedQuery } from '~/types'
+
+import { dataWarehouseViewsLogic } from 'products/data_warehouse/frontend/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { materializationJobsLogic } from 'products/data_warehouse/frontend/data-warehouse/saved_queries/materializationJobsLogic'
+
 import { sqlEditorLogic } from '../sqlEditorLogic'
 
 export interface InfoTableRow {
@@ -110,8 +112,8 @@ export const infoTabLogic = kea<infoTabLogicType>([
         sourceTableItems: [
             (s) => [s.metadata, s.dataWarehouseSavedQueryMap],
             (
-                metadata: null | import('../../../../queries/schema').HogQLMetadataResponse,
-                dataWarehouseSavedQueryMap: Record<string, import('../../../../types').DataWarehouseSavedQuery>
+                metadata: null | import('~/queries/schema').HogQLMetadataResponse,
+                dataWarehouseSavedQueryMap: Record<string, import('~/types').DataWarehouseSavedQuery>
             ) => {
                 if (!metadata) {
                     return []

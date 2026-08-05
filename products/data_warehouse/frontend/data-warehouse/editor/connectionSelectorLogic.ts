@@ -2,7 +2,10 @@ import { MakeLogicType, actions, connect, kea, listeners, path, selectors } from
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
+import type { PaginatedResponse } from 'lib/api'
 import { urls } from 'scenes/urls'
+
+import type { ExternalDataSource } from '~/types'
 
 import IconPostHog from 'public/posthog-icon.svg'
 import IconClickHouse from 'public/services/clickhouse.png'
@@ -21,9 +24,6 @@ import type {
     DirectConnectionSourceOptionApi,
     ExternalDataSourceConnectionOptionApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
-
-import type { PaginatedResponse } from '../../../lib/api'
-import type { ExternalDataSource } from '../../../types'
 
 export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'

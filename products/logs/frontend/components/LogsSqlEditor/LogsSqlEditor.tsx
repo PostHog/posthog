@@ -1,13 +1,12 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import { SQLEditor } from 'products/data_warehouse/frontend/data-warehouse/editor/SQLEditor'
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorModes'
 import { getLogsSqlEditorTabId, logsSceneLogic } from 'products/logs/frontend/logsSceneLogic'
 
 import { logsSqlEditorTrackingLogic } from './logsSqlEditorTrackingLogic'

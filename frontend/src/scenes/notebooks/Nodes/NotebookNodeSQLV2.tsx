@@ -4,13 +4,14 @@ import { useEffect, useMemo, useRef } from 'react'
 import { IconCornerDownRight } from '@posthog/icons'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
+
+import { OutputTab } from 'products/data_warehouse/frontend/data-warehouse/editor/outputPaneLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'

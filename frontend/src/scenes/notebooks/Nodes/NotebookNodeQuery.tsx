@@ -5,7 +5,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -25,6 +24,8 @@ import {
     isActorsQuery,
 } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
+
+import { OutputTab } from 'products/data_warehouse/frontend/data-warehouse/editor/outputPaneLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import {

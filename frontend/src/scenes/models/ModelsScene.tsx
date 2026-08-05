@@ -18,7 +18,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
 
-import { ViewsTab } from '../data-warehouse/scene/ViewsTab'
+import { ViewsTab } from 'products/data_warehouse/frontend/data-warehouse/scene/ViewsTab'
+
 import { DagsTab } from './DagsTab'
 import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
 

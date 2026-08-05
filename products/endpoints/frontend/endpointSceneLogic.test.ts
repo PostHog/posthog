@@ -1,11 +1,12 @@
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
+
+import { sqlEditorLogic } from 'products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic'
 
 import { endpointSceneLogic, EndpointTab, extractBreakdownPropertyNames } from './endpointSceneLogic'
 import { endpointsMaterializationSuggestionCreate } from './generated/api'
@@ -33,7 +34,7 @@ const mockEditorLogic = {
     },
 }
 
-jest.mock('scenes/data-warehouse/editor/sqlEditorLogic', () => ({
+jest.mock('products/data_warehouse/frontend/data-warehouse/editor/sqlEditorLogic', () => ({
     sqlEditorLogic: Object.assign(
         jest.fn(() => ({ mount: jest.fn(() => jest.fn()) })),
         { findMounted: jest.fn(() => mockEditorLogic) }
