@@ -45,6 +45,7 @@ from ..models.evaluation_configs import (
     SESSION_EVAL_MIN_MAX_AGE_SECONDS,
     SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
     SESSION_EVAL_MIN_WINDOW_SECONDS,
+    SESSION_TEST_HOG_MAX_SAMPLES,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_MAX_AGE_SECONDS,
     TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
@@ -781,12 +782,6 @@ class TestHogResponseSerializer(serializers.Serializer):
     message = serializers.CharField(
         required=False, help_text="Optional message, e.g. when no recent events were found."
     )
-
-
-# A session fetch is a whole conversation rather than one trace, so the preview samples fewer of
-# them than the trace path does. Fidelity per session is never traded away: a previewed session is
-# fetched exactly as the online evaluation would fetch it.
-SESSION_TEST_HOG_MAX_SAMPLES = 3
 
 
 def _humanize_seconds(seconds: int) -> str:

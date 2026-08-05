@@ -8,7 +8,11 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
-import { EVALUATION_PASSED_HOGQL, EVALUATION_SUMMARY_MAX_RUNS } from './evaluations/constants'
+import {
+    EVALUATION_NOT_SKIPPED_HOGQL,
+    EVALUATION_PASSED_HOGQL,
+    EVALUATION_SUMMARY_MAX_RUNS,
+} from './evaluations/constants'
 import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
 import {
     AnthropicDocumentMessage,
@@ -1244,8 +1248,8 @@ export async function queryEvaluationRunsStats(params: {
     const query = hogql`
         SELECT
             count() as total,
-            countIf(properties.$ai_evaluation_result IS NOT NULL) as applicable,
-            countIf(${hogql.raw(EVALUATION_PASSED_HOGQL)}) as passed
+            countIf(properties.$ai_evaluation_result IS NOT NULL AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as applicable,
+            countIf(${hogql.raw(EVALUATION_PASSED_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as passed
         FROM events
         WHERE
             event = '$ai_evaluation'

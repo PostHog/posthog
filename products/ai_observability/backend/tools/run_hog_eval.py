@@ -16,6 +16,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
     SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
     SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
+    SESSION_TEST_HOG_MAX_SAMPLES,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_WINDOW_SECONDS,
     TRACE_EVAL_MIN_WINDOW_SECONDS,
@@ -313,7 +314,9 @@ class RunHogEvalTestTool(MaxTool):
             team=self._team,
             bytecode=bytecode,
             condition_filter=None,
-            sample_count=sample_count,
+            # Same bound the editor endpoint applies: each sampled session is fetched in full, so
+            # the generic sample_count ceiling is far too high for whole conversations.
+            sample_count=min(sample_count, SESSION_TEST_HOG_MAX_SAMPLES),
             allows_na=True,
             quiet_period_seconds=quiet_period_seconds,
         )

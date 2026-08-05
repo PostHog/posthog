@@ -149,14 +149,17 @@ function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationSummaryFi
     }
 
     const completedRuns = runs.filter((r) => r.status === 'completed')
+    // A skipped run carries result=false when the evaluation disallows N/A, so it has to be
+    // excluded before the outcome is read or it lands in the fail bucket without being graded.
+    const gradedRuns = completedRuns.filter((r) => !r.skipped)
     if (filter === 'pass') {
-        return completedRuns.filter((r) => r.result === true)
+        return gradedRuns.filter((r) => r.result === true)
     }
     if (filter === 'fail') {
-        return completedRuns.filter((r) => r.result === false)
+        return gradedRuns.filter((r) => r.result === false)
     }
     if (filter === 'na') {
-        return completedRuns.filter((r) => r.result === null)
+        return gradedRuns.filter((r) => r.result === null)
     }
 
     return completedRuns.filter((r) => r.sentiment_label?.toLowerCase() === filter)

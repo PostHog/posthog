@@ -1096,10 +1096,17 @@ def get_trace_detail(
 _MAX_SESSION_SAMPLE_IDS = 5
 _MAX_SESSION_SAMPLE_TRACES = 10
 _MAX_SESSION_DETAIL_TRACES = 50
-# A session's own events can start long before the evaluation that graded it, and the report
-# period only locates evaluation events. `_widened_ts_window` backs off 7 days for evaluation lag,
-# which is nowhere near enough, so reach back past the default ai_events retention instead of
-# clipping the head off a long session. `session_id` carries a bloom filter, so the width is cheap.
+# A session's own events can start long before the evaluation that graded it, and the report period
+# only locates evaluation events, so `_widened_ts_window`'s 7-day backoff for evaluation lag is
+# nowhere near enough to cover a long session's head. `session_id` carries a bloom filter, so the
+# extra width is cheap.
+#
+# This widens up to the ai_events retention, not past it. A session still running after its oldest
+# events aged out of ai_events keeps its head clipped: `query_ai_events` only falls back to the
+# shared events table when the primary returns zero rows, and a session with any recent trace
+# returns some. Those traces are then absent from the map and unciteable. Reaching them would mean
+# querying `events` for session structure, which has no session_id index — not worth it for a
+# background report, but the limit is real rather than solved here.
 _SESSION_EXTRA_LOOKBACK_DAYS = 30
 
 # The placeholder is deliberately not named `session_id`: on the events fallback the column

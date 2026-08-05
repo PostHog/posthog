@@ -104,6 +104,12 @@ SESSION_EVAL_MAX_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 # settle poll and the session fetch enforce it, and those two modules can't import each other.
 MAX_SESSION_EVAL_EVENTS = 2500
 
+# A session fetch is a whole conversation rather than one trace, so a preview samples fewer of them
+# than the trace path does — each sampled session can carry up to MAX_SESSION_EVAL_EVENTS events.
+# Shared so the editor endpoint and the Max tool hold the same bound. Fidelity per session is never
+# traded away: a previewed session is fetched exactly as the online evaluation would fetch it.
+SESSION_TEST_HOG_MAX_SAMPLES = 3
+
 
 class FixedWindowSettleConfig(BaseModel):
     """Wait a fixed window after the first matching generation, then evaluate."""

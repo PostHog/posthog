@@ -31,10 +31,20 @@ function citationLinkLabel(citedId: string, fallbackLabel: string): string {
     return SAFE_CITATION_LABEL_RE.test(preview) ? `${preview}...` : fallbackLabel
 }
 
+// $ai_session_id is caller-supplied through ingestion and urls.aiObservabilitySession interpolates
+// it into the path raw, so a ">" or ")" in it escapes the Markdown link destination and the rest of
+// the ID renders as attacker-controlled Markdown. Only link IDs that can't do that; anything else
+// stays plain text. Percent-encoding the session URL is the real fix, but that also has to teach
+// the session scene to decode, which is a routing change beyond this.
+const LINKABLE_SESSION_ID_RE = /^[A-Za-z0-9._~:@-]+$/
+
 // A citation names the unit that was evaluated: a session, a generation, or a trace. Session
 // citations may also carry the trace the agent read inside them, but the link goes to the session.
 function citationTarget(c: EvaluationReportCitation): { citedId: string; url: string; label: string } | null {
     if (c.session_id) {
+        if (!LINKABLE_SESSION_ID_RE.test(c.session_id)) {
+            return null
+        }
         return { citedId: c.session_id, url: urls.aiObservabilitySession(c.session_id), label: 'session' }
     }
     const citedId = c.generation_id || c.trace_id

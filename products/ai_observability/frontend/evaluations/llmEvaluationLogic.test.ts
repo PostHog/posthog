@@ -1073,6 +1073,25 @@ return result`,
                 })
             })
 
+            // An evaluation that disallows N/A emits result=false alongside skipped=true, so a
+            // session that was never graded would otherwise be counted and listed as a failure.
+            it('excludes skipped runs from the fail bucket', async () => {
+                const skippedRun: EvaluationRun = {
+                    ...mockRuns[1],
+                    id: 'run-skipped',
+                    generation_id: 'gen-skipped',
+                    result: false,
+                    skipped: true,
+                }
+                logic.actions.loadEvaluationRunsSuccess([...mockRuns, skippedRun])
+                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2' })],
+                    runsToSummarizeCount: 1,
+                })
+            })
+
             it('excludes non-completed runs when filter is not all', async () => {
                 const runsWithFailed: EvaluationRun[] = [
                     ...mockRuns,
