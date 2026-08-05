@@ -8,6 +8,7 @@ from psycopg import sql as psql
 from psycopg.conninfo import make_conninfo
 
 from products.managed_warehouse.backend.common import (
+    duckgres_data_modeling_table_name,
     get_duckgres_config_for_org,
     is_dev_mode,
     sanitize_ducklake_identifier,
@@ -225,7 +226,8 @@ def execute_ducklake_create_table(
     ``psycopg`` so the SELECT body is executed with safe parameter binding.
     """
     safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
-    safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
+    # Same resolver query binding uses, so a model always reads the table it wrote.
+    safe_table = duckgres_data_modeling_table_name(table_name)
     qualified = psql.Identifier(safe_schema, safe_table)
     conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id)
     # capture previous table size before replacing — best-effort, don't block materialization

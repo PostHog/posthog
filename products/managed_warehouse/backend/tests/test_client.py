@@ -166,6 +166,23 @@ class TestDuckLakeModelRedirect:
         assert f"shadow_{team.pk}_models.{sanitized}" in postgres_sql
         assert f"shadow_{team.pk}_models.{saved_query.normalized_name}" not in postgres_sql
 
+    def test_long_model_names_sharing_a_prefix_get_distinct_tables(self) -> None:
+        from products.managed_warehouse.backend.common import (
+            DUCKLAKE_IDENTIFIER_MAX_LENGTH,
+            duckgres_data_modeling_table_name,
+        )
+
+        # Two models a user can both create, identical for the first 63 characters. Plain
+        # truncation would point them at one table, so materializing either would replace
+        # the other's rows.
+        shared_prefix = "a" * DUCKLAKE_IDENTIFIER_MAX_LENGTH
+        first = duckgres_data_modeling_table_name(f"{shared_prefix}_orders")
+        second = duckgres_data_modeling_table_name(f"{shared_prefix}_refunds")
+
+        assert first != second
+        assert len(first) <= DUCKLAKE_IDENTIFIER_MAX_LENGTH
+        assert len(second) <= DUCKLAKE_IDENTIFIER_MAX_LENGTH
+
     def test_source_table_resolves_to_ducklake_table_not_s3(self):
         from posthog.models import Organization, Team
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+import hashlib
 import logging
 from datetime import date, datetime
 from typing import TYPE_CHECKING, TypedDict
@@ -493,6 +494,8 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
 
 
 _IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
+DUCKLAKE_IDENTIFIER_MAX_LENGTH = 63
+_TRUNCATED_NAME_DIGEST_LENGTH = 8
 
 
 def sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
@@ -508,7 +511,7 @@ def sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
         cleaned = default_prefix
     if cleaned[0].isdigit():
         cleaned = f"{default_prefix}_{cleaned}"
-    return cleaned[:63]
+    return cleaned[:DUCKLAKE_IDENTIFIER_MAX_LENGTH]
 
 
 def validate_duckgres_identifier(identifier: str) -> None:
@@ -565,10 +568,18 @@ def duckgres_data_modeling_schema(team_id: int) -> str:
 def duckgres_data_modeling_table_name(normalized_name: str) -> str:
     """Resolve the DuckLake table name of a shadow-materialized model.
 
-    Must match how ``execute_ducklake_create_table`` sanitizes the name it writes,
-    or query binding references a table the writer never created.
+    Both the shadow writer and query binding resolve names here, so a model always reads
+    the table it wrote. Names that fit the identifier limit are used verbatim; longer ones
+    keep a readable prefix plus a hash of the full name, because a bare truncation would
+    let two models whose names share a prefix collide onto a single table.
     """
-    return sanitize_ducklake_identifier(normalized_name, default_prefix="model")
+    sanitized = sanitize_ducklake_identifier(normalized_name, default_prefix="model")
+    if len(sanitized) < DUCKLAKE_IDENTIFIER_MAX_LENGTH:
+        return sanitized
+    # A result at the limit may or may not have lost characters, so disambiguate it too.
+    digest = hashlib.sha256(normalized_name.encode()).hexdigest()[:_TRUNCATED_NAME_DIGEST_LENGTH]
+    prefix = sanitized[: DUCKLAKE_IDENTIFIER_MAX_LENGTH - _TRUNCATED_NAME_DIGEST_LENGTH - 1].rstrip("_")
+    return f"{prefix}_{digest}"
 
 
 TABLE_SUFFIX_MAX_LENGTH = 63
