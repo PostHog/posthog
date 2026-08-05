@@ -2729,6 +2729,49 @@ describe('maxThreadLogic', () => {
             expect(enhancedToolCalls?.[0].status).toBe('failed')
         })
 
+        it('marks a resultless tool call from an earlier turn as completed, not failed', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'build me a dashboard',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Working on it',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'tool-123',
+                                name: 'task',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'thanks, one more thing',
+                        status: 'completed',
+                        id: 'human-2',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Sure',
+                        status: 'completed',
+                        id: 'assistant-2',
+                    },
+                ])
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[1] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            expect(enhancedToolCalls?.[0].status).toBe('completed')
+        })
+
         it('attaches updates from toolCallUpdateMap to tool calls', async () => {
             const toolCallId = 'tool-123'
 

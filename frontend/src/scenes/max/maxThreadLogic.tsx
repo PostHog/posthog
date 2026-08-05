@@ -3102,14 +3102,22 @@ function enhanceThreadToolCalls(
                 const hasPendingApproval = toolCallsWithPendingApproval.has(toolCall.id)
                 // Tool calls with rejected approvals should show as "failed" (user declined)
                 const hasRejectedApproval = toolCallsWithRejectedApproval.has(toolCall.id)
-                const isFailed =
-                    hasRejectedApproval ||
-                    (!isCompleted && !isInteractiveTool && !hasPendingApproval && (!isFinalGroup || !isLoading))
+                // Only the still-active turn can be judged "stalled": its stream has stopped
+                // (!isLoading) yet this call never got a result. A tool call from an earlier turn
+                // that lacks a matching result in this thread (e.g. a subagent-forwarded call, whose
+                // completion never renders as its own message here) isn't evidence of failure — the
+                // turn it belonged to already ran to completion, so treat it as completed rather than
+                // guessing "failed" from mere absence.
+                const isStalledInCurrentTurn =
+                    isFinalGroup && !isLoading && !isCompleted && !isInteractiveTool && !hasPendingApproval
+                const isUnresolvedFromPastTurn =
+                    !isFinalGroup && !isCompleted && !isInteractiveTool && !hasPendingApproval
+                const isFailed = hasRejectedApproval || isStalledInCurrentTurn
                 return {
                     ...toolCall,
                     status: isFailed
                         ? TaskExecutionStatus.Failed
-                        : isCompleted || (isInteractiveTool && !isLoading)
+                        : isCompleted || isUnresolvedFromPastTurn || (isInteractiveTool && !isLoading)
                           ? TaskExecutionStatus.Completed
                           : TaskExecutionStatus.InProgress,
                     isLastPlanningMessage: toolCall.name === 'todo_write' && isLastPlanningMessage,
