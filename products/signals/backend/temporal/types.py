@@ -38,9 +38,9 @@ class EmitSignalInputs:
 def signal_document_id(signal: EmitSignalInputs) -> str:
     """The ClickHouse `document_id` to emit a signal under.
 
-    Every signal read groups on `document_id`, so a random id per emission turned a grouping-workflow
-    replay or retry into a permanent inbox duplicate. A deterministic id lands the replay on the row
-    it already wrote.
+    Every signal read groups on `document_id`, so a random id per emission makes each grouping-workflow
+    replay or retry a permanent inbox duplicate. A deterministic id lands a re-processed emission on
+    the row it already wrote.
 
     Keyed on `SignalEmissionRecord`'s unique tuple plus the description, because sources like log
     alerts and error tracking reuse one `source_id` across genuinely distinct occurrences that differ

@@ -1,9 +1,11 @@
+from typing import Any
+
 from parameterized import parameterized
 
 from products.signals.backend.temporal.types import EmitSignalInputs, signal_document_id
 
 
-def _signal(**overrides) -> EmitSignalInputs:
+def _signal(**overrides: Any) -> EmitSignalInputs:
     return EmitSignalInputs(
         **{
             "team_id": 2,
@@ -17,11 +19,11 @@ def _signal(**overrides) -> EmitSignalInputs:
 
 
 class TestSignalDocumentId:
-    def test_reprocessing_one_signal_reuses_its_document(self):
-        # A random id here made every grouping replay a second inbox item.
+    def test_reprocessing_one_signal_reuses_its_document(self) -> None:
+        # A random id here makes every grouping replay a second inbox item.
         assert signal_document_id(_signal()) == signal_document_id(_signal())
 
-    def test_weight_alone_does_not_fork_the_document(self):
+    def test_weight_alone_does_not_fork_the_document(self) -> None:
         # Weight is scoring, not identity: the pipeline may rescore the same emission.
         assert signal_document_id(_signal(weight=1.0)) == signal_document_id(_signal())
 
@@ -36,18 +38,18 @@ class TestSignalDocumentId:
             ("description", {"description": "CI job 'warehouse-sources' recovered on a rerun again"}),
         ]
     )
-    def test_distinct_signals_get_distinct_documents(self, _name, overrides):
+    def test_distinct_signals_get_distinct_documents(self, _name: str, overrides: dict[str, Any]) -> None:
         assert signal_document_id(_signal(**overrides)) != signal_document_id(_signal())
 
     @parameterized.expand([("colon", ":"), ("pipe", "|")])
-    def test_a_delimiter_inside_a_component_cannot_forge_another_tuple(self, _name, delimiter):
+    def test_a_delimiter_inside_a_component_cannot_forge_another_tuple(self, _name: str, delimiter: str) -> None:
         # Every delimiter candidate is legal inside source_type and source_id, so a plain join lets
         # (type="a:b", id="c") and (type="a", id="b:c") share a document and overwrite each other.
         left = _signal(source_type=f"a{delimiter}b", source_id="c")
         right = _signal(source_type="a", source_id=f"b{delimiter}c")
         assert signal_document_id(left) != signal_document_id(right)
 
-    def test_blank_source_id_stays_unique_per_emission(self):
+    def test_blank_source_id_stays_unique_per_emission(self) -> None:
         # A blank source_id identifies nothing, so keying on it would collapse every such signal in a
         # team onto one document.
         assert signal_document_id(_signal(source_id="")) != signal_document_id(_signal(source_id=""))
