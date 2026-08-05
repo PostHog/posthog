@@ -171,8 +171,9 @@ function dropOffTooltip(isAnchored: boolean): string {
     }
     return (
         'People whose journey ends at this step. ' +
-        'Every number counts unique people, and one person can appear in several rows of a column, ' +
-        'so the percentages in a column can add up to more than 100%.'
+        'A pause longer than the inactivity gap starts a new journey, so one person can have several journeys. ' +
+        'The same person can appear in several rows and end journeys in more than one column, ' +
+        'so percentages can add up to more than 100%.'
     )
 }
 

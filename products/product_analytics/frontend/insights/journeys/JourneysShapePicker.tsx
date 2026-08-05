@@ -65,7 +65,11 @@ export function JourneysShapePicker({ insightProps }: EditorFilterProps): JSX.El
                                 eventNames={[anchorSource.event]}
                                 value={anchorLabel}
                                 onSet={(label: string | undefined) => setAnchorLabel(label ?? null)}
-                                placeholder={journeyShape === PathsV2AnchorType.Start ? 'First step' : 'Final step'}
+                                placeholder={
+                                    journeyShape === PathsV2AnchorType.Start
+                                        ? 'Where journeys start'
+                                        : 'Where journeys end'
+                                }
                                 forceSingleSelect
                             />
                         </div>

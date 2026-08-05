@@ -465,7 +465,7 @@ export const journeysDataLogic = kea<journeysDataLogicType>([
             const update: Partial<PathsV2Filter> = { ...baseUpdate, anchor }
             if (removed) {
                 update.excludedItems = items
-                lemonToast.info('The anchor is no longer excluded')
+                lemonToast.info('Removed the anchor from the exclusions')
             }
             actions.setPendingAnchor(null)
             actions.updateInsightFilter(update)
@@ -476,7 +476,7 @@ export const journeysDataLogic = kea<journeysDataLogicType>([
                 const anchor = values.anchor
                 if (anchor && !anchorSurvivesStepSources(anchor, stepSources)) {
                     update.anchor = undefined
-                    lemonToast.info('The anchor was cleared because its step source changed')
+                    lemonToast.info('Cleared the anchor because its step source changed')
                 }
                 const pending = values.pendingAnchor
                 if (pending?.event) {
@@ -524,7 +524,7 @@ export const journeysDataLogic = kea<journeysDataLogicType>([
                     const { items, removed } = exclusionsWithoutAnchor(excludedItems, anchor)
                     if (removed) {
                         excludedItems = items
-                        lemonToast.info("The journey's anchor cannot be excluded")
+                        lemonToast.info("The anchor can't be excluded. Change or clear the anchor first.")
                     }
                 }
                 actions.updateInsightFilter({ excludedItems })

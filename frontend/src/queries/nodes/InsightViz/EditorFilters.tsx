@@ -179,7 +179,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         <>
                             Open shows every journey people take, split on inactivity. Starts at and Ends at follow each
                             person's single journey from or up to a chosen step, so any highlighted path can open as a
-                            funnel with matching numbers.
+                            funnel with the same numbers.
                         </>
                     ),
                     component: JourneysShapePicker,
