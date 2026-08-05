@@ -513,10 +513,16 @@
         expanded: null,
         selectedPod: null,
         loadEpoch: 0,
+        refreshSeq: 0,
+        timers: [],
         // debug/load results per pod key, so re-renders show the last known
         // values instead of flashing back to placeholders while refetching.
         loads: new Map(),
-        unmount() { this.loadEpoch++; },
+        unmount() {
+          this.loadEpoch++;
+          this.timers.forEach(clearInterval);
+          this.timers = [];
+        },
         mount(root) {
           const refreshedAt = el("span", { class: "muted mono" });
           const listBody = el("div", {}, el("div", { class: "empty" }, "Loading deployments…"));
@@ -530,12 +536,22 @@
             viewer
           );
           this.refreshPods();
+          // Keep the expanded deployment's live columns current; /debug/load is
+          // built to be polled cheaply. Cells repaint in place, so no flicker.
+          this.timers.push(setInterval(() => {
+            const group = (this.groups || []).find((g) => g.ns === this.expanded);
+            if (group) this.fetchLoads(group);
+          }, 5000));
         },
 
         async refreshPods() {
           const { listBody, refreshedAt } = this.ui;
+          // Drop out-of-order responses: an older request resolving after a
+          // newer one must not roll the deployment list back to stale state.
+          const seq = ++this.refreshSeq;
           try {
             const data = await fetchJSON("api/pods");
+            if (seq !== this.refreshSeq) return;
             refreshedAt.textContent = `as of ${new Date().toLocaleTimeString()}`;
             // One group per namespace: each ingestion lane deploys into its own.
             const byNamespace = new Map();
@@ -555,6 +571,7 @@
             if (this.groups.length === 1) this.expanded = this.groups[0].ns;
             this.render();
           } catch (e) {
+            if (seq !== this.refreshSeq) return;
             listBody.replaceChildren(el("div", { class: "error-box" }, String(e)));
           }
         },
