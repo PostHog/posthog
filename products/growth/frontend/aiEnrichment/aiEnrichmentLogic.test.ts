@@ -1,4 +1,7 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -50,6 +53,26 @@ describe('aiEnrichmentLogic', () => {
         initKeaTests()
         logic = aiEnrichmentLogic()
         logic.mount()
+    })
+
+    describe('URL label encoding', () => {
+        it('decodes a URL-encoded label (built via urls.aiEnrichment) back to its raw form', async () => {
+            const rawLabel = 'weird/label with spaces & stuff'
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.aiEnrichment(rawLabel))
+            }).toFinishAllListeners()
+
+            expect(logic.values.selectedLabel).toBe(rawLabel)
+        })
+
+        it('falls back to the raw value for malformed percent-encoding rather than crashing', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/ai-enrichment/bad%zzlabel')
+            }).toFinishAllListeners()
+
+            expect(logic.values.selectedLabel).toBe('bad%zzlabel')
+        })
     })
 
     describe('draft state machine', () => {
@@ -180,6 +203,41 @@ describe('aiEnrichmentLogic', () => {
                 { company: 'Acme', domain: 'acme.com', inputs: { name: 'Acme' }, outputs: { verdict: true } },
             ])
             expect(logic.values.runSummary).toEqual({ classified: 1, unknown: 0, errors: 0 })
+            expect(logic.values.isRunning).toBe(false)
+        })
+
+        it('surfaces a terminal aborted-run error and clears isRunning, without the generic fallback toast', async () => {
+            const rowLine = JSON.stringify({
+                company: 'Acme',
+                domain: 'acme.com',
+                inputs: { name: 'Acme' },
+                outputs: { verdict: true },
+            })
+            const errorLine = JSON.stringify({ error: 'LLM gateway timed out', aborted: true })
+            useMocks({
+                post: {
+                    '/api/growth_ai_enrichment/run/': () => ndjsonResponse([rowLine, errorLine]),
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedLabel('test_label')
+            }).toDispatchActions(['loadConfigsSuccess'])
+            logic.actions.setEditorPromptText('judge it')
+            logic.actions.setEditorInputFields(['name'])
+            logic.actions.addOutputField()
+            logic.actions.updateOutputField(0, { key: 'verdict' })
+
+            await expectLogic(logic, () => {
+                logic.actions.runClassification()
+            }).toFinishAllListeners()
+
+            // The row emitted before the terminal error still lands - only the run as a whole is
+            // marked failed, not the rows already streamed in.
+            expect(logic.values.runRows).toEqual([
+                { company: 'Acme', domain: 'acme.com', inputs: { name: 'Acme' }, outputs: { verdict: true } },
+            ])
+            expect(logic.values.runError).toBe('LLM gateway timed out')
+            expect(logic.values.runSummary).toBeNull()
             expect(logic.values.isRunning).toBe(false)
         })
 

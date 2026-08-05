@@ -55,7 +55,7 @@ describe('aiEnrichmentResultColumns', () => {
 
         it('treats a meta.skipped row as skipped even for a field whose skipped value is null rather than "unknown"', () => {
             // Only the boolean verdict field (if any) gets the literal "unknown" string on a
-            // skipped row (enrichment/labels.py's _unknown_output); every other configured field
+            // skipped row (enrichment/labels.py's unknown_output); every other configured field
             // is just null. Without meta.skipped, a null first value would still get typed
             // "string" here (typeOfValue's default) and misrender every later row's real number.
             const skippedOutputs = { headcount: null } as unknown as AIEnrichmentRunRow['outputs']

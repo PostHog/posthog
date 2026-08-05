@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { AIEnrichmentRunRow, aiEnrichmentLogic } from './aiEnrichmentLogic'
 import {
@@ -93,12 +93,18 @@ function buildColumns(rows: AIEnrichmentRunRow[]): LemonTableColumns<AIEnrichmen
 }
 
 export function AIEnrichmentResultsTable(): JSX.Element {
-    const { runRows, runSummary, isRunning } = useValues(aiEnrichmentLogic)
+    const { runRows, runSummary, runError, isRunning } = useValues(aiEnrichmentLogic)
 
     const columns = buildColumns(runRows)
 
     return (
         <div className="space-y-2">
+            {runError && (
+                <LemonBanner type="error">
+                    <div>{summarizeError(runError)}</div>
+                    <div className="text-xs mt-1 opacity-75">{runError}</div>
+                </LemonBanner>
+            )}
             <LemonTable
                 dataSource={runRows}
                 columns={columns}

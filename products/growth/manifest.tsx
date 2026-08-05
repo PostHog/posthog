@@ -30,7 +30,7 @@ export const manifest: ProductManifest = {
     },
     urls: {
         identityMatching: (): string => '/identity-matching',
-        aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${label}` : ''}`,
+        aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
     },
     treeItemsProducts: [
         {

@@ -85,6 +85,16 @@ function sameOutputFieldSet(a: AIEnrichmentOutputField[], b: AIEnrichmentOutputF
     return normalize(a) === normalize(b)
 }
 
+function safeDecodeURIComponent(value: string): string {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        // Malformed percent-encoding (e.g. a lone "%") - fall back to the raw value rather than
+        // crash the whole scene on an unparseable URL.
+        return value
+    }
+}
+
 function configToSnapshot(config: ConfigVersionApi): AIEnrichmentEditorSnapshot {
     return {
         promptText: config.prompt_text,
@@ -118,6 +128,7 @@ export interface aiEnrichmentLogicValues {
     modelOptions: LemonInputSelectOption<string>[]
     models: GatewayModelListResponseApi | null
     modelsLoading: boolean
+    runError: string | null
     runRows: AIEnrichmentRunRow[]
     runSummary: AIEnrichmentRunSummary | null
     sampleSize: number
@@ -254,6 +265,9 @@ export interface aiEnrichmentLogicActions {
     setIsRunning: (isRunning: boolean) => {
         isRunning: boolean
     }
+    setRunError: (error: string) => {
+        error: string
+    }
     setRunSummary: (summary: AIEnrichmentRunSummary) => {
         summary: AIEnrichmentRunSummary
     }
@@ -323,6 +337,7 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
         consumeRunLine: (line: string) => ({ line }),
         appendRunRow: (row: AIEnrichmentRunRow) => ({ row }),
         setRunSummary: (summary: AIEnrichmentRunSummary) => ({ summary }),
+        setRunError: (error: string) => ({ error }),
         resetRunResults: true,
         setIsRunning: (isRunning: boolean) => ({ isRunning }),
         saveVersion: (version: string) => ({ version }),
@@ -455,6 +470,18 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                 setSelectedLabel: () => null,
                 loadVersionIntoEditor: () => null,
                 setRunSummary: (_, { summary }) => summary,
+            },
+        ],
+        // A run that fails partway through ends with a terminal {error, aborted: true} record
+        // instead of a summary (products/growth/backend/api/ai_enrichment.py's `run` action) -
+        // distinct from runSummary, which only ever reflects a run that finished.
+        runError: [
+            null as string | null,
+            {
+                resetRunResults: () => null,
+                setSelectedLabel: () => null,
+                loadVersionIntoEditor: () => null,
+                setRunError: (_, { error }) => error,
             },
         ],
         isRunning: [
@@ -667,8 +694,11 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                         }
                     }
                     // The response is a 200 the moment streaming starts, so the only signal that a run
-                    // finished rather than died partway is the summary line the backend ends with.
-                    if (!values.runSummary) {
+                    // finished rather than died partway is the summary line the backend ends with -
+                    // unless it ended with a terminal error record instead, which consumeRunLine
+                    // already turned into runError and is shown in the results area below. Only
+                    // fall back to this generic toast when neither arrived.
+                    if (!values.runSummary && !values.runError) {
                         lemonToast.error('Test run stopped before finishing. Some rows may be missing.')
                     }
                 } catch (e) {
@@ -696,8 +726,13 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                             actions.setRunSummary(parsed.summary as AIEnrichmentRunSummary)
                             return
                         }
-                        // An aborted run ends with {error, aborted} and no summary, which the caller
-                        // reports once the stream closes.
+                        // A run that fails partway ends with this terminal record instead of a
+                        // summary - it must be surfaced (see runError/AIEnrichmentResultsTable),
+                        // not silently dropped just because it isn't a row.
+                        if ('error' in parsed && parsed.aborted) {
+                            actions.setRunError(String(parsed.error))
+                            return
+                        }
                         if ('outputs' in parsed) {
                             actions.appendRunRow(parsed as AIEnrichmentRunRow)
                         }
@@ -720,8 +755,15 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
             }
         },
         '/ai-enrichment/:label': ({ label }) => {
-            if (label && label !== values.selectedLabel) {
-                actions.setSelectedLabel(label)
+            if (!label) {
+                return
+            }
+            // manifest.tsx's urls.aiEnrichment() encodeURIComponents the label when building the
+            // URL; kea-router (url-pattern under the hood) does not decode path params on the way
+            // back out, so this is the other half of that round trip.
+            const decodedLabel = safeDecodeURIComponent(label)
+            if (decodedLabel !== values.selectedLabel) {
+                actions.setSelectedLabel(decodedLabel)
             }
         },
     })),

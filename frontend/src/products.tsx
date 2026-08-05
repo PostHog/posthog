@@ -1218,7 +1218,7 @@ export const productUrls = {
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     identityMatching: (): string => '/identity-matching',
-    aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${label}` : ''}`,
+    aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     links: (): string => '/links',
