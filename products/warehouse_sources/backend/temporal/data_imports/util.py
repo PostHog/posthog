@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -32,7 +33,14 @@ def _is_transient_s3_connection_error(error: BaseException) -> bool:
     return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
 
 
-class NonRetryableException(Exception):
+class NonRetryableException(NonReportableError):
+    """A non-retryable classification is always reached after matching a known,
+    non-actionable customer/upstream error (see ``get_non_retryable_errors``), so it must
+    never surface as a fresh error-tracking issue - inheriting ``NonReportableError`` keeps
+    the activity interceptor from reporting it. Temporal's own retry policies still key off
+    this exact class name, e.g. ``non_retryable_error_types=["NonRetryableException", ...]``.
+    """
+
     @property
     def cause(self) -> Optional[BaseException]:
         """Cause of the exception.

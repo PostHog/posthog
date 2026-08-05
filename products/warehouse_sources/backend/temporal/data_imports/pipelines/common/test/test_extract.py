@@ -1,4 +1,5 @@
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,12 +9,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    NON_RETRYABLE_ERROR_RETRY_LIMIT,
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
@@ -384,6 +389,56 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is False
+
+
+class TestHandleNonRetryableError:
+    @staticmethod
+    def _redis_returning(incr_value: int):
+        @asynccontextmanager
+        async def _ctx():
+            redis_client = MagicMock()
+            redis_client.incr = AsyncMock(return_value=incr_value)
+            redis_client.expire = AsyncMock()
+            yield redis_client
+
+        return _ctx
+
+    def test_confirmation_attempt_does_not_reraise_bare_error(self):
+        # A classified non-retryable error (e.g. Meta Ads' "ads_read permission" 403) still gets
+        # a few confirmation retries before giving up. Re-raising the bare original exception here
+        # reports it to error tracking on every one of those attempts via
+        # `_PostHogClientActivityInboundInterceptor` — flooding error tracking with an issue for a
+        # cause that's already known and non-actionable. It must come back wrapped as
+        # NonReportableError instead, which that interceptor already exempts from capture.
+        original_error = Exception("Meta API request failed: 403 - permission denied")
+        logger = MagicMock(adebug=AsyncMock())
+
+        with patch(f"{_EXTRACT_MODULE}._get_redis", side_effect=self._redis_returning(1)):
+            with pytest.raises(NonReportableError) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), logger, original_error
+                )
+
+        assert not isinstance(exc_info.value, NonRetryableException)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_gives_up_with_non_reportable_exception_after_retry_limit(self):
+        # Once the retry budget is exhausted, the same known error must still not surface as a
+        # fresh error-tracking issue - NonRetryableException has to stay a NonReportableError.
+        original_error = Exception("Meta API request failed: 403 - permission denied")
+        logger = MagicMock(adebug=AsyncMock())
+
+        with patch(
+            f"{_EXTRACT_MODULE}._get_redis",
+            side_effect=self._redis_returning(NON_RETRYABLE_ERROR_RETRY_LIMIT + 1),
+        ):
+            with pytest.raises(NonRetryableException) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), logger, original_error
+                )
+
+        assert isinstance(exc_info.value, NonReportableError)
+        assert exc_info.value.__cause__ is original_error
 
 
 # transaction=True: the webhook-first branch clears the reset flag via update_sync_type_config_keys,
