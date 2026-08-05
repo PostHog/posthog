@@ -257,6 +257,11 @@ export const feedbackSurveyWizardLogic = kea<feedbackSurveyWizardLogicType>([
                         questions,
                         appearance: followUpEnabled ? appearance : undefined,
                         start_date: dayjs().toISOString(),
+                        // The rating and follow-up text are sent as separate `survey sent` events
+                        // joined by $survey_submission_id — this is exactly the multi-event
+                        // submission shape enable_partial_responses tells the results page to
+                        // merge instead of electing a single event.
+                        enable_partial_responses: followUpEnabled,
                     })
 
                     eventUsageLogic.actions.reportSurveyCreated(survey, false, 'llm_analytics')

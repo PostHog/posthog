@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { initKeaTests } from '~/test/init'
 
-import { visionObservationsLabelCreate } from '../generated/api'
+import { visionObservationsLabelCreate, visionObservationsLabelDestroy } from '../generated/api'
 import { observationLabelLogic } from './observationLabelLogic'
 
 jest.mock('../generated/api', () => ({
@@ -92,5 +92,44 @@ describe('observationLabelLogic feedback autosave', () => {
         expect(visionObservationsLabelCreate).not.toHaveBeenCalled()
         expect(logic.values.label).toEqual({ is_correct: true, feedback: 'teammate feedback' })
         expect(logic.values.feedbackDraft).toEqual('teammate feedback')
+    })
+
+    it('scopes the in-flight state to the thumb being rated, not both buttons', async () => {
+        // Regression: the two thumb buttons used to share one boolean `saving` flag, so rating
+        // one thumb visually disabled the other too. `savingThumb` must track which thumb (if
+        // any) is actually in flight.
+        let resolveCreate: (value: unknown) => void = () => {}
+        ;(visionObservationsLabelCreate as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveCreate = resolve
+            })
+        )
+        mountLogic(false)
+
+        logic.actions.rate(true, '')
+        expect(logic.values.savingThumb).toEqual('up')
+
+        resolveCreate({ is_correct: true, feedback: '' })
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.savingThumb).toBeNull()
+    })
+
+    it('scopes clearing a rating to the thumb that was clicked', async () => {
+        let resolveDestroy: (value: unknown) => void = () => {}
+        ;(visionObservationsLabelDestroy as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveDestroy = resolve
+            })
+        )
+        mountLogic(false)
+
+        logic.actions.clearRating('down')
+        expect(logic.values.savingThumb).toEqual('down')
+
+        resolveDestroy(undefined)
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.savingThumb).toBeNull()
     })
 })

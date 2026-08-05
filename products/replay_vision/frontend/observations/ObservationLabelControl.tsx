@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { AccessControlLevel } from '~/types'
 
 import type { ReplayObservationLabelApi } from '../generated/api.schemas'
@@ -131,12 +133,22 @@ export function ObservationLabelControl({
     compact = false,
 }: ObservationLabelProps & { compact?: boolean }): JSX.Element {
     const logic = observationLabelLogic({ observationId, initialLabel, onChange })
-    const { label, saving, feedbackDraft } = useValues(logic)
+    const { label, savingThumb, feedbackDraft } = useValues(logic)
     const { rate, clearRating } = useActions(logic)
 
     const thumbsUp = label?.is_correct === true
     const thumbsDown = label?.is_correct === false
     const editDisabledReason = useEditAccess(scannerUserAccessLevel)
+
+    // A LemonButton `disabledReason` blocks the click outright, so a user without access who
+    // clicks (rather than hovers first) sees nothing happen. Keep the buttons clickable and
+    // surface the reason as a toast instead, so every click gets visible feedback.
+    const guardedClick = (action: () => void): (() => void) => {
+        if (editDisabledReason) {
+            return () => lemonToast.error(editDisabledReason)
+        }
+        return action
+    }
 
     // Clicking the active thumb again removes the rating.
     const buttons = (
@@ -145,20 +157,18 @@ export function ObservationLabelControl({
                 size="xsmall"
                 type={thumbsUp ? 'primary' : 'secondary'}
                 icon={thumbsUp ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                loading={saving}
-                disabledReason={editDisabledReason ?? undefined}
-                tooltip={thumbsUp ? 'Remove rating' : 'Scanner got this right'}
-                onClick={() => (thumbsUp ? clearRating() : rate(true, feedbackDraft))}
+                loading={savingThumb === 'up'}
+                tooltip={editDisabledReason ?? (thumbsUp ? 'Remove rating' : 'Scanner got this right')}
+                onClick={guardedClick(() => (thumbsUp ? clearRating('up') : rate(true, feedbackDraft)))}
                 data-attr="replay-vision-label-thumbs-up"
             />
             <LemonButton
                 size="xsmall"
                 type={thumbsDown ? 'primary' : 'secondary'}
                 icon={thumbsDown ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                loading={saving}
-                disabledReason={editDisabledReason ?? undefined}
-                tooltip={thumbsDown ? 'Remove rating' : 'Scanner got this wrong'}
-                onClick={() => (thumbsDown ? clearRating() : rate(false, feedbackDraft))}
+                loading={savingThumb === 'down'}
+                tooltip={editDisabledReason ?? (thumbsDown ? 'Remove rating' : 'Scanner got this wrong')}
+                onClick={guardedClick(() => (thumbsDown ? clearRating('down') : rate(false, feedbackDraft)))}
                 data-attr="replay-vision-label-thumbs-down"
             />
         </div>
