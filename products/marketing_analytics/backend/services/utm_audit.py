@@ -39,6 +39,8 @@ from products.marketing_analytics.backend.services.utm_matching import (
     get_match_field,
     get_match_value,
     load_team_mappings,
+    normalize_campaign_name,
+    normalize_source_name,
     resolve_source,
 )
 
@@ -205,8 +207,8 @@ def get_utm_campaign_catalogue(
         )
     utm_map: dict[tuple[str, str], int] = {}
     for row in result.results or []:
-        campaign = (row[0] or "").lower().strip()
-        source = (row[1] or "").lower().strip()
+        campaign = normalize_campaign_name(row[0] or "")
+        source = normalize_source_name(row[1] or "")
         count = int(row[2] or 0)
         utm_map[(campaign, source)] = count
     return utm_map
@@ -280,8 +282,8 @@ def _compute_campaign_stats(
     mappings: TeamMappings,
 ) -> _CampaignStats:
     """Aggregate UTM events for a campaign and separate exact-source vs alternative-source counts."""
-    campaign_name_lower = campaign.campaign_name.lower().strip()
-    source_name_lower = campaign.source_name.lower().strip()
+    campaign_name_lower = normalize_campaign_name(campaign.campaign_name)
+    source_name_lower = normalize_source_name(campaign.source_name)
     match_value = get_match_value(campaign, mappings)
     match_field = get_match_field(campaign.source_name, mappings)
     match_display = campaign.campaign_id if match_field == "campaign_id" else campaign.campaign_name
@@ -463,7 +465,7 @@ def _mapping_candidates(
     best: dict[tuple[str, str], str] = {}
     best_count: dict[tuple[str, str], int] = {}
     for proposal in proposals:
-        key = (proposal.integration, proposal.clean_name.lower().strip())
+        key = (proposal.integration, normalize_campaign_name(proposal.clean_name))
         if proposal.event_count > best_count.get(key, -1):
             best[key] = proposal.raw_utm_campaign
             best_count[key] = proposal.event_count
