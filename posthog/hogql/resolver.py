@@ -2359,6 +2359,25 @@ class Resolver(CloningVisitor):
                     self.scopes.pop()
                 return new_node
 
+            # Other dialects keep the ExpressionFieldType node itself (see printer's
+            # visit_expression_field_type), but its wrapped expression still needs resolving,
+            # otherwise the printer walks into a sub-tree of fields with type=None. Clone it
+            # first, since node.type.expr is the same shared AST object the database schema
+            # holds for every query, and resolving in place would leak types across queries.
+            if node.type.expr.type is None:
+                resolved_expr = clone_expr(node.type.expr)
+
+                if node.type.isolate_scope:
+                    table_type = node.type.table_type
+                    while isinstance(table_type, ast.VirtualTableType):
+                        table_type = table_type.table_type
+                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: table_type}))
+
+                node.type.expr = self.visit(resolved_expr)
+
+                if node.type.isolate_scope:
+                    self.scopes.pop()
+
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
             self.context.add_notice(
                 start=node.start,

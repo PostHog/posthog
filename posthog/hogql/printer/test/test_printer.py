@@ -48,7 +48,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import DateDatabaseField, ExpressionField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 from posthog.hogql.hogqlx import convert_tag_to_hx
@@ -7972,6 +7972,23 @@ class TestDuckDBPrinter(BaseTest):
         for printer in (DuckDBPrinter(context=ctx), PostgresPrinter(context=ctx)):
             with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
                 printer._print_identifier("bad%name")
+
+    def test_expression_field_resolves_on_non_clickhouse_dialect(self):
+        # Regression: the resolver only inlined ExpressionField expressions for ClickHouse, leaving the
+        # wrapped expr's own fields with type=None on every other dialect. The printer's
+        # visit_expression_field_type walks straight into that unresolved sub-tree and raises
+        # "Field ... has no type" (hit by Duckgres shadow materialization of a Stripe `created_at`
+        # column, defined as toDateTime(toString(__created))).
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context.database.get_table("events").fields["hidden_created"] = StringDatabaseField(  # type: ignore
+            name="hidden_created"
+        )
+        context.database.get_table("events").fields["derived_created_at"] = ExpressionField(  # type: ignore
+            name="derived_created_at",
+            expr=parse_expr("toString(hidden_created)"),
+        )
+        printed = self._expr("derived_created_at", context=context)
+        self.assertEqual(printed, "toString(events.hidden_created)")
 
     def test_dollar_prefixed_property_renders_as_jsonpath_member(self):
         # DuckDB's JSON arrow operator reads a key beginning with `$` as a JSONPath root marker, so the
