@@ -461,6 +461,16 @@ _FIXED_TEMPLATE_IDS = {
     "function_push": "template-native-push",
 }
 
+# Non-event trigger types are each backed by one fixed built-in "source" template. These live outside
+# the destination template catalog (cdp-function-templates-list is type=destination), so callers told to
+# "discover the template like a function node" never find them and loop on a bare "Template not found".
+# Name the exact literal instead. Both source templates need config.inputs.event and .distinct_id.
+_FIXED_TRIGGER_TEMPLATE_IDS = {
+    "webhook": "template-source-webhook",
+    "manual": "template-source-webhook",
+    "tracking_pixel": "template-source-webhook-pixel",
+}
+
 
 def _looks_like_uuid(value: str) -> bool:
     try:
@@ -600,6 +610,18 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool, contex
 
 
 def _describe_unknown_template(action: dict, template_id: str) -> str:
+    if action.get("type") == "trigger":
+        trigger_type = (action.get("config") or {}).get("type", "")
+        source_template_id = _FIXED_TRIGGER_TEMPLATE_IDS.get(trigger_type)
+        if source_template_id:
+            return (
+                f"Template not found. A '{trigger_type}' trigger uses the built-in source template "
+                f"'{source_template_id}' - set config.template_id to that exact literal. It is NOT in the "
+                "destination template catalog, so don't look it up there. Also set config.inputs.event and "
+                "config.inputs.distinct_id (each {value: <hog template>}, "
+                "e.g. {value: '{request.body.event}'})."
+            )
+
     fixed_id = _FIXED_TEMPLATE_IDS.get(action.get("type", ""))
     if fixed_id and _looks_like_uuid(template_id):
         return (

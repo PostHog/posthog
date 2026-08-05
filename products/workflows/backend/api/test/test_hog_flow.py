@@ -404,6 +404,39 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Ambiguous" in response.json()["detail"], response.json()
 
+    @parameterized.expand(
+        [
+            ("webhook", "template-source-webhook"),
+            ("manual", "template-source-webhook"),
+            ("tracking_pixel", "template-source-webhook-pixel"),
+        ]
+    )
+    def test_unknown_trigger_template_id_names_the_source_template(self, trigger_type, expected_literal):
+        # webhook/manual/tracking_pixel triggers are each backed by a fixed built-in source template that
+        # isn't in the destination catalog agents search, so a wrong/guessed template_id left them looping
+        # on a bare "Template not found". The error must name the exact source literal and say it isn't in
+        # the destination catalog.
+        hog_flow = {
+            "name": "Test Flow",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {"type": trigger_type, "template_id": "not-a-real-template", "inputs": {}},
+                },
+                {"id": "exit_node", "name": "exit_1", "type": "exit", "config": {}},
+            ],
+            "edges": [{"from": "trigger_node", "to": "exit_node", "type": "continue"}],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        assert expected_literal in detail, detail
+        assert "destination template catalog" in detail, detail
+
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
         flow = HogFlow.objects.get(pk=flow_id)
