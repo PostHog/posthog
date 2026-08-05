@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -106,8 +106,9 @@ export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?
             <LemonButton
                 size="xsmall"
                 type="tertiary"
-                className="mt-2"
-                icon={expanded ? <IconChevronDown /> : <IconChevronRight />}
+                noPadding
+                className="mt-2 text-muted-alt"
+                icon={<IconChevronDown className={expanded ? undefined : '-rotate-90'} />}
                 onClick={() => setExpanded(!expanded)}
             >
                 {expanded ? 'Show less' : 'More details'}
