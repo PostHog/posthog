@@ -131,7 +131,7 @@ def get_scim_base_url(domain: OrganizationDomain, request=None) -> str:
     from django.conf import settings
 
     base_url = settings.SITE_URL
-    return f"{base_url}/scim/v2/{domain.id}"
+    return f"{base_url}/scim/v2/{domain.idp_config.scim_slug}"
 
 
 def detect_identity_provider(request: Request) -> SCIMProvisionedUser.IdentityProvider:

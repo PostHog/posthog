@@ -23,7 +23,7 @@ class SCIMAuthToken:
         self.is_authenticated = True
         self.is_active = True
         self.pk = None  # SCIM auth doesn't have a user PK
-        self.id = None
+        self.id = domain.idp_config.scim_slug
 
     def __str__(self):
         return f"SCIMAuth({self.domain.domain})"
@@ -32,7 +32,7 @@ class SCIMAuthToken:
 class SCIMBearerTokenAuthentication(BaseAuthentication):
     """
     SCIM authentication using bearer tokens.
-    Each OrganizationDomain has its own SCIM bearer token for tenant isolation.
+    Each linked IdentityProviderConfig has its own SCIM bearer token for tenant isolation.
     """
 
     def authenticate(self, request: Request) -> Optional[tuple[SCIMAuthToken, OrganizationDomain]]:
@@ -45,15 +45,17 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         if not token:
             raise exceptions.NotAuthenticated("Bearer token required for SCIM endpoints")
 
-        # Extract domain_id from URL path (e.g., /scim/v2/{domain_id}/Users)
-        domain_id = self._extract_domain_id_from_path(request.path)
-        if not domain_id:
+        # Extract the config slug from the URL path (e.g., /scim/v2/{scim_slug}/Users)
+        scim_slug = self._extract_scim_slug_from_path(request.path)
+        if not scim_slug:
             raise exceptions.AuthenticationFailed("Invalid SCIM URL format")
 
         try:
-            # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, domain_id is tenant identifier)
-            domain = OrganizationDomain.objects.select_related("identity_provider_config").get(id=domain_id)
-        except OrganizationDomain.DoesNotExist:
+            # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, config slug is tenant identifier)
+            domain = OrganizationDomain.objects.select_related("identity_provider_config").get(
+                identity_provider_config__scim_slug=scim_slug
+            )
+        except (OrganizationDomain.DoesNotExist, OrganizationDomain.MultipleObjectsReturned):
             raise exceptions.AuthenticationFailed("Invalid organization domain")
 
         # Read the linked IdP config directly (the source of truth) rather than through the
@@ -76,10 +78,10 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
 
         return (SCIMAuthToken(domain), domain)
 
-    def _extract_domain_id_from_path(self, path: str) -> Optional[str]:
+    def _extract_scim_slug_from_path(self, path: str) -> Optional[str]:
         """
-        Extract domain UUID from SCIM URL path.
-        Expected format: /scim/v2/{domain_id}/Users or /scim/v2/{domain_id}/Groups
+        Extract the IdP config slug from the SCIM URL path.
+        Expected format: /scim/v2/{scim_slug}/Users or /scim/v2/{scim_slug}/Groups
         """
         parts = path.strip("/").split("/")
         if len(parts) >= 3 and parts[0] == "scim" and parts[1] == "v2":

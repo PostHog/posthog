@@ -116,7 +116,7 @@ class PostHogSCIMUser(SCIMUser):
         return {
             "id": cls.resource_type,
             "name": cls.resource_type,
-            "endpoint": f"/scim/v2/{request.auth.id if request and request.auth else '{domain_id}'}/Users",
+            "endpoint": f"/scim/v2/{request.auth.id if request and request.auth else '{scim_slug}'}/Users",
             "schema": constants.SchemaURI.USER,
         }
 
@@ -133,7 +133,7 @@ class PostHogSCIMUser(SCIMUser):
             "active": self.active,
             "meta": {
                 "resourceType": self.resource_type,
-                "location": f"/scim/v2/{self._organization_domain.id}/Users/{self.id}",
+                "location": f"/scim/v2/{self._organization_domain.idp_config.scim_slug}/Users/{self.id}",
             },
         }
 
@@ -146,7 +146,7 @@ class PostHogSCIMUser(SCIMUser):
         base_dict["groups"] = [
             {
                 "value": str(rm.role.id),
-                "$ref": f"/scim/v2/{self._organization_domain.id}/Groups/{rm.role.id}",
+                "$ref": f"/scim/v2/{self._organization_domain.idp_config.scim_slug}/Groups/{rm.role.id}",
                 "display": rm.role.name,
             }
             for rm in role_memberships

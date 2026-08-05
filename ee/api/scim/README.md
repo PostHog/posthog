@@ -8,9 +8,9 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 
 ### Domain-Level Tenancy
 
-- SCIM configuration stored on `OrganizationDomain` model (follows SAML pattern)
-- Each domain has unique bearer token for authentication
-- URL structure: `/scim/v2/{domain_id}/Users`
+- SCIM configuration is stored on the linked `IdentityProviderConfig`
+- Each identity provider configuration has a bearer token and `scim_slug` for authentication
+- URL structure: `/scim/v2/{scim_slug}/Users`, where `scim_slug` comes from the linked `IdentityProviderConfig`
 - Ensures tenant isolation matching existing SAML implementation
 
 ### User Provisioning Strategy
@@ -38,7 +38,7 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 
 ### Models
 
-- `posthog/models/organization_domain.py` - Added `scim_enabled`, `scim_bearer_token` fields
+- `posthog/models/identity_provider_config.py` - Stores `scim_enabled`, `scim_bearer_token`, and `scim_slug`
 
 ### Core SCIM Implementation (`ee/api/scim/`)
 
@@ -69,23 +69,23 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 ### SCIM Endpoints (IdP Integration)
 
 ```text
-GET    /scim/v2/{domain_id}/Users              # List users
-POST   /scim/v2/{domain_id}/Users              # Create user
-GET    /scim/v2/{domain_id}/Users/{id}         # Get user
-PUT    /scim/v2/{domain_id}/Users/{id}         # Replace user
-PATCH  /scim/v2/{domain_id}/Users/{id}         # Update user
-DELETE /scim/v2/{domain_id}/Users/{id}         # Deactivate user
+GET    /scim/v2/{scim_slug}/Users              # List users
+POST   /scim/v2/{scim_slug}/Users              # Create user
+GET    /scim/v2/{scim_slug}/Users/{id}         # Get user
+PUT    /scim/v2/{scim_slug}/Users/{id}         # Replace user
+PATCH  /scim/v2/{scim_slug}/Users/{id}         # Update user
+DELETE /scim/v2/{scim_slug}/Users/{id}         # Deactivate user
 
-GET    /scim/v2/{domain_id}/Groups             # List groups
-POST   /scim/v2/{domain_id}/Groups             # Create group
-GET    /scim/v2/{domain_id}/Groups/{id}        # Get group
-PUT    /scim/v2/{domain_id}/Groups/{id}        # Replace group
-PATCH  /scim/v2/{domain_id}/Groups/{id}        # Update group
-DELETE /scim/v2/{domain_id}/Groups/{id}        # Delete group
+GET    /scim/v2/{scim_slug}/Groups             # List groups
+POST   /scim/v2/{scim_slug}/Groups             # Create group
+GET    /scim/v2/{scim_slug}/Groups/{id}        # Get group
+PUT    /scim/v2/{scim_slug}/Groups/{id}        # Replace group
+PATCH  /scim/v2/{scim_slug}/Groups/{id}        # Update group
+DELETE /scim/v2/{scim_slug}/Groups/{id}        # Delete group
 
-GET    /scim/v2/{domain_id}/ServiceProviderConfig  # Provider capabilities
-GET    /scim/v2/{domain_id}/ResourceTypes          # Resource types
-GET    /scim/v2/{domain_id}/Schemas                # SCIM schemas
+GET    /scim/v2/{scim_slug}/ServiceProviderConfig  # Provider capabilities
+GET    /scim/v2/{scim_slug}/ResourceTypes          # Resource types
+GET    /scim/v2/{scim_slug}/Schemas                # SCIM schemas
 ```
 
 ### Management Endpoints (PostHog UI)
@@ -114,7 +114,7 @@ Successful response includes the one-time bearer token and SCIM base URL:
   "id": "<domain_id>",
   "domain": "example.com",
   "scim_enabled": true,
-  "scim_base_url": "https://app.posthog.com/scim/v2/<domain_id>",
+  "scim_base_url": "https://app.posthog.com/scim/v2/<scim_slug>",
   "scim_bearer_token": "<plain_token_once>",
   ...
 }
@@ -135,8 +135,8 @@ Response mirrors JIT disabling: `scim_enabled` becomes `false` and no token is r
 ## Authentication Flow
 
 1. IdP makes request to SCIM endpoint with `Authorization: Bearer {token}`
-2. `SCIMBearerTokenAuthentication` extracts domain_id from URL
-3. Retrieves `OrganizationDomain` and validates token (hashed comparison)
+2. `SCIMBearerTokenAuthentication` extracts `scim_slug` from the URL
+3. Retrieves the linked `OrganizationDomain` and validates the configuration token (hashed comparison)
 4. Returns domain as `request.auth` for tenant scoping
 5. Views filter all queries by `organization_domain.organization`
 
@@ -238,7 +238,7 @@ org.save()
 Get the bearer token and base URL from Settings → Authentication domains or via Django shell:
 
 ```python
-token = enable_scim_for_domain(domain)
+token = enable_scim_for_config(domain.idp_config)
 print(f"Bearer Token: {token}")
 
 scim_url = get_scim_base_url(domain)
@@ -250,7 +250,7 @@ print(f"SCIM Base URL: {scim_url}")
 ### Create User (New)
 
 ```json
-POST /scim/v2/{domain_id}/Users
+POST /scim/v2/{scim_slug}/Users
 {
   "userName": "alice@example.com",
   "name": {"givenName": "Alice", "familyName": "Smith"},
@@ -275,7 +275,7 @@ If user exists in another org:
 ### Update User
 
 ```json
-PATCH /scim/v2/{domain_id}/Users/{id}
+PATCH /scim/v2/{scim_slug}/Users/{id}
 {
   "Operations": [
     {"op": "replace", "value": {"name": {"givenName": "Alicia"}}}
@@ -288,7 +288,7 @@ PATCH /scim/v2/{domain_id}/Users/{id}
 ### Deactivate User
 
 ```json
-PATCH /scim/v2/{domain_id}/Users/{id}
+PATCH /scim/v2/{scim_slug}/Users/{id}
 {
   "Operations": [
     {"op": "replace", "value": {"active": false}}
@@ -303,7 +303,7 @@ PATCH /scim/v2/{domain_id}/Users/{id}
 ### Create Group
 
 ```json
-POST /scim/v2/{domain_id}/Groups
+POST /scim/v2/{scim_slug}/Groups
 {
   "displayName": "Engineering",
   "members": [{"value": "user-id"}]
@@ -318,7 +318,7 @@ POST /scim/v2/{domain_id}/Groups
 ### Update Group Members
 
 ```json
-PATCH /scim/v2/{domain_id}/Groups/{id}
+PATCH /scim/v2/{scim_slug}/Groups/{id}
 {
   "Operations": [
     {"op": "replace", "value": {"members": [{"value": "user-id-1"}, {"value": "user-id-2"}]}}
@@ -365,7 +365,7 @@ pytest ee/api/scim/test/test_groups_api.py
 ### OneLogin
 
 1. Go to Applications → Applications → Add App → Search for **"SCIM Provisioner with SAML (SCIM v2 full SAML)"**
-2. SCIM Base URL: For cloud, use `https://app.posthog.com/scim/v2/{domain_id}`. For local testing, use your ngrok URL, e.g. `https://<ngrok-subdomain>.ngrok.io/scim/v2/{domain_id}`. The `{domain_id}` can be copied directly from the SCIM configuration screen in PostHog.
+2. SCIM Base URL: Use the `scim_base_url` returned by the OrganizationDomain API. It includes the `scim_slug` configured on the linked identity provider configuration.
 3. Bearer Token: Paste the generated Bearer Token from PostHog. It's only shown on first enable or when regenerating.
 4. Enable provisioning in the Configuration and Provisioning tabs (otherwise, OneLogin won't push any updates).
 5. In "Rules", you can sync Role membership by: - Mapping OneLogin roles or groups directly to existing groups in PostHog (by matching names), or - Mapping OneLogin roles/groups that will be upserted in PostHog as needed

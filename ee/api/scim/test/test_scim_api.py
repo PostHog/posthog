@@ -44,6 +44,17 @@ class TestSCIMAPI(APILicensedTest):
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
 
+    def test_scim_uses_config_slug(self):
+        self.domain.identity_provider_config.scim_slug = "custom-scim-slug"
+        self.domain.identity_provider_config.save(update_fields=["scim_slug"])
+        self.client.credentials(**self.scim_headers)
+
+        response = self.client.get("/scim/v2/custom-scim-slug/Users")
+        assert response.status_code == status.HTTP_200_OK
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_invalid_token(self):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid_token")
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
