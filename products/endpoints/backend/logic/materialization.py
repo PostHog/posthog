@@ -254,6 +254,13 @@ class EndpointMaterializationService:
                 # delivers) — a request problem, not a server one.
                 raise ValidationError(str(e))
 
+            # schedule_materialization applies a disable-on-failure contract rather than raising,
+            # so a failure to schedule shows up only as is_materialized flipping back. Checking it
+            # is what stops the enable reporting success on an endpoint nothing will ever refresh.
+            saved_query.refresh_from_db(fields=["is_materialized"])
+            if not saved_query.is_materialized:
+                raise APIException(f"Failed to schedule materialization for endpoint {endpoint.name}.")
+
     def _get_or_build_saved_query(self, version: EndpointVersion) -> DataWarehouseSavedQuery:
         """Find this version's saved query, or build a new (unsaved) one.
 
