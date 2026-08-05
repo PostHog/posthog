@@ -11,7 +11,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex, PropertyGroup
+from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.user_blast_radius import (
@@ -74,6 +74,8 @@ def get_batch_audience_person_ids(
     the smallest UUID, so an email address receives a given batch send only once. Persons
     without an email are never collapsed.
     """
+    filters = or_wrapped_audience_filters(filters)
+
     if group_type_index is not None:
         # Group keys are already unique; the flags-owned group query needs no dedup.
         return get_user_blast_radius_persons(team, filters, group_type_index, cursor)
@@ -107,7 +109,7 @@ def get_batch_audience_count(
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
     with unevaluable_filters_as_validation_errors():
-        cleaned_filter = replace_proxy_properties(team, filters)
+        cleaned_filter = replace_proxy_properties(team, or_wrapped_audience_filters(filters))
 
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -115,7 +117,7 @@ def get_batch_audience_count(
                 left=ast.Field(chain=["persons", "team_id"]),
                 right=ast.Constant(value=team.pk),
             ),
-            property_to_expr(_audience_property_groups(cleaned_filter), team, scope="person"),
+            property_to_expr(cleaned_filter.property_groups, team, scope="person"),
         ]
 
         select_query = ast.SelectQuery(
@@ -130,22 +132,26 @@ def get_batch_audience_count(
     return response.results[0][0] if response.results else 0
 
 
-def _audience_property_groups(filter: Filter) -> PropertyGroup:
+def or_wrapped_audience_filters(filters: dict) -> dict:
     """
-    Combine the batch trigger's audience conditions with OR.
+    Rewrap a batch audience's flat condition list in an explicit OR group.
 
     The audience builder presents its conditions as OR (the `orFiltering` UI and the
     workflow docs both promise OR logic), but the conditions are stored as a flat
-    `properties` list, which `Filter` wraps in AND by default. Left as AND, a person is
+    `properties` list, which `Filter` parses as AND by default. Left as AND, a person is
     dropped unless they match every condition — the opposite of what the UI advertises,
-    silently excluding intended recipients. Re-wrap the top-level conditions in OR so the
-    query matches the promised semantics.
+    silently excluding intended recipients. Wrapping at the dict level fixes every
+    consumer at once — the workflows-owned query and the flags-owned person/group
+    helpers this module delegates to — so it must be applied wherever audience filters
+    enter a query path, and only there (confirm tokens are minted on the raw filters).
 
-    Empty and single-condition groups are unaffected: `property_to_expr` renders both
-    identically regardless of the group type, so this only changes behavior once there are
-    two or more conditions.
+    Single-condition and empty lists are unchanged (no semantic difference), as is an
+    already-grouped dict, whose explicit operator is respected.
     """
-    return PropertyGroup(type=PropertyOperatorType.OR, values=filter.property_groups.values)
+    properties = filters.get("properties")
+    if isinstance(properties, list) and len(properties) > 1:
+        return {**filters, "properties": {"type": PropertyOperatorType.OR.value, "values": properties}}
+    return filters
 
 
 def _email_dedupe_group_expr() -> ast.Expr:
@@ -173,7 +179,7 @@ def _build_audience_person_query(
             left=ast.Field(chain=["persons", "team_id"]),
             right=ast.Constant(value=team.pk),
         ),
-        property_to_expr(_audience_property_groups(filter), team, scope="person"),
+        property_to_expr(filter.property_groups, team, scope="person"),
     ]
 
     if dedupe_key == EMAIL_DEDUPE_KEY:

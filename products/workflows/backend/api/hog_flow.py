@@ -119,6 +119,7 @@ from products.workflows.backend.services.batch_audience import (
     SUPPORTED_DEDUPE_KEYS,
     get_batch_audience_count,
     get_batch_audience_person_ids,
+    or_wrapped_audience_filters,
     use_workflows_batch_audience_query,
 )
 from products.workflows.backend.services.timing_reschedule import (
@@ -3446,7 +3447,7 @@ class HogFlowViewSet(
             blast_radius = BlastRadiusResult(affected=affected, total=total)
             applied_dedupe_key = dedupe_key
         else:
-            blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
+            blast_radius = get_user_blast_radius(self.team, or_wrapped_audience_filters(filters), group_type_index)
 
         return Response(
             BlastRadiusSerializer(
@@ -4016,7 +4017,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            result = get_user_blast_radius(team, filters, group_type_index)
+            result = get_user_blast_radius(team, or_wrapped_audience_filters(filters), group_type_index)
             return Response(
                 BlastRadiusSerializer(
                     {
@@ -4065,7 +4066,9 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 )
                 batch_size = WORKFLOWS_PERSON_BATCH_SIZE
             else:
-                users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+                users_affected = get_user_blast_radius_persons(
+                    team, or_wrapped_audience_filters(filters), group_type_index, cursor
+                )
                 batch_size = PERSON_BATCH_SIZE
             return Response(
                 {

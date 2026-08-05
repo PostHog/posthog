@@ -8,6 +8,7 @@ from products.feature_flags.backend.user_blast_radius import get_user_blast_radi
 from products.workflows.backend.services.batch_audience import (
     get_batch_audience_count,
     get_batch_audience_person_ids,
+    or_wrapped_audience_filters,
     use_workflows_batch_audience_query,
 )
 
@@ -112,6 +113,40 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         assert sorted(get_batch_audience_person_ids(self.team, filters)) == [_uuid(i) for i in (1, 2, 3)]
         assert get_batch_audience_count(self.team, filters, dedupe_key="email") == 3
+
+    def test_group_audience_delegates_with_or_wrapped_filters(self):
+        # The group path delegates to the flags-owned query, which parses a flat list as
+        # AND — the filters must arrive already OR-wrapped or group audiences silently
+        # get the intersection instead of the promised union.
+        filters = {
+            "properties": [
+                {"key": "plan", "type": "group", "group_type_index": 1, "value": ["pro"], "operator": "exact"},
+                {"key": "tier", "type": "group", "group_type_index": 1, "value": ["gold"], "operator": "exact"},
+            ]
+        }
+
+        with patch(
+            "products.workflows.backend.services.batch_audience.get_user_blast_radius_persons", return_value=[]
+        ) as mock_blast_radius:
+            get_batch_audience_person_ids(self.team, filters, group_type_index=1)
+
+        passed_filters = mock_blast_radius.call_args.args[1]
+        assert passed_filters["properties"]["type"] == "OR"
+        assert passed_filters["properties"]["values"] == filters["properties"]
+
+    @parameterized.expand(
+        [
+            ("single_condition_unchanged", FILTERS),
+            ("empty_list_unchanged", {"properties": []}),
+            ("missing_properties_unchanged", {}),
+            (
+                "explicit_group_respected",
+                {"properties": {"type": "AND", "values": [{"key": "a", "type": "person", "value": ["1"]}]}},
+            ),
+        ]
+    )
+    def test_or_wrapping_leaves_non_wrappable_filters_alone(self, _name, filters):
+        assert or_wrapped_audience_filters(filters) == filters
 
     def test_use_flag_defaults_off_when_feature_enabled_raises(self):
         # Batch sends are a critical path — a Redis/HyperCache blip that makes
