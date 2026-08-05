@@ -4832,9 +4832,9 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
     ) -> None:
         from posthog.tasks.usage_report import get_teams_with_billable_sandbox_compute_usage_in_period
 
-        from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
+        from products.tasks.backend.facade.billing import ComputeRateCardConfigurationError, SandboxComputeUsageByTeam
 
-        error = ValueError("invalid")
+        error = ComputeRateCardConfigurationError("invalid")
         mock_compute.side_effect = error
 
         result = get_teams_with_billable_sandbox_compute_usage_in_period(
@@ -4843,6 +4843,24 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
 
         assert result == SandboxComputeUsageByTeam([], [], [])
         mock_capture.assert_called_once_with(error)
+
+    @patch("retry.api.time.sleep")
+    @patch("posthog.tasks.usage_report.capture_exception")
+    @patch("posthog.tasks.usage_report.get_billable_sandbox_compute_usage_by_team")
+    def test_transient_compute_failure_propagates_after_retries(
+        self, mock_compute: MagicMock, mock_capture: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import QUERY_RETRIES, get_teams_with_billable_sandbox_compute_usage_in_period
+
+        mock_compute.side_effect = RuntimeError("transient database failure")
+
+        with self.assertRaises(RuntimeError):
+            get_teams_with_billable_sandbox_compute_usage_in_period(
+                datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
+            )
+
+        assert mock_compute.call_count == QUERY_RETRIES
+        mock_capture.assert_not_called()
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

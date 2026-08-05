@@ -66,6 +66,7 @@ from products.surveys.backend.util import (
     get_unique_survey_event_uuids_sql_subquery,
 )
 from products.tasks.backend.facade.billing import (
+    ComputeRateCardConfigurationError,
     SandboxComputeUsageByTeam,
     SandboxUsageByTeam,
     get_billable_sandbox_compute_usage_by_team,
@@ -1754,12 +1755,17 @@ def get_teams_with_task_sandbox_usage_in_period(begin: datetime, end: datetime) 
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_sandbox_compute_usage_in_period(
     begin: datetime, end: datetime
 ) -> SandboxComputeUsageByTeam:
+    """A rate-card misconfiguration degrades to empty usage rather than aborting quota/report
+    runs for every product; anything else (e.g. a transient DB failure) propagates so the
+    retry/abort-and-preserve semantics of the sibling billing queries apply.
+    """
     try:
         return get_billable_sandbox_compute_usage_by_team(begin, end)
-    except Exception as err:
+    except ComputeRateCardConfigurationError as err:
         logger.exception("sandbox_compute.usage_report_failed")
         capture_exception(err)
         return SandboxComputeUsageByTeam([], [], [])
