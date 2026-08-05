@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -1094,6 +1095,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                           values.evaluation as Parameters<typeof evaluationsPartialUpdate>[2]
                       )) as unknown as EvaluationConfig
                 actions.saveEvaluationSuccess(response)
+                if (isNew) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
+                }
 
                 // Piggyback the scheduled-report draft onto the main save so the single
                 // "Save changes" button at the top of the page commits both forms. The

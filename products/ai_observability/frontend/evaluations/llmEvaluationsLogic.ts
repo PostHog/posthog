@@ -100,9 +100,6 @@ export interface llmEvaluationsLogicActions {
     deleteEvaluationSuccess: (id: string) => {
         id: string
     }
-    restoreEvaluationSuccess: (evaluation: EvaluationConfig) => {
-        evaluation: EvaluationConfig
-    }
     loadEvaluationDirectories: () => any
     loadEvaluationDirectoriesFailure: (
         error: string,
@@ -150,6 +147,9 @@ export interface llmEvaluationsLogicActions {
     }
     openRenameDirectory: (directory: EvaluationDirectoryApi) => {
         directory: EvaluationDirectoryApi
+    }
+    restoreEvaluationSuccess: (evaluation: EvaluationConfig) => {
+        evaluation: EvaluationConfig
     }
     selectDirectory: (directoryId: string | null) => {
         directoryId: string | null
