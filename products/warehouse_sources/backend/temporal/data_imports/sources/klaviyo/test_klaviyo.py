@@ -29,7 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
     KLAVIYO_ENDPOINTS,
     KlaviyoEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import (
+    KlaviyoSource,
+    _resolve_extra_query_params,
+)
 
 
 class TestFormatIncrementalValue:
@@ -170,6 +173,36 @@ class TestBuildInitialParams:
             incremental_field="joined_group_at",
         )
         assert params["filter"] == "greater-than(joined_group_at,2026-06-14T12:00:00.000Z)"
+
+    def test_extra_query_params_merge_alongside_standard_params(self) -> None:
+        config = KLAVIYO_ENDPOINTS["profiles"]
+        params = _build_initial_params(
+            config,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="updated",
+            extra_query_params={"additional-fields[profile]": "subscriptions"},
+        )
+        assert params["filter"] == "greater-than(updated,2026-03-04T02:58:14.000Z)"
+        assert params["additional-fields[profile]"] == "subscriptions"
+
+    def test_extra_query_params_default_is_a_noop(self) -> None:
+        config = KLAVIYO_ENDPOINTS["profiles"]
+        with_none = _build_initial_params(
+            config,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+            extra_query_params=None,
+        )
+        without = _build_initial_params(
+            config,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert with_none == without
+        assert "additional-fields[profile]" not in with_none
 
 
 class TestClampFutureValueToNow:
@@ -1040,3 +1073,57 @@ class TestValidateCredentialsResolvedPin:
 
         headers = session_factory.return_value.get.call_args.kwargs["headers"]
         assert headers["revision"] == api_version
+
+
+class TestProfileSubscriptionsOptIn:
+    def _config(self, enabled: bool | None) -> KlaviyoSourceConfig:
+        payload: dict[str, Any] = {"api_key": "pk_test"}
+        if enabled is not None:
+            # job_inputs round-trips booleans as the strings "True"/"False"
+            payload["profile_subscriptions"] = {"enabled": "True" if enabled else "False"}
+        return KlaviyoSourceConfig.from_dict(payload)
+
+    def test_config_round_trips_the_stored_string_encoding(self) -> None:
+        config = self._config(enabled=True)
+        assert config.profile_subscriptions is not None
+        assert config.profile_subscriptions.enabled is True
+        assert self._config(enabled=False).profile_subscriptions.enabled is False  # type: ignore[union-attr]
+        # A payload without the key materializes the nested config with its default (off),
+        # so pre-existing sources parse to the same "disabled" state as an explicit False.
+        absent = self._config(enabled=None).profile_subscriptions
+        assert absent is not None and absent.enabled is False
+
+    def test_enabled_toggle_requests_subscriptions_on_profiles(self) -> None:
+        params = _resolve_extra_query_params(self._config(enabled=True), "profiles")
+        assert params == {"additional-fields[profile]": "subscriptions"}
+
+    @parameterized.expand([("toggle_off", False), ("toggle_absent", None)])
+    def test_disabled_toggle_requests_nothing(self, _name: str, enabled: bool | None) -> None:
+        assert _resolve_extra_query_params(self._config(enabled=enabled), "profiles") == {}
+
+    @parameterized.expand([("list_profiles",), ("segment_profiles",), ("events",), ("templates",)])
+    def test_other_schemas_are_untouched_even_when_enabled(self, schema_name: str) -> None:
+        # The membership fan-outs restrict profile payloads via fields[profile]=joined_group_at;
+        # expanding them with additional-fields would balloon every fan-out request.
+        assert _resolve_extra_query_params(self._config(enabled=True), schema_name) == {}
+
+    def test_request_url_carries_the_literal_unencoded_param(self, monkeypatch: Any = None) -> None:
+        fetched_urls: list[str] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any, json_body: Any = None) -> dict:
+            fetched_urls.append(url)
+            return {"data": [], "links": {"next": None}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            manager = _FakeResumableManager()
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="profiles",
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                    extra_query_params={"additional-fields[profile]": "subscriptions"},
+                )
+            )
+
+        assert fetched_urls == ["https://a.klaviyo.com/api/profiles?additional-fields[profile]=subscriptions"]
