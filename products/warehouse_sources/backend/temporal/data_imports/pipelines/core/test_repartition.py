@@ -1,6 +1,7 @@
 import os
 import asyncio
 import datetime
+import itertools
 from types import SimpleNamespace
 
 import pytest
@@ -534,10 +535,11 @@ class TestRewriteIntoTemp:
         old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
         temp_uri = str(tmp_path / "tmp")
 
-        # One reading per batch read. Batches coalesce into a commit rather than writing one each,
-        # so the deadline has to fall after the buffer has flushed at least once for any row to be
-        # observable in temp at all.
-        clock = Mock(side_effect=[0.0, 0.0, 100.0])
+        # Batches coalesce into a commit rather than writing one each, so the deadline has to fall
+        # after the buffer has flushed at least once for any row to be observable in temp at all.
+        # The rewrite also samples this clock for its own progress timing, so the prefix stays under
+        # the deadline for the early reads and every later read is over it.
+        clock = Mock(side_effect=itertools.chain([0.0] * 4, itertools.repeat(100.0)))
 
         with patch.object(repartition_module, "time", Mock(monotonic=clock)):
             with pytest.raises(RepartitionBudgetExceededError):
@@ -573,7 +575,9 @@ class TestRewriteIntoTemp:
         old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
         temp_uri = str(tmp_path / "tmp")
 
-        clock = Mock(side_effect=[0.0, 100.0])
+        # Every deadline check must land under the deadline for the rewrite to reach the swap; the
+        # later readings only feed progress timing, so they are free to be past it.
+        clock = Mock(side_effect=itertools.chain([0.0] * 2, itertools.repeat(100.0)))
 
         with patch.object(repartition_module, "time", Mock(monotonic=clock)):
             rows_written, _ = asyncio.run(
