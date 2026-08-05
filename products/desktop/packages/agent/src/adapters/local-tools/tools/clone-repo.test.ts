@@ -94,6 +94,18 @@ describe("clone_repo", () => {
     ).not.toContain("test-token");
   });
 
+  // Regression: a tag leaves a detached HEAD, where rev-parse --abbrev-ref
+  // prints the literal "HEAD"; the message must name the requested ref.
+  it("reports the requested ref when checking out a tag", async () => {
+    const result = await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "PostHog/posthog", branch: "v1" },
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("on branch v1");
+  });
+
   // A retargeted origin is what turns the missing-branch fetch below into a
   // request to somewhere we never meant to talk to, carrying the token with it.
   it.each([

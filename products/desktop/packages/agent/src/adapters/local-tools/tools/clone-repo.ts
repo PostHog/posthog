@@ -135,8 +135,9 @@ export const cloneRepoTool = defineLocalTool({
 
     const done = async (note?: string): Promise<LocalToolResult> => {
       const head = await git(["rev-parse", "--abbrev-ref", "HEAD"], targetPath);
+      const headRef = head.exitCode === 0 ? head.stdout.trim() : null;
       const checkedOut =
-        head.exitCode === 0 ? head.stdout.trim() : (branch ?? null);
+        headRef && headRef !== "HEAD" ? headRef : (branch ?? null);
       return {
         content: [
           {
