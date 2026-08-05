@@ -7,6 +7,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { SELF_DRIVING_GOALS } from '../goals'
 import { goalSelectionLogic } from '../goalSelectionLogic'
+import { productEnablementStepLogic } from '../productEnablementStepLogic'
 
 /**
  * One declared goal, so the rest of the flow can drive toward it as fast as possible. Each row's
@@ -16,6 +17,7 @@ import { goalSelectionLogic } from '../goalSelectionLogic'
  */
 export function GoalsStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }): JSX.Element {
     const { selectGoal } = useActions(goalSelectionLogic)
+    const { autoEnableForGoal } = useActions(productEnablementStepLogic)
 
     return (
         <div className="flex flex-col gap-6 py-1">
@@ -28,6 +30,7 @@ export function GoalsStep({ onContinue, onSkip }: { onContinue: () => void; onSk
                             type="button"
                             onClick={() => {
                                 selectGoal(goal.key)
+                                autoEnableForGoal(goal.key)
                                 onContinue()
                             }}
                             className="OnboardingProductCard group flex items-center gap-4 p-4 rounded-lg border text-left cursor-pointer transition-all hover:shadow-sm"
@@ -54,7 +57,14 @@ export function GoalsStep({ onContinue, onSkip }: { onContinue: () => void; onSk
                 })}
             </div>
             <div className="flex justify-center">
-                <LemonButton type="tertiary" size="small" onClick={onSkip}>
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    onClick={() => {
+                        autoEnableForGoal(null)
+                        onSkip()
+                    }}
+                >
                     Not sure yet, set up everything
                 </LemonButton>
             </div>

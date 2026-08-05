@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
@@ -15,6 +15,7 @@ import { onboardingLogic } from '../legacy/onboardingLogic'
 import { onboardingEventUsageLogic, type SelfDrivingOnboardingStepId } from '../onboardingEventUsageLogic'
 import type { SelfDrivingGoal } from './goals'
 import { goalSelectionLogic } from './goalSelectionLogic'
+import { productEnablementStepLogic } from './productEnablementStepLogic'
 import { RoughMark } from './RoughMark'
 import { AIObservabilityStep } from './steps/AIObservabilityStep'
 import { AuthorizedUrlsStep } from './steps/AuthorizedUrlsStep'
@@ -124,6 +125,9 @@ const CARD_CLASSES =
     'relative w-full flex flex-col gap-5 overflow-hidden p-0 sm:max-h-[calc(100dvh-7rem)] sm:p-8 md:p-10 sm:bg-[#f6f5f0] sm:rounded-2xl sm:shadow-[0_16px_40px_rgb(30_50_10_/_25%)] sm:border sm:border-primary'
 
 export function SelfDrivingOnboardingFlow(): JSX.Element {
+    // Mounted for the whole flow so the goal step's fire-and-forget auto-enable calls outlive the
+    // step that fired them.
+    useMountedLogic(productEnablementStepLogic)
     const { completeSelfDrivingOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
     const {
