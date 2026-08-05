@@ -202,9 +202,9 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
 /// sink config that changes a routing decision rather than a topic name.
 /// Side effects are not part of the decision: the dlq header set and the
 /// reroute counters follow from the target, and the person-processing header
-/// follows from the stamped `skip_person_processing` flag (which the
-/// pipeline sets alongside `OverflowReason::ForceLimited` — the metadata is
-/// self-describing).
+/// follows from [`ProcessedEventMetadata::person_processing_disabled`] —
+/// the stamped flag, or a `ForceLimited` reason, which implies the skip on
+/// its own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Route {
     target: Output,
@@ -249,7 +249,7 @@ fn route(
             if metadata.force_overflow {
                 Route {
                     target: Output::AnalyticsOverflow,
-                    ordering: person_ordering(metadata.skip_person_processing),
+                    ordering: person_ordering(metadata.person_processing_disabled()),
                 }
             } else {
                 match &metadata.overflow_reason {
@@ -269,7 +269,7 @@ fn route(
                     // not get its partition back.
                     Some(OverflowReason::RateLimited { .. }) => Route {
                         target: Output::AnalyticsOverflow,
-                        ordering: person_ordering(metadata.skip_person_processing),
+                        ordering: person_ordering(metadata.person_processing_disabled()),
                     },
                     // ReplayLimited is stamped only by the recordings pipeline,
                     // so an analytics event cannot carry it — the shared
@@ -277,7 +277,7 @@ fn route(
                     // impossible stamp as unstamped.
                     Some(OverflowReason::ReplayLimited) | None => Route {
                         target: Output::AnalyticsMain,
-                        ordering: person_ordering(metadata.skip_person_processing),
+                        ordering: person_ordering(metadata.person_processing_disabled()),
                     },
                 }
             }
@@ -297,7 +297,7 @@ fn route(
             if ai_events_overflow_armed && metadata.force_overflow {
                 Route {
                     target: Output::AiOverflow,
-                    ordering: person_ordering(metadata.skip_person_processing),
+                    ordering: person_ordering(metadata.person_processing_disabled()),
                 }
             } else if ai_events_overflow_armed {
                 match &metadata.overflow_reason {
@@ -310,7 +310,7 @@ fn route(
                     }) => Route {
                         target: Output::AiOverflow,
                         // Same precedence as the analytics overflow lane above.
-                        ordering: person_ordering(metadata.skip_person_processing),
+                        ordering: person_ordering(metadata.person_processing_disabled()),
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: false,
@@ -868,8 +868,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
         drop(event); // Events can be EXTREMELY memory hungry
 
-        // Apply skip_person_processing from event restrictions / upstream decisions
-        if metadata.skip_person_processing {
+        // The stamped flag (event restrictions / upstream decisions) or a
+        // ForceLimited reason, which implies the skip on its own.
+        if metadata.person_processing_disabled() {
             headers.set_force_disable_person_processing(true);
         }
 
@@ -2700,9 +2701,10 @@ mod tests {
         /// analytics lane — a burst without locality preservation spreads
         /// while person processing is on: the AI consumer reads persons
         /// without writing them, so keyless person-on records contend
-        /// nothing downstream.
+        /// nothing downstream. `ForceLimited` implies the person-processing
+        /// header on its own, flag or no flag.
         #[rstest]
-        #[case::force_limited(OverflowReason::ForceLimited, false, None)]
+        #[case::force_limited(OverflowReason::ForceLimited, false, Some(true))]
         #[case::rate_limited_preserving(
             OverflowReason::RateLimited {
                 preserve_locality: true
@@ -3040,17 +3042,16 @@ mod tests {
         // analytics_main_force_overflow / snapshot_main_force_overflow cases
         // above (force_overflow short-circuits the overflow_reason branch).
 
-        /// The person-processing header comes from the stamped
-        /// `skip_person_processing` flag alone — the pipeline sets it
-        /// alongside `ForceLimited` (self-describing metadata), so the sink
-        /// adds nothing for a reason stamped without the flag.
+        /// `ForceLimited` implies person processing is off on its own: the
+        /// header is set whether or not the stamping site also set the flag,
+        /// so a keyless force-limited record can never reach person
+        /// processing with identity resolution still on.
         #[rstest]
-        #[case::stamped_with_flag(true, Some(true))]
-        #[case::reason_only(false, None)]
+        #[case::stamped_with_flag(true)]
+        #[case::reason_only(false)]
         #[tokio::test]
         async fn overflow_reason_force_limited_routes_to_overflow_with_null_key(
             #[case] skip_person_processing: bool,
-            #[case] force_disable_person_processing: Option<bool>,
         ) {
             assert_routing(
                 EventInput {
@@ -3062,7 +3063,7 @@ mod tests {
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
                     has_key: false,
-                    force_disable_person_processing,
+                    force_disable_person_processing: Some(true),
                     ..Default::default()
                 },
             )
@@ -3196,7 +3197,10 @@ mod tests {
         #[tokio::test]
         async fn overflow_reason_redirect_to_dlq_wins_over_overflow_reason() {
             // DLQ routing is the highest-priority routing decision: it wins
-            // over both force_overflow and overflow_reason.
+            // over both force_overflow and overflow_reason. The
+            // person-processing header still travels with the ForceLimited
+            // reason — routing precedence changes the topic, not the skip
+            // (production stamps the flag alongside the reason anyway).
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
@@ -3207,7 +3211,7 @@ mod tests {
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
-                    force_disable_person_processing: None,
+                    force_disable_person_processing: Some(true),
                     dlq_headers: true,
                     rerouted: Rerouted::Dlq,
                     ..Default::default()
@@ -3231,7 +3235,9 @@ mod tests {
                 ExpectedRouting {
                     topic: "custom_topic",
                     has_key: true,
-                    force_disable_person_processing: None,
+                    // The header travels with the reason regardless of the
+                    // routing precedence, as in the dlq case above.
+                    force_disable_person_processing: Some(true),
                     rerouted: Rerouted::CustomTopic,
                     ..Default::default()
                 },

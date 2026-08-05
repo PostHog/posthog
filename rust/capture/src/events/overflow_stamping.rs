@@ -61,8 +61,9 @@ use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 /// * If the lane's limiter is `Some`, `is_limited(event.key())` is consulted
 ///   and the resulting [`OverflowReason`] is stamped, plus the matching
 ///   counter. `ForceLimited` additionally sets `skip_person_processing =
-///   true` so the sink's generic skip-person branch picks up the
-///   `force_disable_person_processing` header without a separate code path.
+///   true` for pipeline-level readers of the flag; the sink derives the
+///   `force_disable_person_processing` header from the reason itself, so
+///   the header does not depend on this stamp.
 ///
 /// Counter labels are intentionally identical to the pre-refactor sink so
 /// existing dashboards (filtering on `capture_events_rerouted_overflow`'s
@@ -101,11 +102,11 @@ pub fn stamp_overflow_reason(
                 )
                 .increment(1);
                 event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
-                // Self-describing metadata: ForceLimited implies person
-                // processing is skipped, so the flag is stamped alongside the
-                // reason. The sink derives the person-processing header from
-                // this flag alone — a reason stamped without it would keep
-                // person processing on.
+                // ForceLimited implies person processing is skipped; the sink
+                // derives that from the reason itself
+                // (`person_processing_disabled`). The flag is stamped
+                // alongside so pipeline-level readers of the flag see the
+                // same truth.
                 event.metadata.skip_person_processing = true;
             }
             OverflowLimiterResult::Limited => {

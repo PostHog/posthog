@@ -187,7 +187,8 @@ Goal: v1 endpoints publish through `dyn Outputs` like every other ingress, so fa
 
 **Hazard.** The `Destination::Overflow` → metadata mapping must preserve the split between the two intents that ride together on this lane: whether person processing is disabled (a customer-visible instruction, the `force_disable_person_processing` header) and whether the partition key is dropped (a load decision, `OrderingGuarantee`). Both paths now state the same rule, so the mapping has one contract to satisfy rather than two dialects to reconcile:
 
-- The header follows the stamped person-processing flag alone.
+- The header follows the stamped person-processing intent: the flag, which a `ForceLimited` reason implies on its own (`person_processing_disabled`), so a v0 stamping site cannot keep person processing on for a force-limited key by forgetting the flag.
+  v1 carries no reason on the event — its one stamping site sets the flag directly.
 - The key is dropped on the analytics main/overflow lanes when the person-processing flag is set, and on the AI overflow lane when either the flag or a spread decision is set — nowhere else.
   The analytics consumers update persons keyed on distinct id, so a person-on burst keeps its key there (spreading one distinct id across partitions contends those updates); the read-only AI overflow consumer takes keyless person-on records safely.
   Historical, dlq, custom redirects and the AI main topic keep the key regardless.
