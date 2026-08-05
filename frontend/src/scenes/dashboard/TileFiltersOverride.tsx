@@ -4,7 +4,7 @@ import './TileFiltersOverride.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCalendar, IconGear } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -93,6 +93,8 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                     </p>
                 </div>
 
+                <LemonDivider className="my-0" />
+
                 <div>
                     <label className="text-sm font-medium mb-2 block">Date range</label>
                     <DateFilter
@@ -132,6 +134,8 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                     />
                 </div>
 
+                <LemonDivider className="my-0" />
+
                 <div>
                     <label className="text-sm font-medium mb-2 block">Properties</label>
                     <PropertyFilters
@@ -154,37 +158,6 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                             TaxonomicFilterGroupType.DataWarehousePersonProperties,
                         ]}
                     />
-                </div>
-
-                <div>
-                    <label className="text-sm font-medium mb-2 block">Breakdown</label>
-                    <BindLogic logic={insightLogic} props={breakdownInsightProps}>
-                        <TaxonomicBreakdownFilter
-                            insightProps={breakdownInsightProps}
-                            breakdownFilter={overrides.breakdown_filter}
-                            isTrends={false}
-                            isFunnels={false}
-                            showLabel={false}
-                            disabledReason={
-                                supportsBreakdown ? undefined : "This insight type doesn't support a breakdown override"
-                            }
-                            updateBreakdownFilter={(breakdown_filter) => {
-                                let newBreakdownFilter: BreakdownFilter | null = breakdown_filter
-                                // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
-                                if (
-                                    breakdown_filter &&
-                                    !breakdown_filter.breakdown_type &&
-                                    !breakdown_filter.breakdowns
-                                ) {
-                                    newBreakdownFilter = null
-                                }
-                                setBreakdown(newBreakdownFilter)
-                            }}
-                            updateDisplay={() => {}}
-                            disablePropertyInfo
-                            size="small"
-                        />
-                    </BindLogic>
                 </div>
 
                 <div>
@@ -228,6 +201,39 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                         ]}
                     />
                     <p className="text-xs text-muted mt-1 mb-0">{CHOICE_HINTS[testAccountChoice]}</p>
+                </div>
+
+                <LemonDivider className="my-0" />
+
+                <div>
+                    <label className="text-sm font-medium mb-2 block">Breakdown</label>
+                    <BindLogic logic={insightLogic} props={breakdownInsightProps}>
+                        <TaxonomicBreakdownFilter
+                            insightProps={breakdownInsightProps}
+                            breakdownFilter={overrides.breakdown_filter}
+                            isTrends={false}
+                            isFunnels={false}
+                            showLabel={false}
+                            disabledReason={
+                                supportsBreakdown ? undefined : "This insight type doesn't support a breakdown override"
+                            }
+                            updateBreakdownFilter={(breakdown_filter) => {
+                                let newBreakdownFilter: BreakdownFilter | null = breakdown_filter
+                                // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
+                                if (
+                                    breakdown_filter &&
+                                    !breakdown_filter.breakdown_type &&
+                                    !breakdown_filter.breakdowns
+                                ) {
+                                    newBreakdownFilter = null
+                                }
+                                setBreakdown(newBreakdownFilter)
+                            }}
+                            updateDisplay={() => {}}
+                            disablePropertyInfo
+                            size="small"
+                        />
+                    </BindLogic>
                 </div>
             </div>
         </div>
