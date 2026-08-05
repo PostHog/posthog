@@ -19,18 +19,10 @@ import {
 } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { defaultFilter } from "cmdk";
-import {
-  type RefObject,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 
 const COMBOBOX_INITIAL_LIMIT = 50;
 const LOAD_MORE_INDICATOR_DELAY_MS = 200;
-const LOAD_MORE_SENTINEL = "\0loading-more";
 
 function useDelayedVisibility(visible: boolean, delay: number): boolean {
   const [delayedVisible, setDelayedVisible] = useState(false);
@@ -95,10 +87,6 @@ export function GitHubRepoPicker({
   const buttonSize = size === "2" ? "lg" : "sm";
   const buttonTextClass = size === "2" ? "text-[13px]" : "";
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const loadMoreRequestKeyRef = useRef<string | null>(null);
-  const preservePaginationScrollRef = useRef(false);
-  const paginationScrollTopRef = useRef(0);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(COMBOBOX_INITIAL_LIMIT);
@@ -109,7 +97,8 @@ export function GitHubRepoPicker({
     onSearchQueryChange !== undefined ||
     controlledHasMore !== undefined ||
     onLoadMore !== undefined;
-  const showInlineLoadingState = remoteMode && open && isLoading;
+  const showInlineLoadingState =
+    remoteMode && open && isLoading && !isLoadingMore;
   const onlyRepo =
     !remoteMode && repositories.length === 1 ? repositories[0] : null;
   const trimmedSearchQuery = searchQuery.trim();
@@ -129,9 +118,6 @@ export function GitHubRepoPicker({
     isLoadingMore,
     LOAD_MORE_INDICATOR_DELAY_MS,
   );
-  const items = showLoadingMore
-    ? [...repositories, LOAD_MORE_SENTINEL]
-    : repositories;
 
   useEffect(() => {
     if (onlyRepo && value !== onlyRepo) {
@@ -139,28 +125,8 @@ export function GitHubRepoPicker({
     }
   }, [onlyRepo, value, onChange]);
 
-  useLayoutEffect(() => {
-    if (!preservePaginationScrollRef.current || !listRef.current) return;
-
-    if (repositories.length === 0) {
-      preservePaginationScrollRef.current = false;
-      return;
-    }
-    listRef.current.scrollTop = paginationScrollTopRef.current;
-    if (!isLoadingMore && !showLoadingMore) {
-      preservePaginationScrollRef.current = false;
-    }
-  }, [isLoadingMore, repositories.length, showLoadingMore]);
-
-  const loadMoreAtScrollEnd = () => {
-    const requestKey = remoteMode
-      ? `${trimmedSearchQuery}:${repositories.length}`
-      : `${trimmedSearchQuery}:${visibleLimit}`;
-    if (!hasMore || isLoading || loadMoreRequestKeyRef.current === requestKey)
-      return;
-    loadMoreRequestKeyRef.current = requestKey;
-    preservePaginationScrollRef.current = true;
-    paginationScrollTopRef.current = listRef.current?.scrollTop ?? 0;
+  const loadMore = () => {
+    if (!hasMore || isLoading || isLoadingMore) return;
 
     if (remoteMode) {
       onLoadMore?.();
@@ -170,7 +136,7 @@ export function GitHubRepoPicker({
     setVisibleLimit((currentLimit) => currentLimit + COMBOBOX_INITIAL_LIMIT);
   };
 
-  if (isLoading && !showInlineLoadingState) {
+  if (isLoading && !isLoadingMore && !showInlineLoadingState) {
     return (
       <Button
         variant="outline"
@@ -227,7 +193,7 @@ export function GitHubRepoPicker({
 
   return (
     <Combobox
-      items={items}
+      items={repositories}
       filter={remoteMode ? null : undefined}
       limit={remoteMode ? undefined : visibleLimit}
       value={value}
@@ -239,7 +205,6 @@ export function GitHubRepoPicker({
         setUncontrolledOpen(nextOpen);
         onOpenChange?.(nextOpen);
         if (!nextOpen) {
-          preservePaginationScrollRef.current = false;
           setUncontrolledSearchQuery("");
           onSearchQueryChange?.("");
           setVisibleLimit(COMBOBOX_INITIAL_LIMIT);
@@ -247,7 +212,6 @@ export function GitHubRepoPicker({
       }}
       inputValue={searchQuery}
       onInputValueChange={(nextSearchQuery) => {
-        preservePaginationScrollRef.current = false;
         setUncontrolledSearchQuery(nextSearchQuery);
         onSearchQueryChange?.(nextSearchQuery);
         setVisibleLimit(COMBOBOX_INITIAL_LIMIT);
@@ -326,37 +290,27 @@ export function GitHubRepoPicker({
             "No repositories found."
           )}
         </ComboboxEmpty>
-        <ComboboxList
-          ref={listRef}
-          className="flex-1"
-          onScroll={(event) => {
-            const list = event.currentTarget;
-            if (preservePaginationScrollRef.current) {
-              paginationScrollTopRef.current = list.scrollTop;
-            }
-            if (list.scrollHeight - list.scrollTop - list.clientHeight <= 32) {
-              loadMoreAtScrollEnd();
-            }
-          }}
-        >
-          {(repo: string) =>
-            repo === LOAD_MORE_SENTINEL ? (
-              <output
-                key={repo}
-                className="flex h-9 items-center justify-center gap-2 px-3"
-              >
-                <Spinner className="size-3.5" />
-                <Text size="xs" variant="muted">
-                  Loading more
-                </Text>
-              </output>
-            ) : (
-              <ComboboxItem key={repo} value={repo}>
-                {repo}
-              </ComboboxItem>
-            )
-          }
+        <ComboboxList className="flex-1">
+          {(repo: string) => (
+            <ComboboxItem key={repo} value={repo}>
+              {repo}
+            </ComboboxItem>
+          )}
         </ComboboxList>
+        {hasMore ? (
+          <div className="shrink-0 border-t p-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={isLoadingMore}
+              loading={showLoadingMore}
+              onClick={loadMore}
+            >
+              Load more repositories
+            </Button>
+          </div>
+        ) : null}
       </ComboboxContent>
     </Combobox>
   );

@@ -212,7 +212,7 @@ export function useGithubRepositories(
   });
 
   const isFetchingMore =
-    requestedLimit > REPOSITORIES_PAGE_SIZE && isRefreshing;
+    requestedLimit > REPOSITORIES_PAGE_SIZE && (isPending || isRefreshing);
 
   const getIntegrationIdForRepository = useCallback(
     (repoKey: string) => getIntegrationIdForRepo(repositoryMap, repoKey),
@@ -275,7 +275,7 @@ export function useUserGithubRepositories(
   });
 
   const isFetchingMore =
-    requestedLimit > REPOSITORIES_PAGE_SIZE && isRefreshing;
+    requestedLimit > REPOSITORIES_PAGE_SIZE && (isPending || isRefreshing);
 
   return {
     repositories: Object.keys(repositoryMap),
