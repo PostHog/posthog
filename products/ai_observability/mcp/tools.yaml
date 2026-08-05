@@ -353,8 +353,10 @@ tools:
             Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and
             model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a
             boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional
-            evaluation_config.source='user_messages'. Pass `enabled` as a boolean (true to start scoring new
-            $ai_generation events immediately, false to create it paused). Results are '$ai_evaluation' events.
+            evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session' — a
+            session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass
+            `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it
+            paused). Results are '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -576,9 +578,11 @@ tools:
         description: >
             Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the
             evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and
-            runs against trace-level globals. For trace previews, pass target_config.window_seconds to match the saved
-            evaluation's aggregation window. Returns per-sample results (pass/fail/N/A), reasoning, and input/output
-            previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.
+            runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against
+            session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's
+            aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period.
+            Returns per-sample results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog
+            code before creating or updating a 'hog' type evaluation.
     llma-evaluation-update:
         operation: evaluations_partial_update
         enabled: true
@@ -596,7 +600,8 @@ tools:
             and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or
             provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to
             hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain
-            editable. provider_key_id may be null when no key is pinned.
+            editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or
+            'session'.
     llma-evaluation-update-full:
         operation: evaluations_update
         enabled: false
