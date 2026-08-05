@@ -1,3 +1,11 @@
+"""The bounded queue that carries record batches from a producer to a consumer.
+
+Batch exports move data by having a producer read record batches and a consumer write them to
+the destination. This is the handoff between them: a queue bounded by bytes rather than item
+count, since record batch sizes vary enormously, plus the helpers for waiting on the producer
+and surfacing its failures.
+"""
+
 import time
 import typing
 import asyncio
@@ -161,15 +169,3 @@ async def wait_for_schema_or_producer(queue: RecordBatchQueue, producer_task: as
         await raise_on_task_failure(producer_task)
 
     return record_batch_schema
-
-
-class BatchExportField(typing.TypedDict):
-    """A field to be queried from ClickHouse.
-
-    Attributes:
-        expression: A ClickHouse SQL expression that declares the field required.
-        alias: An alias to apply to the expression (after an 'AS' keyword).
-    """
-
-    expression: str
-    alias: str
