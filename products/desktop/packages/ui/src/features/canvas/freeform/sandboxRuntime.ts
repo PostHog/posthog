@@ -323,6 +323,10 @@ export function buildSandboxDocument(
       }, 80);
     };
     document.addEventListener("selectionchange", reportTextSelection);
+    const clearNativeTextSelection = () => {
+      window.getSelection()?.removeAllRanges();
+      clearTextSelection();
+    };
 
     const commentHighlightStyle = document.createElement("style");
     commentHighlightStyle.textContent = "::highlight(posthog-canvas-comment){background:rgba(250,204,21,.32);color:inherit}::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.48);color:inherit}";
@@ -387,6 +391,8 @@ export function buildSandboxDocument(
       }, 100);
     }).observe(document.body, { childList: true, characterData: true, subtree: true });
     document.addEventListener("click", (event) => {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) return;
       for (const item of commentRanges) {
         for (const rect of item.range.getClientRects()) {
           if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
@@ -553,6 +559,8 @@ export function buildSandboxDocument(
         applyTheme(d.theme);
       } else if (d.type === "set-comment-highlights") {
         renderCommentHighlights(d.highlights);
+      } else if (d.type === "clear-text-selection") {
+        clearNativeTextSelection();
       } else if (d.type === "data-response") {
         const p = pending.get(d.id);
         if (!p) return;

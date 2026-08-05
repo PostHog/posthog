@@ -99,4 +99,16 @@ describe("canvasToHostMessageSchema", () => {
       }).success,
     ).toBe(true);
   });
+
+  it("accepts a host request to clear native text selection", () => {
+    expect(
+      hostToCanvasMessageSchema.parse({
+        channel: "posthog-canvas",
+        type: "clear-text-selection",
+      }),
+    ).toEqual({
+      channel: "posthog-canvas",
+      type: "clear-text-selection",
+    });
+  });
 });

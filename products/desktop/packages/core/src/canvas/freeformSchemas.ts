@@ -181,6 +181,10 @@ export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("set-comment-highlights"),
     highlights: z.array(canvasCommentHighlightSchema).max(500),
   }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("clear-text-selection"),
+  }),
   // Reply to a data-request, correlated by `id`.
   z.object({
     channel: z.literal(CANVAS_CHANNEL),

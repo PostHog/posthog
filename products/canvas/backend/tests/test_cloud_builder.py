@@ -104,6 +104,9 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertNotIn("clearTimeout(timer);timer=setTimeout(()=>render(items),100)", runtime)
         self.assertIn('document.addEventListener("selectionchange"', runtime)
         self.assertNotIn('document.addEventListener("mouseup"', runtime)
+        self.assertIn('event.data?.type==="clear-text-selection"', runtime)
+        self.assertIn("getSelection()?.removeAllRanges()", runtime)
+        self.assertIn("if(selection&&!selection.isCollapsed)return", runtime)
         self.assertNotIn("parent.postMessage({channel,...message}", runtime)
 
     def test_runtime_bounds_host_side_effects(self) -> None:

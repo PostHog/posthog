@@ -44,6 +44,7 @@ export interface FreeformCanvasProps {
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
+  clearTextSelectionKey?: number;
   /**
    * Bootstrap config for in-iframe posthog-js (analytics + session replay).
    * Absent = no capture/replay. Only the PUBLIC key is here; the private token
@@ -65,6 +66,7 @@ export function FreeformCanvas({
   onTextSelection,
   onCommentActivate,
   commentHighlights = [],
+  clearTextSelectionKey = 0,
   analytics,
 }: FreeformCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -240,6 +242,14 @@ export function FreeformCanvas({
       "*",
     );
   }, [commentHighlights]);
+
+  useEffect(() => {
+    if (!readyRef.current || clearTextSelectionKey === 0) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      { channel: "posthog-canvas", type: "clear-text-selection" },
+      "*",
+    );
+  }, [clearTextSelectionKey]);
 
   // Live theme change: re-theme the running canvas in place (no remount), so a
   // host theme toggle — or an OS light/dark flip under "system" — preserves all

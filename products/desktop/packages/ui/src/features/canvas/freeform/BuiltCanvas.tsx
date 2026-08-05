@@ -86,6 +86,7 @@ export interface BuiltCanvasProps {
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
+  clearTextSelectionKey?: number;
 }
 
 export function BuiltCanvas({
@@ -99,6 +100,7 @@ export function BuiltCanvas({
   onTextSelection,
   onCommentActivate,
   commentHighlights = [],
+  clearTextSelectionKey = 0,
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const artifactPortRef = useRef<MessagePort | null>(null);
@@ -231,6 +233,14 @@ export function BuiltCanvas({
       highlights: commentHighlights,
     });
   }, [commentHighlights]);
+
+  useEffect(() => {
+    if (clearTextSelectionKey === 0) return;
+    artifactPortRef.current?.postMessage({
+      channel: "posthog-canvas",
+      type: "clear-text-selection",
+    });
+  }, [clearTextSelectionKey]);
 
   return (
     <iframe

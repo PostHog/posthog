@@ -141,6 +141,35 @@ describe("FreeformCanvas", () => {
     );
   });
 
+  it("clears native iframe selection when the host dismisses it", () => {
+    const { rerender } = render(
+      <FreeformCanvas
+        code="export default function Canvas() { return null }"
+        mode="edit"
+        onDataRequest={vi.fn()}
+        clearTextSelectionKey={0}
+      />,
+    );
+    const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
+    const postMessage = vi.spyOn(iframe.contentWindow as Window, "postMessage");
+    fireEvent.load(iframe);
+    postMessage.mockClear();
+
+    rerender(
+      <FreeformCanvas
+        code="export default function Canvas() { return null }"
+        mode="edit"
+        onDataRequest={vi.fn()}
+        clearTextSelectionKey={1}
+      />,
+    );
+
+    expect(postMessage).toHaveBeenCalledWith(
+      { channel: "posthog-canvas", type: "clear-text-selection" },
+      "*",
+    );
+  });
+
   it("opens a comment selected inside the canvas", () => {
     const onCommentActivate = vi.fn();
     render(

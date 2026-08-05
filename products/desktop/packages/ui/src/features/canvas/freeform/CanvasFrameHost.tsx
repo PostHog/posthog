@@ -61,6 +61,7 @@ export function CanvasFrameHost() {
                 onTextSelection={slot.inputs.onTextSelection}
                 onCommentActivate={slot.inputs.onCommentActivate}
                 commentHighlights={slot.inputs.commentHighlights}
+                clearTextSelectionKey={slot.inputs.clearTextSelectionKey}
               />
             </ErrorBoundary>
           </div>

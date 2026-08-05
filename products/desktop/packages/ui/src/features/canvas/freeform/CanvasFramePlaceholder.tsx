@@ -23,6 +23,7 @@ export function CanvasFramePlaceholder({
   onTextSelection,
   onCommentActivate,
   commentHighlights,
+  clearTextSelectionKey,
 }: {
   dashboardId: string;
   code: string;
@@ -34,6 +35,7 @@ export function CanvasFramePlaceholder({
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
+  clearTextSelectionKey?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -53,6 +55,7 @@ export function CanvasFramePlaceholder({
       onTextSelection,
       onCommentActivate,
       commentHighlights,
+      clearTextSelectionKey,
     }),
     [
       code,
@@ -64,6 +67,7 @@ export function CanvasFramePlaceholder({
       onTextSelection,
       onCommentActivate,
       commentHighlights,
+      clearTextSelectionKey,
     ],
   );
 

@@ -92,6 +92,9 @@ describe("buildSandboxDocument", () => {
     expect(html).not.toContain("clearTimeout(commentHighlightTimer)");
     expect(html).toContain('document.addEventListener("selectionchange"');
     expect(html).not.toContain('document.addEventListener("mouseup"');
+    expect(html).toContain('d.type === "clear-text-selection"');
+    expect(html).toContain("window.getSelection()?.removeAllRanges()");
+    expect(html).toContain("if (selection && !selection.isCollapsed) return");
   });
 });
 

@@ -39,6 +39,7 @@ export interface CanvasFrameInputs {
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
+  clearTextSelectionKey?: number;
 }
 
 interface CanvasFrameSlot {

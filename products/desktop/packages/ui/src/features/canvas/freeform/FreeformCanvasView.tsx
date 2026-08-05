@@ -111,6 +111,11 @@ export function FreeformCanvasView({
   const [startedTaskId, setStartedTaskId] = useState<string | null>(null);
   const [textSelection, setTextSelection] =
     useState<CanvasTextSelection | null>(null);
+  const [clearTextSelectionKey, setClearTextSelectionKey] = useState(0);
+  const dismissTextSelection = useCallback(() => {
+    setTextSelection(null);
+    setClearTextSelectionKey((key) => key + 1);
+  }, []);
   const collapsed = useCanvasChatPanelStore((s) => s.collapsed);
   const panelTab = useCanvasChatPanelStore((s) => s.tab);
   const setCollapsed = useCanvasChatPanelStore((s) => s.setCollapsed);
@@ -358,8 +363,8 @@ export function FreeformCanvasView({
   useEffect(() => {
     if (selectionVersionRef.current === displayedVersionId) return;
     selectionVersionRef.current = displayedVersionId;
-    setTextSelection(null);
-  }, [displayedVersionId]);
+    dismissTextSelection();
+  }, [displayedVersionId, dismissTextSelection]);
   const commentVersionLabel = useCallback(
     (versionId: string) => {
       const index = versions.findIndex((version) => version.id === versionId);
@@ -672,6 +677,7 @@ export function FreeformCanvasView({
                     onTextSelection={setTextSelection}
                     onCommentActivate={activateComment}
                     commentHighlights={commentHighlights}
+                    clearTextSelectionKey={clearTextSelectionKey}
                   />
                 </Box>
               </Flex>
@@ -724,6 +730,7 @@ export function FreeformCanvasView({
                 onTextSelection={setTextSelection}
                 onCommentActivate={activateComment}
                 commentHighlights={commentHighlights}
+                clearTextSelectionKey={clearTextSelectionKey}
               />
             </Box>
           ) : headCode ? (
@@ -743,6 +750,7 @@ export function FreeformCanvasView({
                 onTextSelection={setTextSelection}
                 onCommentActivate={activateComment}
                 commentHighlights={commentHighlights}
+                clearTextSelectionKey={clearTextSelectionKey}
               />
             </Box>
           ) : (
@@ -833,7 +841,7 @@ export function FreeformCanvasView({
         dashboardId={dashboardId}
         canvasName={dashboard?.name ?? "Canvas"}
         versionId={displayedVersionId}
-        onDismiss={() => setTextSelection(null)}
+        onDismiss={dismissTextSelection}
       />
 
       {/* The empty-canvas landing: a centered composer with suggestions,
