@@ -22,7 +22,6 @@ import { AuthorizedUrlsStep } from './steps/AuthorizedUrlsStep'
 import { BillingStep } from './steps/BillingStep'
 import { GoalsStep } from './steps/GoalsStep'
 import { InstallStep } from './steps/InstallStep'
-import { AnalyticsStep, ErrorTrackingStep, ReplayStep } from './steps/ProductEnablementSteps'
 import { WelcomeStep } from './steps/WelcomeStep'
 
 /**
@@ -48,9 +47,6 @@ interface StepDef {
     maxWidth?: string
 }
 
-const ANALYTICS_STEP: StepDef = { id: 'analytics', title: '', Content: AnalyticsStep, hideContinue: true }
-const REPLAY_STEP: StepDef = { id: 'replay', title: '', Content: ReplayStep, hideContinue: true }
-const ERROR_TRACKING_STEP: StepDef = { id: 'error-tracking', title: '', Content: ErrorTrackingStep, hideContinue: true }
 const AUTHORIZED_URLS_STEP: StepDef = {
     id: 'authorized-urls',
     title: 'Add your website URLs',
@@ -65,13 +61,13 @@ const AI_OBSERVABILITY_STEP: StepDef = {
     maxWidth: 'max-w-2xl',
 }
 
-/** The tool steps each goal needs to reach its finish line - nothing more. */
+/**
+ * The steps each goal needs beyond install to reach its finish line - nothing more. Toggleable
+ * tools don't appear here: goal selection auto-enables them, and the install step's summary shows
+ * the result. Only steps that need the user's own input survive.
+ */
 function goalToolSteps(goal: SelfDrivingGoal | null): StepDef[] {
     switch (goal) {
-        case 'user_behavior':
-            return [ANALYTICS_STEP, REPLAY_STEP]
-        case 'fix_issues':
-            return [ERROR_TRACKING_STEP, REPLAY_STEP]
         case 'website_traffic':
             // Web analytics needs at least one authorized URL before its dashboard (the goal's
             // finish line) can show anything.
@@ -81,7 +77,7 @@ function goalToolSteps(goal: SelfDrivingGoal | null): StepDef[] {
             // goal (first AI traces) is unreachable.
             return [AI_OBSERVABILITY_STEP]
         default:
-            return [ANALYTICS_STEP, REPLAY_STEP, ERROR_TRACKING_STEP]
+            return []
     }
 }
 
@@ -103,11 +99,9 @@ function buildSteps(goal: SelfDrivingGoal | null): StepDef[] {
             maxWidth: 'max-w-2xl',
         },
         { id: 'install', title: 'Install PostHog', Content: InstallStep },
-        // The declared goal FILTERS the tool steps: only what serves the goal gets a screen, so
-        // the user reaches their finish line as fast as possible - everything else is cross-sell
-        // for later, outside onboarding. No goal ("set up everything") keeps the full set. These
-        // steps render their own title and a single action zone, so the flow's header title and
-        // footer are suppressed.
+        // The declared goal FILTERS what comes after install: only steps the goal can't reach its
+        // finish line without. These steps render their own action zone, so the footer Continue is
+        // suppressed.
         ...goalToolSteps(goal),
         {
             id: 'billing',

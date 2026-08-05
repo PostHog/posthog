@@ -7,16 +7,14 @@ import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLog
 import { resolveOnboardingFlowVariant } from './onboardingVariants'
 
 /** Steps the self-driving flow can report. Earlier versions also emitted `sources`, `warehouse`,
- * and `invite`; those events still exist in historical funnels. */
+ * `invite`, `analytics`, `replay`, and `error-tracking`; those events still exist in historical
+ * funnels. */
 export type SelfDrivingOnboardingStepId =
     | 'welcome'
     | 'goals'
     | 'install'
     | 'authorized-urls'
     | 'ai-observability'
-    | 'analytics'
-    | 'replay'
-    | 'error-tracking'
     | 'billing'
 
 // GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
