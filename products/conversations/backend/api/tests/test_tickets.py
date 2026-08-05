@@ -2145,6 +2145,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             "author_name",
             "is_private",
             "created_at",
+            "version",
         }
 
     def test_messages_lookup_by_ticket_number(self, mock_on_commit):
