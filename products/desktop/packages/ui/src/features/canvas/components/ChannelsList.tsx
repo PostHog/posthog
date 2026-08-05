@@ -644,6 +644,12 @@ function useOpenPersonalChannel(): {
   const openPersonalChannel = () => {
     const channelId = ensureChannelId();
     if (!channelId) return;
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "nav_click",
+      surface: "sidebar",
+      channel_id: channelId,
+      channel_type: "personal",
+    });
     showChannelPane();
     setCurrentChannel(channelId);
     if (!spacesLayout) {
@@ -668,6 +674,7 @@ function useOpenChannel(): (channel: Channel) => void {
       action_type: "nav_click",
       surface: "sidebar",
       channel_id: channel.id,
+      channel_type: channel.channelType,
     });
     showChannelPane();
     setCurrentChannel(channel.id);

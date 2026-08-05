@@ -39,6 +39,7 @@ export function ChannelHotkeys() {
         action_type: "open_channel",
         surface: "sidebar",
         channel_id: channel.id,
+        channel_type: channel.channelType,
       });
     },
     {

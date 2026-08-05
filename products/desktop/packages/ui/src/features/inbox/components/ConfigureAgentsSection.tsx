@@ -349,7 +349,9 @@ function SetupTaskSection() {
         reasoningLevel,
       };
 
+      let createdTaskId: string | undefined;
       const result = await taskService.createTask(input, (output) => {
+        createdTaskId = output.task.id;
         invalidateTasks(output.task);
         void openTask(output.task);
       });
@@ -361,6 +363,7 @@ function SetupTaskSection() {
       });
       if (result.success) {
         track(ANALYTICS_EVENTS.TASK_CREATED, {
+          task_id: createdTaskId,
           auto_run: true,
           created_from: "command-menu",
           repository_provider: "github",

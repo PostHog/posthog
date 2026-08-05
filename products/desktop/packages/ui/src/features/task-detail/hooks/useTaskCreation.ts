@@ -123,6 +123,7 @@ async function trackTaskCreated(
   input: TaskCreationInput,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
+  taskId: string | undefined,
 ): Promise<void> {
   try {
     const workspaceMode = input.workspaceMode ?? "local";
@@ -144,6 +145,7 @@ async function trackTaskCreated(
     }
 
     track(ANALYTICS_EVENTS.TASK_CREATED, {
+      task_id: taskId,
       auto_run: !!input.executionMode,
       created_from: "command-menu",
       repository_provider: input.repository ? "github" : "none",
@@ -491,7 +493,12 @@ export function useTaskCreation({
           if (!contentOverride) {
             useDraftStore.getState().actions.setDraft(sessionId, null);
           }
-          void trackTaskCreated(input, selectedDirectory, hostClient);
+          void trackTaskCreated(
+            input,
+            selectedDirectory,
+            hostClient,
+            createdTaskId,
+          );
           // Repo-less channel tasks create no workspace row (the agent runs in
           // a scratch dir surfaced as a synthetic workspace), so the normal
           // workspace.create invalidation never fires. Refresh the workspace

@@ -8,7 +8,11 @@ import {
 } from "@posthog/ui/features/navigation/taskBinder";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { setActiveTaskContext, track } from "@posthog/ui/shell/analytics";
+import {
+  getIdentifiedUserUuid,
+  setActiveTaskContext,
+  track,
+} from "@posthog/ui/shell/analytics";
 import {
   IMPERATIVE_QUERY_CLIENT,
   type ImperativeQueryClient,
@@ -47,7 +51,14 @@ export async function openTask(
     nav.navigateToTaskDetail(task.id);
   }
   setActiveTaskContext(task);
-  track(ANALYTICS_EVENTS.TASK_VIEWED, { task_id: task.id });
+  const viewerUuid = getIdentifiedUserUuid();
+  track(ANALYTICS_EVENTS.TASK_VIEWED, {
+    task_id: task.id,
+    is_own_task:
+      task.created_by && viewerUuid
+        ? task.created_by.uuid === viewerUuid
+        : undefined,
+  });
 
   const result = await resolveServiceOptional<NavigationTaskBinder>(
     NAVIGATION_TASK_BINDER,

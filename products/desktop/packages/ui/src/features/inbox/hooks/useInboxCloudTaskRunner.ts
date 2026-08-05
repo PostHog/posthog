@@ -226,8 +226,10 @@ export function useInboxCloudTaskRunner({
 
     try {
       let createdTask: Parameters<typeof openTask>[0] | null = null;
+      let createdTaskId: string | undefined;
       const result = await taskService.createTask(input, (output) => {
         createdTask = output.task;
+        createdTaskId = output.task.id;
         invalidateTasks(output.task);
         onTaskCreated?.(output.task);
         if (redirectOnSuccess) {
@@ -252,6 +254,7 @@ export function useInboxCloudTaskRunner({
           });
         }
         track(ANALYTICS_EVENTS.TASK_CREATED, {
+          task_id: createdTaskId,
           auto_run: true,
           created_from: "command-menu",
           ...(cloudRepository ? { repository_provider: "github" } : {}),

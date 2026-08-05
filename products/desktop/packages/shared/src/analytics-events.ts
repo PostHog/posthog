@@ -75,6 +75,8 @@ export interface TaskListViewProperties {
 }
 
 export interface TaskCreateProperties {
+  /** Absent when the id wasn't in scope at the capture site. */
+  task_id?: string;
   auto_run: boolean;
   created_from: TaskCreatedFrom;
   repository_provider?: RepositoryProvider;
@@ -96,6 +98,8 @@ export interface TaskCreateProperties {
 
 export interface TaskViewProperties {
   task_id: string;
+  /** Whether the viewer created the task; absent when creator or identity is unknown. */
+  is_own_task?: boolean;
 }
 
 export interface TaskRunProperties {
@@ -979,6 +983,8 @@ export interface ChannelActionProperties {
   surface: ChannelsSurface;
   /** The channel acted on, when one is in scope. */
   channel_id?: string;
+  /** Whether the channel is the private #me space or a shared one, when known. */
+  channel_type?: "public" | "personal";
   /** For file/unfile/archive/open task actions; for copy_link of a thread. */
   task_id?: string;
   /** For file_task: destination channel when different from `channel_id`. */

@@ -61,10 +61,19 @@ export function captureException(
   );
 }
 
+// Kept module-level so non-React callers (e.g. openTask) can stamp
+// ownership properties without reaching into the auth query cache.
+let identifiedUserUuid: string | null = null;
+
+export function getIdentifiedUserUuid(): string | null {
+  return identifiedUserUuid;
+}
+
 export function identifyUser(
   userId: string,
   properties?: UserIdentifyProperties,
 ): void {
+  identifiedUserUuid = properties?.uuid ?? null;
   resolveService<AnalyticsTracker>(ANALYTICS_TRACKER).identifyUser(
     userId,
     properties,
@@ -76,6 +85,7 @@ export function setUserGroups(user: AnalyticsUserGroups): void {
 }
 
 export function resetUser(): void {
+  identifiedUserUuid = null;
   resolveService<AnalyticsTracker>(ANALYTICS_TRACKER).resetUser();
 }
 
