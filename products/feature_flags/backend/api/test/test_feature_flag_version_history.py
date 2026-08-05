@@ -52,3 +52,27 @@ class TestFeatureFlagVersionHistoryAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertNotIn("filters", response.json())
+
+    def test_version_encrypted_before_downgrade_is_refused(self):
+        ciphertext = "gAAAAA-ciphertext-sentinel"
+        flag = self._create_remote_config_flag(encrypted=True)
+        flag.filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": {"true": ciphertext},
+        }
+        flag.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"has_encrypted_payloads": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertFalse(flag.has_encrypted_payloads)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/versions/1/")
+
+        # The live row is plaintext now, but version 1 still holds ciphertext in the activity log.
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotIn(ciphertext, response.content.decode())
