@@ -301,6 +301,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ProxyRecord",
         "Role",
         "RoleMembership",
+        "LinkedIdentityProviderConfig"
         # --- User-scoped (cross-tenant by design) ---
         "NotificationViewed",
         "SCIMProvisionedUser",
