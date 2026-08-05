@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -33,6 +35,14 @@ import {
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
+
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
+    lemonToast: {
+        error: jest.fn(),
+        success: jest.fn(),
+    },
+}))
 
 describe('sessionRecordingsPlaylistLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
@@ -1134,6 +1144,31 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     date_from: '-7d',
                 })
             }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
+        })
+
+        it('resets to defaults without reporting an exception when given a nullish payload', async () => {
+            const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters(null as any)
+            }).toMatchValues({ filters: getDefaultFilters('cool_user_99') })
+
+            expect(captureSpy).not.toHaveBeenCalled()
+        })
+
+        it('reports an exception and shows an error toast for a malformed payload', async () => {
+            const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ order_direction: 'sideways' } as any)
+            }).toMatchValues({ filters: getDefaultFilters('cool_user_99') })
+
+            expect(captureSpy).toHaveBeenCalledWith(new Error('Invalid filters provided'), {
+                filters: { order_direction: 'sideways' },
+            })
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                "Couldn't apply these filters. Showing default filters instead."
+            )
         })
     })
 

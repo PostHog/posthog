@@ -1076,11 +1076,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
                 setFilters: (state, { filters }) => {
+                    // A nullish payload is an expected no-op (e.g. discarding unsaved changes), not a bug
+                    if (filters == null) {
+                        return getDefaultFilters(props.personUUID, props.pinnedFilters)
+                    }
                     try {
                         if (!isValidRecordingFilters(filters)) {
                             posthog.captureException(new Error('Invalid filters provided'), {
                                 filters,
                             })
+                            lemonToast.error("Couldn't apply these filters. Showing default filters instead.")
                             return getDefaultFilters(props.personUUID, props.pinnedFilters)
                         }
 
@@ -1095,6 +1100,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         return newState
                     } catch (e) {
                         posthog.captureException(e)
+                        lemonToast.error("Couldn't apply these filters. Showing default filters instead.")
                         return getDefaultFilters(props.personUUID, props.pinnedFilters)
                     }
                 },

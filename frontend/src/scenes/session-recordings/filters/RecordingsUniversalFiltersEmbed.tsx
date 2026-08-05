@@ -183,6 +183,11 @@ export const RecordingsUniversalFiltersEmbedButton = ({
 
     const applyFilters = (toolOutput: Record<string, any>): void => {
         // Improve type
+        // The assistant streams this callback repeatedly while the tool call is still being generated,
+        // so `recordings_filters` is absent until the streamed arguments are complete.
+        if (!toolOutput.recordings_filters) {
+            return
+        }
         setFilters(toolOutput.recordings_filters)
         setIsFiltersExpanded(true)
     }
