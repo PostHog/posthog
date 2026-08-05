@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.set
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
     TwilioAuth,
     TwilioResumeConfig,
+    check_endpoint_permissions as check_twilio_endpoint_permissions,
     twilio_source,
     validate_credentials as validate_twilio_credentials,
 )
@@ -57,7 +58,9 @@ class TwilioSource(ResumableSource[TwilioSourceConfig, TwilioResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Twilio credentials to pull your Twilio data into the PostHog Data warehouse.
 
-Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio.com). For credentials we recommend creating a [Standard API key](https://console.twilio.com/us1/account/keys-credentials/api-keys) (SID + Secret) since it can be revoked independently — alternatively you can use your Account SID and Auth Token.""",
+Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio.com). For credentials we recommend creating a [Standard API key](https://console.twilio.com/us1/account/keys-credentials/api-keys) (SID + Secret) since it can be revoked independently. You can also use your Account SID and Auth Token.
+
+Create the key in the same Twilio account as the Account SID above, in Twilio's default us1 region. A Standard key can read every table except `keys`, which needs your Auth Token or a Main API key.""",
             iconPath="/static/services/twilio.png",
             docsUrl="https://posthog.com/docs/cdp/sources/twilio",
             fields=cast(
@@ -171,6 +174,17 @@ Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio
         except ValueError as e:
             return False, str(e)
         return validate_twilio_credentials(auth, config.account_sid, schema_name)
+
+    def get_endpoint_permissions(
+        self, config: TwilioSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        try:
+            auth = self._get_auth(config)
+        except ValueError:
+            # validate_credentials already reports a missing secret, so treat every table as available
+            # rather than blocking the picker on a condition the caller has surfaced.
+            return dict.fromkeys(endpoints)
+        return check_twilio_endpoint_permissions(auth, config.account_sid, endpoints)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TwilioResumeConfig]:
         return ResumableSourceManager[TwilioResumeConfig](inputs, TwilioResumeConfig)
