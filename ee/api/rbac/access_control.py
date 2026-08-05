@@ -263,10 +263,9 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
     registry = _EXTRA_RESOURCE_MODELS.get(resource)
     if not registry:
         return {}
-    app_label, model_name, name_field = registry
     try:
-        model = apps.get_model(app_label, model_name)
-        rows = model._base_manager.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
+        model = apps.get_model(registry.app_label, registry.model_name)
+        rows = model._base_manager.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", registry.name_field)
         return {str(pk): _ResolvedObjectName(name=name) for pk, name in rows}
     except Exception as e:
         # Type mismatch on pk (e.g. non-numeric id for an int pk), missing model, or missing team_id column
