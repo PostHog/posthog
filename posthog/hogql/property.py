@@ -718,6 +718,8 @@ def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
         return path_expr
 
     for replacement in team.path_cleaning_filter_models():
+        if replacement.regex is not None:
+            _validate_regex(replacement.regex)
         path_expr = ast.Call(
             name="replaceRegexpAll",
             args=[

@@ -26,6 +26,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
+    apply_path_cleaning,
     entity_to_expr,
     has_aggregation,
     map_virtual_properties,
@@ -1590,6 +1591,20 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "$ip", "value": bad_regex, "operator": "regex"})
         with self.assertRaisesMessage(QueryError, "Invalid regular expression"):
             self._property_to_expr({"type": "event", "key": "$ip", "value": bad_regex, "operator": "not_regex"})
+
+    @parameterized.expand(
+        [
+            ("unsupported_lookahead", "framework\\.construction(?!/app|/dashboard)"),
+            ("unbalanced_paren", "^(localhost|127\\.0\\.0\\.1)($|:"),
+        ]
+    )
+    def test_apply_path_cleaning_invalid_regex_raises_query_error(self, _name: str, bad_regex: str):
+        # A saved path cleaning rule reaches ClickHouse unvalidated; an RE2-incompatible
+        # pattern must surface as a QueryError here rather than a bare CANNOT_COMPILE_REGEXP.
+        self.team.path_cleaning_filters = [{"alias": "/replaced", "regex": bad_regex}]
+        self.team.save()
+        with self.assertRaisesMessage(QueryError, "Invalid regular expression"):
+            apply_path_cleaning(ast.Field(chain=["properties", "$pathname"]), self.team)
 
     def test_property_to_expr_min_max_operators(self):
         # Test MIN operator (alias for GTE)
