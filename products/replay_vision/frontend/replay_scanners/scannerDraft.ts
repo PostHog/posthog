@@ -16,12 +16,14 @@ export interface ScannerDraft {
     savedAt: number
 }
 
-export function writeScannerDraft(teamId: number, scanner: ReplayScanner): void {
+/** False when storage refused the write, so callers don't promise a draft that isn't there. */
+export function writeScannerDraft(teamId: number, scanner: ReplayScanner): boolean {
     const draft: StoredScannerDraft = { version: DRAFT_VERSION, teamId, savedAt: Date.now(), scanner }
     try {
         localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
+        return true
     } catch {
-        // Storage unavailable or full: losing the draft only means the wizard starts fresh.
+        return false
     }
 }
 

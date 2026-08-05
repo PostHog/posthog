@@ -14,6 +14,7 @@ import {
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { urls } from 'scenes/urls'
 
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
@@ -35,12 +36,26 @@ const CARD_CLASSES =
 function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
     const isBlank = template === 'blank'
     const { searchParams } = useValues(router)
+    const { scannerDraftSavedAt } = useValues(replayScannerLogic({ id: 'new' }))
 
-    const handleClick = (): void => {
+    const start = (): void => {
         const templateKey = isBlank ? null : template.key
         replayScannerLogic({ id: 'new' }).actions.startFromTemplate(templateKey)
         const params = isBlank ? searchParams : { ...searchParams, template: template.key }
         router.actions.push(combineUrl(urls.replayVisionScannerConfigure('new'), params).url)
+    }
+
+    const handleClick = (): void => {
+        if (scannerDraftSavedAt === null) {
+            start()
+            return
+        }
+        LemonDialog.open({
+            title: 'Start over and lose your draft?',
+            description: 'The scanner you have in progress will be replaced by this template.',
+            primaryButton: { children: 'Start over', status: 'danger', onClick: start },
+            secondaryButton: { children: 'Keep my draft' },
+        })
     }
 
     return (
@@ -87,7 +102,7 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
 function ResumeDraftCard(): JSX.Element | null {
     const logic = replayScannerLogic({ id: 'new' })
     const { scannerDraftSavedAt, scanner } = useValues(logic)
-    const { startFromTemplate } = useActions(logic)
+    const { discardScannerDraft } = useActions(logic)
     const { searchParams } = useValues(router)
 
     if (scannerDraftSavedAt === null) {
@@ -95,7 +110,6 @@ function ResumeDraftCard(): JSX.Element | null {
     }
 
     const handleResume = (): void => {
-        // The draft outranks any template param, so drop it.
         const { template: _template, ...params } = searchParams
         router.actions.push(combineUrl(urls.replayVisionScannerConfigure('new'), params).url)
     }
@@ -108,7 +122,8 @@ function ResumeDraftCard(): JSX.Element | null {
             data-attr="vision-template-resume-draft"
             onClick={handleResume}
             onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                // Ignore keys aimed at the nested discard button, or Enter would discard and resume at once.
+                if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                     e.preventDefault()
                     handleResume()
                 }
@@ -136,7 +151,7 @@ function ResumeDraftCard(): JSX.Element | null {
                             data-attr="vision-template-discard-draft"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                startFromTemplate(null)
+                                discardScannerDraft()
                             }}
                         />
                     </div>
