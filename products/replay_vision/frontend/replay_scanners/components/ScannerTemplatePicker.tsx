@@ -31,7 +31,7 @@ const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
 }
 
 const CARD_CLASSES =
-    'relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left group p-6 cursor-pointer min-h-[180px]'
+    'flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors p-6 cursor-pointer min-h-[180px] w-full md:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]'
 
 function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
     const isBlank = template === 'blank'
@@ -163,7 +163,7 @@ function ResumeDraftCard(): JSX.Element | null {
 
 export function ScannerTemplatePicker(): JSX.Element {
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="flex flex-wrap justify-center gap-6">
             <ResumeDraftCard />
             <TemplateCard template="blank" />
             {defaultScannerTemplates.map((template) => (
