@@ -126,11 +126,12 @@ def reachable_agent_grants(team_id: int, credential_owner_id: int | None) -> Q:
 
 def agent_grant_owner_label(access: MCPServiceAccountServerAccess) -> str:
     """Whose connection a grant lends, for telling two members' shares of the
-    same server apart. The email is what stays unambiguous when teammates share
-    a display name. Blank only for the user-less legacy rows, which no read path
-    mounts.
+    same server apart. The label lands in sandbox configs, model prompts, and
+    logs, so it carries the owner's numeric id — the same discriminator as the
+    proxy path's credential_owner parameter — rather than an email or display
+    name. Blank only for the user-less legacy rows, which no read path mounts.
     """
-    return access.user.email if access.user is not None else ""
+    return f"#{access.user_id}" if access.user_id is not None else ""
 
 
 def agent_grant_proxy_path(access: MCPServiceAccountServerAccess) -> str:

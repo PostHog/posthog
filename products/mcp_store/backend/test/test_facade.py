@@ -448,7 +448,7 @@ class TestGetInstallationsForSandbox(BaseTest):
 
         assert [result.id for result in results] == [str(own.id)]
 
-    def test_every_team_share_of_one_server_mounts_under_its_owners_name(self) -> None:
+    def test_every_team_share_of_one_server_mounts_under_its_owners_id(self) -> None:
         account = self._support_agent()
         teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
         server = self._create_gateway_server(name="Shared server", url="https://shared.example.com/mcp")
@@ -463,8 +463,8 @@ class TestGetInstallationsForSandbox(BaseTest):
         # Sandboxes key servers by name and the gateway resolves a credential from the
         # proxy path, so both have to be unique per mounted grant.
         assert {result.name for result in results} == {
-            f"Notion ({self.user.email})",
-            f"Notion ({teammate.email})",
+            f"Notion (#{self.user.id})",
+            f"Notion (#{teammate.id})",
         }
         assert {result.proxy_path for result in results} == {
             f"/api/mcp_store/gateway/servers/{server.id}/proxy/?credential_owner={self.user.id}",
