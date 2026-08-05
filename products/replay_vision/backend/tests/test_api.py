@@ -1598,6 +1598,31 @@ class TestObserveAction(_VisionAPITestCase):
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
 
+    def test_a_settled_session_returns_the_existing_observation_and_starts_nothing(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A terminal row owns the (scanner, session) slot for good, so starting a workflow would claim
+        # an enqueue slot and burn a run only to lose the INSERT and hand back this same row.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        existing = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id="sess-settled",
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+
+        resp = self.client.post(
+            self.observe_url(str(self.scanner.id)), data={"session_id": "sess-settled"}, format="json"
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["observation_id"], str(existing.id))
+        start_workflow.assert_not_called()
+
     @parameterized.expand(
         [
             ("row_persisted_drops_duplicate_claim", True, 0),

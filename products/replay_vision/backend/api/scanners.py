@@ -752,6 +752,18 @@ class BulkObserveResultSerializer(serializers.Serializer):
     )
 
 
+class ObserveAlreadyScannedSerializer(serializers.Serializer):
+    """200 from POST /vision/scanners/{id}/observe/ - nothing started, the answer already exists."""
+
+    observation_id = serializers.UUIDField(
+        help_text=(
+            "The settled observation this scanner already has for the session. Nothing was started and "
+            "nothing was charged; read it from /vision/scanners/{id}/observations/, or use the retry "
+            "action on it to scan the session again."
+        ),
+    )
+
+
 class BulkObserveResponseSerializer(serializers.Serializer):
     """Result of POST /vision/scanners/{id}/bulk_observe/ — partial success by design."""
 
@@ -1234,6 +1246,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     @extend_schema(
         request=ObserveRequestSerializer,
         responses={
+            200: ObserveAlreadyScannedSerializer,
             202: ObserveResponseSerializer,
             503: OpenApiResponse(
                 response=ReplayVisionErrorSerializer, description="The observation workflow couldn't be started."
@@ -1268,6 +1281,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
         )
+        if outcome is WorkflowStartOutcome.ALREADY_SCANNED:
+            existing = ReplayObservation.objects.filter(scanner_id=scanner.id, session_id=session_id).only("id").first()
+            if existing is not None:
+                # 200, not 202: nothing was accepted for processing, so hand back what already exists.
+                return Response(
+                    ObserveAlreadyScannedSerializer({"observation_id": existing.id}).data,
+                    status=status.HTTP_200_OK,
+                )
+            # A concurrent retry deleted the row between the check and here, so there is neither a
+            # started workflow nor a result to return. Falls through to the same retryable 503.
+            outcome = WorkflowStartOutcome.FAILED
         if outcome is WorkflowStartOutcome.CAPPED:
             # The pre-check above passed on a snapshot; the atomic claim is the authoritative gate.
             raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
@@ -1469,6 +1493,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         results: list[dict[str, str]] = []
         started = 0
         for session_id in session_ids:
+            # Checked before the cap so a settled session reports what it is rather than being
+            # reported as skipped, and consumes no headroom. `start_apply_scanner_workflow` enforces the
+            # same rule for callers that don't prefetch.
             if session_id in finished:
                 results.append({"session_id": session_id, "scan_outcome": "already_scanned"})
                 continue
@@ -1484,10 +1511,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 # requests visible to each other, which the snapshot alone cannot.
                 team_in_flight_rows=headroom.team_rows,
                 scanner_in_flight_rows=headroom.scanner_rows,
+                finished_sessions=finished,
             )
             if outcome is WorkflowStartOutcome.STARTED:
                 started += 1
                 results.append({"session_id": session_id, "scan_outcome": "started"})
+            elif outcome is WorkflowStartOutcome.ALREADY_SCANNED:
+                # The prefetched set was taken before the loop, so a session can settle mid-batch.
+                results.append({"session_id": session_id, "scan_outcome": "already_scanned"})
             elif outcome is WorkflowStartOutcome.ALREADY_RUNNING:
                 # Already in flight — counted in the caps already, so it consumes no new headroom.
                 results.append({"session_id": session_id, "scan_outcome": "already_running"})

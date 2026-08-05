@@ -43970,6 +43970,14 @@ export namespace Schemas {
     } as const;
 
     /**
+     * 200 from POST /vision/scanners/{id}/observe/ - nothing started, the answer already exists.
+     */
+    export interface ObserveAlreadyScanned {
+      /** The settled observation this scanner already has for the session. Nothing was started and nothing was charged; read it from /vision/scanners/{id}/observations/, or use the retry action on it to scan the session again. */
+      observation_id: string;
+    }
+
+    /**
      * Body of POST /vision/scanners/{id}/observe/.
      */
     export interface ObserveRequest {

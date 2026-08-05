@@ -22,6 +22,7 @@ import type {
     InlineScanRequestApi,
     InlineScanResponseApi,
     ObservationStatsApi,
+    ObserveAlreadyScannedApi,
     ObserveRequestApi,
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
@@ -601,8 +602,8 @@ export const visionScannersObserveCreate = async (
     id: string,
     observeRequestApi: ObserveRequestApi,
     options?: RequestInit
-): Promise<ObserveResponseApi> => {
-    return apiMutator<ObserveResponseApi>(getVisionScannersObserveCreateUrl(projectId, id), {
+): Promise<ObserveAlreadyScannedApi | ObserveResponseApi> => {
+    return apiMutator<ObserveAlreadyScannedApi | ObserveResponseApi>(getVisionScannersObserveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

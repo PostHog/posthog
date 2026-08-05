@@ -1079,6 +1079,14 @@ export interface ObserveRequestApi {
 }
 
 /**
+ * 200 from POST /vision/scanners/{id}/observe/ - nothing started, the answer already exists.
+ */
+export interface ObserveAlreadyScannedApi {
+    /** The settled observation this scanner already has for the session. Nothing was started and nothing was charged; read it from /vision/scanners/{id}/observations/, or use the retry action on it to scan the session again. */
+    observation_id: string
+}
+
+/**
  * Async-accepted response for POST /vision/scanners/{id}/observe/.
  */
 export interface ObserveResponseApi {

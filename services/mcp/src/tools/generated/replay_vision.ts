@@ -812,7 +812,10 @@ const VisionScannersScanSessionSchema = VisionScannersObserveCreateParams.omit({
     VisionScannersObserveCreateBody.shape
 )
 
-const visionScannersScanSession = (): ToolBase<typeof VisionScannersScanSessionSchema, unknown> => ({
+const visionScannersScanSession = (): ToolBase<
+    typeof VisionScannersScanSessionSchema,
+    Schemas.ObserveAlreadyScanned
+> => ({
     name: 'vision-scanners-scan-session',
     schema: VisionScannersScanSessionSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersScanSessionSchema>) => {
@@ -821,7 +824,7 @@ const visionScannersScanSession = (): ToolBase<typeof VisionScannersScanSessionS
         if (params.session_id !== undefined) {
             body['session_id'] = params.session_id
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.ObserveAlreadyScanned>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/observe/`,
             body,
