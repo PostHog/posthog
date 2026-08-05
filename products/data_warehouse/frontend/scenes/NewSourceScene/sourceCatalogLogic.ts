@@ -1162,6 +1162,7 @@ export interface sourceCatalogLogicMeta {
                       | 'ServiceNow'
                       | 'Servicetitan'
                       | 'Servicetrade'
+                      | 'Sevalla'
                       | 'Sevdesk'
                       | 'SevenShifts'
                       | 'SFTP'

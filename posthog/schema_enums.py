@@ -2468,6 +2468,7 @@ class ExternalDataSourceType(StrEnum):
     RAISELY = "Raisely"
     WINDSOR_AI = "WindsorAi"
     WIX = "Wix"
+    SEVALLA = "Sevalla"
 
 
 class ExternalQueryErrorCode(StrEnum):
