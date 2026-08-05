@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInputSelect, LemonLabel, LemonModal, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInputSelect,
+    LemonLabel,
+    LemonModal,
+    LemonSelect,
+    LemonTable,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { resourceTypeToString } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
@@ -67,20 +76,15 @@ export function ObjectAccessRules({
                             const label = href ? <Link to={href}>{o.name}</Link> : o.name
                             return (
                                 <div className="flex items-center gap-2">
-                                    <span className="text-muted-alt flex items-center">
-                                        <ScopeIcon scope={o.resource} />
-                                    </span>
+                                    <Tooltip title={toSentenceCase(o.resource.replace(/_/g, ' '))}>
+                                        <span className="text-muted-alt flex items-center">
+                                            <ScopeIcon scope={o.resource} />
+                                        </span>
+                                    </Tooltip>
                                     <span className="font-medium">{label}</span>
                                 </div>
                             )
                         },
-                    },
-                    {
-                        title: 'Type',
-                        key: 'type',
-                        render: (_, o: AccessObjectRule) => (
-                            <span className="text-secondary">{toSentenceCase(o.resource.replace(/_/g, ' '))}</span>
-                        ),
                     },
                     {
                         title: 'Access',
