@@ -319,6 +319,51 @@ class TestScoping:
         assert result.proposals[0].integration == "GoogleAds"
         assert result.proposals[0].clean_name == "spring_sale_2024"
 
+    def test_unscoped_refuses_a_name_two_platforms_both_run(self):
+        # "brand", "retargeting" — the names every account has. Unscoped, both platforms' copies
+        # are candidates and they're spelled identically, so the margin is 100 and the top looks
+        # unrivalled. The only thing left separating them was the highest-spend tiebreak, which
+        # says nothing about where the traffic came from.
+        campaigns = [
+            _campaign("spring_sale_2024", "1", spend=9000.0, source="google"),
+            _campaign("spring_sale_2024", "2", spend=4000.0, source="meta"),
+        ]
+        utm_events = _events(("sprng_sale_2024", "some_partner", 900))
+
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+
+        assert result.proposals == []
+        assert len(result.ambiguous) == 1
+        assert "GoogleAds and MetaAds" in result.ambiguous[0].reason
+
+    def test_unscoped_verdict_does_not_move_with_the_budget(self):
+        # The sharp edge of the above: identical evidence, opposite spend. A verdict that flips
+        # here is one that would re-attribute a campaign when next month's budget shifts.
+        def integrations_for(google_spend: float, meta_spend: float) -> list[str]:
+            campaigns = [
+                _campaign("spring_sale_2024", "1", spend=google_spend, source="google"),
+                _campaign("spring_sale_2024", "2", spend=meta_spend, source="meta"),
+            ]
+            utm_events = _events(("sprng_sale_2024", "some_partner", 900))
+            result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+            return [proposal.integration for proposal in result.proposals]
+
+        assert integrations_for(9000.0, 1000.0) == integrations_for(1000.0, 9000.0) == []
+
+    def test_scoped_still_proposes_when_another_platform_shares_the_name(self):
+        # The guard above must not swallow the case it doesn't apply to: utm_source names google
+        # here, so the shared name isn't ambiguous at all and the proposal has to survive.
+        campaigns = [
+            _campaign("spring_sale_2024", "1", spend=9000.0, source="google"),
+            _campaign("spring_sale_2024", "2", spend=4000.0, source="meta"),
+        ]
+        utm_events = _events(("sprng_sale_2024", "google", 900))
+
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+
+        assert len(result.proposals) == 1
+        assert result.proposals[0].integration == "GoogleAds"
+
     def test_canonical_source_alias_still_scopes(self):
         # 'facebook' resolves to meta's primary source, so scoping must survive it.
         campaigns = [_campaign("spring_sale_2024", source="meta")]

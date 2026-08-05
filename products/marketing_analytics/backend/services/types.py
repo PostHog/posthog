@@ -42,6 +42,14 @@ class SuggestedAction(StrEnum):
     # Switch this integration's match field from campaign_name to campaign_id to avoid
     # cross-platform name collisions. Caveat: requires utm_campaign URLs to use the ID too.
     SWITCH_TO_ID_MATCH = "switch_to_id_match"
+    # Add a `campaign_name_mappings` entry pointing a typo'd utm_campaign at this campaign.
+    # Only offered when the fuzzy suggester found a confident match — see `mapping_candidate`
+    # for which value. Secondary to FIX_PLATFORM_URLS, which cures the tagging bug itself.
+    ADD_CAMPAIGN_NAME_MAPPING = "add_campaign_name_mapping"
+
+
+# Same reason as UTM_ISSUE_KIND_CHOICES above: a stable enum name in the generated schema.
+SUGGESTED_ACTION_CHOICES = [action.value for action in SuggestedAction]
 
 
 class MatchType(StrEnum):
@@ -74,6 +82,11 @@ class UtmIssue:
     missing_source_count: int = 0
     # Ordered list of suggested remediations. First entry is the primary recommendation.
     suggested_actions: list[SuggestedAction] = dataclass_field(default_factory=list)
+    # The orphaned utm_campaign value that looks like a typo of this campaign, when the fuzzy
+    # suggester found a confident match. Set only alongside ADD_CAMPAIGN_NAME_MAPPING: the audit
+    # can see a campaign has no events but not why, and this is the missing half — "no pageviews
+    # for 'spring_sale_2024'" is far more actionable next to "but 'sprng_sale_2024' has 1,340".
+    mapping_candidate: str = ""
 
 
 @dataclass

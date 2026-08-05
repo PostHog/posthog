@@ -13212,6 +13212,22 @@ export namespace Schemas {
       event_count: number;
     }
 
+    /**
+     * * `fix_platform_urls` - fix_platform_urls
+     * * `add_source_mapping` - add_source_mapping
+     * * `switch_to_id_match` - switch_to_id_match
+     * * `add_campaign_name_mapping` - add_campaign_name_mapping
+     */
+    export type SuggestedActionsEnum = typeof SuggestedActionsEnum[keyof typeof SuggestedActionsEnum];
+
+
+    export const SuggestedActionsEnum = {
+      FixPlatformUrls: 'fix_platform_urls',
+      AddSourceMapping: 'add_source_mapping',
+      SwitchToIdMatch: 'switch_to_id_match',
+      AddCampaignNameMapping: 'add_campaign_name_mapping',
+    } as const;
+
     export interface UtmIssue {
       /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
       field: string;
@@ -13236,6 +13252,10 @@ export namespace Schemas {
       shared_with_integrations: string[];
       /** Pageviews that matched this campaign but carried no utm_source, on any issue kind */
       missing_source_count: number;
+      /** Recommended remediations, most-recommended first. fix_platform_urls cures the tagging bug itself; the others are workarounds that leave the bad URLs in place. */
+      suggested_actions: SuggestedActionsEnum[];
+      /** The orphaned utm_campaign value that looks like a typo of this campaign, when one was found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, including when several candidates tie and picking one could misattribute spend. */
+      mapping_candidate: string;
     }
 
     export interface CampaignAuditResult {
@@ -13286,6 +13306,8 @@ export namespace Schemas {
       method: string;
       /** Why these campaign values were clustered together */
       reason: string;
+      /** Events across every raw value folded into this suggestion. Suggestions are ordered by it. */
+      event_count_30d: number;
     }
 
     export interface CandidateEvent {
@@ -68421,6 +68443,8 @@ export namespace Schemas {
       suggested_target_display_name: string;
       /** Why this mapping is suggested */
       reason: string;
+      /** Events carrying this raw utm_source in the window. Suggestions are ordered by it. */
+      event_count_30d: number;
     }
 
     /**
@@ -74698,7 +74722,7 @@ export namespace Schemas {
     export interface UtmMappingSuggestionsResponse {
       /** Suggested custom_source_mappings entries */
       source_suggestions: SourceMappingSuggestion[];
-      /** Suggested campaign-name clusters (empty in v1) */
+      /** campaign_name_mappings entries for orphaned utm_campaign values that fuzzy-match a real campaign. Near-ties are withheld, so an absent campaign may still be mappable by hand. */
       campaign_suggestions: CampaignMappingSuggestion[];
       /** All unmatched raw utm_source values worth reviewing */
       raw_unmatched_samples: RawUnmatchedSample[];
