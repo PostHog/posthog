@@ -736,7 +736,12 @@ class TestContextBlob(APIBaseTest):
         # A failed lookup must not read as an empty project: the projects whose scan times out are the
         # ones with the most data, so "none recorded yet" here would invite a "nothing happened" report.
         assert "none recorded yet" not in blob
-        assert "do NOT infer the project has no data" in blob
+        assert "- Top events: (unavailable this run)" in blob
+        # The blob is quoted verbatim into the synthesis prompt, so this line has to stay a statement of
+        # state — an imperative aimed at the planner can reach the reader as report prose. (The blob does
+        # carry imperatives elsewhere, e.g. the date-placeholder rule, hence asserting on this line only.)
+        (top_events_line,) = [line for line in blob.splitlines() if line.startswith("- Top events:")]
+        assert "do NOT" not in top_events_line
 
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     def test_still_injects_relevant_event_schema_when_top_events_lookup_fails(self, _mock_groups: object) -> None:

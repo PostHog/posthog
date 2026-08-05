@@ -225,11 +225,8 @@ def sanitize_prompt(raw: str | None) -> str:
 
 
 def _top_event_names(team: Team, limit: int) -> list[str]:
-    # Deliberately unlimited: the taxonomy is an unfiltered 30-day `GROUP BY event` over the whole
-    # events table, and the limit is applied to its *output* rows — so asking for fewer costs
-    # ClickHouse exactly the same. What the limit does change is the cache key (`limit` is hashed
-    # into it), which partitions us off the limit-less entry the other AI callers share and makes
-    # every run recompute a scan that may not fit its budget. Share their key; slice below.
+    # Unlimited on purpose: the limit bounds output rows, not the 30-day GROUP BY behind them, so it
+    # saves ClickHouse nothing and only forks our cache key away from the other AI callers'.
     response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), team).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
     )
@@ -238,11 +235,8 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     # Event names are user-controlled (project tokens are public — anyone can fire
     # events with arbitrary names). Sanitize so an attacker can't seed the LLM
     # context with prompt-injection payloads via crafted event names.
-    # `count > 0` drops the runner's WELL_KNOWN_EVENT_NAMES padding, which it appends at count=0 so
-    # Max can offer filters on events a project could send. Under a "Top events" heading that padding
-    # is a claim the event fired, so a project with fewer real events than `limit` would otherwise be
-    # told `$pageleave` is one of its top events. Events that exist but are dormant are a separate
-    # line, built from the Postgres taxonomy by `_no_data_event_names`.
+    # `count > 0` drops the runner's count=0 WELL_KNOWN_EVENT_NAMES padding: under a "Top events"
+    # heading it would claim events fired that never did. Dormant ones are `_no_data_event_names`.
     sanitized = (sanitize_user_text(item.event, EVENT_NAME_MAX_LENGTH) for item in response.results if item.count > 0)
     return [name for name in sanitized if name][:limit]
 
@@ -444,13 +438,9 @@ def _event_property_names(team: Team, events: list[str], per_event_limit: int) -
 
 
 def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequence[str] = ()) -> str:
-    # The volume-ranked top events are a context *hint* — every event the planner is asked to reason
-    # about arrives via `relevant_events`, whose names come from the Postgres taxonomy. On a
-    # high-volume project the 30-day scan behind this can exceed ClickHouse's execution limit, and
-    # letting that abort the run costs the whole report to save a hint, so it degrades instead —
-    # matching how `_llm_selected_events` already treats its own failures. None carries "we couldn't
-    # find out" through to the Top events line, which must not render it as "there are none"; typed
-    # Optional rather than a parallel bool so `ty` rejects any use that ignores the difference.
+    # Only a hint — the planner's actual event names arrive via `relevant_events` from the Postgres
+    # taxonomy — so a ClickHouse timeout on the 30-day scan behind it degrades rather than costing the
+    # whole report, as `_llm_selected_events` already does. None means "unknown", never "none".
     event_names: list[str] | None
     try:
         event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
@@ -479,13 +469,13 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
         f"- Previous-period start (for period-over-period comparisons only, project timezone): "
         f"{window.compare_start_literal}",
     ]
-    if event_names:
+    if event_names is None:
+        # State, not an instruction to the model: this blob is also quoted verbatim into the synthesis
+        # prompt, so an imperative here can end up paraphrased at the reader. Distinct from the empty
+        # case because the projects whose scan times out are the ones with the most data.
+        lines.append("- Top events: (unavailable this run)")
+    elif event_names:
         lines.append("- Top events: " + ", ".join(event_names))
-    elif event_names is None:
-        # Never claim "none recorded yet" after a failed lookup. The projects big enough to break that
-        # lookup are exactly the ones with the most data, so the reassuring version of this line is the
-        # one that would make the planner report that nothing happened.
-        lines.append("- Top events: (could not be retrieved this run — do NOT infer the project has no data)")
     else:
         lines.append("- Top events: (none recorded yet)")
 
