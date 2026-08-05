@@ -18,6 +18,7 @@ def block_if_team_over_quota(
     thread_ts: str,
     slack_user_id: str,
     context: str,
+    mention_is_threaded: bool,
 ) -> bool:
     """Refuse a Slack-bot turn when the team is over its AI credits quota.
 
@@ -26,6 +27,10 @@ def block_if_team_over_quota(
     activity modules can compose both without each one re-importing
     ``ee.billing``. Returns True when the team was blocked and a denial was
     posted.
+
+    ``mention_is_threaded`` decides where the denial lands — see
+    ``mention_is_in_thread``. Callers derive it from the raw Slack event, not from
+    ``thread_ts``, which folds a top-level mention's own ``ts`` into the anchor.
     """
     from products.slack_app.backend.api import post_quota_exhausted_denial
 
@@ -45,6 +50,7 @@ def block_if_team_over_quota(
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,
         context=context,
+        mention_is_threaded=mention_is_threaded,
     )
     return True
 

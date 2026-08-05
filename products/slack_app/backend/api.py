@@ -4,6 +4,7 @@ import time
 import uuid
 import asyncio
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -258,6 +259,18 @@ QUOTA_EXHAUSTED_MESSAGE = (
 )
 
 
+def mention_is_in_thread(event: Mapping[str, Any]) -> bool:
+    """Whether a Slack event is a reply inside a thread rather than a top-level channel post.
+
+    A thread root carries ``thread_ts == ts``; only a genuine reply carries an older
+    ``thread_ts``. User-facing feedback uses this to pick its surface: a reply anchored to
+    a thread renders for someone already viewing that thread, which is nowhere near the
+    channel view where a top-level mention was just typed.
+    """
+    thread_ts = event.get("thread_ts")
+    return isinstance(thread_ts, str) and thread_ts != event.get("ts")
+
+
 def post_quota_exhausted_denial(
     *,
     integration: Integration,
@@ -266,13 +279,18 @@ def post_quota_exhausted_denial(
     thread_ts: str,
     slack_user_id: str,
     context: str,
+    mention_is_threaded: bool,
 ) -> None:
-    """Post the AI-credits denial message into a Slack thread.
+    """Tell a Slack user their team is out of AI credits.
 
     Called by the workflow's quota gate after it determines the team is over
     quota. Lives in this module so the Slack-posting helpers and the message
     text stay co-located; the quota check itself lives in the temporal layer
     (which is the only side allowed to import ``ee.billing``).
+
+    ``thread_ts`` is the conversation anchor the rest of the pipeline keys on, so it is what
+    the log carries. The denial itself only threads when the mention did — from a top-level
+    mention it goes to the channel root, where the user is actually looking.
     """
     logger.info(
         "slack_app_slack_blocked_by_quota",
@@ -285,7 +303,7 @@ def post_quota_exhausted_denial(
         slack,
         channel,
         slack_user_id,
-        thread_ts,
+        thread_ts if mention_is_threaded else None,
         QUOTA_EXHAUSTED_MESSAGE,
         prefer_thread_message=True,
     )
@@ -295,13 +313,17 @@ def _post_slack_user_feedback(
     slack: SlackIntegration,
     channel: str,
     slack_user_id: str,
-    thread_ts: str,
+    thread_ts: str | None,
     text: str,
     *,
     prefer_thread_message: bool = False,
 ) -> bool:
     """Post feedback to a Slack user. Returns whether anything reached Slack, so callers
-    that report on whether the user was actually told something aren't guessing."""
+    that report on whether the user was actually told something aren't guessing.
+
+    Pass ``thread_ts=None`` for a message that isn't in a thread, so both the channel post
+    and the ephemeral fallback land at the channel root rather than inside a thread the
+    user isn't viewing."""
     if prefer_thread_message:
         try:
             slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
@@ -1910,9 +1932,7 @@ def route_posthog_code_event_to_relevant_region(
         channel_str = event.get("channel") if isinstance(event.get("channel"), str) else None
         thread_ts_value = event.get("thread_ts") or event.get("ts")
         thread_ts_str = thread_ts_value if isinstance(thread_ts_value, str) else None
-        # Whether the message is a reply inside a thread rather than a top-level channel
-        # post. Decides which surface an ephemeral has to be anchored to to be visible.
-        mention_is_threaded = isinstance(event.get("thread_ts"), str) and event.get("thread_ts") != event.get("ts")
+        mention_is_threaded = mention_is_in_thread(event)
 
         # Region routing only needs candidate presence, not user resolution. We
         # defer the Slack ``users.info`` hit and the ``OrganizationMembership``

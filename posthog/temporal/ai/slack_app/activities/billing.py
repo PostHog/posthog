@@ -22,6 +22,8 @@ def enforce_posthog_code_billing_quota_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
+    from products.slack_app.backend.api import mention_is_in_thread
+
     integration = Integration.objects.select_related("team").get(
         id=inputs.integration_id,
         kind="slack",
@@ -35,4 +37,5 @@ def enforce_posthog_code_billing_quota_activity(
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,
         context="task_create",
+        mention_is_threaded=mention_is_in_thread(inputs.event),
     )

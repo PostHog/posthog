@@ -525,6 +525,7 @@ def create_posthog_code_task_for_repo_activity(
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
+    from products.slack_app.backend.api import mention_is_in_thread
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
@@ -566,6 +567,7 @@ def create_posthog_code_task_for_repo_activity(
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,
         context="task_create",
+        mention_is_threaded=mention_is_in_thread(event),
     ):
         return
 
@@ -870,6 +872,9 @@ def forward_posthog_code_followup_activity(
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,
         context="followup",
+        # A follow-up reaches this activity only through a thread mapping, so the
+        # message is by construction a reply inside that thread.
+        mention_is_threaded=True,
     ):
         return True
 
