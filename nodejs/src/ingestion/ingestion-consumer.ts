@@ -32,6 +32,7 @@ import {
     EventIngestionRestrictionManagerComponent,
 } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -175,7 +176,7 @@ export class IngestionConsumer {
         // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
         // failure can surface as an unhandled rejection and restart the worker.
         this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres, {
-            loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+            loaderRetry: DEFAULT_LOADER_RETRY,
         })
 
         this.name = `ingestion-consumer-${this.topic}`

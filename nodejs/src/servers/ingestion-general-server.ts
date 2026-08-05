@@ -22,6 +22,7 @@ import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
 import { GeoIPService } from '~/common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManagerComponent } from '~/common/utils/team-manager'
@@ -188,7 +189,7 @@ export class IngestionGeneralServer implements NodeServer {
                     // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
                     // transient failure can surface as an unhandled rejection and restart the worker.
                     new TeamManagerComponent(container.postgres, {
-                        loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+                        loaderRetry: DEFAULT_LOADER_RETRY,
                     })
                 )
                 .add('cookielessManager', new CookielessManagerComponent(this.config, container.cookielessRedisPool))
@@ -241,7 +242,7 @@ export class IngestionGeneralServer implements NodeServer {
         // detached in the LazyLoader buffer, so an un-retried transient failure can
         // surface as an unhandled rejection and restart the worker.
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager, {
-            loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+            loaderRetry: DEFAULT_LOADER_RETRY,
         })
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
