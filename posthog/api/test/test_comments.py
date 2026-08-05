@@ -154,6 +154,56 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         activity = activity_model.objects.unscoped().get(team=self.team, user=owner, comment_id=created.json()["id"])
         assert activity.kind == "owned_item_comment"
 
+    @mock.patch("products.tasks.backend.facade.api.record_comment_activity", side_effect=RuntimeError("activity down"))
+    def test_activity_projection_failure_does_not_fail_comment_creation(self, _record_activity: mock.Mock) -> None:
+        task = self._task_artifact_target()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Still persist this",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Comment.objects.filter(id=response.json()["id"], team=self.team).exists()
+
+    def test_reply_inherits_its_root_comment_target(self) -> None:
+        task = self._task_artifact_target()
+        root = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Root",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
+        ).json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Reply",
+                "scope": "Insight",
+                "item_id": "another-resource",
+                "item_context": {"taskId": "00000000-0000-4000-8000-000000000000", "is_emoji": True},
+                "source_comment": root["id"],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["source_comment"] == root["id"]
+        assert response.json()["scope"] == "task_artifact"
+        assert response.json()["item_id"] == "artifact-1"
+        assert response.json()["item_context"] == {
+            "anchor": {"kind": "document"},
+            "taskId": str(task.id),
+            "is_emoji": True,
+        }
+
     @mock.patch("posthog.api.comments.send_mention_notifications")
     def test_personal_channel_comments_ignore_mentions(self, send_notifications: mock.Mock) -> None:
         task = self._task_artifact_target()

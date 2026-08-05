@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -26,6 +27,8 @@ from posthog.tasks.email import send_discussions_mentioned
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_scope(scope: Any) -> Any:
@@ -67,36 +70,38 @@ def _record_task_comment_activity(
     activity_at=None,
     include_relationship_recipients: bool = True,
 ) -> None:
-    from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product
-        record_comment_activity,
-    )
+    try:
+        from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product
+            record_comment_activity,
+        )
 
-    task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
-    target_was_validated = _task_comment_target_is_accessible(
-        team_id=comment.team_id,
-        user_id=comment.created_by_id,
-        task_id=task_id or "",
-        scope=comment.scope,
-        item_id=comment.item_id,
-    )
-    if not target_was_validated:
-        return
+        task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
+        if not _task_comment_target_is_accessible(
+            team_id=comment.team_id,
+            user_id=comment.created_by_id,
+            task_id=task_id or "",
+            scope=comment.scope,
+            item_id=comment.item_id,
+        ):
+            return
 
-    owner_id = None
-    if comment.scope == "desktop_canvas" and comment.item_id:
-        from products.canvas.backend.facade.api import canvas_owner_id  # noqa: PLC0415
+        owner_id = None
+        if comment.scope == "desktop_canvas" and comment.item_id:
+            from products.canvas.backend.facade.api import canvas_owner_id  # noqa: PLC0415
 
-        owner_id = canvas_owner_id(team_id=comment.team_id, canvas_id=comment.item_id)
+            owner_id = canvas_owner_id(team_id=comment.team_id, canvas_id=comment.item_id)
 
-    record_comment_activity(
-        team_id=comment.team_id,
-        comment_id=comment.id,
-        mentioned_user_ids=mentions,
-        target_was_validated=True,
-        include_relationship_recipients=include_relationship_recipients,
-        target_owner_id=owner_id,
-        activity_at=activity_at,
-    )
+        record_comment_activity(
+            team_id=comment.team_id,
+            comment_id=comment.id,
+            mentioned_user_ids=mentions,
+            target_was_validated=True,
+            include_relationship_recipients=include_relationship_recipients,
+            target_owner_id=owner_id,
+            activity_at=activity_at,
+        )
+    except Exception:
+        logger.exception("Failed to project task comment activity", extra={"comment_id": str(comment.id)})
 
 
 def _mentions_allowed_for_comment_target(
@@ -256,6 +261,20 @@ class CommentSerializer(serializers.ModelSerializer):
         # parent — so losing ticket editor access after creation, re-scoping a comment into or out
         # of a ticket, and replying into a thread on another ticket are all caught, not just fresh
         # ticket-message creation.
+        if not instance and source_comment is not None:
+            root = source_comment.source_comment or source_comment
+            data["source_comment"] = root
+            data["scope"] = root.scope
+            data["item_id"] = root.item_id
+            reply_context = data.get("item_context") or {}
+            data["item_context"] = {
+                **(root.item_context or {}),
+                **({"is_emoji": reply_context["is_emoji"]} if "is_emoji" in reply_context else {}),
+            }
+            source_comment = root
+            scope = root.scope
+            item_id = root.item_id
+
         scopes_and_items = {(scope, item_id)}
         if instance:
             scopes_and_items.add((instance.scope, instance.item_id))

@@ -9,7 +9,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1279_drop_duckgresserverteam_table"),
-        ("tasks", "0082_taskactivity_comment"),
+        ("tasks", "0081_channelcontextgeneration_channelinstructions_and_more"),
     ]
 
     operations = [
@@ -31,15 +31,6 @@ class Migration(migrations.Migration):
                             ("owned_item_comment", "Owned item comment"),
                         ],
                         max_length=32,
-                    ),
-                ),
-                (
-                    "actor",
-                    models.ForeignKey(
-                        db_constraint=False,
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="+",
-                        to="posthog.user",
                     ),
                 ),
                 (
@@ -89,7 +80,6 @@ class Migration(migrations.Migration):
                 "db_table": "posthog_task_comment_activity",
                 "indexes": [
                     models.Index(fields=["team", "user", "activity_at", "id"], name="task_comment_activity_feed"),
-                    models.Index(fields=["team", "root_comment", "activity_at"], name="task_comment_thread_feed"),
                     models.Index(
                         condition=models.Q(("read_at__isnull", True)),
                         fields=["team", "user"],

@@ -36,7 +36,7 @@ from django.utils import timezone as django_timezone
 import posthoganalytics
 
 from posthog.event_usage import groups
-from posthog.models import Comment, Team, User
+from posthog.models import Team, User
 from posthog.models.integration import Integration
 
 from products.tasks.backend.constants import (
@@ -74,7 +74,6 @@ from products.tasks.backend.models import (
     SandboxSnapshot,
     Task,
     TaskActivity,
-    TaskArtifact,
     TaskAutomation,
     TaskClientProvenance,
     TaskCommentActivity,
@@ -6036,84 +6035,24 @@ def _index_thread_message_mentions(message: TaskThreadMessage, mentioned_user_id
         )
 
 
-# The comment scopes the desktop client writes against a task's resources; mirrors its
-# CommentScope union. Anything else on the shared comments table belongs to another product.
-COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
-
-
 def task_has_canvas_created_event(*, team_id: int, task_id: UUID, canvas_id: str) -> bool:
-    return TaskThreadMessage.objects.filter(
-        team_id=team_id,
-        task_id=task_id,
-        event="canvas_created",
-        payload__canvas_url__endswith=f"/{canvas_id}",
-    ).exists()
+    from products.tasks.backend.logic.services.comment_activity import task_has_canvas_created_event as service
+
+    return service(team_id=team_id, task_id=task_id, canvas_id=canvas_id)
 
 
 def task_comment_target_is_accessible(
     *, team_id: int, user_id: int | None, task_id: str | UUID, scope: str, item_id: str | None
 ) -> bool:
-    """Whether a visible task actually owns the resource addressed by a comment."""
-    try:
-        parsed_task_id = UUID(str(task_id))
-    except ValueError:
-        return False
+    from products.tasks.backend.logic.services.comment_activity import target_is_accessible
 
-    task = _visible_task_qs(team_id, user_id).filter(id=parsed_task_id).first()
-    if task is None or not item_id or scope not in COMMENT_ACTIVITY_SCOPES:
-        return False
-    if scope == "task":
-        return str(task.id) == str(item_id)
-    if scope == "task_artifact":
-        artifact_id = str(item_id)
-        try:
-            if TaskArtifact.objects.for_team(team_id).filter(task_id=task.id, id=artifact_id).exists():
-                return True
-        except (ValueError, DjangoValidationError):
-            pass
-        for artifacts in TaskRun.objects.filter(team_id=team_id, task_id=task.id).values_list("artifacts", flat=True):
-            if any(
-                isinstance(artifact, dict) and str(artifact.get("id")) == artifact_id for artifact in artifacts or []
-            ):
-                return True
-        return False
-
-    return False
+    return target_is_accessible(team_id=team_id, user_id=user_id, task_id=task_id, scope=scope, item_id=item_id)
 
 
 def task_comment_mentions_allowed(*, team_id: int, user_id: int | None, task_id: str | UUID) -> bool:
-    """Mentions are collaboration, so they are unavailable in personal channels."""
-    try:
-        parsed_task_id = UUID(str(task_id))
-    except ValueError:
-        return False
-    return (
-        _visible_task_qs(team_id, user_id)
-        .filter(
-            id=parsed_task_id,
-            channel__channel_type=Channel.ChannelType.PUBLIC,
-        )
-        .exists()
-    )
+    from products.tasks.backend.logic.services.comment_activity import notifications_allowed
 
-
-def _comment_task_id(scope: str, item_id: str | None, item_context: dict[str, Any] | None) -> UUID | None:
-    """The task a comment was written against, or None if it isn't one of ours.
-
-    Only ``scope="task"`` names the task directly. The resource-scoped comments carry it in
-    ``item_context`` instead, because their ``item_id`` points at an artifact that lives in a
-    run's JSON rather than in a table this could join against — so the value is
-    client-supplied, and callers check it against the team before trusting it.
-    """
-    if scope not in COMMENT_ACTIVITY_SCOPES:
-        return None
-    raw_task_id = item_id if scope == "task" else (item_context or {}).get("taskId")
-    if not isinstance(raw_task_id, str):
-        return None
-    try:
-        return UUID(raw_task_id)
-    except ValueError:
-        return None
+    return notifications_allowed(team_id=team_id, user_id=user_id, task_id=task_id)
 
 
 def record_comment_activity(
@@ -6126,73 +6065,18 @@ def record_comment_activity(
     target_owner_id: int | None = None,
     activity_at: datetime | None = None,
 ) -> None:
-    comment = Comment.objects.filter(team_id=team_id, id=comment_id).select_related("source_comment").first()
-    if comment is None or comment.created_by_id is None:
-        return
-    task_id = _comment_task_id(comment.scope, comment.item_id, comment.item_context)
-    if task_id is None:
-        return
-    if not task_comment_mentions_allowed(team_id=team_id, user_id=comment.created_by_id, task_id=task_id):
-        return
-
     try:
-        if not target_was_validated and not task_comment_target_is_accessible(
+        from products.tasks.backend.logic.services.comment_activity import project_comment_activity
+
+        project_comment_activity(
             team_id=team_id,
-            user_id=comment.created_by_id,
-            task_id=task_id,
-            scope=comment.scope,
-            item_id=comment.item_id,
-        ):
-            return
-        task = Task.objects.filter(team_id=team_id, id=task_id).only("created_by_id").first()
-        if task is None:
-            return
-
-        root_comment_id = comment.source_comment_id or comment.id
-        recipients: dict[int, str] = {}
-        if include_relationship_recipients:
-            if comment.source_comment_id:
-                participant_ids = (
-                    Comment.objects.filter(
-                        team_id=team_id,
-                    )
-                    .filter(Q(id=root_comment_id) | Q(source_comment_id=root_comment_id))
-                    .values_list("created_by_id", flat=True)
-                )
-                for participant_id in participant_ids:
-                    if participant_id:
-                        recipients[participant_id] = TaskCommentActivity.Kind.THREAD_REPLY
-            else:
-                owner_id = target_owner_id
-                if owner_id is None and comment.scope == "task_artifact":
-                    try:
-                        owner_id = (
-                            TaskArtifact.objects.for_team(team_id)
-                            .filter(task_id=task_id, id=comment.item_id)
-                            .values_list("created_by_id", flat=True)
-                            .first()
-                        )
-                    except (ValueError, DjangoValidationError):
-                        owner_id = None
-                owner_id = owner_id or task.created_by_id
-                if owner_id:
-                    recipients[owner_id] = TaskCommentActivity.Kind.OWNED_ITEM_COMMENT
-
-        for mentioned_user_id in mentioned_user_ids:
-            recipients[mentioned_user_id] = TaskCommentActivity.Kind.MENTION
-        recipients.pop(comment.created_by_id, None)
-
-        for user_id, kind in recipients.items():
-            TaskCommentActivity.record(
-                team_id=team_id,
-                user_id=user_id,
-                actor_id=comment.created_by_id,
-                task_id=task_id,
-                activity_at=activity_at or comment.created_at,
-                comment_id=comment_id,
-                root_comment_id=root_comment_id,
-                kind=kind,
-            )
+            comment_id=comment_id,
+            mentioned_user_ids=mentioned_user_ids,
+            target_was_validated=target_was_validated,
+            include_relationship_recipients=include_relationship_recipients,
+            target_owner_id=target_owner_id,
+            activity_at=activity_at,
+        )
     except Exception:
         logger.exception("Failed to record comment activity", extra={"comment_id": str(comment_id)})
 
@@ -6278,24 +6162,6 @@ def project_completed_activity(task_run: "TaskRun") -> None:
     )
 
 
-def _activity_snippet(row: TaskActivity) -> str:
-    """Preview of whatever the row's latest activity was said in, if anything was."""
-    if row.message:
-        return row.message.content
-    if row.comment:
-        return row.comment.content or ""
-    return ""
-
-
-def _activity_author(row: TaskActivity) -> "User | None":
-    """Who wrote the thread message or comment behind the row; None for agent and task rows."""
-    if row.message:
-        return row.message.author if row.message.author_id else None
-    if row.comment:
-        return row.comment.created_by
-    return None
-
-
 def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     """The requester's feed rows, gated to tasks they can still see.
 
@@ -6342,9 +6208,7 @@ def list_task_activity(
         cursor = Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id)
         task_qs = task_qs.filter(cursor)
         comment_qs = comment_qs.filter(cursor)
-    task_rows = task_qs.select_related("task__channel", "message__author", "comment__created_by").order_by(
-        "-activity_at", "-id"
-    )[: limit + 1]
+    task_rows = task_qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1]
     comment_rows = comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
         : limit + 1
     ]
@@ -6370,14 +6234,16 @@ def list_task_activity(
                 activity_kind=row.kind,
                 snippet=(row.comment.content or "" if row.comment else "")
                 if isinstance(row, TaskCommentActivity)
-                else _activity_snippet(row),
+                else (row.message.content if row.message else ""),
                 latest_author=_user_basic_info(
-                    row.comment.created_by if isinstance(row, TaskCommentActivity) else _activity_author(row)
+                    row.comment.created_by
+                    if isinstance(row, TaskCommentActivity)
+                    else (row.message.author if row.message and row.message.author_id else None)
                 ),
                 latest_message_id=None if isinstance(row, TaskCommentActivity) else row.message_id,
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
-                latest_comment_scope=row.comment.scope if row.comment else None,
-                latest_comment_item_id=row.comment.item_id if row.comment else None,
+                latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
+                latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
                 is_unread=row.read_at is None,
             )
             for row in rows
