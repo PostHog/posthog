@@ -2,7 +2,9 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { CONVERSATIONS_MESSAGE_MAX_LENGTH, supportLogic } from 'lib/components/Support/supportLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { initKeaTests } from '~/test/init'
 import { BillingType } from '~/types'
@@ -168,6 +170,69 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.view).toBe('ticket')
         expect(logic.values.currentTicket?.id).toBe('ticket-1')
         expect(supportLogic.values.pendingViewTicket).toBeNull()
+    })
+
+    // The panel already shows free plans the community and upgrade options, and they have no email
+    // channel, so warning them the chat failed would offer support they don't actually get.
+    it.each([
+        ['warns an entitled plan', 'paid', true],
+        ['stays quiet on a free plan', 'free', false],
+    ])('when the widget never loads, %s', async (_case, subscriptionLevel, expectWarning) => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // After the mount, so the fixture loads don't put the paid plan back. canCreateTicket also
+        // passes for orgs under three months old, so age the org out to make "free" really unentitled.
+        setSubscriptionLevel(subscriptionLevel as 'paid' | 'free')
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...organizationLogic.values.currentOrganization,
+            created_at: '2020-01-01T00:00:00Z',
+        } as never)
+
+        // Spending the retry budget is the only way into this branch, and burning it through 20 real
+        // timer cycles races the fixture loads
+        delete (posthog as any).conversations
+        logic.cache.conversationsRetries = 20
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadTickets()
+        }).toFinishAllListeners()
+
+        // Recorded either way, so the failure rate stays visible even where we don't interrupt
+        const unavailable = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support widget unavailable'
+        )
+        expect(unavailable).toHaveLength(1)
+        expect(unavailable[0][1]).toMatchObject({ can_create_ticket: expectWarning })
+        expect(errorToast).toHaveBeenCalledTimes(expectWarning ? 1 : 0)
+        errorToast.mockRestore()
+    })
+
+    it('reports a missing widget instead of silently dropping the composed message', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        // The extension can go missing after mount (blocked script, teardown). Sending used to return
+        // early with no toast and no loading state, leaving the typed message stranded.
+        delete (posthog as any).conversations
+        const onSuccess = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('please help', onSuccess)
+        }).toFinishAllListeners()
+
+        expect(onSuccess).not.toHaveBeenCalled()
+        expect(logic.values.messageSending).toBe(false)
+        const failures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support ticket send failed'
+        )
+        expect(failures).toHaveLength(1)
+        expect(failures[0][1]).toMatchObject({ reason: 'widget_unavailable' })
     })
 
     it('blocks an over-limit message client-side but sends a normal one', async () => {

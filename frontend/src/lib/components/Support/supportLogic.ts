@@ -101,6 +101,18 @@ export function warnIfMessageTooLong(message: string): boolean {
     return false
 }
 
+// Distinct from a failed send: the widget is a lazily-loaded posthog-js extension, so its absence is
+// usually something no retry will fix (ad blocker, content blocker, network policy). Saying "try
+// again" there sends people round a loop, so name the likely cause instead. Stays open because it
+// can't be recovered from by waiting. Only call this where the user is actually entitled to email
+// us — free plans have no email channel, so pointing them at one promises something they don't have.
+export function warnSupportWidgetUnavailable(): void {
+    lemonToast.error(
+        "We can't load the support chat, so your message can't be sent. That's usually an ad blocker or a network policy.",
+        { button: EMAIL_SUPPORT_BUTTON, autoClose: false }
+    )
+}
+
 // Conversations tickets carry just the user's message (like the side panel composer), but for bug
 // reports we still fold the exception in so it survives on email-channel tickets and when the
 // agent's session-scoped exceptions panel can't resolve it. Mirrors how feature-preview feedback
@@ -748,22 +760,34 @@ export const supportLogic = kea<supportLogicType>([
                 })
             }
 
-            const sendFailed = (error?: unknown): void => {
+            // Conversations is the only channel, so every failure has to be reported rather than
+            // rerouted. `reason` splits "the widget never loaded" (usually permanent for that browser)
+            // from "the send failed" (usually transient), because they need different advice and the
+            // volume of each tells us whether the email fallback is carrying real traffic.
+            const sendFailed = (
+                reason: 'widget_unavailable' | 'widget_declined' | 'send_failed',
+                error?: unknown
+            ): void => {
                 posthog.capture('support ticket send failed', {
                     channel: 'conversations',
+                    reason,
                     error: error !== undefined ? (error instanceof Error ? error.message : String(error)) : undefined,
                     kind,
                     target_area,
                     message_length: message?.length,
                     current_url_length: window.location.href.length,
                 })
+                if (reason === 'widget_unavailable') {
+                    warnSupportWidgetUnavailable()
+                    return
+                }
                 lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
                     button: EMAIL_SUPPORT_BUTTON,
                 })
             }
 
             if (!(await waitForConversations())) {
-                sendFailed()
+                sendFailed('widget_unavailable')
                 return
             }
 
@@ -782,7 +806,7 @@ export const supportLogic = kea<supportLogicType>([
                 if (!response) {
                     // The extension declined to send (e.g. it became unavailable between the wait
                     // above and this call) — nothing left the browser
-                    sendFailed()
+                    sendFailed('widget_declined')
                     return
                 }
                 // No support_ticket capture here: the backend fires $conversation_ticket_created for
@@ -814,7 +838,7 @@ export const supportLogic = kea<supportLogicType>([
                 // The request may have reached the server even though the response failed, so don't
                 // retry here — that could file the ticket twice
                 posthog.captureException(e)
-                sendFailed(e)
+                sendFailed('send_failed', e)
             }
         },
 

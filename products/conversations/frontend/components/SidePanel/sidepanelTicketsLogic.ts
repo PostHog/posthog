@@ -15,7 +15,12 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { appendExceptionToMessage, supportLogic, warnIfMessageTooLong } from 'lib/components/Support/supportLogic'
+import {
+    appendExceptionToMessage,
+    supportLogic,
+    warnIfMessageTooLong,
+    warnSupportWidgetUnavailable,
+} from 'lib/components/Support/supportLogic'
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -399,6 +404,21 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 if ((cache.conversationsRetries ?? 0) < 20) {
                     cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
                     cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(), 500)
+                } else if (!cache.conversationsUnavailableWarned) {
+                    // Out of retries. Kept separate from the send-failure event because nothing was
+                    // submitted here, and recorded even when we stay quiet so the rate is measurable.
+                    cache.conversationsUnavailableWarned = true
+                    posthog.capture('support widget unavailable', {
+                        surface: 'side_panel_tickets',
+                        can_create_ticket: values.canCreateTicket,
+                    })
+                    // Only warn people who could act on it. A free plan has no email fallback, and the
+                    // panel already shows them the community and upgrade options, so a toast offering
+                    // to email us would promise a channel they don't get. Warn while entitlement is
+                    // still unresolved, matching how the composer opens rather than drop a message.
+                    if (values.canCreateTicket || !values.isBillingResolved) {
+                        warnSupportWidgetUnavailable()
+                    }
                 }
                 return
             }
@@ -482,7 +502,19 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         sendMessage: async ({ content, onSuccess }) => {
-            if (!content.trim() || values.messageSending || !posthog.conversations) {
+            if (!content.trim() || values.messageSending) {
+                return
+            }
+            // Bailing quietly here left the button un-loaded and the typed message sitting in the box
+            // with no explanation, which is the worst version of this now conversations is the only channel
+            if (!posthog.conversations) {
+                posthog.capture('support ticket send failed', {
+                    channel: 'conversations',
+                    reason: 'widget_unavailable',
+                    message_length: content.length,
+                    is_new_ticket: values.view === 'new',
+                })
+                warnSupportWidgetUnavailable()
                 return
             }
             if (warnIfMessageTooLong(content)) {
@@ -516,12 +548,15 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     // A null response means nothing was sent, so surface it instead of silently
                     // resetting. Server-rejected sends are captured server-side (widget endpoint),
                     // so we only warn the user here rather than emitting a duplicate failure event.
-                    lemonToast.error('Failed to send message. Please try again.')
+                    lemonToast.error('Failed to send message. Please try again.', {
+                        button: EMAIL_SUPPORT_BUTTON,
+                    })
                 }
             } catch (e) {
                 console.error('Failed to send message:', e)
                 posthog.capture('support ticket send failed', {
                     channel: 'conversations',
+                    reason: 'send_failed',
                     error: e instanceof Error ? e.message : String(e),
                     message_length: content.length,
                     current_url_length: window.location.href.length,
@@ -602,6 +637,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         requestRestoreLink: async ({ email }) => {
             const conversations = posthog.conversations as any
             if (!conversations?.requestRestoreLink) {
+                // Returning quietly left the button idle with no explanation. This form already renders
+                // restoreError inline, which beats a toast for something the user has to act on.
+                actions.setRestoreError(
+                    "We can't load the support chat, which is usually an ad blocker or a network policy. Try turning it off for this site and reloading."
+                )
+                actions.setRestoreState('error')
                 return
             }
             actions.setRestoreState('sending')

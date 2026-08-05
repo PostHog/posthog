@@ -183,17 +183,19 @@ describe('supportLogic', () => {
         })
 
         // lastSubmittedTicketId staying null is how every caller detects failure, and there is no
-        // second channel to retry on, so each of these must report rather than silently drop
+        // second channel to retry on, so each of these must report rather than silently drop. The
+        // reason has to survive too: it drives which advice the user gets.
         it.each([
-            ['the widget declines to send', jest.fn().mockResolvedValue(null)],
-            ['the send throws', jest.fn().mockRejectedValue(new Error('network down'))],
-        ])('reports a failure and files no ticket when %s', async (_case, sendMessage) => {
+            ['the widget declines to send', jest.fn().mockResolvedValue(null), 'widget_declined'],
+            ['the send throws', jest.fn().mockRejectedValue(new Error('network down')), 'send_failed'],
+        ])('reports a failure and files no ticket when %s', async (_case, sendMessage, expectedReason) => {
             conversationsMock(sendMessage)
 
             await logic.asyncActions.submitSupportTicket(FORM_FIELDS)
 
             expect(logic.values.lastSubmittedTicketId).toBeNull()
             expect(sendFailures()).toHaveLength(1)
+            expect(sendFailures()[0][1]).toMatchObject({ reason: expectedReason })
         })
 
         it('waits for the lazily-loaded extension, then reports a failure if it never arrives', async () => {
@@ -210,7 +212,10 @@ describe('supportLogic', () => {
                 jest.useRealTimers()
             }
 
+            // Reported as unavailable, not as a failed send: a blocked script won't come back, so the
+            // user gets the email address instead of being told to retry
             expect(sendFailures()).toHaveLength(1)
+            expect(sendFailures()[0][1]).toMatchObject({ reason: 'widget_unavailable' })
             expect(logic.values.lastSubmittedTicketId).toBeNull()
         })
 
