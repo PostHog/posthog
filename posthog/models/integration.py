@@ -671,11 +671,15 @@ class Integration(models.Model):
 
             account_id = self.config.get("aws_account_id")
             role = self.config.get("aws_role_arn")
+            host = self.config.get("host")
+            user = self.config.get("user")
 
             if role:
                 detail = f"AWS role '{role}'"
             elif account_id:
                 detail = f"AWS account {account_id}"
+            elif user and host:
+                detail = f"{user}@{host}"
             else:
                 detail = "access key"
 
