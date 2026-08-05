@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -33,12 +34,17 @@ def _item(change_pct: float | None) -> MarketingAnalyticsItem:
     )
 
 
+@freeze_time("2026-06-15T12:00:00Z")
 class TestCostsPrecomputeTtlSchedule(BaseTest):
     """The read path and the Dagster warmer both build their schedule here.
 
     Nothing else pins that the cost path actually opts into the empty-window cap, which is the
     gap that let an unsynced window stay cached as $0 in the first place — a refactor that dropped
     the opt-in would leave every test green.
+
+    Frozen because the band cutoffs are resolved when the schedule is *built* (`parse_ttl_schedule`
+    runs `relative_date_parse("0d")` eagerly) while the assertions pass a separately-sampled `now`.
+    Midday UTC keeps the two on the same side of every boundary.
     """
 
     def test_opts_into_the_empty_result_cap(self):
