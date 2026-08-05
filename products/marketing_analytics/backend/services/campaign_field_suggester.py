@@ -31,7 +31,11 @@ from products.marketing_analytics.backend.services.types import (
     TeamMappings,
     UtmIssueKind,
 )
-from products.marketing_analytics.backend.services.utm_matching import DEFAULT_MATCH_FIELD, get_match_field
+from products.marketing_analytics.backend.services.utm_matching import (
+    DEFAULT_MATCH_FIELD,
+    get_match_field,
+    resolve_source,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -126,8 +130,12 @@ def suggest_campaign_field_preferences(
     Manual `campaign_name_mappings` are deliberately excluded from both rates: they
     rewrite whichever field is preferred, so counting them would credit one side for
     something both sides get, and inflate the current field's apparent hit rate.
+
+    Rates are scoped per integration by resolved `utm_source`, because the table groups
+    cost and conversions on a `(campaign, source)` row key — a rate pooled across every
+    platform would not describe what the dashboard actually attributes.
     """
-    utm_campaign_values = {utm_campaign for utm_campaign, _ in utm_events if utm_campaign}
+    values_by_source = _utm_values_by_source(utm_events, mappings)
     collisions_by_source = _collisions_by_source(audit_results or [])
 
     suggestions: list[FieldPreferenceSuggestion] = []
@@ -135,7 +143,7 @@ def suggest_campaign_field_preferences(
         suggestion = _suggest_for_integration(
             source_name=source_name,
             group=group,
-            utm_campaign_values=utm_campaign_values,
+            utm_campaign_values=values_by_source.get(source_name, set()),
             mappings=mappings,
             colliding_integrations=collisions_by_source.get(source_name, set()),
         )
@@ -145,6 +153,28 @@ def suggest_campaign_field_preferences(
     # Highest-value switch first; `id` breaks ties so the output is stable.
     suggestions.sort(key=lambda s: (-s.spend_at_risk, s.integration))
     return suggestions
+
+
+def _utm_values_by_source(
+    utm_events: dict[tuple[str, str], int],
+    mappings: TeamMappings,
+) -> dict[str, set[str]]:
+    """Primary source -> the `utm_campaign` values that arrived tagged as that integration.
+
+    Resolution goes through `resolve_source`, the same path the audit and the real query use,
+    so a team custom mapping and a canonical default alias ('fb' -> meta) both count. A source
+    that resolves to nothing is credited to nobody: in the table its traffic lands on its own
+    row rather than the platform's, so counting it here would claim spend is attributed when
+    it isn't. Such a platform reports a 0 rate, which is the truth — the fix it needs is a
+    source mapping, which the plan suggests separately.
+    """
+    values: dict[str, set[str]] = {}
+    for (utm_campaign, utm_source), _ in utm_events.items():
+        if not utm_campaign:
+            continue
+        primary = resolve_source(utm_source.lower().strip(), mappings)
+        values.setdefault(primary, set()).add(utm_campaign)
+    return values
 
 
 def _group_by_source(campaigns: list[Campaign]) -> dict[str, list[Campaign]]:

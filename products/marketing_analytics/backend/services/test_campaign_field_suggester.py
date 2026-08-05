@@ -166,6 +166,48 @@ class TestNoSuggestion:
         assert suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS) == []
 
 
+class TestSourceScoping:
+    """Production groups cost and conversions on a (campaign, source) row key, so a rate that
+    ignores utm_source does not describe what the table will actually attribute."""
+
+    def test_another_platform_traffic_does_not_prop_up_the_name_rate(self):
+        # Google and Meta both run "black_friday", but only Meta's URLs carry it. Counting the
+        # whole catalogue credited Google with Meta's events, so name matching looked like it
+        # worked and the campaign_id suggestion Google needed was suppressed.
+        campaigns = [_campaign(f"shared_{i}", f"{2000 + i}", spend=500.0) for i in range(6)]
+        # Every name arrives, but tagged as Meta traffic. Google's own ids arrive too.
+        utm_events = {
+            **{(c.campaign_name, "facebook"): 100 for c in campaigns},
+            **{(c.campaign_id, "google"): 100 for c in campaigns},
+        }
+
+        suggestions = suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS)
+
+        assert [s.suggested_match_field for s in suggestions] == ["campaign_id"]
+
+    def test_a_custom_source_mapping_is_credited_to_its_integration(self):
+        # The whole point of source_to_integration: once "fb_paid" is mapped to meta, that
+        # traffic has to count for Meta or scoping would zero out a correctly-configured team.
+        campaigns = _named_campaigns(6, source="meta")
+        utm_events = {(c.campaign_name, "fb_paid"): 100 for c in campaigns}
+        mapped = TeamMappings(source_to_integration={"fb_paid": "meta"}, campaign_aliases={}, field_preferences={})
+
+        suggestions = suggest_campaign_field_preferences(campaigns, utm_events, mapped)
+
+        # Name matching already works, so there is nothing to suggest.
+        assert suggestions == []
+
+    def test_a_default_alias_is_credited_without_any_mapping(self):
+        # 'facebook' resolves to meta through canonical_source_aliases with no team config,
+        # so scoping must not demand a custom mapping for the common case.
+        campaigns = _named_campaigns(6, source="meta")
+        utm_events = {(c.campaign_name, "facebook"): 100 for c in campaigns}
+
+        suggestions = suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS)
+
+        assert suggestions == []
+
+
 class TestCollisionOverride:
     def test_surfaces_collision_even_below_threshold(self):
         campaigns = _named_campaigns(10)
