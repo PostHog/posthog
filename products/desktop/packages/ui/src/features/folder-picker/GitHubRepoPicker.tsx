@@ -1,4 +1,8 @@
-import { ArrowClockwise, GithubLogo } from "@phosphor-icons/react";
+import {
+  ArrowClockwise,
+  GithubLogo,
+  MagnifyingGlass,
+} from "@phosphor-icons/react";
 import {
   Button,
   Combobox,
@@ -7,8 +11,9 @@ import {
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
-  ComboboxListFooter,
   ComboboxTrigger,
+  InputGroupAddon,
+  InputGroupButton,
 } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { defaultFilter } from "cmdk";
@@ -61,6 +66,7 @@ export function GitHubRepoPicker({
   const buttonSize = size === "2" ? "lg" : "sm";
   const buttonTextClass = size === "2" ? "text-[13px]" : "";
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const loadMoreRequestKeyRef = useRef<string | null>(null);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(COMBOBOX_INITIAL_LIMIT);
@@ -93,6 +99,22 @@ export function GitHubRepoPicker({
       onChange(onlyRepo);
     }
   }, [onlyRepo, value, onChange]);
+
+  const loadMoreAtScrollEnd = () => {
+    const requestKey = remoteMode
+      ? `${trimmedSearchQuery}:${repositories.length}`
+      : `${trimmedSearchQuery}:${visibleLimit}`;
+    if (!hasMore || isLoading || loadMoreRequestKeyRef.current === requestKey)
+      return;
+    loadMoreRequestKeyRef.current = requestKey;
+
+    if (remoteMode) {
+      onLoadMore?.();
+      return;
+    }
+
+    setVisibleLimit((currentLimit) => currentLimit + COMBOBOX_INITIAL_LIMIT);
+  };
 
   if (isLoading && !showInlineLoadingState) {
     return (
@@ -194,70 +216,22 @@ export function GitHubRepoPicker({
         anchor={anchor ?? triggerRef}
         side="bottom"
         sideOffset={6}
-        className="min-w-[280px]"
+        className="flex h-80 w-80 flex-col"
       >
         {showSearchInput ? (
-          <div className="flex min-w-0 items-center gap-1 pe-2">
-            <div className="min-w-0 flex-1">
-              <ComboboxInput placeholder="Search repositories..." />
-            </div>
+          <ComboboxInput
+            placeholder="Search repositories..."
+            showTrigger={false}
+          >
+            <InputGroupAddon align="inline-start">
+              <MagnifyingGlass size={14} />
+            </InputGroupAddon>
             {onRefresh ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={disabled || isRefreshing}
-                aria-label="Refresh repositories"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onRefresh();
-                }}
-              >
-                <ArrowClockwise
-                  size={14}
-                  className={isRefreshing ? "animate-spin" : undefined}
-                />
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        <ComboboxEmpty>
-          {showInlineLoadingState
-            ? "Loading repositories..."
-            : "No repositories found."}
-        </ComboboxEmpty>
-        <ComboboxList>
-          {(repo: string) => (
-            <ComboboxItem key={repo} value={repo}>
-              {repo}
-            </ComboboxItem>
-          )}
-        </ComboboxList>
-
-        {(hasMore ||
-          (remoteMode
-            ? repositories.length > COMBOBOX_INITIAL_LIMIT
-            : filteredRepositoryCount > COMBOBOX_INITIAL_LIMIT)) && (
-          <ComboboxListFooter>
-            <div className="px-2 pb-2">
-              <div className="px-1 pb-2 text-center text-muted-foreground text-xs">
-                {remoteMode
-                  ? trimmedSearchQuery
-                    ? `Showing ${repositories.length}${hasMore ? "+" : ""} matches`
-                    : `Showing ${repositories.length}${hasMore ? "+" : ""} repositories`
-                  : trimmedSearchQuery
-                    ? `Showing ${Math.min(visibleLimit, filteredRepositoryCount)} of ${filteredRepositoryCount} matches`
-                    : `Showing ${Math.min(visibleLimit, repositories.length)} of ${repositories.length}`}
-              </div>
-              {hasMore ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-center"
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  size="icon-xs"
+                  disabled={disabled || isRefreshing}
+                  aria-label="Refresh repositories"
                   onMouseDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -265,22 +239,38 @@ export function GitHubRepoPicker({
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    if (remoteMode) {
-                      onLoadMore?.();
-                      return;
-                    }
-
-                    setVisibleLimit(
-                      (currentLimit) => currentLimit + COMBOBOX_INITIAL_LIMIT,
-                    );
+                    onRefresh();
                   }}
                 >
-                  Load more
-                </Button>
-              ) : null}
-            </div>
-          </ComboboxListFooter>
-        )}
+                  <ArrowClockwise
+                    size={14}
+                    className={isRefreshing ? "animate-spin" : undefined}
+                  />
+                </InputGroupButton>
+              </InputGroupAddon>
+            ) : null}
+          </ComboboxInput>
+        ) : null}
+        <ComboboxEmpty>
+          {showInlineLoadingState
+            ? "Loading repositories..."
+            : "No repositories found."}
+        </ComboboxEmpty>
+        <ComboboxList
+          className="flex-1"
+          onScroll={(event) => {
+            const list = event.currentTarget;
+            if (list.scrollHeight - list.scrollTop - list.clientHeight <= 32) {
+              loadMoreAtScrollEnd();
+            }
+          }}
+        >
+          {(repo: string) => (
+            <ComboboxItem key={repo} value={repo}>
+              {repo}
+            </ComboboxItem>
+          )}
+        </ComboboxList>
       </ComboboxContent>
     </Combobox>
   );
