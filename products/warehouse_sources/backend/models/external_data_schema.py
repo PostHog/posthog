@@ -69,6 +69,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         blank=True,
         help_text="When this schema's failure was last included in a failure digest email.",
     )
+    consecutive_failure_count = models.PositiveIntegerField(
+        default=0,
+        db_default=0,
+        help_text=(
+            "Number of sync runs that have failed in a row, reset to 0 on the next successful run. "
+            "Tracked independently of whether the error matched a known non-retryable pattern, so a "
+            "table-scoped failure that never matches those patterns still gets counted."
+        ),
+    )
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
@@ -844,6 +853,29 @@ def get_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -
 def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None:
     return (
         ExternalDataSchema.objects.prefetch_related("source").exclude(deleted=True).get(id=schema_id, team_id=team_id)
+    )
+
+
+def increment_schema_failure_streak(schema_id: str, team_id: int) -> int:
+    """Bump the consecutive-failure counter and return the new value.
+
+    Independent of the hardcoded non-retryable error patterns in external_data_job.py — those are
+    connection-level and a table-scoped failure can never match them, so this counts every failure
+    regardless of whether the error was recognised.
+    """
+    ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(
+        consecutive_failure_count=models.F("consecutive_failure_count") + 1
+    )
+    return (
+        ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id)
+        .values_list("consecutive_failure_count", flat=True)
+        .get()
+    )
+
+
+def reset_schema_failure_streak(schema_id: str, team_id: int) -> None:
+    ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id, consecutive_failure_count__gt=0).update(
+        consecutive_failure_count=0
     )
 
 

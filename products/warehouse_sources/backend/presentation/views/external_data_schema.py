@@ -45,8 +45,10 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
+    reset_schema_failure_streak,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
+    update_should_sync,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
@@ -374,6 +376,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "should_sync",
             "last_synced_at",
             "latest_error",
+            "consecutive_failure_count",
             "incremental",
             "status",
             "sync_type",
@@ -401,6 +404,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "table",
             "last_synced_at",
             "latest_error",
+            "consecutive_failure_count",
             "status",
             "description",
             "available_columns",
@@ -1505,6 +1509,15 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
+
+        # A manual resync is the user's way out of an auto-paused failure streak — re-enable
+        # scheduling (a repeated-failure pause disables it, same as a non-retryable one) and give
+        # it a fresh streak, otherwise a single subsequent failure re-trips the pause immediately.
+        if not instance.should_sync:
+            reenabled = update_should_sync(schema_id=str(instance.pk), team_id=instance.team_id, should_sync=True)
+            if reenabled is not None:
+                instance = reenabled
+        reset_schema_failure_streak(schema_id=str(instance.pk), team_id=instance.team_id)
 
         cdc_resync = instance.is_cdc
         updates: dict[str, Any] = {"reset_pipeline": True}

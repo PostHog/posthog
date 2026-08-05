@@ -3095,6 +3095,67 @@ class TestCancelExternalDataSchema(APIBaseTest):
         mock_cancel.assert_not_called()
 
 
+class TestResyncSchema(APIBaseTest):
+    """A schema auto-paused after repeated failures (see TestUpdateExternalDataJobModelActivityFailureStreak)
+    has should_sync=False and its Temporal schedule paused. Without resetting both, a manual resync
+    would either not run at all or immediately re-trip the pause on its very next failure."""
+
+    def _create_paused_schema(self) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        return ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            consecutive_failure_count=5,
+        )
+
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+    )
+    @mock.patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
+    @mock.patch(
+        "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists", return_value=True
+    )
+    def test_resync_re_enables_and_resets_failure_streak(self, _mock_exists, mock_unpause, _mock_trigger):
+        schema = self._create_paused_schema()
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/resync/")
+
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        assert schema.consecutive_failure_count == 0
+        mock_unpause.assert_called_once_with(str(schema.id))
+
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+    )
+    def test_resync_resets_failure_streak_when_already_enabled(self, _mock_trigger):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            consecutive_failure_count=3,
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/resync/")
+
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.consecutive_failure_count == 0
+
+
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
     def _make_api_key(self, scopes: list[str]) -> str:
         value = generate_random_token_personal()

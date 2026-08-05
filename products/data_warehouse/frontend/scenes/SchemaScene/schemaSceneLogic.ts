@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -364,7 +365,11 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             }
             try {
                 await api.externalDataSchemas.resync(schema.id)
-                posthog.capture('schema resynced', { sourceType: values.source?.source_type })
+                posthog.capture('schema resynced', {
+                    sourceType: values.source?.source_type,
+                    schemaId: schema.id,
+                    teamId: teamLogic.values.currentTeamId,
+                })
                 lemonToast.success(`Resync started for ${schema.label ?? schema.name}`)
             } catch (e: any) {
                 lemonToast.error(e?.message || "Couldn't start resync")

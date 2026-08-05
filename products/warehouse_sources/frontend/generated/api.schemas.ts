@@ -154,6 +154,8 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     readonly latest_error: string | null
+    /** Number of sync runs that have failed in a row, reset to 0 on the next successful run. Tracked independently of whether the error matched a known non-retryable pattern, so a table-scoped failure that never matches those patterns still gets counted. */
+    readonly consecutive_failure_count: number
     readonly incremental: boolean
     /** @nullable */
     readonly status: string | null
@@ -314,6 +316,8 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     readonly latest_error?: string | null
+    /** Number of sync runs that have failed in a row, reset to 0 on the next successful run. Tracked independently of whether the error matched a known non-retryable pattern, so a table-scoped failure that never matches those patterns still gets counted. */
+    readonly consecutive_failure_count?: number
     readonly incremental?: boolean
     /** @nullable */
     readonly status?: string | null

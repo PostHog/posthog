@@ -24,6 +24,7 @@ import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -1427,7 +1428,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 try {
                     await api.externalDataSchemas.resync(schema.id)
 
-                    posthog.capture('schema resynced', { sourceType: clonedSource.source_type })
+                    posthog.capture('schema resynced', {
+                        sourceType: clonedSource.source_type,
+                        schemaId: schema.id,
+                        teamId: teamLogic.values.currentTeamId,
+                    })
                 } catch (e: any) {
                     if (e.message) {
                         lemonToast.error(e.message)

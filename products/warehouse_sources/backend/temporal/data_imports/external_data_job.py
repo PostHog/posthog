@@ -37,7 +37,12 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeRegisterDataImportsWorkflow,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    increment_schema_failure_streak,
+    reset_schema_failure_streak,
+    update_should_sync,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
@@ -103,6 +108,13 @@ LOGGER = get_logger(__name__)
 # expensive retry-exhaustion paths fast.
 MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
+
+# A table-scoped failure (e.g. a single column, row, or permission issue) can never match the
+# connection-level non-retryable patterns below or in a source's own `get_non_retryable_errors` —
+# those describe the whole connection, not one table. Without a separate backstop, such a schema
+# stays enabled and the Temporal schedule re-runs and re-fails it forever. This counter tracks
+# every failure regardless of whether it matched a known pattern, so it still trips a pause.
+SCHEMA_FAILURE_STREAK_PAUSE_THRESHOLD = 5
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
@@ -274,6 +286,32 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             if friendly_errors and friendly_errors[0] is not None:
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
+        else:
+            failure_streak = await database_sync_to_async_pool(increment_schema_failure_streak)(
+                schema_id=inputs.schema_id, team_id=inputs.team_id
+            )
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="schema unclassified failure",
+                properties={
+                    "schemaId": inputs.schema_id,
+                    "sourceId": inputs.source_id,
+                    "sourceType": source.source_type,
+                    "jobId": inputs.job_id,
+                    "teamId": inputs.team_id,
+                    "error": inputs.internal_error,
+                    "consecutiveFailureCount": failure_streak,
+                },
+            )
+            if failure_streak >= SCHEMA_FAILURE_STREAK_PAUSE_THRESHOLD:
+                await database_sync_to_async_pool(update_should_sync)(
+                    schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False
+                )
+
+    if inputs.status == ExternalDataJob.Status.COMPLETED:
+        await database_sync_to_async_pool(reset_schema_failure_streak)(
+            schema_id=inputs.schema_id, team_id=inputs.team_id
+        )
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,

@@ -441,12 +441,24 @@ function ManagedSchemaTable({
                                 {schema.status}
                             </LemonTag>
                         )
-                        return schema.latest_error && schema.status === 'Failed' ? (
+                        if (schema.status !== 'Failed' || !schema.latest_error) {
+                            return tagContent
+                        }
+                        const failureCount = schema.consecutive_failure_count ?? 0
+                        return (
                             <Tooltip title={schema.latest_error} interactive>
-                                {tagContent}
+                                <div className="flex flex-col gap-0.5 max-w-100">
+                                    {tagContent}
+                                    <span className="text-xs text-danger truncate">{schema.latest_error}</span>
+                                    {failureCount > 1 && (
+                                        <span className="text-xs text-muted">
+                                            Failed {failureCount} times in a row.
+                                            {!schema.should_sync &&
+                                                ' Syncing has been paused — resync to retry after fixing the issue.'}
+                                        </span>
+                                    )}
+                                </div>
                             </Tooltip>
-                        ) : (
-                            tagContent
                         )
                     },
                 },

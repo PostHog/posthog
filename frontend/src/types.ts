@@ -6447,6 +6447,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_time_of_day: string | null
     status?: ExternalDataSchemaStatus
     latest_error: string | null
+    /** Consecutive failed sync runs, reset to 0 on the next success. */
+    consecutive_failure_count?: number
     incremental_field: string | null
     incremental_field_type: string | null
     /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
