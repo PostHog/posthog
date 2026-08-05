@@ -37,7 +37,8 @@ export function Message({
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
 }: MessageProps): JSX.Element {
-    const profileType = message.authorType === 'AI' ? 'bot' : 'person'
+    const isAgent = message.authorType === 'AI'
+    const profileType = isAgent ? 'bot' : 'person'
     const isPrivate = message.isPrivate
     const [feedbackText, setFeedbackText] = useState('')
     const [feedbackTextSubmitted, setFeedbackTextSubmitted] = useState(false)
@@ -84,10 +85,23 @@ export function Message({
                         </div>
                     </div>
                     <div className="max-w-full min-w-80">
+                        {/* A note the customer can't see is set apart by hue, and which hue says who
+                            wrote it: the assistant's notes take the AI colour the rest of the app
+                            uses for our own agents, a teammate's keep the warning amber. Scanning a
+                            long thread, "a colleague left me this" and "software left me this" are
+                            different enough to be worth telling apart before either is read. The
+                            lock badge above stays identical either way — the promise that the
+                            customer can't see it isn't the thing that varies. */}
                         <div
                             className={`border py-2 px-3 rounded-lg ${
                                 isPrivate
-                                    ? 'bg-warning-highlight border-warning'
+                                    ? isAgent
+                                        ? // The fills are the app's existing AI pair; the border is
+                                          // held back to 60% because `border-ai` at full strength
+                                          // outshouts the amber it sits next to, and the assistant
+                                          // leaves one of these on nearly every ticket.
+                                          'bg-ai/08 dark:bg-ai/20 border-ai/60'
+                                        : 'bg-warning-highlight border-warning'
                                     : isCustomer
                                       ? 'bg-surface-secondary'
                                       : 'bg-surface-primary'

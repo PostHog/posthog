@@ -98,8 +98,10 @@ export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.
             </div>
             {/* Not a bubble, and marked down its edge, so it never reads as something a person said.
                 The edge is a pseudo-element so it can run the full height without fighting the border
-                radius the way a left border does. */}
-            <div className="relative flex items-start justify-between gap-3 overflow-hidden rounded border border-primary bg-surface-primary transition-colors hover:border-secondary py-2 pl-4 pr-3 after:content-[''] after:absolute after:inset-y-0 after:left-0 after:w-1 after:bg-accent">
+                radius the way a left border does. It carries the AI colour, the same one the
+                assistant's own internal notes wear in this thread, so everything our software leaves
+                on a ticket reads as one voice — distinct from a teammate's amber note. */}
+            <div className="relative flex items-start justify-between gap-3 overflow-hidden rounded border border-primary bg-surface-primary transition-colors hover:border-secondary py-2 pl-4 pr-3 after:content-[''] after:absolute after:inset-y-0 after:left-0 after:w-1 after:bg-ai">
                 {/* The link takes the whole left column so the entry reads as one target, while the
                     state stays a sibling: an anchor can't contain another, and clicking the pull
                     request should open the pull request. */}
