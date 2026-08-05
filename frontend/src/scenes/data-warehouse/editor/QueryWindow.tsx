@@ -113,13 +113,14 @@ export function QueryWindow({
     const { setEditorView } = useActions(biLogic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
+    const biModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
     const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
-    const showBIEditor = mode === SQLEditorMode.FullScene && editorView === BIEditorView.BI
+    const showBIEditor = biModeFeatureEnabled && mode === SQLEditorMode.FullScene && editorView === BIEditorView.BI
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
@@ -262,7 +263,7 @@ export function QueryWindow({
                             showDatabaseTree={showDatabaseTree}
                             onShowDatabaseTree={onShowDatabaseTree}
                         />
-                        {mode === SQLEditorMode.FullScene ? (
+                        {mode === SQLEditorMode.FullScene && biModeFeatureEnabled ? (
                             <LemonSegmentedButton
                                 value={editorView}
                                 onChange={setEditorView}
