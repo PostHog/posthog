@@ -1,19 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
+import { IconCopy, IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType, DateMappingOption } from '~/types'
+import { DateMappingOption } from '~/types'
 
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
+import { ObservationRetryButton } from '../../components/ObservationRetryButton'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import {
@@ -58,23 +58,6 @@ const OBSERVATION_DATE_OPTIONS: DateMappingOption[] = [
 // Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
 const VERSION_TAG_TYPES: LemonTagType[] = ['success', 'warning', 'caution', 'danger', 'completion']
 
-function Metric({
-    label,
-    value,
-    valueClass,
-}: {
-    label: string
-    value: number | string
-    valueClass?: string
-}): JSX.Element {
-    return (
-        <div className="text-center">
-            <div className={`font-semibold text-lg ${valueClass ?? ''}`}>{value}</div>
-            <div className="text-muted">{label}</div>
-        </div>
-    )
-}
-
 export function versionTag(
     obsVersion: number | null | undefined,
     currentVersion: number | null | undefined
@@ -116,6 +99,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         scanner,
         triggeringOnDemandObservation,
         retryingObservationIds,
+        copyingAllObservations,
     } = useValues(logic)
     const {
         refreshObservations,
@@ -129,6 +113,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationSubjectFilter,
         setObservationDateRange,
         clearObservationFilters,
+        copyAllObservations,
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
     const tagFilterOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
@@ -168,22 +153,15 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             render: (_, obs) => (
                 <div className="flex items-center gap-1">
                     <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
-                    {obs.status === 'failed' && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                icon={<IconRefresh />}
-                                onClick={() => retryObservation(obs.id)}
-                                loading={retryingObservationIds.includes(obs.id)}
-                                tooltip="Retry scan"
-                                data-attr="vision-observation-retry"
-                            />
-                        </AccessControlAction>
-                    )}
+                    <ObservationRetryButton
+                        status={obs.status}
+                        errorReason={obs.error_reason}
+                        onRetry={() => retryObservation(obs.id)}
+                        loading={retryingObservationIds.includes(obs.id)}
+                        userAccessLevel={scanner?.user_access_level}
+                        iconOnly
+                        dataAttr="vision-observation-retry"
+                    />
                 </div>
             ),
         },
@@ -255,6 +233,13 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         <div className="space-y-2">
             <div className="flex items-center gap-3">
                 <h3 className="font-semibold text-base m-0">Observation history</h3>
+                <span className="text-muted text-sm whitespace-nowrap">
+                    {observationStats.total.toLocaleString()} total ·{' '}
+                    <span className={observationStats.failed > 0 ? 'text-danger' : undefined}>
+                        {observationStats.failed.toLocaleString()} failed
+                    </span>{' '}
+                    · {observationStats.inFlight.toLocaleString()} in flight
+                </span>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
@@ -313,6 +298,19 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 </LemonButton>
                             </>
                         )}
+                        {scannerType === 'summarizer' && observationStats.total > 0 && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconCopy />}
+                                onClick={() => copyAllObservations()}
+                                loading={copyingAllObservations}
+                                tooltip="Copies the filtered summaries as plain text, ready to paste into a doc or an LLM"
+                                data-attr="vision-observations-copy-all"
+                            >
+                                Copy all
+                            </LemonButton>
+                        )}
                         <Tooltip
                             title={
                                 hasObservationsInFlight
@@ -331,22 +329,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 Refresh
                             </LemonButton>
                         </Tooltip>
-                    </div>
-                    {/* Always rendered (0 / N/A when empty) so a zero-match filter doesn't drop the metrics and shift the controls. */}
-                    <div className="flex gap-4 text-sm">
-                        <Metric label="Total" value={observationStats.total} />
-                        <Metric
-                            label="Success rate"
-                            value={observationStats.successRate !== null ? `${observationStats.successRate}%` : 'N/A'}
-                            valueClass={observationStats.successRate !== null ? 'text-success' : undefined}
-                        />
-                        <Metric
-                            label="Failed"
-                            value={observationStats.failed}
-                            valueClass={observationStats.failed > 0 ? 'text-danger' : undefined}
-                        />
-                        <Metric label="Ineligible" value={observationStats.ineligible} />
-                        <Metric label="In flight" value={observationStats.inFlight} />
                     </div>
                 </div>
             </div>

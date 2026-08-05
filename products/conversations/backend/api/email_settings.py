@@ -374,7 +374,7 @@ class EmailSendTestView(APIView):
         from_addr = formataddr((config.from_name, config.from_email))
 
         email_message = mail.EmailMultiAlternatives(
-            subject="Test email from PostHog Conversations",
+            subject="Test email from PostHog Support",
             body="This is a test email to confirm your outbound email is working correctly.",
             from_email=from_addr,
             to=[user.email],
@@ -393,7 +393,7 @@ class EmailSendTestView(APIView):
         except MailgunNotConfigured:
             logger.exception("email_send_test_not_configured", team_id=team.id, config_id=config.id)
             return Response(
-                {"error": "Conversations email not configured on this instance"},
+                {"error": "Support email not configured on this instance"},
                 status=500,
             )
         except MailgunDomainNotRegistered:

@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -28,6 +28,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
@@ -39,6 +40,8 @@ from products.experiments.backend.experiment_service import (
     ExperimentService,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
+    _merge_metric_arrays,
+    _merge_saved_metric_links,
 )
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -308,6 +311,55 @@ class TestExperimentService(APIBaseTest):
         assert "fingerprint" in experiment.metrics[0]
         assert isinstance(experiment.metrics[0]["fingerprint"], str)
         assert len(experiment.metrics[0]["fingerprint"]) == 64  # SHA256 hex
+
+    def test_lifecycle_save_does_not_clobber_concurrent_metric_change(self):
+        from django.utils import timezone
+
+        self._create_flag(key="lifecycle-clobber")
+        service = self._service()
+
+        metric_one = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "metric-1",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        metric_two = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "metric-2",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+
+        experiment = service.create_experiment(
+            name="Lifecycle Clobber",
+            feature_flag_key="lifecycle-clobber",
+            allow_unknown_events=True,
+            metrics=[metric_one],
+            start_date=timezone.now(),  # launched, so end_experiment is valid
+        )
+
+        # A request that loaded the experiment before the concurrent metric add.
+        stale = Experiment.objects.get(pk=experiment.pk)
+        stale_version = stale.version or 0
+
+        # A concurrent request adds a second metric.
+        service.update_experiment(
+            Experiment.objects.get(pk=experiment.pk),
+            {"metrics": [metric_one, metric_two]},
+            allow_unknown_events=True,
+        )
+
+        # Ending from the stale instance must not revert metric-2: the scoped, row-locked
+        # save touches only end_date/conclusion/version, never the metric collections.
+        service.end_experiment(stale)
+
+        final = Experiment.objects.get(pk=experiment.pk)
+        assert final.end_date is not None
+        assert {m["uuid"] for m in (final.metrics or [])} == {"metric-1", "metric-2"}
+        # Both writes advanced the token; the lifecycle bump reads the locked row, so it
+        # lands above the concurrent update rather than colliding with it.
+        assert (final.version or 0) > stale_version + 1
 
     # ------------------------------------------------------------------
     # Metric ordering
@@ -4193,6 +4245,8 @@ class TestExperimentService(APIBaseTest):
         else:
             experiment = self._create_ended_experiment(name="Reset Ended", feature_flag_key=f"reset-{state}-flag")
             assert experiment.is_stopped
+        experiment.flag_cleanup_task_id = uuid4()
+        experiment.save()
 
         reset = self._service().reset_experiment(experiment)
 
@@ -4203,6 +4257,7 @@ class TestExperimentService(APIBaseTest):
         assert reset.archived is False
         assert reset.conclusion is None
         assert reset.conclusion_comment is None
+        assert reset.flag_cleanup_task_id is None
 
     def test_reset_experiment_leaves_feature_flag_unchanged(self):
         experiment = self._create_running_experiment(name="Reset Flag", feature_flag_key="reset-flag-unchanged")
@@ -4242,6 +4297,26 @@ class TestExperimentService(APIBaseTest):
         assert reset.feature_flag.filters["groups"] == original_groups
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+    def test_reset_experiment_clears_freeze_without_request(self):
+        experiment = self._create_running_experiment(name="Reset No Request", feature_flag_key="reset-no-request-flag")
+        original_groups = deepcopy(experiment.feature_flag.filters["groups"])
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # Non-HTTP callers (no request/user) still route the freeze-strip through the
+        # gated facade write, attributed as a system change in the activity log.
+        with self.captureOnCommitCallbacks(execute=True):
+            reset = self._service().reset_experiment(frozen)
+
+        assert reset.is_draft
+        reset.feature_flag.refresh_from_db()
+        assert reset.feature_flag.filters["groups"] == original_groups
+        log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(reset.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert log.is_system is True
+        assert log.user is None
 
     @parameterized.expand(
         [
@@ -6830,3 +6905,81 @@ class TestDeprecatedParametersKeysInRequest(SimpleTestCase):
         request = MagicMock()
         type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
         assert _deprecated_parameters_keys_in_request(request) == []
+
+
+class TestConcurrentMetricMerge(SimpleTestCase):
+    """Branch pins for the pure three-way merge helpers behind experiment optimistic concurrency.
+    The end-to-end behavior is covered in test_presentation_api.py::TestExperimentConcurrency;
+    these lock the merge decisions that are awkward to reach through the API (identical edits on
+    both sides, double deletes, fingerprint-only churn)."""
+
+    @staticmethod
+    def _metric(uuid: str, event: str, fingerprint: str | None = None) -> dict:
+        metric = {"uuid": uuid, "kind": "ExperimentMetric", "source": {"kind": "EventsNode", "event": event}}
+        if fingerprint is not None:
+            metric["fingerprint"] = fingerprint
+        return metric
+
+    @parameterized.expand(
+        [
+            (
+                "identical_edit_on_both_sides_is_not_a_conflict",
+                [("m1", "old", None)],
+                [("m1", "new", None)],
+                [("m1", "new", None)],
+                {"new"},
+                [],
+            ),
+            (
+                "both_delete_the_same_metric",
+                [("m1", "e1", None), ("m2", "e2", None)],
+                [("m2", "e2", None)],
+                [("m2", "e2", None)],
+                {"e2"},
+                [],
+            ),
+            (
+                "fingerprint_only_churn_is_not_a_concurrent_edit",
+                [("m1", "e1", "old-fp"), ("m2", "e2", "old-fp")],
+                [("m1", "e1", "new-fp"), ("m2", "e2", "new-fp")],
+                [("m2", "e2", "old-fp")],
+                {"e2"},
+                [],
+            ),
+            (
+                "edit_vs_delete_conflicts",
+                [("m1", "e1", None)],
+                [("m1", "edited", None)],
+                [],
+                {"edited"},
+                ["m1"],
+            ),
+        ]
+    )
+    def test_merge_metric_arrays(
+        self,
+        _name: str,
+        base: list,
+        theirs: list,
+        mine: list,
+        expected_events: set[str],
+        expected_conflicts: list[str],
+    ) -> None:
+        merged, conflicts = _merge_metric_arrays(
+            [self._metric(*m) for m in base],
+            [self._metric(*m) for m in theirs],
+            [self._metric(*m) for m in mine],
+        )
+
+        self.assertEqual(conflicts, expected_conflicts)
+        if not expected_conflicts:
+            self.assertEqual({m["source"]["event"] for m in merged}, expected_events)
+
+    def test_merge_saved_metric_links_identical_metadata_edit_is_not_a_conflict(self) -> None:
+        base = [{"id": 1, "metadata": {"type": "primary"}}]
+        both_edited = [{"id": 1, "metadata": {"type": "secondary"}}]
+
+        merged, conflicts = _merge_saved_metric_links(base, both_edited, both_edited)
+
+        self.assertEqual(conflicts, [])
+        self.assertEqual(merged, [{"id": 1, "metadata": {"type": "secondary"}}])

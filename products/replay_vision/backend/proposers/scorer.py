@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any
 
 from products.replay_vision.backend.proposers.base import ConfigChange, prompt_change, set_change
+from products.replay_vision.backend.temporal.scanners.scorer import DEFAULT_SCORE_SCALE
 
 if TYPE_CHECKING:
     from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -45,7 +46,14 @@ class ScorerProposer:
         return _SYSTEM_PROMPT
 
     def grounding(self, scanner: "ReplayScanner") -> str:
-        return ""
+        # The schema requires echoing the scale, so the briefing must state the current one. Staying silent
+        # when none is stored makes the model invent a range that `to_config_patch` then materializes as a
+        # deliberate change complete with a rationale.
+        scale = (scanner.scanner_config or {}).get("scale") or {}
+        if not scale:
+            return f"Current scale: none stored, so {DEFAULT_SCORE_SCALE.min} to {DEFAULT_SCORE_SCALE.max} applies. Echo it unless the rated sessions justify a different range."
+        label = f" ({scale['label']})" if scale.get("label") else ""
+        return f"Current scale: {scale.get('min')} to {scale.get('max')}{label}."
 
     def to_config_patch(self, llm_output: dict[str, Any], base_config: dict[str, Any]) -> dict[str, Any]:
         config = dict(base_config)
@@ -57,8 +65,8 @@ class ScorerProposer:
         min_value = scale.get("min")
         max_value = scale.get("max")
         config["scale"] = {
-            "min": float(min_value if min_value is not None else base_scale.get("min", 0.0)),
-            "max": float(max_value if max_value is not None else base_scale.get("max", 0.0)),
+            "min": float(min_value if min_value is not None else base_scale.get("min", DEFAULT_SCORE_SCALE.min)),
+            "max": float(max_value if max_value is not None else base_scale.get("max", DEFAULT_SCORE_SCALE.max)),
             "label": scale.get("label", base_scale.get("label")),
         }
         return config

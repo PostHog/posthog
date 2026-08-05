@@ -55,6 +55,7 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
     STAMPHOG_REVIEW_GUIDANCE_PATH,
+    STAMPHOG_REVIEWHOG_LABEL,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
     STAMPHOG_SANDBOX_OWNERS_DIR,
@@ -113,7 +114,7 @@ def _mint_reviewer_gateway_token(run: ReviewRun) -> str:
     tasks uses with ``task.created_by``), under the shared sandbox OAuth app, carrying only
     ``llm_gateway:read`` plus the ``internal_run:read`` provenance marker — the gateway's stamphog
     route sets ``requires_server_credential`` and refuses OAuth tokens without the marker, so a
-    user's own Code OAuth token can't reach the route. The marker is passed explicitly instead of
+    user's own Desktop OAuth token can't reach the route. The marker is passed explicitly instead of
     ``include_internal_scopes=True`` to keep the rest of the internal bundle (``task:write``) out of
     a sandbox that runs an LLM over untrusted PR content. If that PR coaxes the reviewer into
     leaking the token, it buys a few hours of stamphog-route LLM calls and nothing else — the
@@ -165,14 +166,16 @@ def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
         value = os.environ.get(key)
         if value:
             env[key] = value
-    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(
-        {
-            "stamphog_runtime": "hosted",
-            "stamphog_team_id": run.team_id,
-            "stamphog_review_run_id": str(run.id),
-        },
-        separators=(",", ":"),
-    )
+    extra_properties: dict[str, object] = {
+        "stamphog_runtime": "hosted",
+        "stamphog_team_id": run.team_id,
+        "stamphog_review_run_id": str(run.id),
+    }
+    # Marks self-driving inbox reviews (never set for human PRs) so analytics can tell the engine's
+    # completed events and LLM traces apart from reviews of human PRs.
+    if (run.output or {}).get("inbox_review"):
+        extra_properties["stamphog_self_driving_review"] = True
+    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(extra_properties, separators=(",", ":"))
     return env
 
 
@@ -228,7 +231,11 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     check_runs = client.get_check_runs(repo, run.head_sha)
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
-    author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author else []
+    # Self-driving runs skip this fetch: the author is the App machine user, so blame familiarity
+    # from its merged PRs would read to the engine as human trust. An empty list only omits the
+    # familiarity section from the reviewer prompt; the review itself proceeds normally.
+    is_inbox_review = bool((run.output or {}).get("inbox_review"))
+    author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
 
     policy_files: dict[str, str] = {}
     for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
@@ -438,6 +445,9 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         repo=repo,
         engine_dir=STAMPHOG_SANDBOX_ENGINE_DIR,
         context_path=STAMPHOG_SANDBOX_CONTEXT_PATH,
+        # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
+        # from the run's inbox provenance, stamped after the PR is linked to a signals run.
+        self_driving_review=bool(output.get("inbox_review")),
     )
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
@@ -750,14 +760,15 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
 
+    # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
+    # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
+    # as an engine-refused one.
+    is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
+
     # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
-    # the author re-requests the next review by re-adding it. Keyed off parsed.verdict, not run.verdict —
-    # the gate-blocked branch overrides run.verdict to WAIT but the Action strips on gate refusals too.
+    # the author re-requests the next review by re-adding it.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
-    if repo_config.review_mode == ReviewMode.LABEL and parsed.verdict in (
-        ReviewVerdict.REFUSED,
-        ReviewVerdict.ESCALATE,
-    ):
+    if repo_config.review_mode == ReviewMode.LABEL and is_refusal:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
 
     run.completed_at = timezone.now()
@@ -780,6 +791,28 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
+
+    # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
+    # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
+    # then overrode (a newer run might approve the same head). Same is_refusal condition as the
+    # trigger-label strip above, in both review modes: stamphog couldn't sign off, so a deeper
+    # second-opinion review is wanted. Adding the ReviewHog trigger label fires its workflow
+    # (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise strip it).
+    # This is a secondary, cross-product notification that must never jeopardize the verdict — the
+    # refusal is already durably saved, so it is single-shot best-effort: catching every exception (not
+    # just StamphogGitHubError) contains the client's own errors plus the GitHubRateLimitError /
+    # requests.RequestException the egress layer raises on rate limits and network blips, neither a
+    # subclass of StamphogGitHubError. The sticky upsert above is idempotent, so a missed handoff is a
+    # missed handoff, not corruption.
+    if is_refusal:
+        try:
+            client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
+        except Exception:
+            # Format repo/pr into the message — activity.logger is a stdlib LoggerAdapter that
+            # raises TypeError on arbitrary kwargs, which would escape this best-effort catch.
+            activity.logger.exception(
+                f"stamphog: reviewhog handoff failed for {repo}#{pull_request.pr_number}; verdict still posted"
+            )
 
     # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
     # the PR auto-merged the instant GitHub recorded the approval, the closed webhook may run before this

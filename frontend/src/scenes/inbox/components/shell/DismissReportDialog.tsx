@@ -23,9 +23,9 @@ interface OpenDismissReportDialogParams {
 }
 
 const PAUSE_OPTION_TOOLTIP =
-    'Snoozes this report: it briefly leaves your inbox while more context is gathered, and it can come back if new findings match.'
+    'Snoozes this report: it briefly leaves your inbox while more context is gathered, and it can come back if new signals match.'
 const SUPPRESS_OPTION_TOOLTIP =
-    'Dismisses permanently: the report leaves your inbox and matching findings will not surface it again. Your reason is saved with the report.'
+    'Dismisses permanently: the report leaves your inbox and matching signals will not surface it again. Your reason is saved with the report.'
 
 // Vertical radio list mirroring desktop `DismissReportDialog`: each reason carries an icon +
 // tooltip explaining whether it snoozes (pause) or dismisses permanently (eye-slash).
@@ -64,13 +64,13 @@ export function openDismissReportDialog({
         ? `Archive ${selectedCount} reports?`
         : `Archive report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
     const description = isBulk
-        ? 'These reports will be archived out of your inbox. Your feedback is saved on each report and helps the agent.'
-        : 'This report will be archived out of your inbox. Your feedback is saved on the report and helps the agent.'
+        ? 'These reports will be archived out of your inbox. Your feedback is saved on each report, and your note goes to the agents that filed them.'
+        : 'This report will be archived out of your inbox. Your feedback is saved on the report, and your note goes to the agent that filed it.'
 
     LemonDialog.openForm({
         title,
         description,
-        maxWidth: '30rem',
+        maxWidth: '36rem',
         initialValues: { reason: null as DismissalReasonValue | null, note: '' },
         content: (
             <div className="flex flex-col gap-3">
@@ -79,8 +79,13 @@ export function openDismissReportDialog({
                         <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
                     )}
                 </LemonField>
-                <LemonField name="note" label="Note" info="Optional – helps the agent learn">
-                    <LemonTextArea placeholder="Optional: add detail" maxLength={4000} rows={3} />
+                <LemonField name="note" label="Note" info="Optional. The agent reads it on its next run.">
+                    <LemonTextArea
+                        placeholder="What made this report wrong, or not worth fixing?"
+                        maxLength={4000}
+                        minRows={5}
+                        maxRows={12}
+                    />
                 </LemonField>
             </div>
         ),

@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stigg import StiggSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.settings import (
     ENDPOINTS,
@@ -96,6 +93,7 @@ You can find your server API key under **Settings → Integrations → API keys*
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only. Stigg's list endpoints filter by `createdAt` but
         # expose no updated-since filter, and billing objects mutate in place, so there is no
@@ -104,7 +102,7 @@ You can find your server API key under **Settings → Integrations → API keys*
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: StiggSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: StiggSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # Server API keys are environment-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)

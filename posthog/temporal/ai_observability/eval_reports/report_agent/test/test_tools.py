@@ -5,13 +5,19 @@ import datetime as dt
 from typing import NotRequired, TypedDict
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import (
+    MagicMock,
+    call as mock_call,
+    patch,
+)
 
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
@@ -21,6 +27,8 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _UUID_RE,
     _ch_ts,
+    _execute_ch_query_with_retry,
+    _is_retriable_ch_error,
     _widened_ts_window,
     add_citation,
     add_section,
@@ -49,6 +57,12 @@ _list_all_eval_results_fn = list_all_eval_results.func  # type: ignore[attr-defi
 _sample_eval_results_fn = sample_eval_results.func  # type: ignore[attr-defined]
 _sample_trace_details_fn = sample_trace_details.func  # type: ignore[attr-defined]
 _get_trace_detail_fn = get_trace_detail.func  # type: ignore[attr-defined]
+
+
+def _per_query_memory_limit_error() -> ClickHouseQueryMemoryLimitExceeded:
+    error = ClickHouseQueryMemoryLimitExceeded()
+    error.is_per_query_limit = True
+    return error
 
 
 class _ReportToolState(TypedDict):
@@ -207,12 +221,12 @@ class TestSummaryMetrics(SimpleTestCase):
 
 
 class TestTargetAwareEvalResults(SimpleTestCase):
-    def _state(self, evaluation_target: str) -> dict:
+    def _state(self, evaluation_target: str, output_type: str = "boolean") -> dict:
         return {
             "team_id": 1,
             "evaluation_id": "eval-id",
             "evaluation_target": evaluation_target,
-            "output_type": "boolean",
+            "output_type": output_type,
             "period_start": "2026-04-08T14:00:00+00:00",
             "period_end": "2026-04-08T15:00:00+00:00",
             "trace_id_allowlist": [],
@@ -260,6 +274,36 @@ class TestTargetAwareEvalResults(SimpleTestCase):
         query = mock_execute_hogql.call_args_list[1].args[1]
         self.assertIn("properties.$ai_target_id", query)
         self.assertIn("properties.$ai_target_event_id", query)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_sentiment_list_omits_classifier_reasoning(self, mock_execute_hogql):
+        mock_execute_hogql.side_effect = [
+            [[1]],
+            [[_VALID_GEN_ID, "negative", None, 0.91, "identical classifier reasoning"]],
+        ]
+
+        result = _list_all_eval_results_fn(state=self._state("generation", "sentiment"))
+
+        self.assertIn(f"negative (0.91) | {_VALID_GEN_ID}", result)
+        self.assertNotIn("classifier reasoning", result)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_sentiment_sample_orders_by_score_and_omits_reasoning(self, mock_execute_hogql):
+        mock_execute_hogql.return_value = [[_VALID_GEN_ID, "negative", "identical classifier reasoning", None, 0.91]]
+
+        result = json.loads(
+            _sample_eval_results_fn(
+                state=self._state("generation", "sentiment"),
+                outcome="negative",
+                order_by="score",
+            )
+        )
+
+        self.assertEqual(
+            result,
+            [{"generation_id": _VALID_GEN_ID, "outcome": "negative", "score": 0.91}],
+        )
+        self.assertIn("ORDER BY score DESC, timestamp DESC", mock_execute_hogql.call_args.args[1])
 
 
 class TestTraceDetailTools(SimpleTestCase):
@@ -347,15 +391,18 @@ class TestTraceDetailTools(SimpleTestCase):
         mock_fetch.assert_not_called()
         mock_execute_hogql.assert_not_called()
 
-    def test_target_specific_tool_sets_do_not_expose_irrelevant_detail_tools(self):
-        generation_tools = {tool.name for tool in get_eval_report_tools("generation")}
-        trace_tools = {tool.name for tool in get_eval_report_tools("trace")}
+    def test_target_and_output_specific_tool_sets_do_not_expose_irrelevant_tools(self):
+        generation_tools = {tool.name for tool in get_eval_report_tools("generation", "boolean")}
+        trace_tools = {tool.name for tool in get_eval_report_tools("trace", "boolean")}
+        sentiment_tools = {tool.name for tool in get_eval_report_tools("generation", "sentiment")}
 
         self.assertIn("sample_generation_details", generation_tools)
         self.assertNotIn("sample_trace_details", generation_tools)
         self.assertIn("sample_trace_details", trace_tools)
         self.assertIn("get_trace_detail", trace_tools)
         self.assertNotIn("sample_generation_details", trace_tools)
+        self.assertIn("get_top_outcome_reasons", generation_tools)
+        self.assertNotIn("get_top_outcome_reasons", sentiment_tools)
 
 
 class TestUuidRegex(SimpleTestCase):
@@ -724,6 +771,27 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(entry["result_rates"], {"pass": 75.0, "fail": 25.0, "na": 0.0})
         self.assertEqual(entry["total_runs"], 8)
 
+    def test_metrics_unavailable_runs_are_not_agent_history(self):
+        now = timezone.now()
+        unavailable_run = self.EvaluationReportRun.objects.create(
+            report=self.report,
+            content={
+                "title": "Metrics temporarily unavailable",
+                "sections": [],
+                "generation_status": "metrics_unavailable",
+                "metrics": None,
+            },
+            metadata={},
+            period_start=now - dt.timedelta(hours=2),
+            period_end=now - dt.timedelta(hours=1),
+        )
+
+        listed_run_ids = {run["run_id"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
+        fetched = json.loads(_get_report_run_fn(state=self.state, run_id=str(unavailable_run.id)))
+
+        self.assertNotIn(str(unavailable_run.id), listed_run_ids)
+        self.assertIn("error", fetched)
+
     def test_get_rejects_non_uuid(self):
         result = json.loads(_get_report_run_fn(state=self.state, run_id="not-a-uuid"))
         self.assertIn("error", result)
@@ -763,6 +831,80 @@ class TestListAndGetReportRun(BaseTest):
         # Agent state is scoped to self.evaluation — other_run must not be visible
         result = json.loads(_get_report_run_fn(state=self.state, run_id=str(other_run.id)))
         self.assertIn("error", result)
+
+
+class TestExecuteChQueryWithRetry(SimpleTestCase):
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    @patch(
+        "posthog.temporal.ai_observability.eval_reports.report_agent.tools.random.uniform",
+        side_effect=lambda _minimum, maximum: maximum,
+    )
+    def test_retries_with_exponential_backoff_then_succeeds(
+        self, mock_uniform: MagicMock, mock_sleep: MagicMock
+    ) -> None:
+        attempts = {"n": 0}
+
+        def run_query() -> str:
+            attempts["n"] += 1
+            if attempts["n"] < 4:
+                raise ClickHouseAtCapacity()
+            return "ok"
+
+        result = _execute_ch_query_with_retry(run_query, query_type="Test")
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(attempts["n"], 4)
+        self.assertEqual(
+            mock_uniform.call_args_list,
+            [mock_call(4.0, 8.0), mock_call(8.0, 16.0), mock_call(16.0, 32.0)],
+        )
+        self.assertEqual(mock_sleep.call_args_list, [mock_call(8.0), mock_call(16.0), mock_call(32.0)])
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    def test_reraises_after_exhausting_retries(self, mock_sleep: MagicMock) -> None:
+        attempts = {"n": 0}
+
+        def run_query() -> str:
+            attempts["n"] += 1
+            raise ClickHouseAtCapacity()
+
+        with self.assertRaises(ClickHouseAtCapacity):
+            _execute_ch_query_with_retry(run_query, query_type="Test", base_delay=0.0)
+
+        self.assertEqual(attempts["n"], 4)
+        self.assertEqual(mock_sleep.call_count, 3)
+
+    @parameterized.expand(
+        [
+            ("network", NetworkError()),
+            ("socket_timeout", SocketTimeoutError()),
+            ("cluster_memory_pressure", ClickHouseQueryMemoryLimitExceeded()),
+        ]
+    )
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    def test_retries_additional_transient_errors(self, _name: str, error: Exception, mock_sleep: MagicMock) -> None:
+        attempts = {"n": 0}
+
+        def run_query() -> str:
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise error
+            return "ok"
+
+        result = _execute_ch_query_with_retry(run_query, query_type="Test", max_retries=1, base_delay=0.0)
+
+        self.assertEqual(result, "ok")
+        mock_sleep.assert_called_once_with(0.0)
+
+    @parameterized.expand(
+        [
+            ("query_timeout", ClickHouseQueryTimeOut()),
+            ("per_query_memory_limit", _per_query_memory_limit_error()),
+            ("application_error", ValueError("bug")),
+        ]
+    )
+    def test_does_not_retry_non_transient_error(self, _name: str, error: Exception) -> None:
+        self.assertFalse(_is_retriable_ch_error(error))
 
 
 class TestToolsCoordinate(SimpleTestCase):

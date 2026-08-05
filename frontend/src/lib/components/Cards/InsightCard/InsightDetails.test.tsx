@@ -227,5 +227,33 @@ describe('InsightDetails', () => {
             expect(result.filterTestAccounts).toEqual({ value: true, source: 'dashboard' })
             expect(result.interval).toEqual({ value: 'week', source: 'dashboard' })
         })
+
+        it('drops the whole dashboard layer when the tile ignores dashboard filters (raw-props fallback)', () => {
+            const result = getEffectiveFilterOverrides(
+                undefined,
+                { properties: [countryUS], filterTestAccounts: true, interval: 'month' } as any,
+                { ignoreDashboardFilters: true, properties: [browserChrome] } as any
+            )
+
+            expect(result.ignoresDashboardFilters).toBe(true)
+            expect(result.propertyGroups).toEqual([{ properties: [browserChrome], source: 'tile' }])
+            expect(result.filterTestAccounts).toBeNull()
+            expect(result.interval).toBeNull()
+        })
+
+        it('reports the ignore flag from the backend context tile layer', () => {
+            const result = getEffectiveFilterOverrides(
+                {
+                    dashboard: null,
+                    tile: { ignoreDashboardFilters: true },
+                    overridden_dashboard: { filterTestAccounts: true },
+                } as any,
+                { filterTestAccounts: true } as any,
+                undefined
+            )
+
+            expect(result.ignoresDashboardFilters).toBe(true)
+            expect(result.filterTestAccounts).toBeNull()
+        })
     })
 })

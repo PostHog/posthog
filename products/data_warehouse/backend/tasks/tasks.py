@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import structlog
 from celery import shared_task
 from prometheus_client import Counter
@@ -8,6 +10,11 @@ from posthog.scoping_audit import skip_team_scope_audit
 from products.data_warehouse.backend.logic.external_data_source.notifications import (
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
+)
+from products.managed_warehouse.backend.facade.connection import reconcile_managed_warehouse_tables
+from products.managed_warehouse.backend.facade.cp_teams import (
+    get_org_team_membership,
+    list_enabled_backfill_team_memberships,
 )
 
 logger = structlog.get_logger(__name__)
@@ -40,6 +47,71 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
+# Live introspection of a large catalog can far exceed the digest bound; the
+# select_for_update guards make an overlap harmless, but keep the lock long enough
+# that it stays the normal exclusion mechanism.
+MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 600
+MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
+
+
+@shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_managed_warehouse_tables")
+@skip_team_scope_audit
+def reconcile_managed_warehouse_tables_task(team_id: int, organization_id: str) -> None:
+    try:
+        with get_client().lock(
+            f"managed_warehouse_reconcile:{team_id}",
+            timeout=MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS,
+            blocking=False,
+        ):
+            reconcile_managed_warehouse_tables(team_id=team_id, organization_id=organization_id)
+    except redis.exceptions.LockError:
+        logger.info("Managed warehouse table reconciliation already in flight", team_id=team_id)
+
+
+def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id: str | UUID) -> None:
+    client = get_client()
+    schedule_key = f"managed_warehouse_reconcile_scheduled:{team_id}"
+    if not client.set(schedule_key, "1", ex=MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS, nx=True):
+        return
+    try:
+        reconcile_managed_warehouse_tables_task.delay(team_id=team_id, organization_id=str(organization_id))
+    except Exception:
+        client.delete(schedule_key)
+        raise
+
+
+@shared_task(
+    ignore_result=True,
+    name="products.data_warehouse.backend.tasks.soft_delete_managed_warehouse_sources",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def soft_delete_managed_warehouse_sources_task(organization_id: str) -> None:
+    from products.managed_warehouse.backend.facade.connection import (
+        soft_delete_managed_warehouse_sources,  # noqa: PLC0415
+    )
+
+    soft_delete_managed_warehouse_sources(organization_id=organization_id)
+
+
+def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> None:
+    soft_delete_managed_warehouse_sources_task.delay(organization_id=str(organization_id))
+
+
+@shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_all_managed_warehouse_tables")
+@skip_team_scope_audit
+def reconcile_all_managed_warehouse_tables_task() -> None:
+    rows = list_enabled_backfill_team_memberships()
+    if rows is None:
+        # Periodic sweep: an unreachable control plane just skips this run — the next
+        # scheduled sweep retries.
+        logger.warning("Managed warehouse reconcile sweep skipped: control plane unreachable")
+        return
+    for row in rows:
+        schedule_managed_warehouse_tables_reconcile(team_id=row.team_id, organization_id=row.organization_id)
 
 
 def schedule_external_data_failure_digest(team_id: int, *, trigger: str = "inline") -> None:
@@ -72,6 +144,47 @@ def send_external_data_failure_digest_task(team_id: int) -> None:
     except redis.exceptions.LockError:
         EXTERNAL_DATA_FAILURE_DIGEST_TASK_COUNTER.labels(outcome="lock_contended").inc()
         logger.info("External data failure digest already in flight for team, skipping", team_id=team_id)
+
+
+@shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.sync_team_earliest_event_date")
+@skip_team_scope_audit  # reads the duckgres control plane, not team-scoped Django models
+def sync_team_earliest_event_date(team_id: int) -> None:
+    """Resolve and persist a team's earliest event date after provision/onboard.
+
+    The clamped earliest event date is stored on the team's duckgres control-plane row —
+    the full-backfill sensor's read source. Idempotent: an already-cached date is never
+    recomputed. Best-effort: a failed push (or an unreachable control plane) is logged
+    and dropped — the full-backfill sensor resolves and persists the date lazily on a
+    later tick regardless.
+
+    A team with no events yet is left unresolved (nothing stored), NOT cached as the
+    no-history sentinel: this task runs seconds after provision/onboard, when a brand-new
+    project plausibly hasn't ingested its first events. A cached date is final (nothing
+    re-resolves a non-NULL value), so persisting the sentinel here would permanently
+    exclude the team from historical backfill. The full-backfill sensor resolves it
+    later, when "no events" is a meaningful answer.
+    """
+    # Deferred: ducklake pulls duckdb in via common, and posthog.models must not load
+    # while Celery imports task modules — keep both off this module's import path.
+    from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415
+        NO_HISTORY_SENTINEL,
+        get_org_id_for_team,
+        resolve_team_earliest_event_date,
+        update_team_earliest_event_date,
+    )
+
+    organization_id = get_org_id_for_team(team_id)
+    row = get_org_team_membership(organization_id, team_id)
+    if row is None:
+        logger.info("No duckling team row for team; skipping earliest event date sync", team_id=team_id)
+        return
+    if row.earliest_event_date is not None:
+        return
+    resolved = resolve_team_earliest_event_date(team_id)
+    if resolved is None or resolved == NO_HISTORY_SENTINEL:
+        logger.info("No events for team yet; leaving earliest event date unresolved", team_id=team_id)
+        return
+    update_team_earliest_event_date(organization_id, team_id, resolved)
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_catchup")

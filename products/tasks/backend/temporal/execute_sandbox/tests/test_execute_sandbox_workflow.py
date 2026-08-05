@@ -31,7 +31,10 @@ from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_rep
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import STEER_DECLINED_OUTCOME
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
-from products.tasks.backend.temporal.process_task.credential_refresh import CredentialRefreshExitReason
+from products.tasks.backend.temporal.process_task.credential_refresh import (
+    TASK_ROWS_GONE_ERROR_MESSAGE,
+    CredentialRefreshExitReason,
+)
 
 
 def _build_context(
@@ -752,6 +755,23 @@ class TestRun:
             sandbox_id="sandbox-123",
         )
 
+    async def test_credential_refresh_task_gone_marks_the_run_failed(self, monkeypatch, silent_workflow_logger):
+        # An interactive run is exempt from the terminal status write on its normal
+        # completion path, so without this the workflow would report success for a run
+        # whose rows were deleted underneath it.
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        refresh_loop_mock = AsyncMock(return_value=CredentialRefreshExitReason.TASK_GONE)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module, "run_credential_refresh_loop", refresh_loop_mock)
+
+        await workflow._run_credential_refresh_until_sandbox_gone("sandbox-123")
+
+        assert workflow._sandbox_gone is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error == TASK_ROWS_GONE_ERROR_MESSAGE
+        assert workflow._completion_error_type == "TaskRunDeletedError"
+
     async def test_credential_refresh_credentials_unavailable_does_not_mark_sandbox_gone(
         self, monkeypatch, silent_workflow_logger
     ):
@@ -1174,23 +1194,29 @@ class TestShutdownRejection:
 
 
 class TestRunStatusTransitions:
-    """The TaskRun must remain in_progress on successful completion *and* on
-    inactivity timeout — it stays followable. Only an explicit failure or
-    cancellation propagated via complete_task transitions it out."""
+    """An interactive TaskRun stays in_progress on successful completion *and* on
+    inactivity timeout — it stays followable. A background run (loop / automated)
+    is one-shot and unattended, so its natural end terminalizes it as completed.
+    Failure and cancellation always transition out, in either mode."""
 
     @pytest.mark.parametrize(
-        "completion_status, expected_call",
+        "mode, completion_status, expected",
         [
-            ("completed", None),
-            ("failed", ("failed", "details")),
-            ("cancelled", ("cancelled", "details")),
+            # Background runs terminalize on their natural end.
+            ("background", "completed", ("completed", {})),
+            ("background", "failed", ("failed", {"error_message": "details", "error_type": None})),
+            ("background", "cancelled", ("cancelled", {"error_message": "details", "error_type": None})),
+            # Interactive runs stay followable in_progress on success.
+            ("interactive", "completed", None),
+            ("interactive", "failed", ("failed", {"error_message": "details", "error_type": None})),
+            ("interactive", "cancelled", ("cancelled", {"error_message": "details", "error_type": None})),
         ],
     )
-    async def test_only_records_failed_or_cancelled(
-        self, monkeypatch, silent_workflow_logger, completion_status, expected_call
+    async def test_terminal_status_by_mode(
+        self, monkeypatch, silent_workflow_logger, mode, completion_status, expected
     ):
         workflow = ExecuteSandboxWorkflow()
-        workflow._context = _build_context()
+        workflow._context = _build_context(state={"mode": mode})
         workflow._task_completed = True
         workflow._completion_status = completion_status
         workflow._completion_error = "details"
@@ -1200,11 +1226,11 @@ class TestRunStatusTransitions:
 
         await workflow._maybe_record_terminal_status()
 
-        if expected_call is None:
+        if expected is None:
             update_status_mock.assert_not_awaited()
         else:
-            status, message = expected_call
-            update_status_mock.assert_awaited_once_with(status, error_message=message, error_type=None)
+            status, kwargs = expected
+            update_status_mock.assert_awaited_once_with(status, **kwargs)
 
 
 class TestCompletionStatusOnExceptionPaths:

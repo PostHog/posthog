@@ -5,7 +5,6 @@ from urllib.parse import urlparse
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -17,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import AuthConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.settings import SERVICENOW_ENDPOINTS
 
 # ServiceNow's Table API defaults to a generous page size; we keep it modest so each
@@ -168,6 +168,8 @@ def validate_credentials(
     auth: ServiceNowAuth,
     team_id: int,
     table: Optional[str] = None,
+    *,
+    api_version: str,
 ) -> tuple[bool, str | None]:
     try:
         base_url = _resolve_base_url(instance_url, team_id)
@@ -176,8 +178,10 @@ def validate_credentials(
 
     # Probe a cheap single-row read. At source-create (no specific table) we probe
     # `sys_user`; otherwise probe the requested table to confirm scope for it.
+    # The probe hits the same versioned Table API path the sync uses, so a v1-pinned
+    # source validates against the path it actually reads from.
     probe_table = table or "sys_user"
-    url = f"{base_url}/api/now/table/{probe_table}"
+    url = _table_api_url(base_url, probe_table, api_version)
     params: dict[str, Any] = {"sysparm_limit": 1, "sysparm_fields": "sys_id"}
 
     try:

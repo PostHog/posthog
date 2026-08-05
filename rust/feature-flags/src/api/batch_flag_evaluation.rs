@@ -455,6 +455,7 @@ async fn handle_batch_flag_evaluation(
         )
         .with_cohort_membership_provider(state.cohort_membership_provider.clone())
         .with_realtime_cohort_evaluation(enable_realtime_cohort_evaluation)
+        .with_membership_stamp_policy(state.config.realtime_cohort_membership_stamp_policy)
         .with_rayon_dispatcher(state.rayon_dispatcher.clone())
         .with_parallel_eval_threshold(state.config.parallel_eval_threshold)
         // Read-only: experience-continuity overrides are consulted but never written.

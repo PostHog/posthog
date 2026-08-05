@@ -3,21 +3,23 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import { STRUCTURED_CONTENT_ONLY_TEXT } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { withInformationalResponse } from '@/tools/tool-utils'
 import {
     createExecTool,
     describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
+    formatInputValidationError,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'
+import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -294,7 +296,7 @@ describe('exec tool', () => {
             )
         })
 
-        it('propagates the UI resource URI and exec brand when the inner tool has a UI app and consumer is posthog-code', async () => {
+        it('keeps UI data in structuredContent (not _meta) when the tool has no formatted table', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
             })
@@ -306,19 +308,21 @@ describe('exec tool', () => {
                 __execBuiltPayload?: true
             }
 
-            // Text content still includes the TOON-formatted result for model context
-            expect(result.content[0]!.text).toContain('id: 1')
-            // structuredContent is dropped; the UI data (with analytics) rides on _meta.
-            expect(result.structuredContent).toBeUndefined()
-            const appData = result._meta[APP_DATA_META_KEY] as {
+            // Text content points at structuredContent instead of repeating the result
+            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            // With no compact table to protect, the app payload stays in the standard
+            // structuredContent field (with analytics) rather than being duplicated under
+            // the non-standard `_meta` app-data key.
+            const structured = result.structuredContent as {
                 id: number
                 _analytics: { distinctId: string; toolName: string }
             }
-            expect(appData.id).toBe(1)
-            expect(appData._analytics).toEqual({
+            expect(structured.id).toBe(1)
+            expect(structured._analytics).toEqual({
                 distinctId: 'test-distinct-id',
                 toolName: 'mock-tool',
             })
+            expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()
             // _meta on the response exposes the UI resource URI to clients that
             // only see the `exec` tool registered (single-exec mode). Both the
             // new nested key and the legacy flat key are emitted for
@@ -331,7 +335,7 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        // Inline-exec UI-app hosts: PostHog Code (via consumer) plus Claude Code and
+        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code and
         // Cowork (via the client-profile flag). All three surface structuredContent to
         // the model, so it must be dropped and the UI data re-homed onto _meta.
         it.each([
@@ -371,7 +375,7 @@ describe('exec tool', () => {
             }
         )
 
-        it('re-homes UI data onto _meta and gives the model TOON text even when there is no formatted override', async () => {
+        it('carries the payload once — in structuredContent — when there is no formatted override', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
                 handler: async () => ({
@@ -386,11 +390,14 @@ describe('exec tool', () => {
                 _meta: { [key: string]: unknown }
             }
 
-            // Without a compact table the model reads TOON text, never verbose structuredContent.
-            expect(result.structuredContent).toBeUndefined()
-            expect(result.content[0]!.text).toContain('_posthogUrl')
-            const appData = result._meta[APP_DATA_META_KEY] as { results: unknown }
-            expect(appData.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+            // With no compact table there is nothing smaller to put in the text channel, so
+            // the payload stays in the standard structuredContent field and the text carries
+            // a pointer — neither a second copy in text nor one under the `_meta` key.
+            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            expect(result.content[0]!.text).not.toContain('_posthogUrl')
+            const structured = result.structuredContent as { results: unknown }
+            expect(structured.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+            expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()
         })
 
         // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.
@@ -514,10 +521,17 @@ describe('exec tool', () => {
                 input: '{"actionId":277664}',
                 expected: /missing required parameter: id/,
             },
+            {
+                // Requires `reportInput: true` at the dispatch site — without it the
+                // message degrades to zod's default, which omits the actual length.
+                case: 'a string over its max length, naming actual length and limit',
+                input: `{"id":1,"description":"${'x'.repeat(401)}"}`,
+                expected: /parameter "description" is too long: 401 characters \(max 400\)/,
+            },
         ])('rejects a call with $case', async ({ input, expected }) => {
             const tool = makeMockTool({
                 name: 'action-get',
-                schema: z.object({ id: z.number() }),
+                schema: z.object({ id: z.number(), description: z.string().max(400).optional() }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
@@ -651,12 +665,16 @@ describe('exec tool', () => {
     describe('output_format suppression', () => {
         // Mirrors the generated query wrappers / insight-query: `output_format`
         // toggles whether the handler surfaces the server-side formatted table.
-        function makeFormatterTool(received: Record<string, unknown>[]): Tool<ZodObjectAny> {
+        function makeFormatterTool(
+            received: Record<string, unknown>[],
+            { wrapInPreprocess = false }: { wrapInPreprocess?: boolean } = {}
+        ): Tool<ZodObjectAny> {
+            const objectSchema = z.object({
+                series: z.string().optional().describe('Query series'),
+                output_format: z.enum(['optimized', 'json']).default('optimized').optional(),
+            })
             return makeMockTool({
-                schema: z.object({
-                    series: z.string().optional().describe('Query series'),
-                    output_format: z.enum(['optimized', 'json']).default('optimized').optional(),
-                }),
+                schema: wrapInPreprocess ? z.preprocess((value) => value, objectSchema) : objectSchema,
                 handler: async (_ctx, params) => {
                     received.push(params as Record<string, unknown>)
                     const optimized = (params as { output_format?: string }).output_format !== 'json'
@@ -691,6 +709,14 @@ describe('exec tool', () => {
         it('folds --json into the dispatched output_format so the handler skips the formatter', async () => {
             const received: Record<string, unknown>[] = []
             const exec = createExec([makeFormatterTool(received)])
+            const result = (await exec.handler(mockContext, { command: 'call --json mock-tool' })) as string
+            expect(received[0]!.output_format).toBe('json')
+            expect(JSON.parse(result).results).toEqual([{ count: 6 }])
+        })
+
+        it('folds --json through a z.preprocess-wrapped schema (id-alias normalization, e.g. insight-query)', async () => {
+            const received: Record<string, unknown>[] = []
+            const exec = createExec([makeFormatterTool(received, { wrapInPreprocess: true })])
             const result = (await exec.handler(mockContext, { command: 'call --json mock-tool' })) as string
             expect(received[0]!.output_format).toBe('json')
             expect(JSON.parse(result).results).toEqual([{ count: 6 }])
@@ -1153,6 +1179,24 @@ describe('exec tool', () => {
             const exec = createExec([queryTrends])
             await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
         })
+
+        // The entity-search redirect must only steer at `system.information_schema.metrics`
+        // when the governed-metrics tool is actually registered — otherwise flag-off orgs
+        // get pointed at a catalog table they can't query.
+        it('adds governed-metrics steering to the entity-search redirect only when data-catalog-metric-run is registered', async () => {
+            const withCatalog = createExec([makeMockTool({ name: 'data-catalog-metric-run' })])
+            await expect(withCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.toThrow(
+                /system\.information_schema\.metrics/
+            )
+
+            const withoutCatalog = createExec([makeMockTool()])
+            await expect(withoutCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.toThrow(
+                /was removed/
+            )
+            await expect(withoutCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.not.toThrow(
+                /system\.information_schema\.metrics/
+            )
+        })
     })
 
     describe('unavailable tool recovery', () => {
@@ -1335,6 +1379,34 @@ describe('exec tool', () => {
 
             expect(detail.fields).toContain('projectId:invalid_type')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
+        })
+    })
+
+    describe('formatInputValidationError', () => {
+        it('names actual length and limit for an over-long string without echoing the value', () => {
+            const schema = z.object({ description: z.string().max(5) })
+            const result = schema.safeParse({ description: 'secret-value' }, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const message = formatInputValidationError('insight-create', result.error!)
+
+            expect(message).toBe(
+                'Invalid input for "insight-create": parameter "description" is too long: 12 characters (max 5)'
+            )
+            // The message flows into the tool response and analytics error_message,
+            // so it may carry the input's length but never the value itself.
+            expect(message).not.toContain('secret-value')
+        })
+
+        it('falls back to the zod default for a non-string too_big instead of a bogus length', () => {
+            const schema = z.object({ tags: z.array(z.string()).max(2) })
+            const result = schema.safeParse({ tags: ['a', 'b', 'c'] }, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const message = formatInputValidationError('insight-create', result.error!)
+
+            expect(message).toMatch(/parameter "tags": /)
+            expect(message).not.toContain('undefined')
         })
     })
 })

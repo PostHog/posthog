@@ -48,7 +48,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "sweep-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_FLASH,
+        "model": ScannerModel.GEMINI_3_6_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -318,6 +318,25 @@ async def test_empty_batch_skips_dispatch_and_advance() -> None:
         find_scanner_candidates_activity,
     ]
     assert mocks.child_calls == []
+
+
+@pytest.mark.asyncio
+async def test_empty_batch_with_horizon_advances_watermark_without_dispatch() -> None:
+    horizon = dt.datetime(2026, 8, 4, 12, 0, 0, tzinfo=dt.UTC)
+    mocks = _SweepMocks(
+        activity_results={
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(
+                candidates=[], saturated=False, swept_through=horizon
+            ),
+        }
+    )
+
+    await _run_sweep(mocks)
+
+    assert mocks.child_calls == []
+    advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
+    assert advance_call.new_last_swept_at == horizon
+    assert advance_call.new_last_seen_session_id == ""
 
 
 @pytest.mark.asyncio

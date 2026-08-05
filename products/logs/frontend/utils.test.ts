@@ -43,6 +43,18 @@ describe('logs utils', () => {
         })
     })
 
+    describe('isDistinctIdKey with configured keys', () => {
+        it('matches a configured key exactly, without dot-suffix expansion', () => {
+            expect(isDistinctIdKey('user.id', ['user.id'])).toBe(true)
+            expect(isDistinctIdKey('prefixed.user.id', ['user.id'])).toBe(false)
+        })
+
+        it('keeps matching the built-in conventions alongside configured keys', () => {
+            expect(isDistinctIdKey('posthogDistinctId', ['user.id'])).toBe(true)
+            expect(isDistinctIdKey('unrelated', ['user.id'])).toBe(false)
+        })
+    })
+
     describe.each([
         // Exact matches
         ['session.id', true],

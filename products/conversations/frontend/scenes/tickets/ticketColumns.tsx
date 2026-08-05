@@ -9,7 +9,7 @@ import { stripMarkdown } from 'lib/utils/markdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { AssigneeDisplay, AssigneeResolver } from '../../components/Assignee'
-import { ChannelsTag } from '../../components/Channels/ChannelsTag'
+import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketPreviewPopover } from '../../components/TicketPreview/TicketPreviewPopover'
@@ -134,9 +134,11 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                         {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
                     </LemonTag>
                     {ticket.snoozed_until && (
-                        <span title={`Snoozed until ${new Date(ticket.snoozed_until).toLocaleString()}`}>
-                            <IconClock className="text-muted-alt text-base" />
-                        </span>
+                        <TZLabel time={ticket.snoozed_until} title="Snoozed until" showSeconds>
+                            <span className="flex items-center">
+                                <IconClock className="text-muted-alt text-base" />
+                            </span>
+                        </TZLabel>
                     )}
                 </span>
             ),
@@ -238,7 +240,13 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
         column: {
             title: 'Channel',
             key: 'channel',
-            render: (_, ticket) => <ChannelsTag channel={ticket.channel_source} detail={ticket.channel_detail} />,
+            render: (_, ticket) => (
+                <ChannelsTag
+                    channel={ticket.channel_source}
+                    detail={ticket.channel_detail}
+                    to={getChannelThreadUrl(ticket)}
+                />
+            ),
         },
     },
     tags: {

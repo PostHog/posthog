@@ -192,28 +192,44 @@ class TestValidateCredentials:
         get_mock = mock.Mock(return_value=FakeResponse(status_code=status))
         with mock.patch.object(servicenow_module, "make_tracked_session", return_value=_patch_session(get_mock)):
             valid, _ = validate_credentials(
-                "https://acme.service-now.com", ServiceNowAuth(api_key="x"), team_id=1, table=table
+                "https://acme.service-now.com",
+                ServiceNowAuth(api_key="x"),
+                team_id=1,
+                table=table,
+                api_version=SERVICENOW_API_VERSION_V1,
             )
         assert valid is expected_valid
 
     def test_redirect_is_rejected(self) -> None:
         get_mock = mock.Mock(return_value=FakeResponse(status_code=302))
         with mock.patch.object(servicenow_module, "make_tracked_session", return_value=_patch_session(get_mock)):
-            valid, error = validate_credentials("https://acme.service-now.com", ServiceNowAuth(api_key="x"), team_id=1)
+            valid, error = validate_credentials(
+                "https://acme.service-now.com",
+                ServiceNowAuth(api_key="x"),
+                team_id=1,
+                api_version=SERVICENOW_API_VERSION_V1,
+            )
         assert valid is False
         assert error is not None
         # redirects must not be followed (SSRF guard)
         assert get_mock.call_args.kwargs["allow_redirects"] is False
 
     def test_invalid_instance_url(self) -> None:
-        valid, error = validate_credentials("", ServiceNowAuth(api_key="x"), team_id=1)
+        valid, error = validate_credentials(
+            "", ServiceNowAuth(api_key="x"), team_id=1, api_version=SERVICENOW_API_VERSION_V1
+        )
         assert valid is False
         assert error is not None
 
     def test_network_error_is_handled(self) -> None:
         get_mock = mock.Mock(side_effect=requests.ConnectionError("boom"))
         with mock.patch.object(servicenow_module, "make_tracked_session", return_value=_patch_session(get_mock)):
-            valid, error = validate_credentials("https://acme.service-now.com", ServiceNowAuth(api_key="x"), team_id=1)
+            valid, error = validate_credentials(
+                "https://acme.service-now.com",
+                ServiceNowAuth(api_key="x"),
+                team_id=1,
+                api_version=SERVICENOW_API_VERSION_V1,
+            )
         assert valid is False
         assert error is not None
 

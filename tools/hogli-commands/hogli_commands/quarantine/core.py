@@ -2,7 +2,8 @@
 
 This module is stdlib-only and runner-agnostic: it knows nothing about pytest
 markers or CI. Runner adapters (``pytest_support``, ``jest.quarantine.ts``,
-``.github/scripts/turbo-discover.js``) consume the contract below and
+``playwright/playwright.quarantine.ts``, ``.github/scripts/turbo-discover.js``)
+consume the contract below and
 interpret selectors for their runner; they must not reimplement parsing,
 date handling, or matching beyond what is documented here.
 
@@ -51,6 +52,18 @@ name after it may contain spaces. ``test.each`` row titles are resolved after
 the adapter sees the declaration, so quarantine those at file, directory, or
 ``product:`` scope.
 
+Selector grammar (``id``, playwright): the same shape as jest. A playwright id
+is ``<repo-relative-spec>::<full test name>``, where the name is the
+space-joined ancestor ``describe`` titles plus the ``test``/``it`` title, with
+the same prefix and ``::`` rules.
+
+Caveat (jest and playwright): because names are space-joined and flat, the
+space boundary that lets a selector cover a nested ``describe`` cannot tell a
+leaf test name from a describe prefix. So a full-name selector also matches a
+sibling whose name begins with it plus a space (``::checkout pays`` covers
+``::checkout pays with coupon``). Prefer the narrowest describe title, or the
+spec path, when a sibling shares a word-prefix.
+
 When several entries match the same test, the most specific (longest)
 selector wins — so a narrow ``mode: skip`` entry overrides a broad
 ``mode: run`` one.
@@ -83,10 +96,12 @@ MAX_QUARANTINE_DAYS = 30
 DEFAULT_GRACE_DAYS = 7
 PYTEST_RUNNER = "pytest"  # also the schema default when an entry omits `runner`
 JEST_RUNNER = "jest"
+PLAYWRIGHT_RUNNER = "playwright"
 # Runners with an enforcement adapter that consumes this contract (pytest via
-# ``pytest_support``, jest via ``frontend/jest.quarantine.ts``). Entries for any
-# other runner are kept but only informational; ``check`` warns, never errors.
-ADAPTED_RUNNERS = (PYTEST_RUNNER, JEST_RUNNER)
+# ``pytest_support``, jest via ``frontend/jest.quarantine.ts``, playwright via
+# ``playwright/playwright.quarantine.ts``). Entries for any other runner are
+# kept but only informational; ``check`` warns, never errors.
+ADAPTED_RUNNERS = (PYTEST_RUNNER, JEST_RUNNER, PLAYWRIGHT_RUNNER)
 MODES = ("run", "skip")
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -221,6 +236,8 @@ def selector_matches(selector: str, test_id: str) -> bool:
     if selector.startswith(_PRODUCT_SELECTOR_PREFIX):
         return test_id.startswith(product_path_prefix(selector))
     selector = selector.rstrip("/")
+    # The trailing-space boundary lets a ``::``-qualified selector (whose name
+    # carries spaces, e.g. jest/playwright) cover a nested describe/test.
     return test_id == selector or test_id.startswith((f"{selector}/", f"{selector}::", f"{selector}[", f"{selector} "))
 
 
@@ -268,17 +285,17 @@ def _entry_to_dict(entry: Entry) -> dict[str, Any]:
 def validate_selector(selector: str, runner: str) -> str | None:
     """Selector validity for runners with an adapter; returns a violation message or None.
 
-    Only pytest and jest selectors have rules; runners without an enforcement
-    adapter are not validated here. ``product:`` selectors share one rule across
-    runners; path selectors differ (jest ids carry a space-bearing test name
-    after ``::``).
+    Only adapted runners (``ADAPTED_RUNNERS``) have rules; runners without an
+    enforcement adapter are not validated here. ``product:`` selectors share
+    one rule across runners; path selectors differ (jest and playwright ids
+    carry a space-bearing test name after ``::``).
     """
     if runner not in ADAPTED_RUNNERS:
         return None
     if selector.startswith(_PRODUCT_SELECTOR_PREFIX):
         return _validate_product_selector(selector)
-    if runner == JEST_RUNNER:
-        return _validate_jest_selector(selector)
+    if runner in (JEST_RUNNER, PLAYWRIGHT_RUNNER):
+        return _validate_name_qualified_selector(selector)
     return _validate_pytest_selector(selector)
 
 
@@ -302,9 +319,9 @@ def _validate_pytest_selector(selector: str) -> str | None:
     return None
 
 
-def _validate_jest_selector(selector: str) -> str | None:
-    # A jest id is '<repo-relative-file>::<full test name>'; the name may hold
-    # spaces, so only the path before '::' is constrained.
+def _validate_name_qualified_selector(selector: str) -> str | None:
+    # A jest or playwright id is '<repo-relative-file>::<full test name>'; the
+    # name may hold spaces, so only the path before '::' is constrained.
     path_part = selector.split("::", 1)[0]
     if not path_part:
         return "missing a file path before '::'"
@@ -319,10 +336,12 @@ def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS)
     """Lint a loaded quarantine file; returns (violations, warnings).
 
     Violations: load errors, duplicate ids, ``expires`` before ``added`` or
-    more than ``MAX_QUARANTINE_DAYS`` after it, entries expired beyond the
-    grace period, invalid selectors for known runners. Warnings: load
-    warnings, entries for runners without an enforcement adapter, entries
-    inside the expiry grace period.
+    more than ``MAX_QUARANTINE_DAYS`` after it, a future ``added`` (which
+    would un-anchor that window from today and let a hand-edited entry stay
+    active indefinitely), entries expired beyond the grace period, invalid
+    selectors for known runners. Warnings: load warnings, entries for
+    runners without an enforcement adapter, entries inside the expiry grace
+    period.
     """
     violations = list(result.errors)
     warnings = list(result.warnings)
@@ -338,6 +357,12 @@ def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS)
             violations.append(f"{label}: expires {entry.expires} is before added {entry.added}")
         elif entry.expires - entry.added > timedelta(days=MAX_QUARANTINE_DAYS):
             violations.append(f"{label}: quarantine window exceeds {MAX_QUARANTINE_DAYS} days")
+
+        # A future added would un-anchor the window from today: a hand-edited
+        # entry dated 2099 passes the window check yet stays active for decades.
+        # With added capped at today, the window check bounds expires too.
+        if entry.added > today:
+            violations.append(f"{label}: added {entry.added} is in the future")
 
         expired_for = (today - entry.expires).days
         if expired_for > grace_days:

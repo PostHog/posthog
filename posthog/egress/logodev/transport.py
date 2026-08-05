@@ -1,8 +1,9 @@
 """logo.dev incarnation of the egress transport.
 
 ``logodev_request`` is the one way to call logo.dev from anywhere in the codebase: it gates on the
-instance's shared account budget and records telemetry by construction. The caller owns auth —
-logo.dev takes the token as a ``token`` query parameter, so pass it via ``params``.
+instance's shared account budget and records telemetry by construction. The caller owns the
+endpoint-specific auth: image requests use a publishable key query parameter, while Search API
+requests use a secret key bearer token.
 """
 
 from typing import Any
@@ -59,8 +60,8 @@ def logodev_request(
     timeout: float | tuple[float, float] | None = None,
     **kwargs: Any,
 ) -> requests.Response:
-    """Make a gated, recorded logo.dev request. ``source`` attributes the call to a subsystem; pass
-    the account token via ``params`` (logo.dev's auth is a query parameter, not a header)."""
+    """Make a gated, recorded logo.dev request. ``source`` attributes the call to a subsystem;
+    callers pass the authentication required by their selected logo.dev endpoint."""
     return _logodev_client.request(
         method,
         url,

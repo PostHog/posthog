@@ -114,6 +114,7 @@ const _itemTypes = [
     'app-state',
     'session-change',
     'experiment-variant',
+    'metric-event',
 ] as const
 
 export type InspectorListItemType = (typeof _itemTypes)[number]
@@ -220,6 +221,21 @@ export type InspectorListItemExperimentVariant = InspectorListItemBase & {
     }
 }
 
+export type InspectorListItemMetricEvent = InspectorListItemBase & {
+    type: 'metric-event'
+    data: {
+        // Synthesized client-side from the experiments session_context endpoint response
+        // (metrics_in_session[].first_timestamp) — like the exposure marker, there is no backend
+        // event for this item. One marker per metric, at its first occurrence in the session.
+        // `id` keeps the same keying contract as event/comment items in the seekbar.
+        id: string
+        experimentId: number
+        experimentName: string
+        metricName: string
+        eventCount: number
+    }
+}
+
 export type InspectorListItem =
     | InspectorListItemEvent
     | InspectorListItemConsole
@@ -235,6 +251,7 @@ export type InspectorListItem =
     | InspectorListSessionChange
     | InspectorListItemLog
     | InspectorListItemExperimentVariant
+    | InspectorListItemMetricEvent
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -414,6 +431,7 @@ export interface playerInspectorLogicValues {
     windowIds: number[] // sessionRecordingDataCoordinatorLogic
     experimentItems: ExperimentSessionContextItemApi[] // sessionRecordingExperimentContextLogic
     currentPlayerTime: number // sessionRecordingPlayerLogic
+    currentTimestamp: number | undefined // sessionRecordingPlayerLogic
     doctorDiagnostics: DoctorDiagnostics | null // sessionRecordingPlayerLogic
     skipToFirstMatchingEvent: boolean // sessionRecordingPlayerLogic
     allContextItems: InspectorListItem[]
@@ -441,6 +459,7 @@ export interface playerInspectorLogicValues {
     items: InspectorListItem[]
     matchingEvents: MatchedRecordingEvent[] | null
     matchingEventsLoading: boolean
+    metricEventItems: InspectorListItemMetricEvent[]
     notebookCommentItems: InspectorListItemNotebookComment[]
     playbackIndicatorIndex: number
     playbackIndicatorIndexStop: number
@@ -454,7 +473,12 @@ export interface playerInspectorLogicValues {
         rawConsoleLogs: RecordingConsoleLogV2[]
     }
     runtimeDoctorEvents: InspectorListItemDoctor[]
-    seekbarItems: (InspectorListItemComment | InspectorListItemEvent | InspectorListItemExperimentVariant)[]
+    seekbarItems: (
+        | InspectorListItemComment
+        | InspectorListItemEvent
+        | InspectorListItemExperimentVariant
+        | InspectorListItemMetricEvent
+    )[]
     syncScrollPaused: boolean
     windowNumberForID: (windowId: number | undefined) => number | '?' | undefined
 }
@@ -523,6 +547,7 @@ export interface playerInspectorLogicActions {
             | 'inactivity'
             | 'inspector-summary'
             | 'logs'
+            | 'metric-event'
             | 'network'
             | 'offline-status'
             | 'performance'
@@ -541,6 +566,7 @@ export interface playerInspectorLogicActions {
             | 'inactivity'
             | 'inspector-summary'
             | 'logs'
+            | 'metric-event'
             | 'network'
             | 'offline-status'
             | 'performance'
@@ -553,8 +579,14 @@ export interface playerInspectorLogicActions {
         forcePlay: boolean
         timeInMilliseconds: number
     } // sessionRecordingPlayerLogic
+    setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => {
+        skipToFirstMatchingEvent: boolean
+    } // sessionRecordingPlayerLogic
     setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => {
         isSkippingToMatchingEvent: boolean
+    } // sessionRecordingPlayerLogic
+    startScrub: () => {
+        value: true
     } // sessionRecordingPlayerLogic
     loadMatchingEvents: () => any
     loadMatchingEventsFailure: (
@@ -628,6 +660,12 @@ export interface playerInspectorLogicMeta {
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemExperimentVariant[]
+        metricEventItems: (
+            experimentItems: ExperimentSessionContextItemApi[],
+            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
+            windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
+            start: Dayjs | null
+        ) => InspectorListItemMetricEvent[]
         runtimeDoctorEvents: (
             start: Dayjs | null,
             doctorDiagnostics: DoctorDiagnostics | null
@@ -647,7 +685,8 @@ export interface playerInspectorLogicMeta {
             sessionPlayerMetaData: SessionRecordingType | null,
             segments: import('@common/replay-shared/src').RecordingSegment[],
             runtimeDoctorEvents: InspectorListItemDoctor[],
-            experimentVariantItems: InspectorListItemExperimentVariant[]
+            experimentVariantItems: InspectorListItemExperimentVariant[],
+            metricEventItems: InspectorListItemMetricEvent[]
         ) => InspectorListItem[]
         allItems: (
             start: Dayjs | null,
@@ -705,7 +744,12 @@ export interface playerInspectorLogicMeta {
             allowMatchingEventsFilter: boolean,
             trackedWindow: number | null,
             hasEventsToDisplay: boolean
-        ) => (InspectorListItemComment | InspectorListItemEvent | InspectorListItemExperimentVariant)[]
+        ) => (
+            | InspectorListItemComment
+            | InspectorListItemEvent
+            | InspectorListItemExperimentVariant
+            | InspectorListItemMetricEvent
+        )[]
         inspectorDataState: (
             sessionEventsDataLoading: boolean,
             sessionPlayerMetaDataLoading: boolean,
@@ -801,7 +845,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'loadRecordingMetaSuccess',
             ],
             sessionRecordingPlayerLogic(props),
-            ['seekToTime', 'setSkippingToMatchingEvent'],
+            ['seekToTime', 'setSkippingToMatchingEvent', 'setSkipToFirstMatchingEvent', 'startScrub'],
             playerInspectorLogsLogic(props),
             ['loadLogs', 'loadMoreLogs', 'markLogsInitialLoadRequested'],
         ],
@@ -836,7 +880,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'uuidToIndex',
             ],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerTime', 'skipToFirstMatchingEvent', 'doctorDiagnostics'],
+            ['currentPlayerTime', 'currentTimestamp', 'skipToFirstMatchingEvent', 'doctorDiagnostics'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
             featureFlagLogic,
@@ -881,11 +925,19 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 setItemExpanded: () => true,
             },
         ],
+        // Once set, the auto-skip is consumed for this recording and never re-arms: matching
+        // events can reload without user intent (playlist filters changing under an open
+        // recording, e.g. an async session-id list resolving), and a reload-triggered reset
+        // would yank the playhead mid-playback.
         hasSkippedToFirstMatchingEvent: [
             false,
             {
-                loadMatchingEvents: () => false,
                 markSkippedToFirstMatchingEvent: () => true,
+                // A seek or scrub also consumes a pending auto-skip: the matching-events query
+                // can resolve seconds into playback, and yanking the playhead after the viewer
+                // has already navigated is worse than not skipping at all.
+                seekToTime: () => true,
+                startScrub: () => true,
             },
         ],
     })),
@@ -1315,6 +1367,46 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             { resultEqualityCheck: equal },
         ],
 
+        metricEventItems: [
+            (s) => [s.experimentItems, s.windowIdForTimestamp, s.windowNumberForID, s.start],
+            (
+                experimentItems: import('products/experiments/frontend/generated/api.schemas').ExperimentSessionContextItemApi[],
+                windowIdForTimestamp: (timestamp: number) => number | undefined,
+                windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
+                start: Dayjs | null
+            ): InspectorListItemMetricEvent[] => {
+                const items: InspectorListItemMetricEvent[] = []
+                for (const item of experimentItems || []) {
+                    // One marker per metric the session hit, at its first occurrence — the direct
+                    // mirror of the exposure marker (which marks the first exposure moment).
+                    for (const hit of item.metrics_in_session || []) {
+                        const { timestamp, timeInRecording } = timeRelativeToStart(
+                            { timestamp: hit.first_timestamp },
+                            start
+                        )
+                        items.push({
+                            type: 'metric-event',
+                            timestamp,
+                            timeInRecording,
+                            search: `metric ${item.experiment_name} ${hit.metric_name}`,
+                            windowId: windowIdForTimestamp(timestamp.valueOf()),
+                            windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
+                            data: {
+                                id: `metric-event-${item.experiment_id}-${hit.metric_uuid}`,
+                                experimentId: item.experiment_id,
+                                experimentName: item.experiment_name,
+                                metricName: hit.metric_name,
+                                eventCount: hit.event_count,
+                            },
+                            key: `metric-event-${item.experiment_id}-${hit.metric_uuid}`,
+                        })
+                    }
+                }
+                return items
+            },
+            { resultEqualityCheck: equal },
+        ],
+
         runtimeDoctorEvents: [
             (s) => [s.start, s.doctorDiagnostics],
             (start: Dayjs | null, doctorDiagnostics: DoctorDiagnostics | null): InspectorListItemDoctor[] => {
@@ -1366,6 +1458,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.segments,
                 s.runtimeDoctorEvents,
                 s.experimentVariantItems,
+                s.metricEventItems,
             ],
             (
                 start: Dayjs | null,
@@ -1382,7 +1475,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 sessionPlayerMetaData: null | import('~/types').SessionRecordingType,
                 segments: import('~/types').RecordingSegment[],
                 runtimeDoctorEvents: InspectorListItemDoctor[],
-                experimentVariantItems: InspectorListItemExperimentVariant[]
+                experimentVariantItems: InspectorListItemExperimentVariant[],
+                metricEventItems: InspectorListItemMetricEvent[]
             ) => {
                 const items: InspectorListItem[] = []
 
@@ -1420,6 +1514,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 // Add experiment first-exposure markers
                 for (const item of experimentVariantItems) {
+                    items.push(item)
+                }
+
+                // Add experiment metric first-hit markers
+                for (const item of metricEventItems) {
                     items.push(item)
                 }
 
@@ -1757,17 +1856,28 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 allowMatchingEventsFilter: boolean,
                 trackedWindow: number | null,
                 hasEventsToDisplay: boolean
-            ): (InspectorListItemEvent | InspectorListItemComment | InspectorListItemExperimentVariant)[] => {
-                // Pre-filter to only events, comments and experiment variant markers, avoiding the full filterInspectorListItems call
+            ): (
+                | InspectorListItemEvent
+                | InspectorListItemComment
+                | InspectorListItemExperimentVariant
+                | InspectorListItemMetricEvent
+            )[] => {
+                // Pre-filter to only events, comments and experiment markers, avoiding the full filterInspectorListItems call
                 const eventAndCommentItems: (
                     | InspectorListItemEvent
                     | InspectorListItemComment
                     | InspectorListItemExperimentVariant
+                    | InspectorListItemMetricEvent
                 )[] = []
 
                 for (const item of allItemsData.items) {
-                    // Only process events, comments and experiment variant markers
-                    if (item.type !== 'events' && item.type !== 'comment' && item.type !== 'experiment-variant') {
+                    // Only process events, comments and experiment markers
+                    if (
+                        item.type !== 'events' &&
+                        item.type !== 'comment' &&
+                        item.type !== 'experiment-variant' &&
+                        item.type !== 'metric-event'
+                    ) {
                         continue
                     }
 
@@ -1786,6 +1896,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         | InspectorListItemEvent
                         | InspectorListItemComment
                         | InspectorListItemExperimentVariant
+                        | InspectorListItemMetricEvent
 
                     // Apply event-specific filters
                     if (item.type === 'events') {
@@ -1819,7 +1930,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         const isPageView = item.type === 'events' && item.data.event === '$pageview'
                         const isComment = item.type === 'comment'
                         const isExperimentVariant = item.type === 'experiment-variant'
-                        return isPrimary || isPageView || isComment || isExperimentVariant
+                        const isMetricEvent = item.type === 'metric-event'
+                        return isPrimary || isPageView || isComment || isExperimentVariant || isMetricEvent
                     })
 
                     // If still too many, sample them
@@ -2049,12 +2161,28 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         loadRecordingMetaSuccess: () => {
             actions.trySkipToFirstMatchingEvent()
         },
+        setSkipToFirstMatchingEvent: async ({ skipToFirstMatchingEvent }, breakpoint) => {
+            if (!skipToFirstMatchingEvent) {
+                return
+            }
+            // In playlist embeds the flag is armed by initializePlayerFromStart, which only runs
+            // once snapshots start syncing — usually after both matching events and meta have
+            // loaded, so without this trigger the skip never fires. The arming is also dispatched
+            // before the player's initial timestamp exists (which the skip requires) and no later
+            // trigger is guaranteed, so defer past that synchronous init chain rather than firing
+            // inline.
+            await breakpoint(1)
+            actions.trySkipToFirstMatchingEvent()
+        },
         trySkipToFirstMatchingEvent: () => {
             if (
                 !values.skipToFirstMatchingEvent ||
                 values.hasSkippedToFirstMatchingEvent ||
                 !values.start ||
-                !values.matchingEvents?.length
+                !values.matchingEvents?.length ||
+                // seekToTime no-ops until the player has an initial timestamp — bail without
+                // consuming the skip so a later trigger retries once the player is ready
+                values.currentTimestamp == null
             ) {
                 return
             }
@@ -2062,7 +2190,16 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             const earliestMatchingEvent = values.matchingEvents.reduce((previous, current) =>
                 previous.timestamp < current.timestamp ? previous : current
             )
-            const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
+            const { timestamp, timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
+            // The matching-events query has slack around the recording window, so the earliest
+            // match can fall past the playable range — seeking there would pin the player to its
+            // final frame and immediately trigger end-reached (auto-advancing playlists). The
+            // verdict is terminal for this recording: consume the flag so a matching-events
+            // reload can't fire the skip mid-playback.
+            if (values.end && timestamp.isAfter(values.end)) {
+                actions.markSkippedToFirstMatchingEvent()
+                return
+            }
             const seekTime = Math.max(0, ceilMsToClosestSecond(timeInRecording) - 1000)
 
             actions.markSkippedToFirstMatchingEvent()

@@ -98,6 +98,17 @@ export const ToolConfigSchema = z
                          * fully replace the schema; cast composes with the existing one).
                          */
                         cast: z.enum(['string-int']).optional(),
+                        /**
+                         * Alternate key names accepted for this param and normalized to it
+                         * before validation — for identifier params agents guess different
+                         * spellings for (e.g. `id` ← `insightId` / `short_id`). The
+                         * canonical key wins on conflict, then the first-listed alias;
+                         * alias keys never reach the handler. The advertised JSON schema
+                         * still shows only the canonical param. Codegen wraps the composed
+                         * tool schema with `z.preprocess(normalizeParamAliases(...), ...)`
+                         * — see generate-tools.ts and @/tools/cast-helpers.
+                         */
+                        aliases: z.array(z.string()).optional(),
                     })
                     .strict()
                     .refine((data) => !(data.input_schema && data.schema_ref), {

@@ -1,7 +1,7 @@
 //! Domain layer: the pinned run — lenient payload parse plus `PinnedRun`'s staged validation into a
 //! typed, scannable run. Depends on `chunk`, `condition`, `window`, `ids`, and `cohort-core`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -72,6 +72,9 @@ pub struct PinnedRun {
 pub struct ValidatedPinnedRun {
     pub run: PinnedRun,
     pub warnings: Vec<PinnedWarning>,
+    /// Active participations left with no surviving condition, ascending — cohorts that expect
+    /// coverage nothing will seed. Per cohort, not per run: one sibling surviving hides the rest.
+    pub uncovered_cohorts: Vec<CohortId>,
 }
 
 /// A run proven `seeding` with an established boundary, ready for pinned-payload validation. The
@@ -105,6 +108,8 @@ pub enum PinnedParticipationState {
 pub enum PinnedDropReason {
     ActionKeyed,
     AbsentFromFrozenCatalog,
+    /// Person runs only: the frozen catalog resolves the hash to a non-person-property leaf.
+    VariantMismatch,
 }
 
 impl PinnedDropReason {
@@ -112,6 +117,7 @@ impl PinnedDropReason {
         match self {
             Self::ActionKeyed => "action_keyed",
             Self::AbsentFromFrozenCatalog => "absent_from_frozen_catalog",
+            Self::VariantMismatch => "variant_mismatch",
         }
     }
 }
@@ -158,6 +164,12 @@ pub enum PinnedError {
     Filters(#[from] FilterError),
     #[error("frozen catalog metadata is incomplete for condition {0}")]
     IncompleteMetadata(ConditionHash),
+    #[error("person run has no pinned person_scan_since")]
+    MissingPersonScanSince,
+    #[error("no pinned person condition survived validation; nothing would be seeded")]
+    NoSurvivingPersonConditions,
+    #[error("surviving person conditions exceed the per-seed hash cap: {0}")]
+    PersonConditionsOverCap(usize),
 }
 
 #[derive(Debug, Deserialize)]
@@ -222,8 +234,10 @@ impl PinnedRun {
         let participation = ParticipationSet::build(snapshot.team_id, snapshot.participations, tz)?;
         let conditions = resolve_conditions(payload.conditions, &participation, &mut warnings)?;
         let event_names = EventNameSet::from_conditions(&conditions);
+        let uncovered_cohorts = participation.uncovered_cohorts(&conditions);
 
         Ok(ValidatedPinnedRun {
+            uncovered_cohorts,
             run: PinnedRun {
                 run_id: snapshot.run_id,
                 team_id: snapshot.team_id,
@@ -266,7 +280,7 @@ fn parse_payload(pinned: Value) -> Result<PinnedPayload, PinnedError> {
     Ok(payload)
 }
 
-fn resolve_timezone(configured: &str, warnings: &mut Vec<PinnedWarning>) -> Tz {
+pub(super) fn resolve_timezone(configured: &str, warnings: &mut Vec<PinnedWarning>) -> Tz {
     let tz = resolve_tz_or_utc(configured);
     if configured.parse::<Tz>().is_err() {
         warnings.push(PinnedWarning::TimezoneFallback {
@@ -277,14 +291,14 @@ fn resolve_timezone(configured: &str, warnings: &mut Vec<PinnedWarning>) -> Tz {
 }
 
 /// The participations of a run, indexed for dedup-checked lookup with the frozen filter catalog
-/// already built from the active cohorts.
-struct ParticipationSet {
+/// already built from the active cohorts. Shared with the sibling person-run validation.
+pub(super) struct ParticipationSet {
     states: HashMap<CohortId, PinnedParticipationState>,
     filters: TeamFilters,
 }
 
 impl ParticipationSet {
-    fn build(
+    pub(super) fn build(
         team_id: TeamId,
         participations: Vec<PinnedParticipation>,
         tz: Tz,
@@ -314,8 +328,36 @@ impl ParticipationSet {
         })
     }
 
-    fn state(&self, cohort_id: CohortId) -> Option<PinnedParticipationState> {
+    pub(super) fn state(&self, cohort_id: CohortId) -> Option<PinnedParticipationState> {
         self.states.get(&cohort_id).copied()
+    }
+
+    pub(super) fn filters(&self) -> &TeamFilters {
+        &self.filters
+    }
+
+    /// The active cohorts no surviving condition references, ascending. Conditions drop per cohort
+    /// (`ActionKeyed`, `AbsentFromFrozenCatalog`), independently of participation state.
+    fn uncovered_cohorts(&self, conditions: &[PinnedCondition]) -> Vec<CohortId> {
+        let covered: HashSet<CohortId> = conditions
+            .iter()
+            .map(|condition| condition.cohort_id)
+            .collect();
+        self.uncovered_from(&covered)
+    }
+
+    /// The active cohorts absent from `covered`, ascending.
+    pub(super) fn uncovered_from(&self, covered: &HashSet<CohortId>) -> Vec<CohortId> {
+        let mut uncovered = self
+            .states
+            .iter()
+            .filter(|(cohort_id, state)| {
+                **state == PinnedParticipationState::Active && !covered.contains(cohort_id)
+            })
+            .map(|(cohort_id, _)| *cohort_id)
+            .collect::<Vec<_>>();
+        uncovered.sort_unstable();
+        uncovered
     }
 
     fn into_filters(self) -> TeamFilters {
@@ -714,6 +756,8 @@ mod tests {
         let validated = PinnedRun::validate(snapshot(payload.clone(), participations)).unwrap();
         assert_eq!(validated.run.conditions.len(), 1);
         assert_eq!(validated.run.conditions[0].cohort_id, CohortId(1));
+        // A superseded participation expects no coverage, so it never withholds the proof.
+        assert!(validated.uncovered_cohorts.is_empty());
         assert_eq!(validated.run.event_names.as_slice(), &["active-event"]);
         assert!(validated
             .run
@@ -741,6 +785,52 @@ mod tests {
             }],
         ));
         assert!(matches!(unknown, Err(PinnedError::MissingParticipation(2))));
+    }
+
+    #[test]
+    fn an_active_cohort_whose_only_condition_is_dropped_is_reported_uncovered() {
+        let covered_hash = "covered000000000";
+        let action_hash = "action0000000000";
+        let covered_filters = json!({
+            "properties": { "type": "AND", "values": [{
+                "type": "behavioral",
+                "value": "performed_event",
+                "key": "covered-event",
+                "conditionHash": covered_hash,
+                "time_value": 7,
+                "time_interval": "day",
+                "bytecode": bytecode("covered-event"),
+            }]}
+        });
+        let mut covered_condition =
+            condition(1, covered_hash, "performed_event", Some("covered-event"), 7);
+        covered_condition["time_value"] = json!(7);
+        covered_condition["time_interval"] = json!("day");
+        let payload = json!({
+            "schema_version": 1,
+            "conditions": [
+                covered_condition,
+                condition(2, action_hash, "performed_event", None, 7),
+            ],
+            "event_names": ["covered-event"],
+        });
+        let participations = vec![
+            PinnedParticipation {
+                cohort_id: CohortId(1),
+                pinned_filters: covered_filters,
+                state: PinnedParticipationState::Active,
+            },
+            PinnedParticipation {
+                cohort_id: CohortId(2),
+                pinned_filters: json!({ "properties": { "type": "AND", "values": [] } }),
+                state: PinnedParticipationState::Active,
+            },
+        ];
+
+        let validated = PinnedRun::validate(snapshot(payload, participations)).unwrap();
+        // Cohort 1's surviving condition would satisfy a run-wide check while cohort 2 gets nothing.
+        assert_eq!(validated.run.conditions.len(), 1);
+        assert_eq!(validated.uncovered_cohorts, vec![CohortId(2)]);
     }
 
     #[test]

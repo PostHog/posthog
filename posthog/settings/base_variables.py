@@ -63,7 +63,7 @@ SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type
 GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RELAY_URL", optional=True)
 
 # Internal team on PostHog Cloud US that receives `$ai_generation` /
-# `$ai_embedding` events emitted by PostHog products (PostHog Code,
+# `$ai_embedding` events emitted by PostHog products (PostHog Desktop,
 # background agents, etc). Used by /api/llm_analytics/personal_spend/.
 # Override in tests via @override_settings to point at a per-test team.
 LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2

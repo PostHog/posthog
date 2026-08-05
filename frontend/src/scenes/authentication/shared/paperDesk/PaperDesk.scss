@@ -25,6 +25,16 @@
         16px 16px;
 }
 
+// Paper sheet resting on the desk — the login card and the dev login panel share it.
+.PaperDesk__card {
+    background: #fff;
+    border: 1px solid #e0e1d9;
+    border-radius: var(--radius-lg);
+    box-shadow:
+        0 20px 44px -26px rgb(40 38 30 / 35%),
+        0 3px 0 #e0e1d9;
+}
+
 // Child SVG sizing — child selector, no Tailwind equivalent
 .PaperDesk__logo {
     svg {

@@ -38,7 +38,9 @@ class SummarizerProposer:
         return _SYSTEM_PROMPT
 
     def grounding(self, scanner: "ReplayScanner") -> str:
-        return ""
+        # The schema requires echoing the length, so the briefing must state the current one.
+        length = (scanner.scanner_config or {}).get("length", "medium")
+        return f"Current summary length: {length}."
 
     def to_config_patch(self, llm_output: dict[str, Any], base_config: dict[str, Any]) -> dict[str, Any]:
         config = dict(base_config)

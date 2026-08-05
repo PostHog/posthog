@@ -541,6 +541,68 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(str(new_person.uuid), member_ids)
         self.assertNotIn(str(old_person.uuid), member_ids)
 
+    def _cohort_member_ids(self, cohort: Cohort, version: int) -> set[str]:
+        rows = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
+            "AND version = %(version)s GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0",
+            {"cohort_id": cohort.pk, "team_id": self.team.pk, "version": version},
+        )
+        return {str(row[0]) for row in rows}
+
+    def test_filter_test_accounts_excludes_person_matches_and_tracks_team_settings(self) -> None:
+        internal = _create_person(
+            team=self.team,
+            distinct_ids=["internal"],
+            properties={"email": "employee@posthog.com", "plan": "paid"},
+            immediate=True,
+        )
+        external = _create_person(
+            team=self.team,
+            distinct_ids=["external"],
+            properties={"email": "customer@example.com", "plan": "paid"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+
+        cohort = cast(
+            Cohort,
+            Cohort.objects.create(
+                team=self.team,
+                name="paid users",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "plan", "type": "person", "value": "paid", "operator": "exact"}],
+                            }
+                        ],
+                    },
+                    "filterTestAccounts": True,
+                },
+            ),
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+        members = self._cohort_member_ids(cohort, version=0)
+        self.assertIn(str(external.uuid), members)
+        self.assertNotIn(str(internal.uuid), members)
+
+        # The team's filters are read at calculation time, not copied into the cohort, so clearing
+        # them re-includes the internal person on the next recalculation.
+        self.team.test_account_filters = []
+        self.team.save()
+        cohort.calculate_people_ch(pending_version=1)
+        members = self._cohort_member_ids(cohort, version=1)
+        self.assertIn(str(external.uuid), members)
+        self.assertIn(str(internal.uuid), members)
+
     def test_person_metadata_cohort_membership_negated_end_to_end(self) -> None:
         # Mirror of the is_date_after test with is_date_before, so membership inverts: the OLD
         # person should be in the cohort and the NEW person should not. Covers the operator whose
@@ -862,6 +924,33 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("person_id", query_str)
         # Should group by person_id
         self.assertIn("GROUP BY", query_str)
+
+    def test_behavioral_performed_event_multiple_times_alias_does_not_raise(self) -> None:
+        """Regression: `performed_event_multiple_times` (the realtime-cohort builder's alias for
+        `performed_event_multiple`) used to leave `Property.value` as the raw alias string, so
+        this dispatch's `prop.value == "performed_event_multiple"` check fell through to
+        `else: raise ValueError`."""
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Cohort", filters={"properties": {"type": "AND", "values": []}}
+        )
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+
+        prop = Property(
+            key="$pageview",
+            type="behavioral",
+            value="performed_event_multiple_times",
+            event_type="events",
+            operator="gte",
+            operator_value=5,
+            time_value=30,
+            time_interval="day",
+            conditionHash="xyz789abc123",
+        )
+
+        query_ast = hogql_query._get_condition_for_property(prop)
+        query_str = prepare_and_print_ast(query_ast, hogql_query.hogql_context, "clickhouse", pretty=True)[0]
+
+        self.assertIn("precalculated_events", query_str)
 
     def test_behavioral_performed_event_with_date_range(self) -> None:
         """performed_event with explicit_datetime + explicit_datetime_to bounds both ends of the window."""

@@ -32,6 +32,8 @@ EVAL_ACTIVITY_TYPES = {
     "emit_internal_telemetry_activity",
     "update_key_state_activity",
     "emit_eval_signal_activity",
+    # check_trace_settled_activity is deliberately excluded: its expected trace_not_settled
+    # failures would otherwise count as activity errors.
 }
 
 EVAL_WORKFLOW_TYPES = {
@@ -102,6 +104,18 @@ def increment_user_errors(error_type: str, *, provider: str | None = None) -> No
     counter.add(1)
 
 
+def increment_settle_poll(outcome: str) -> None:
+    """Track trace settle-poll activity outcomes (not_visible/not_settled/settled).
+
+    Safe to call outside Temporal context (no-ops), matching `increment_errors`.
+    """
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"outcome": outcome})
+    counter = meter.create_counter("llma_eval_settle_polls", "Trace settle poll outcomes")
+    counter.add(1)
+
+
 def increment_eval_signal_outcome(outcome: str) -> None:
     """Track eval signal activity outcomes (skipped_config_disabled, skipped_org_not_approved, skipped_low_significance, emitted, summarization_failed)."""
     meter = get_metric_meter({"outcome": outcome})
@@ -117,17 +131,19 @@ def increment_tokens(token_type: str, count: int) -> None:
 
 
 def increment_emit_event_outcome(outcome: str) -> None:
-    """Track $ai_evaluation event emission outcomes (success/failed).
+    """Track $ai_evaluation event emission outcomes (success/failed/dropped_billing_limited).
 
     Distinguishes Activity 4 failures from other workflow failures so we can
-    measure and alert on dropped eval events specifically.
+    measure and alert on dropped eval events specifically. `dropped_billing_limited`
+    is an expected billing condition, not a system failure, so it's kept out of
+    the `failed` bucket the error-rate alert watches.
     """
     if not activity.in_activity() and not workflow.in_workflow():
         return
     meter = get_metric_meter({"outcome": outcome})
     counter = meter.create_counter(
         "llma_eval_emit_event_outcome",
-        "Outcome of $ai_evaluation event emission (success/failed)",
+        "Outcome of $ai_evaluation event emission (success/failed/dropped_billing_limited)",
     )
     counter.add(1)
 

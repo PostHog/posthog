@@ -48,7 +48,9 @@ GitHub meters its REST resources on **separate per-installation counters**, so i
 The two search budgets are static because GitHub's search rate limits are fixed regardless of the account's plan tier, so there is no tier to observe (unlike core).
 Budgets stay deliberately under the real ceiling so reactive backoff absorbs drift (clock skew, multi-process races, untracked PAT traffic on the same account).
 
-logo.dev (`logodev/`) meters per account token, and each instance holds exactly one (`LOGO_DEV_TOKEN`), so a single `logodev` domain carries one instance-wide budget under a constant scope.
+logo.dev (`logodev/`) meters per account, so a single `logodev` domain carries one instance-wide budget under a constant scope.
+Image CDN requests use `LOGO_DEV_PUBLISHABLE_KEY` (a `pk_` key) as a query parameter, while Search API requests use `LOGO_DEV_SECRET_KEY` (an `sk_` key) as a bearer token.
+`LOGO_DEV_TOKEN` is a deprecated compatibility fallback for image requests only and is never used to authenticate Search API requests.
 logo.dev publishes no rate-limit numbers, so the budgets are static operator ceilings read from settings at acquire time: `LOGODEV_EGRESS_PER_MINUTE_BUDGET` (default 300) smooths bursts and `LOGODEV_EGRESS_HOURLY_BUDGET` (default 5,000) caps total spend.
 Every logo.dev call runs on a sheddable lane — the icon id is user-controlled, so nothing in this domain runs `CRITICAL`.
 Icon bytes are never stored server-side (logo.dev licenses that separately), so steady-state traffic is deduped only by browser caching (`posthog/cdp/services/icons.py` sets `Cache-Control`) and tracks unique (user, icon) first views per day — raise the settings if that outgrows the defaults.

@@ -29,7 +29,14 @@ class TestShouldServeDeprecatedDashboardsField(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("session_auth", SessionAuthentication(), {}, False, True),
+            ("session_auth_requires_opt_in", SessionAuthentication(), {}, False, False),
+            (
+                "session_auth_with_opt_in",
+                SessionAuthentication(),
+                {"include_dashboards": "true"},
+                False,
+                True,
+            ),
             ("no_authenticator_is_first_party", None, {}, True, True),
             ("sharing_token_is_first_party", SharingAccessTokenAuthentication(), {}, True, True),
             ("personal_api_key_unenforced_phase", PersonalAPIKeyAuthentication(), {}, False, True),
@@ -86,7 +93,18 @@ class TestDeprecatedDashboardsFieldAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["dashboards"] == [self.dashboard.id]
 
-    def test_session_auth_still_receives_deprecated_dashboards_field(self):
+    def test_session_auth_does_not_receive_deprecated_dashboards_field(self):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{self.insight.id}/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["dashboards"] == [self.dashboard.id]
+        assert "dashboards" not in response.json()
+        assert [tile["dashboard_id"] for tile in response.json()["dashboard_tiles"]] == [self.dashboard.id]
+
+    def test_session_auth_write_does_not_echo_deprecated_dashboards_field(self):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/",
+            {"dashboards": []},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "dashboards" not in response.json()

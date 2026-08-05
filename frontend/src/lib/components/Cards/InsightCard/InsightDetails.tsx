@@ -713,6 +713,7 @@ export const InsightDetails = React.memo(
             breakdown: overrideBreakdown,
             interval: overrideInterval,
             filterTestAccounts: overrideFilterTestAccounts,
+            ignoresDashboardFilters,
         } = getEffectiveFilterOverrides(filterOverrideContext, filtersOverride, tileFiltersOverride)
         const insightDateRange = isInsightVizNode(query) ? query.source.dateRange : undefined
         const dateOverride = getDateRangeOverrideDisplay(
@@ -741,6 +742,11 @@ export const InsightDetails = React.memo(
                             variables={isHogQLQuery(query.source) ? query.source.variables : undefined}
                             variablesOverride={variablesOverride}
                         />
+                        {ignoresDashboardFilters && (
+                            <InsightDetailSectionDisplay icon={<IconFilter />} label="Dashboard filters">
+                                <span>Ignored for this insight</span>
+                            </InsightDetailSectionDisplay>
+                        )}
                         {dateOverride && (
                             <DateRangeSummary
                                 dateFrom={dateOverride.dateFrom}

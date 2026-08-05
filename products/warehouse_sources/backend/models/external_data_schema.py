@@ -1,7 +1,9 @@
+import re
 import sys
 import uuid
 import fnmatch
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -18,7 +20,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
 )
@@ -119,6 +121,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             # an audit trail. Bypass ModelActivityMixin.save() so we skip its extra _get_before_update
             # SELECT — that read needs a fresh pooler connection and raises OperationalError when the
             # transaction pooler has dropped the connection mid-sync, failing the import activity.
+            #
+            # These calls always target an already-persisted row. Without force_update, Django's
+            # UUID-pk-with-default fallback would silently retry a no-op UPDATE as an INSERT if the
+            # row was deleted concurrently (e.g. the source/schema deleted mid-sync) — either
+            # resurrecting deleted data, or failing with a misleading FK IntegrityError on source_id
+            # instead of a clear "no such row" error.
+            kwargs.setdefault("force_update", True)
             super(ModelActivityMixin, self).save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
@@ -129,6 +138,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def normalized_name(self):
         return NamingConvention.normalize_identifier(self.name)
+
+    @property
+    def normalized_s3_folder_name(self) -> str:
+        """Normalized Delta folder leaf the loader actually wrote the table under.
+
+        Diverges from ``normalized_name`` for folder-pinned rows (e.g. Postgres ``public.users``
+        → folder ``users``); readers that resolve ``normalized_name`` point at a prefix with no
+        ``_delta_log`` and surface "No files in log segment".
+        """
+        return NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
 
     @property
     def is_incremental(self):
@@ -427,7 +446,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partition_size_override", None)
         self.sync_type_config.pop("partition_mode_override", None)
         self.sync_type_config.pop("partitioning_keys_override", None)
-        self.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT (see save()).
+        self.save(skip_activity_log=True)
 
     # --- In-place repartition controller state ------------------------------------------------
     # These keys drive the automated, no-source-pull repartition that bounds per-partition memory
@@ -479,9 +500,18 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     def _save_sync_type_config(self) -> None:
+        # temporalio at module scope would put the Temporal client on the django.setup() path —
+        # this is a models module (see external_data_source.reload_schemas for the same pattern).
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
         # Internal bookkeeping write — skip the activity-log SELECT (see save()) since these run
         # inside the sync/repartition activity where a dropped pooler connection would fail the run.
-        self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        # These fire once per batch across every schema sync, so a transient pooler wait_timeout
+        # (the pool momentarily out of free backend connections) is worth one retry rather than
+        # losing the write silently.
+        retry_on_db_connection_drop(
+            lambda: self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        )
 
     def record_partition_measurement(self, max_partition_bytes: int) -> None:
         self.sync_type_config["max_partition_bytes"] = max_partition_bytes
@@ -539,7 +569,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if earliest_value is not None:
             staged["earliest_value"] = self._serialize_incremental_value(earliest_value)
         self.sync_type_config["incremental_staged"] = staged
-        self.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT (see save()).
+        self.save(skip_activity_log=True)
 
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
         staged = self.sync_type_config.get("incremental_staged")
@@ -550,7 +582,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if "earliest_value" in staged:
             self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
         self.sync_type_config.pop("incremental_staged", None)
-        self.save()
+        self.save(skip_activity_log=True)
         return True
 
     def _serialize_incremental_value(self, value: Any) -> Any:
@@ -577,6 +609,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         ):
             if isinstance(value, datetime):
                 return value.isoformat()
+            elif isinstance(value, int | float) and not isinstance(value, bool):
+                return value
             else:
                 return str(value)
         return str(value)
@@ -640,6 +674,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         ):
             if isinstance(last_value_py, datetime):
                 last_value_json = last_value_py.isoformat()
+            elif isinstance(last_value_py, int | float) and not isinstance(last_value_py, bool):
+                last_value_json = last_value_py
             else:
                 last_value_json = str(last_value_py)
         else:
@@ -692,6 +728,42 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.update_sync_type_config_for_reset_pipeline()
 
 
+# JS `Date.prototype.toString()` output (e.g. "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated
+# Universal Time)") appends a human-readable timezone name in parentheses that dateutil can't
+# parse, even though the preceding GMT offset already fully specifies the instant.
+JS_DATE_TOSTRING_TZ_NAME_RE = re.compile(r"\([^()]*\)\s*\Z")
+
+
+def _parse_datetime_string(value: str) -> datetime:
+    try:
+        return parser.parse(value)
+    except parser.ParserError:
+        stripped = JS_DATE_TOSTRING_TZ_NAME_RE.sub("", value)
+        if stripped == value:
+            raise
+        return parser.parse(stripped)
+
+
+def _coerce_incremental_datetime(value: str) -> datetime | int:
+    """Parse a DateTime/Timestamp/Date cursor string, falling back to a raw integer.
+
+    Some drivers surface a numeric cursor as a bare digit string even though the field is
+    typed as a date/time type (e.g. a ClickHouse column Arrow can't emit natively, cast to
+    String, whose current type no longer matches the incremental field's stored type).
+    dateutil's heuristics then misread the digits as a calendar year and overflow past
+    datetime's year-9999 ceiling (`ParserError`), or raise a bare `OverflowError` for longer
+    digit runs. Legitimate compact date strings like "20240115" (YYYYMMDD) parse correctly
+    above and never reach this fallback.
+    """
+    try:
+        return _parse_datetime_string(value)
+    except (parser.ParserError, OverflowError):
+        stripped = value.strip()
+        if stripped.lstrip("-").isdigit():
+            return int(stripped)
+        raise
+
+
 def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
     if value is None or value == "None" or field_type is None:
         return None
@@ -707,7 +779,12 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, datetime):
             return value
 
-        return parser.parse(value)
+        # Some sources (e.g. Stripe `created`) expose datetime cursors as Unix-epoch numbers.
+        # dateutil can't parse a non-string, so pass epochs through unchanged for the source query.
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return value
+
+        return _coerce_incremental_datetime(value)
 
     if field_type == IncrementalFieldType.Date:
         if isinstance(value, datetime):
@@ -716,7 +793,11 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, date):
             return value
 
-        return parser.parse(value).date()
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return value
+
+        parsed = _coerce_incremental_datetime(value)
+        return parsed if isinstance(parsed, int) else parsed.date()
 
     if field_type == IncrementalFieldType.ObjectID:
         return str(value)
@@ -736,6 +817,10 @@ def apply_incremental_lookback(
         return value
 
     if field_type in (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date):
+        # Epoch-number cursors (e.g. Stripe `created`) are in seconds, so shift them directly since
+        # timedelta subtraction only supports datetime/date operands.
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return value - lookback_seconds
         return value - timedelta(seconds=lookback_seconds)
 
     return value
@@ -915,6 +1000,12 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
             schema.save(update_fields=["label", "updated_at"])
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SchemaSyncResult:
+    created: list[str]
+    deleted: list[str]
+
+
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None],
     source_id: str,
@@ -922,7 +1013,7 @@ def sync_old_schemas_with_new_schemas(
     descriptions: dict[str, str | None] | None = None,
     strict_name_match: bool = False,
     schema_metadata_by_name: dict[str, dict] | None = None,
-) -> tuple[list[str], list[str]]:
+) -> SchemaSyncResult:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
@@ -1015,7 +1106,7 @@ def sync_old_schemas_with_new_schemas(
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 
-    return actually_created, deleted_schemas
+    return SchemaSyncResult(created=actually_created, deleted=deleted_schemas)
 
 
 def schema_name_matches_auto_sync_patterns(name: str, patterns: list[str] | None) -> bool:

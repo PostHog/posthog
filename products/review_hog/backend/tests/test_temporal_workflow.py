@@ -23,6 +23,7 @@ from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
+    FinalizeStatusCommentInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
     LoadedPerspectiveDTO,
@@ -35,6 +36,7 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     ReviewMeta,
     SelectPerspectivesInput,
+    TrackReviewFailedInput,
     ValidateChunkInput,
     ValidateChunkResult,
 )
@@ -95,6 +97,9 @@ async def _run_full_review_pr_workflow(
     publish_calls: list[int] = []
     # Each code_review receipt appended to the signals report, as (outcome, review_url).
     receipt_calls: list[tuple[str, str | None]] = []
+    # The outcome edit of the PR status comment, as (urgency_threshold, resolved_from, review_url) —
+    # all three must be the resolve/publish values, or the comment misattributes the gate.
+    finalize_status_calls: list[tuple[str, str, str | None]] = []
     # The urgency threshold each downstream consumer received (must be the resolve snapshot's value).
     threshold_calls: list[tuple[str, str]] = []
     # The user id the parent threads into the perspective / blind-spots / validation loads (should be
@@ -124,12 +129,14 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="resolve_acting_user_activity")
     async def resolve_acting_user(input) -> ResolveActingUserResult:
-        # A non-default threshold, so the threading asserts can't pass on the dataclass defaults.
+        # Non-default threshold and resolved_from, so the threading asserts can't pass on the
+        # dataclass defaults.
         return ResolveActingUserResult(
             acting_user_id=acting_user_id,
             review_labeled_prs=review_labeled_prs,
             urgency_threshold="must_fix",
             review_inbox_prs=review_inbox_prs,
+            resolved_from="override",
         )
 
     @activity.defn(name="sync_review_skills_activity")
@@ -215,6 +222,29 @@ async def _run_full_review_pr_workflow(
         receipt_calls.append((input.outcome, input.review_url))
         return None
 
+    @activity.defn(name="post_status_comment_activity")
+    async def post_status(input) -> None:
+        return None
+
+    @activity.defn(name="finalize_status_comment_activity")
+    async def finalize_status(input: FinalizeStatusCommentInput) -> None:
+        finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
+        return None
+
+    @activity.defn(name="fail_status_comment_activity")
+    async def fail_status(input) -> None:
+        return None
+
+    # Records the failed-turn analytics event's run_index — the completion-rate denominator the
+    # model experiment relies on; the patched block is swallowed best-effort, so without this stub
+    # deleting it would leave every test green.
+    track_failed_calls: list[int] = []
+
+    @activity.defn(name="track_review_failed_activity")
+    async def track_failed(input: TrackReviewFailedInput) -> None:
+        track_failed_calls.append(input.run_index)
+        return None
+
     result: str | None = None
     failed = False
     task_queue = str(uuid.uuid4())
@@ -244,6 +274,10 @@ async def _run_full_review_pr_workflow(
                 build_body,
                 publish_act,
                 append_receipt,
+                post_status,
+                finalize_status,
+                fail_status,
+                track_failed,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -279,6 +313,8 @@ async def _run_full_review_pr_workflow(
         "receipts": receipt_calls,
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
+        "finalize_status": finalize_status_calls,
+        "track_failed": track_failed_calls,
     }
 
 
@@ -355,6 +391,10 @@ async def test_review_pr_workflow_publishes_only_when_publish_true():
     # The acting user's threshold snapshot (not the dataclass default) reaches both consumers, so
     # body counts and posted comments gate on the same set.
     assert recorded["thresholds"] == [("body", "must_fix"), ("publish", "must_fix")]
+    # The outcome edit gets the same snapshot PLUS whose threshold it was (resolved_from) and the
+    # posted review's URL — dropping any of these reverts the comment to blaming the author's
+    # settings or linking nowhere.
+    assert recorded["finalize_status"] == [("must_fix", "override", _REVIEW_URL)]
 
 
 @pytest.mark.asyncio
@@ -433,6 +473,7 @@ async def test_review_pr_workflow_appends_published_receipt_with_review_url():
     )
     assert recorded["publish"] == [7]
     assert recorded["receipts"] == [("published", _REVIEW_URL)]
+    assert recorded["track_failed"] == []  # a completed turn must not also count as failed
 
 
 @pytest.mark.asyncio
@@ -449,6 +490,9 @@ async def test_review_pr_workflow_appends_failed_receipt_and_still_fails():
     )
     assert recorded["failed"] is True
     assert recorded["receipts"] == [("failed", None)]
+    # The failed-turn analytics event fires exactly once with the turn's run_index — the completion
+    # rate's denominator; it is best-effort-swallowed in the workflow, so only this assert guards it.
+    assert recorded["track_failed"] == [1]
 
 
 @pytest.mark.asyncio

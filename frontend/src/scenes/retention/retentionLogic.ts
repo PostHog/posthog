@@ -1,11 +1,15 @@
 import { mean, sum } from 'd3'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatDateRange } from 'lib/utils/datetime'
+import { BreakdownColorConfig, findBreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL, formatBreakdownLabel } from 'scenes/insights/utils'
@@ -43,6 +47,9 @@ export const MAX_BRACKETS = 30
 // Define a type for the output of the retentionMeans selector
 export interface MeanRetentionValue {
     label: string | number | null
+    /** Raw breakdown_value of the group's rows (pre display mapping), for matching
+     * dashboard breakdown color configs. Null for the overall and empty groups. */
+    rawBreakdownValue: string | number | null
     meanPercentages: number[]
     meanValues: number[]
     totalCohortSize: number
@@ -55,6 +62,7 @@ export interface retentionLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     breakdownFilter: BreakdownFilter | null | undefined // insightVizDataLogic
     dateRange: DateRange | null | undefined // insightVizDataLogic
+    getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // insightVizDataLogic
     insightData: Record<string, any> // insightVizDataLogic
     insightQuery: DataNode<Record<string, any>> // insightVizDataLogic
     querySource:
@@ -73,6 +81,14 @@ export interface retentionLogicValues {
     breakdownValues: (number | string | null | undefined)[]
     dateMappings: DateMappingOption[]
     filteredResults: ProcessedRetentionPayload[]
+    getRetentionColor: (
+        rawBreakdownValue: number | string | null | undefined,
+        seriesIndex: number
+    ) => string | undefined
+    getRetentionColorToken: (
+        rawBreakdownValue: number | string | null | undefined,
+        seriesIndex: number
+    ) => [DataColorTheme | null, DataColorToken | null]
     hasValidBreakdown: boolean
     isPropertyValueAggregation: boolean
     isRetentionDWHEnabled: boolean
@@ -150,6 +166,31 @@ export interface retentionLogicMeta {
             breakdownFilter: BreakdownFilter | null | undefined,
             cohortsById: Partial<Record<number | string, CohortType>>
         ) => Record<string, string>
+        getRetentionColorToken: (
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
+            breakdownFilter: BreakdownFilter | null | undefined,
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null,
+            arg: BreakdownColorConfig[] | null,
+            arg2: DataColorTheme | null
+        ) => (
+            rawBreakdownValue: number | string | null | undefined,
+            seriesIndex: number
+        ) => [DataColorTheme | null, DataColorToken | null]
+        getRetentionColor: (
+            getRetentionColorToken: (
+                rawBreakdownValue: number | string | null | undefined,
+                seriesIndex: number
+            ) => [DataColorTheme | null, DataColorToken | null]
+        ) => (rawBreakdownValue: number | string | null | undefined, seriesIndex: number) => string | undefined
     }
 }
 
@@ -167,7 +208,15 @@ export const retentionLogic = kea<retentionLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['breakdownFilter', 'dateRange', 'insightQuery', 'insightData', 'querySource', 'retentionFilter'],
+            [
+                'breakdownFilter',
+                'dateRange',
+                'insightQuery',
+                'insightData',
+                'querySource',
+                'retentionFilter',
+                'getTheme',
+            ],
             teamLogic,
             ['timezone'],
             featureFlagLogic,
@@ -274,7 +323,7 @@ export const retentionLogic = kea<retentionLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ props }) => ({
         hasValidBreakdown: [
             (s) => [s.breakdownFilter],
             (breakdownFilter: null | import('~/queries/schema/schema-general').BreakdownFilter | undefined) =>
@@ -340,6 +389,9 @@ export const retentionLogic = kea<retentionLogicType>([
                         result.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
                             ? BREAKDOWN_OTHER_DISPLAY
                             : result.breakdown_value,
+                    // Dashboard breakdown color configs store the raw value, so keep it
+                    // alongside the display-mapped one.
+                    rawBreakdownValue: result.breakdown_value ?? null,
                     values: result.values.filter((value) => !value.isFuture),
                 }))
             },
@@ -453,6 +505,9 @@ export const retentionLogic = kea<retentionLogicType>([
 
                     means[breakdownKey] = {
                         label: label,
+                        rawBreakdownValue: isOverallGroupWithoutBreakdown
+                            ? null
+                            : (breakdownRows[0]?.rawBreakdownValue ?? null),
                         meanPercentages: meanPercentagesForBreakdown,
                         meanValues: meanValuesForBreakdown,
                         totalCohortSize: totalCohortSizeForGroup,
@@ -553,7 +608,93 @@ export const retentionLogic = kea<retentionLogicType>([
                 )
             },
         ],
-    }),
+
+        getRetentionColorToken: [
+            (s) => [
+                s.getTheme,
+                s.breakdownFilter,
+                s.querySource,
+                // The dashboard's colors live in a different logic, so they must be selector
+                // inputs rather than reads inside the returned function: the charts memoize
+                // series on this function's identity, which only changes when inputs do.
+                () =>
+                    props.dashboardId != null
+                        ? (dashboardLogic.findMounted({ id: props.dashboardId })?.values.effectiveBreakdownColors ??
+                          null)
+                        : null,
+                () =>
+                    props.dashboardId != null
+                        ? (dashboardLogic.findMounted({ id: props.dashboardId })?.values.dataColorTheme ?? null)
+                        : null,
+            ],
+            (
+                getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+                breakdownFilter: BreakdownFilter | null | undefined,
+                querySource:
+                    | FunnelsQuery
+                    | LifecycleQuery
+                    | PathsQuery
+                    | RetentionQuery
+                    | StickinessQuery
+                    | TrendsQuery
+                    | WebOverviewQuery
+                    | WebStatsTableQuery
+                    | null,
+                dashboardBreakdownColors: BreakdownColorConfig[] | null,
+                dashboardDataColorTheme: DataColorTheme | null
+            ) => {
+                return (
+                    rawBreakdownValue: string | number | null | undefined,
+                    seriesIndex: number
+                ): [DataColorTheme | null, DataColorToken | null] => {
+                    // dashboard color overrides
+                    const colorOverride = findBreakdownColorConfig(
+                        dashboardBreakdownColors,
+                        rawBreakdownValue,
+                        breakdownFilter?.breakdown_type
+                    )
+
+                    if (colorOverride?.colorToken) {
+                        // use the dashboard theme, or fallback to the default theme
+                        return [dashboardDataColorTheme || getTheme(undefined), colorOverride.colorToken]
+                    }
+
+                    // use the dashboard theme, or fallback to the insight theme, or the default theme
+                    const theme =
+                        dashboardDataColorTheme ||
+                        getTheme(
+                            querySource && 'dataColorTheme' in querySource ? querySource.dataColorTheme : undefined
+                        )
+                    if (!theme) {
+                        return [null, null]
+                    }
+
+                    // retention has no resultCustomizations, so the fallback is purely positional
+                    return [theme, `preset-${(seriesIndex % Object.keys(theme).length) + 1}` as DataColorToken]
+                }
+            },
+        ],
+        getRetentionColor: [
+            (s) => [s.getRetentionColorToken],
+            (
+                getRetentionColorToken: (
+                    rawBreakdownValue: string | number | null | undefined,
+                    seriesIndex: number
+                ) => [DataColorTheme | null, DataColorToken | null]
+            ) => {
+                return (
+                    rawBreakdownValue: string | number | null | undefined,
+                    seriesIndex: number
+                ): string | undefined => {
+                    const [colorTheme, colorToken] = getRetentionColorToken(rawBreakdownValue, seriesIndex)
+                    // No theme means themes haven't loaded yet. That's a global condition (all
+                    // series or none), so leaving the color undefined lets the chart's own
+                    // palette cover the gap instead of flashing black.
+                    return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : undefined
+                }
+            },
+        ],
+    })),
     events(({ actions, values }) => ({
         afterMount: () => {
             const brackets = values.retentionFilter?.retentionCustomBrackets

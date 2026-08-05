@@ -5,9 +5,9 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from products.signals.backend.temporal.drop_telemetry import (
     CaptureSignalDroppedInput,
-    _summarize_drop_error,
     capture_signal_dropped,
     capture_signal_dropped_activity,
+    summarize_drop_error,
 )
 from products.signals.backend.temporal.types import EmitSignalInputs
 
@@ -66,7 +66,8 @@ async def test_capture_signal_dropped_activity_emits_event(ateam):
     kwargs = capture.call_args.kwargs
     assert kwargs["event"] == "signal_dropped"
     assert kwargs["distinct_id"] == str(ateam.uuid)
-    assert kwargs["properties"]["reason"] == "grouping_processing_error"
+    # reason is a stage:error_type composite so the drop alert can tell failure modes apart
+    assert kwargs["properties"]["reason"] == "grouping_parallel:OperationalError"
     assert kwargs["properties"]["stage"] == "grouping_parallel"
     assert kwargs["properties"]["error_type"] == "OperationalError"
     assert kwargs["properties"]["error"] == "the connection is closed"
@@ -178,7 +179,7 @@ async def test_helper_swallows_activity_failure():
     ],
 )
 def test_summarize_drop_error(error, expected_type, expected_message):
-    error_type, message = _summarize_drop_error(error)
+    error_type, message = summarize_drop_error(error)
     assert error_type == expected_type
     assert expected_message in message
     assert "\n" not in message

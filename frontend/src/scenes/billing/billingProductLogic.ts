@@ -1004,6 +1004,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     session_replay: 'Web session replay',
                     data_warehouse: 'Synced rows',
                     data_warehouse_historical: 'Free historical synced rows',
+                    logs: 'Logs ingestion (14-day retention)',
+                    logs_retention_30d: '30-day retention',
                 }
 
                 const mainProduct = product as BillingProductV2Type
