@@ -684,7 +684,21 @@ export interface TicketPersonApi {
 }
 
 /**
- * Mixin for serializers to add user access control fields
+ * Minimal summary of a ticket that was merged into another (output-only).
+ */
+export interface MergedTicketSummaryApi {
+    /** Merged ticket UUID. */
+    readonly id: string
+    /** Human-readable number of the merged ticket. */
+    readonly ticket_number: number
+    /** Status of the merged ticket. */
+    readonly status: string
+    /** When it was merged into this ticket. */
+    readonly merged_at: string
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
  */
 export interface TicketApi {
     readonly id: string
@@ -785,6 +799,8 @@ export interface TicketApi {
      * @nullable
      */
     readonly merged_into_ticket_number: number | null
+    /** Tickets that have been merged into this ticket. */
+    readonly merged_tickets: readonly MergedTicketSummaryApi[]
 }
 
 export interface PaginatedTicketListApi {
@@ -898,6 +914,8 @@ export interface PatchedTicketApi {
      * @nullable
      */
     readonly merged_into_ticket_number?: number | null
+    /** Tickets that have been merged into this ticket. */
+    readonly merged_tickets?: readonly MergedTicketSummaryApi[]
 }
 
 /**
@@ -969,8 +987,14 @@ export interface TicketMergeResponseApi {
 }
 
 export interface TicketErrorApi {
+    /** Human-readable error message. */
     detail: string
+    /** Machine-readable error code, when applicable. */
     error_type?: string
+    /** For target_already_merged: the UUID of the root ticket the target is merged into. */
+    root_ticket_id?: string
+    /** For target_already_merged: the human-readable number of that root ticket. */
+    root_ticket_number?: number
 }
 
 /**

@@ -75,8 +75,16 @@ logger = structlog.get_logger(__name__)
 
 
 class TicketErrorSerializer(serializers.Serializer):
-    detail = serializers.CharField()
-    error_type = serializers.CharField(required=False)
+    detail = serializers.CharField(help_text="Human-readable error message.")
+    error_type = serializers.CharField(required=False, help_text="Machine-readable error code, when applicable.")
+    root_ticket_id = serializers.UUIDField(
+        required=False,
+        help_text="For target_already_merged: the UUID of the root ticket the target is merged into.",
+    )
+    root_ticket_number = serializers.IntegerField(
+        required=False,
+        help_text="For target_already_merged: the human-readable number of that root ticket.",
+    )
 
 
 class TicketMessageSerializer(serializers.Serializer):
@@ -283,10 +291,24 @@ class TicketPersonSerializer(serializers.Serializer):
         return get_person_name(team, person)
 
 
-class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer):
+class MergedTicketSummarySerializer(serializers.Serializer):
+    """Minimal summary of a ticket that was merged into another (output-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Merged ticket UUID.")
+    ticket_number = serializers.IntegerField(read_only=True, help_text="Human-readable number of the merged ticket.")
+    status = serializers.CharField(read_only=True, help_text="Status of the merged ticket.")
+    merged_at = serializers.DateTimeField(read_only=True, help_text="When it was merged into this ticket.")
+
+
+class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
+    merged_tickets = MergedTicketSummarySerializer(
+        many=True,
+        read_only=True,
+        help_text="Tickets that have been merged into this ticket.",
+    )
     merged_into_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
@@ -343,6 +365,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "merged_at",
             "merged_into_id",
             "merged_into_ticket_number",
+            "merged_tickets",
         ]
         read_only_fields = [
             "id",
@@ -445,7 +468,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         queryset = queryset.filter(team_id=self.team_id)
         queryset = queryset.select_related(
             "assignment", "assignment__user", "assignment__role", "email_config", "merged_into"
-        )
+        ).prefetch_related("merged_tickets")
 
         filters: dict[str, Any] = {}
         view_short_id = self.request.query_params.get("view")
@@ -1216,6 +1239,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             200: OpenApiResponse(response=TicketMergeResponseSerializer),
             400: OpenApiResponse(response=TicketErrorSerializer),
             404: OpenApiResponse(response=TicketErrorSerializer),
+            409: OpenApiResponse(response=TicketErrorSerializer),
         },
     )
     @action(detail=True, methods=["post"])
@@ -1252,15 +1276,41 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         if target is None:
             return Response({"detail": "Target ticket not found."}, status=drf_status.HTTP_404_NOT_FOUND)
 
-        old_status = source.status
-        source_url = f"{settings.SITE_URL}/project/{self.team_id}/support/tickets/{source.ticket_number}"
-        target_url = f"{settings.SITE_URL}/project/{self.team_id}/support/tickets/{target.ticket_number}"
+        # Rule 1: a ticket can only be merged into a top-level (unmerged) ticket. If the target is
+        # itself merged, point the user at its root so they can merge there instead.
+        if target.merged_into_id is not None:
+            root = target.merged_into
+            return Response(
+                {
+                    "detail": (
+                        f"Ticket #{target.ticket_number} is already merged into #{root.ticket_number}. "
+                        f"Merge into #{root.ticket_number} instead."
+                    ),
+                    "error_type": "target_already_merged",
+                    "root_ticket_id": str(root.id),
+                    "root_ticket_number": root.ticket_number,
+                },
+                status=drf_status.HTTP_409_CONFLICT,
+            )
 
-        source_message = f"Merged into [#{target.ticket_number}]({target_url})."
+        old_status = source.status
+
+        # Reference to a ticket for embedding in a note. Private (internal) notes link to the
+        # agent UI; customer-facing notes link to the channel URL the customer can actually open
+        # (GitHub/Slack) and fall back to a bare "#N" when the channel has no public URL — never
+        # an internal link the customer would hit a login wall on.
+        def reference(ticket: Ticket, is_private: bool) -> str:
+            if is_private:
+                url = f"{settings.SITE_URL}/project/{self.team_id}/support/tickets/{ticket.ticket_number}"
+                return f"[#{ticket.ticket_number}]({url})"
+            public_url = _public_ticket_url(ticket)
+            return f"[#{ticket.ticket_number}]({public_url})" if public_url else f"#{ticket.ticket_number}"
+
+        source_message = f"Merged into {reference(target, data['source_is_private'])}."
         if data.get("source_note"):
             source_message = f"{source_message}\n\n{data['source_note']}"
 
-        target_message = f"[#{source.ticket_number}]({source_url}) was merged into this ticket."
+        target_message = f"{reference(source, data['target_is_private'])} was merged into this ticket."
         if data.get("target_note"):
             target_message = f"{target_message}\n\n{data['target_note']}"
 
@@ -1272,6 +1322,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 source.save(update_fields=["status", "merged_into", "merged_at", "updated_at"])
             else:
                 source.save(update_fields=["merged_into", "merged_at", "updated_at"])
+
+            # Keep the tree flat (depth 1): any tickets already merged into the source now point at
+            # the target too, so merged_into always references a top-level ticket.
+            Ticket.objects.filter(team_id=self.team_id, merged_into_id=source.id).exclude(id=source.id).update(
+                merged_into=target
+            )
 
             assign_ticket(
                 source,
@@ -1508,6 +1564,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             {"id": str(ticket.id), "ticket_number": ticket.ticket_number},
             status=drf_status.HTTP_201_CREATED,
         )
+
+
+def _public_ticket_url(ticket: Ticket) -> str | None:
+    """Customer-facing URL for a ticket, if its channel exposes one.
+
+    GitHub issues are publicly linkable; Slack threads are reachable by channel members.
+    Email, widget, and Teams tickets have no customer-facing URL, so return None.
+    """
+    if ticket.channel_source == Channel.GITHUB and ticket.github_repo and ticket.github_issue_number:
+        return f"https://github.com/{ticket.github_repo}/issues/{ticket.github_issue_number}"
+    if ticket.channel_source == Channel.SLACK and ticket.slack_channel_id and ticket.slack_thread_ts:
+        return f"https://app.slack.com/archives/{ticket.slack_channel_id}/p{ticket.slack_thread_ts.replace('.', '')}"
+    return None
 
 
 def validate_assignee(assignee) -> None:

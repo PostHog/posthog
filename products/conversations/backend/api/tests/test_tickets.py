@@ -2507,13 +2507,48 @@ class TestTicketMerge(APIBaseTest):
         assert self.source.merged_at is not None
         assert TicketAssignment.objects.get(ticket=self.source).user_id == self.user.id
 
-        # A note is added to both tickets, each linking to the other by number.
+        # Both notes default to private, so each links to the other via the internal agent URL.
         source_comment = self._comment_for(self.source)
         target_comment = self._comment_for(self.target)
         assert f"#{self.target.ticket_number}" in source_comment.content
         assert f"/support/tickets/{self.target.ticket_number}" in source_comment.content
         assert f"#{self.source.ticket_number}" in target_comment.content
         assert f"/support/tickets/{self.source.ticket_number}" in target_comment.content
+
+    def test_public_note_links_to_github_issue_not_internal_url(self, mock_on_commit):
+        github_target = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.GITHUB,
+            channel_detail=ChannelDetail.GITHUB_ISSUE,
+            widget_session_id="gh-session",
+            distinct_id="customer-a",
+            status=Status.OPEN,
+            github_repo="acme/support",
+            github_issue_number=42,
+        )
+        response = self.client.post(
+            self._merge_url(self.source),
+            {"target_ticket_id": str(github_target.id), "source_is_private": False},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        content = self._comment_for(self.source).content
+        assert "https://github.com/acme/support/issues/42" in content
+        # A customer-facing note must never leak the internal agent URL.
+        assert "/support/tickets/" not in content
+
+    def test_public_note_without_public_url_has_no_link(self, mock_on_commit):
+        # Target is a widget ticket, which has no customer-facing URL.
+        response = self.client.post(
+            self._merge_url(self.source),
+            {"target_ticket_id": str(self.target.id), "source_is_private": False},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        content = self._comment_for(self.source).content
+        assert f"#{self.target.ticket_number}" in content
+        assert "/support/tickets/" not in content
+        assert "http" not in content
 
     @parameterized.expand(
         [
@@ -2560,6 +2595,64 @@ class TestTicketMerge(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         self.source.refresh_from_db()
         assert self.source.merged_into_id is None
+
+    def test_cannot_merge_into_a_merged_ticket_and_suggests_root(self, mock_on_commit):
+        # B is merged into C; merging A into B must be rejected and point at C.
+        root = self.target
+        middle = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="middle-session",
+            distinct_id="customer-a",
+            status=Status.OPEN,
+            merged_into=root,
+            merged_at=timezone.now(),
+        )
+        response = self.client.post(
+            self._merge_url(self.source),
+            {"target_ticket_id": str(middle.id)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT
+        body = response.json()
+        assert body["error_type"] == "target_already_merged"
+        assert body["root_ticket_id"] == str(root.id)
+        assert body["root_ticket_number"] == root.ticket_number
+        self.source.refresh_from_db()
+        assert self.source.merged_into_id is None
+
+    def test_merge_reparents_existing_children_to_stay_flat(self, mock_on_commit):
+        # child -> source already; merging source -> target must re-point child to target.
+        child = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="child-session",
+            distinct_id="customer-a",
+            status=Status.RESOLVED,
+            merged_into=self.source,
+            merged_at=timezone.now(),
+        )
+        response = self.client.post(
+            self._merge_url(self.source),
+            {"target_ticket_id": str(self.target.id)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        child.refresh_from_db()
+        self.source.refresh_from_db()
+        assert self.source.merged_into_id == self.target.id
+        assert child.merged_into_id == self.target.id  # re-parented, not left pointing at source
+
+    def test_merged_tickets_listed_on_root(self, mock_on_commit):
+        self.client.post(
+            self._merge_url(self.source),
+            {"target_ticket_id": str(self.target.id)},
+            format="json",
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.target.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        merged = response.json()["merged_tickets"]
+        assert [m["ticket_number"] for m in merged] == [self.source.ticket_number]
 
     def test_cannot_merge_already_merged_ticket(self, mock_on_commit):
         self.source.merged_into = self.target
