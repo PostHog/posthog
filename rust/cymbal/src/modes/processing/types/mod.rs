@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
 use crate::fingerprinting::{FingerprintRecordPart, FingerprintVersion};
-use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
+use crate::frames::releases::ReleaseInfo;
 use crate::frames::{Frame, RawFrame};
 use crate::langs::native::DebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
@@ -92,24 +92,6 @@ impl ExceptionList {
             .and_then(|e| e.mechanism.as_ref())
             .and_then(|m| m.handled)
             .unwrap_or(false)
-    }
-
-    /// Releases attached to this list's frames — by local symbolication directly, or deserialized
-    /// from the remote resolution response (`Frame.release` serializes on that wire).
-    pub fn get_frame_releases(&self) -> Vec<ReleaseRecord> {
-        ReleaseRecord::collect_from_frames(self.get_frames_iter())
-    }
-
-    /// Drops `Frame.release` from every resolved frame. Called once `$exception_release`
-    /// selection is done, so clickhouse-bound serializations of this list never carry it.
-    pub fn clear_frame_releases(&mut self) {
-        for exception in self.0.iter_mut() {
-            if let Some(Stacktrace::Resolved { frames }) = exception.stack.as_mut() {
-                for frame in frames {
-                    frame.release = None;
-                }
-            }
-        }
     }
 }
 

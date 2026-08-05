@@ -30,6 +30,7 @@ fn resolve_outcome_echoes_id_and_carries_done_error_or_retry() {
             id: 1,
             result: Some(resolve_outcome::Result::Done(Done {
                 resolved_exception_json: br#"{"type":"ResolvedError"}"#.to_vec(),
+                release_id: "0198f0a4-0000-7000-8000-000000000001".to_string(),
             })),
         },
         ResolveOutcome {
@@ -71,6 +72,7 @@ fn resolve_outcome_echoes_id_and_carries_done_error_or_retry() {
         &decoded[0].result,
         Some(resolve_outcome::Result::Done(done))
             if done.resolved_exception_json == br#"{"type":"ResolvedError"}"#
+                && done.release_id == "0198f0a4-0000-7000-8000-000000000001"
     ));
     assert!(matches!(
         decoded[1].result,

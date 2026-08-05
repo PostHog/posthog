@@ -1,12 +1,11 @@
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::time::Duration;
 
 use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
-use cymbal::frames::releases::ReleaseRecord;
 use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
 use cymbal::modes::resolution::load_monitor::LoadMonitor;
@@ -25,11 +24,14 @@ use futures::StreamExt;
 use tokio::sync::Semaphore;
 use tonic::transport::{Channel, Server};
 use tonic::Request;
+use uuid::Uuid;
 
 #[derive(Default)]
 struct FakeResolver {
     fail_unhandled: bool,
     resolved_frames: Vec<Frame>,
+    release_id: Option<Uuid>,
+    release_refs: Arc<Mutex<Vec<String>>>,
 }
 
 #[async_trait]
@@ -62,6 +64,15 @@ impl SymbolResolver for FakeResolver {
         _minified_name: &str,
     ) -> Result<String, ResolveError> {
         unreachable!("fake resolver does not need dart name resolution for these tests")
+    }
+
+    async fn latest_release_id(
+        &self,
+        _team_id: TeamId,
+        symbol_set_refs: &[String],
+    ) -> Result<Option<Uuid>, UnhandledError> {
+        *self.release_refs.lock().expect("release refs poisoned") = symbol_set_refs.to_vec();
+        Ok(self.release_id)
     }
 }
 
@@ -317,8 +328,8 @@ async fn raw_frames_are_resolved_into_done_payload() {
     let mut resolver_frame = sample_resolved_frame(&raw_frame);
     resolver_frame.frame_id = raw_frame.frame_id(123, 99, &[]);
     let service = make_service(FakeResolver {
-        fail_unhandled: false,
         resolved_frames: vec![resolver_frame],
+        ..Default::default()
     });
     let mut exc = raw_exception("RuntimeError");
     exc.stack = Some(Stacktrace::Raw {
@@ -344,55 +355,50 @@ async fn raw_frames_are_resolved_into_done_payload() {
 }
 
 #[tokio::test]
-async fn frame_releases_are_serialized_inside_the_resolved_frames() {
-    let release = ReleaseRecord {
-        id: uuid::Uuid::from_u128(7),
-        team_id: 123,
-        hash_id: "wire-hash".to_string(),
-        created_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-        version: "9.9.9".to_string(),
-        project: "my-app".to_string(),
-        metadata: None,
-    };
-    let raw_frame = sample_raw_frame();
-    // One frame with a release, one without: the release must ride its own frame's JSON and a
-    // missing key (what an older server sends for every frame) must deserialize to `None`.
-    let mut first = sample_resolved_frame(&raw_frame);
-    first.frame_id = raw_frame.frame_id(123, 0, &[]);
-    first.release = Some(release.clone());
-    let mut second = sample_resolved_frame(&raw_frame);
-    second.frame_id = raw_frame.frame_id(123, 1, &[]);
+async fn the_release_rides_the_outcome_and_is_looked_up_by_distinct_symbol_set_ref() {
+    let release_id = Uuid::from_u128(7);
+    let release_refs = Arc::new(Mutex::new(Vec::new()));
     let service = make_service(FakeResolver {
-        fail_unhandled: false,
-        resolved_frames: vec![first, second],
+        release_id: Some(release_id),
+        release_refs: release_refs.clone(),
+        ..Default::default()
     });
     let mut exc = raw_exception("RuntimeError");
+    // Two frames from one chunk and one from another: the lookup sees each ref once.
     exc.stack = Some(Stacktrace::Raw {
-        frames: vec![raw_frame],
+        frames: vec![
+            js_raw_frame("chunk-a"),
+            js_raw_frame("chunk-a"),
+            js_raw_frame("chunk-b"),
+        ],
     });
 
     let outcomes = resolve_items(service, vec![make_item(1, &exc)]).await;
-    assert_eq!(outcomes.len(), 1);
     let resolve_outcome::Result::Done(done) = outcome_result(&outcomes[0]) else {
         panic!("expected Done outcome, got {:?}", outcomes[0]);
     };
 
-    let resolved: Exception =
-        serde_json::from_slice(&done.resolved_exception_json).expect("valid resolved exception");
-    let Some(Stacktrace::Resolved { frames }) = resolved.stack else {
-        panic!("raw stack must be replaced with resolved frames");
-    };
-    assert_eq!(frames[0].release, Some(release));
-    assert_eq!(frames[1].release, None);
+    assert_eq!(done.release_id, release_id.to_string());
+    assert_eq!(
+        *release_refs.lock().expect("release refs poisoned"),
+        vec!["chunk-a".to_string(), "chunk-b".to_string()]
+    );
+}
 
-    let raw: serde_json::Value =
-        serde_json::from_slice(&done.resolved_exception_json).expect("valid resolved exception");
-    let frames_json = raw["stacktrace"]["frames"]
-        .as_array()
-        .expect("resolved frames present");
-    assert!(frames_json[0].get("release").is_some());
-    // `skip_serializing_if` keeps release-less frames byte-identical to the old wire shape.
-    assert!(frames_json[1].get("release").is_none());
+#[tokio::test]
+async fn no_bound_release_leaves_the_outcome_release_id_empty() {
+    let service = make_service(FakeResolver::default());
+    let mut exc = raw_exception("RuntimeError");
+    exc.stack = Some(Stacktrace::Raw {
+        frames: vec![sample_raw_frame()],
+    });
+
+    let outcomes = resolve_items(service, vec![make_item(1, &exc)]).await;
+    let resolve_outcome::Result::Done(done) = outcome_result(&outcomes[0]) else {
+        panic!("expected Done outcome, got {:?}", outcomes[0]);
+    };
+
+    assert!(done.release_id.is_empty());
 }
 
 #[tokio::test]
@@ -560,6 +566,19 @@ fn java_exception_for_overload() -> Exception {
     }
 }
 
+fn js_raw_frame(chunk_id: &str) -> RawFrame {
+    let json = serde_json::json!({
+        "platform": "web:javascript",
+        "filename": "a.js",
+        "function": "f",
+        "in_app": true,
+        "lineno": 1,
+        "colno": 1,
+        "chunk_id": chunk_id,
+    });
+    serde_json::from_value(json).expect("valid raw frame")
+}
+
 fn sample_raw_frame() -> RawFrame {
     let json = serde_json::json!({
         "platform": "web:javascript",
@@ -590,7 +609,6 @@ fn sample_resolved_frame(raw_frame: &RawFrame) -> Frame {
         junk_drawer: None,
         code_variables: None,
         context: None,
-        release: None,
     }
 }
 

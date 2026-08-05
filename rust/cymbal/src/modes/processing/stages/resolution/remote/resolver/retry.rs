@@ -23,6 +23,7 @@ use crate::metric_consts::{
     REMOTE_RESOLUTION_REROUTE_DEPTH,
 };
 use crate::types::Exception;
+use uuid::Uuid;
 
 use crate::stages::resolution::remote::{client::RemoteCallError, mux::ResolveItemSession};
 
@@ -151,7 +152,10 @@ pub(super) async fn resolve_work_item(
         };
 
         match decision {
-            ItemDecision::Done(exception) => {
+            ItemDecision::Done {
+                exception,
+                release_id,
+            } => {
                 metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "ok").increment(1);
                 record_reroute_depth("ok", attempts_used);
                 return Ok(ResolvedRemoteItem {
@@ -159,6 +163,7 @@ pub(super) async fn resolve_work_item(
                     exception_slot: work_item.exception_slot,
                     target: work_item.target,
                     exception,
+                    release_id,
                 });
             }
             ItemDecision::Overloaded(message) => {
@@ -276,7 +281,10 @@ fn single_outcome(
 
 #[derive(Debug)]
 enum ItemDecision {
-    Done(Exception),
+    Done {
+        exception: Exception,
+        release_id: Option<Uuid>,
+    },
     Overloaded(String),
     Retry {
         message: String,
@@ -304,7 +312,16 @@ fn classify_outcome(
                         format!("invalid_done_payload: failed to parse resolved exception: {err}"),
                     )
                 })?;
-            Ok(ItemDecision::Done(exception))
+            // An unparseable release id is decoration we can drop, not a reason to fail an
+            // otherwise-resolved item. Empty means the server found no release, or predates
+            // the field.
+            let release_id = (!done.release_id.is_empty())
+                .then(|| Uuid::parse_str(&done.release_id).ok())
+                .flatten();
+            Ok(ItemDecision::Done {
+                exception,
+                release_id,
+            })
         }
         resolve_outcome::Result::Retry(retry) => {
             let retry_after = (retry.retry_after_ms > 0)
@@ -426,65 +443,54 @@ fn record_reroute_depth(outcome: &'static str, attempts_used: u32) {
 mod tests {
     use cymbal_proto::cymbal::resolution::v1::{Done, Error, Retry};
 
-    use crate::frames::releases::ReleaseRecord;
-
     use super::*;
 
     #[test]
     fn classify_outcome_parses_done_exception() {
         let work_item = work_item(7);
-        let outcome = ResolveOutcome {
-            id: 7,
-            result: Some(resolve_outcome::Result::Done(Done {
-                resolved_exception_json: serde_json::to_vec(&exception("Resolved"))
-                    .expect("valid exception"),
-            })),
-        };
+        let outcome = done_outcome(&exception("Resolved"), String::new());
 
         let decision = classify_outcome(&work_item, outcome).expect("done outcome");
         assert!(matches!(
             decision,
-            ItemDecision::Done(exception) if exception.exception_type == "Resolved"
+            ItemDecision::Done { exception, release_id }
+                if exception.exception_type == "Resolved" && release_id.is_none()
         ));
     }
 
-    // The frame-derived release crosses the wire inside the frame JSON; a frame without the
-    // key (an older server, or no release bound) must parse to `None`, and one with it must
-    // land on `Frame.release`.
+    // An empty `release_id` is what a server with no release bound sends, and what one predating
+    // the field sends for everything; an unparseable one is decoration we drop rather than a
+    // reason to fail an item that resolved.
     #[test]
-    fn classify_outcome_parses_frame_releases_from_the_exception_json() {
-        let release = ReleaseRecord {
-            id: uuid::Uuid::now_v7(),
-            team_id: 42,
-            hash_id: "hash".to_string(),
-            created_at: chrono::Utc::now(),
-            version: "1.2.3".to_string(),
-            project: "my-app".to_string(),
-            metadata: None,
-        };
-        let mut with_release = exception("Resolved");
-        with_release.stack = Some(crate::types::Stacktrace::Resolved {
-            frames: vec![frame(Some(release.clone())), frame(None)],
-        });
+    fn classify_outcome_takes_the_release_id_and_tolerates_a_bad_one() {
+        let release_id = Uuid::now_v7();
+        let cases = [
+            (release_id.to_string(), Some(release_id)),
+            (String::new(), None),
+            ("not-a-uuid".to_string(), None),
+        ];
 
-        let work_item = work_item(7);
-        let outcome = ResolveOutcome {
+        for (wire_value, expected) in cases {
+            let decision = classify_outcome(
+                &work_item(7),
+                done_outcome(&exception("Resolved"), wire_value.clone()),
+            )
+            .expect("done outcome");
+            let ItemDecision::Done { release_id, .. } = decision else {
+                panic!("expected done decision");
+            };
+            assert_eq!(release_id, expected, "release_id wire value {wire_value:?}");
+        }
+    }
+
+    fn done_outcome(exception: &Exception, release_id: String) -> ResolveOutcome {
+        ResolveOutcome {
             id: 7,
             result: Some(resolve_outcome::Result::Done(Done {
-                resolved_exception_json: serde_json::to_vec(&with_release)
-                    .expect("valid exception"),
+                resolved_exception_json: serde_json::to_vec(exception).expect("valid exception"),
+                release_id,
             })),
-        };
-
-        let decision = classify_outcome(&work_item, outcome).expect("done outcome");
-        let ItemDecision::Done(parsed) = decision else {
-            panic!("expected done decision");
-        };
-        let Some(crate::types::Stacktrace::Resolved { frames }) = parsed.stack else {
-            panic!("expected resolved stack");
-        };
-        assert_eq!(frames[0].release, Some(release));
-        assert_eq!(frames[1].release, None);
+        }
     }
 
     #[test]
@@ -578,28 +584,6 @@ mod tests {
             module: None,
             thread_id: None,
             stack: None,
-        }
-    }
-
-    fn frame(release: Option<ReleaseRecord>) -> crate::frames::Frame {
-        crate::frames::Frame {
-            frame_id: common_types::error_tracking::FrameId::placeholder(),
-            mangled_name: "f".to_string(),
-            line: None,
-            column: None,
-            source: None,
-            module: None,
-            in_app: true,
-            resolved_name: None,
-            lang: "javascript".to_string(),
-            resolved: true,
-            resolve_failure: None,
-            synthetic: false,
-            suspicious: false,
-            junk_drawer: None,
-            code_variables: None,
-            context: None,
-            release,
         }
     }
 }

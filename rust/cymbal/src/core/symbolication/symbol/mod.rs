@@ -10,6 +10,7 @@ use crate::{
     symbolication::symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef},
 };
 use tracing::debug;
+use uuid::Uuid;
 pub mod local;
 pub mod records;
 
@@ -35,6 +36,17 @@ pub trait SymbolResolver: Send + Sync + 'static {
         symbolset_ref: String,
         minified_name: &str,
     ) -> Result<String, ResolveError>;
+
+    /// The newest release bound to any of `symbol_set_refs`. Lives here because only a resolver
+    /// backed by the symbol-set store can answer it; resolvers without one (test fakes) inherit
+    /// the "no release" default.
+    async fn latest_release_id(
+        &self,
+        _team_id: TeamId,
+        _symbol_set_refs: &[String],
+    ) -> Result<Option<Uuid>, UnhandledError> {
+        Ok(None)
+    }
 
     async fn resolve_java_exception(
         &self,

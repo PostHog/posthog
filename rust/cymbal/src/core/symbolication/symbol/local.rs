@@ -34,6 +34,7 @@ use crate::{
     },
     types::operator::TeamId,
 };
+use uuid::Uuid;
 
 const FRAME_EXPIRY_FALLBACK_SECONDS: u64 = 300;
 
@@ -156,28 +157,20 @@ impl LocalSymbolResolver {
 
         assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
 
-        let (set, release) = if let Some(set_ref) = frame.symbol_set_ref(debug_images) {
-            let set_fut = SymbolSetRecord::load(&self.pool, raw_id.team_id, &set_ref);
-            let release_fut = async {
-                ReleaseRecord::for_symbol_set_ref(&self.pool, &set_ref, raw_id.team_id)
-                    .await
-                    .map_err(UnhandledError::from)
-            };
-            let (mut set, release) = tokio::try_join!(set_fut, release_fut)?;
+        let set = if let Some(set_ref) = frame.symbol_set_ref(debug_images) {
+            let mut set = SymbolSetRecord::load(&self.pool, raw_id.team_id, &set_ref).await?;
             if let Some(s) = &mut set {
                 s.set_last_used(&self.pool).await?;
             }
-            (set, release)
+            set
         } else {
-            (None, None)
+            None
         };
 
         let mut records = Vec::new();
         let mut resolved = resolved;
         for r_frame in resolved.iter_mut() {
-            r_frame.release = release.clone(); // Enrich with release information
-
-            // And save back to the DB
+            // Save back to the DB
             let record = ErrorTrackingStackFrame::new(
                 r_frame.frame_id.clone(),
                 set.as_ref().map(|s| s.id),
@@ -241,6 +234,20 @@ impl SymbolResolver for LocalSymbolResolver {
 
         lookup_minified_type(minified_names, minified_name)
             .ok_or(ResolveError::from(JsResolveErr::InvalidSourceAndMap))
+    }
+
+    async fn latest_release_id(
+        &self,
+        team_id: TeamId,
+        symbol_set_refs: &[String],
+    ) -> Result<Option<Uuid>, UnhandledError> {
+        if symbol_set_refs.is_empty() {
+            return Ok(None);
+        }
+        Ok(
+            ReleaseRecord::latest_id_for_symbol_set_refs(&self.pool, symbol_set_refs, team_id)
+                .await?,
+        )
     }
 }
 

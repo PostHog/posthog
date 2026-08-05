@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use common_types::error_tracking::{FrameData, FrameId, RawFrameId};
-use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -173,12 +172,6 @@ pub struct Frame {
     // use in the frontend
     #[serde(skip)]
     pub context: Option<Context>,
-    // The release bound to the symbol set that resolved this frame. Serializable so it crosses the
-    // resolution-service wire inside the frame JSON, but it must not reach the clickhouse-bound
-    // event JSON — `into_resolved` strips it after `$exception_release` selection — and the PG
-    // frame cache re-joins it at load instead of trusting a stored copy (see records.rs).
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub release: Option<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

@@ -6,7 +6,7 @@ use sqlx::Executor;
 use uuid::Uuid;
 
 use crate::error::UnhandledError;
-use crate::frames::{releases::ReleaseRecord, Context, Frame};
+use crate::frames::{Context, Frame};
 
 const FRAME_TTL_JITTER_PERCENT: u32 = 10;
 
@@ -108,12 +108,7 @@ impl ErrorTrackingStackFrame {
         } else {
             None
         };
-        // Stored contents never include the release: `load_all` re-joins it via the symbol set so
-        // a release (re)bind takes effect on the next load instead of going stale in cache rows.
-        let mut contents = serde_json::to_value(&self.contents)?;
-        if let Some(object) = contents.as_object_mut() {
-            object.remove("release");
-        }
+        let contents = serde_json::to_value(&self.contents)?;
         sqlx::query!(
             r#"
             INSERT INTO posthog_errortrackingstackframe (raw_id, part, team_id, created_at, symbol_set_id, contents, resolved, id, context)
@@ -144,7 +139,7 @@ impl ErrorTrackingStackFrame {
         ttl_policy: FrameResultTtlPolicy,
     ) -> Result<Vec<Self>, UnhandledError>
     where
-        E: Executor<'c, Database = sqlx::Postgres> + Clone,
+        E: Executor<'c, Database = sqlx::Postgres>,
     {
         struct Returned {
             raw_id: String,
@@ -167,7 +162,7 @@ impl ErrorTrackingStackFrame {
             id.hash_id,
             id.team_id
         )
-        .fetch_all(e.clone())
+        .fetch_all(e)
         .await?;
 
         if res.is_empty() {
@@ -179,11 +174,6 @@ impl ErrorTrackingStackFrame {
         if res.iter().any(|f| f.created_at < Utc::now() - result_ttl) {
             // If any resultant frame is too old, we should recalculate all of them
             return Ok(Vec::new());
-        }
-
-        let mut release = None;
-        if let Some(ss_id) = &res[0].symbol_set_id {
-            release = ReleaseRecord::for_symbol_set_id(e, *ss_id, id.team_id).await?;
         }
 
         for found in res {
@@ -203,7 +193,6 @@ impl ErrorTrackingStackFrame {
                 None
             };
 
-            frame.release = release.clone();
             frame.context = context.clone();
 
             results.push(Self {
@@ -242,7 +231,6 @@ mod tests {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
         }
     }
 

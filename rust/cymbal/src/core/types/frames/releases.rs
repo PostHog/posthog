@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -8,8 +6,6 @@ use sqlx::Executor;
 use uuid::Uuid;
 
 use crate::symbolication::symbol_store::saving::truncate_ref;
-
-use super::Frame;
 
 /// The release API does not bound what a row can hold (`version`/`project`/`metadata` are
 /// unbounded TextField/JSONField columns), but every one of these fields is embedded into every
@@ -21,8 +17,8 @@ use super::Frame;
 pub const MAX_RELEASE_METADATA_BYTES: usize = 8 * 1024;
 pub const MAX_RELEASE_TEXT_CHARS: usize = 255;
 
-// Serialized only on the internal resolution-service wire, inside each resolved frame's JSON —
-// never into the clickhouse-bound event JSON, which `into_resolved` strips `Frame.release` from.
+// Never serialized into the clickhouse-bound event JSON as-is; `to_info` produces the
+// `$exception_release` payload that is.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReleaseRecord {
     pub id: Uuid,
@@ -92,57 +88,41 @@ impl ReleaseRecord {
         Ok(row.map(Self::clamped))
     }
 
-    pub async fn for_symbol_set_ref<'c, E>(
+    /// The newest release bound to any of `symbol_set_refs`, as an id. One query per exception
+    /// replaces the per-frame join the resolver used to run, and the id is all the caller needs:
+    /// it re-reads the row through its own release cache.
+    ///
+    /// Ties break on id so a stack spanning two releases created in the same instant still picks
+    /// deterministically.
+    pub async fn latest_id_for_symbol_set_refs<'c, E>(
         e: E,
-        symbol_set_ref: &str,
+        symbol_set_refs: &[String],
         team_id: i32,
-    ) -> Result<Option<Self>, sqlx::Error>
+    ) -> Result<Option<Uuid>, sqlx::Error>
     where
         E: Executor<'c, Database = sqlx::Postgres>,
     {
         // Stored refs are truncated to MAX_REF_BYTES by SymbolSetRecord::load/save; match on the
         // same truncated value or long refs (e.g. >2KB JS source URLs) never join.
-        let symbol_set_ref = truncate_ref(symbol_set_ref);
-        let row = sqlx::query_as!(
-            Self,
+        let refs: Vec<String> = symbol_set_refs
+            .iter()
+            .map(|r| truncate_ref(r).to_string())
+            .collect();
+
+        sqlx::query_scalar!(
             r#"
-            SELECT r.id, r.team_id, r.hash_id, r.created_at, r.version, r.project, r.metadata
+            SELECT r.id
             FROM posthog_errortrackingsymbolset ss
             INNER JOIN posthog_errortrackingrelease r ON ss.release_id = r.id
-            WHERE ss.ref = $1 AND ss.team_id = $2
+            WHERE ss.ref = ANY($1) AND ss.team_id = $2
+            ORDER BY r.created_at DESC, r.id DESC
+            LIMIT 1
             "#,
-            symbol_set_ref,
+            &refs,
             team_id
         )
         .fetch_optional(e)
-        .await?;
-
-        Ok(row.map(Self::clamped))
-    }
-
-    pub async fn for_symbol_set_id<'c, E>(
-        e: E,
-        symbol_set_id: Uuid,
-        team_id: i32,
-    ) -> Result<Option<Self>, sqlx::Error>
-    where
-        E: Executor<'c, Database = sqlx::Postgres>,
-    {
-        let row = sqlx::query_as!(
-            Self,
-            r#"
-            SELECT r.id, r.team_id, r.hash_id, r.created_at, r.version, r.project, r.metadata
-            FROM posthog_errortrackingsymbolset ss
-            INNER JOIN posthog_errortrackingrelease r ON ss.release_id = r.id
-            WHERE ss.id = $1 AND ss.team_id = $2
-            "#,
-            symbol_set_id,
-            team_id
-        )
-        .fetch_optional(e)
-        .await?;
-
-        Ok(row.map(Self::clamped))
+        .await
     }
 
     pub fn to_info(&self) -> ReleaseInfo {
@@ -155,20 +135,8 @@ impl ReleaseRecord {
         }
     }
 
-    /// Distinct releases attached to the given frames, deduped by release id, in first-seen order.
-    pub fn collect_from_frames<'a>(frames: impl Iterator<Item = &'a Frame>) -> Vec<Self> {
-        let mut seen = HashSet::new();
-        let mut out = Vec::new();
-        for release in frames.filter_map(|f| f.release.as_ref()) {
-            if seen.insert(release.id) {
-                out.push(release.clone());
-            }
-        }
-        out
-    }
-
     /// The most recently created release, with ties broken by id so the pick is deterministic
-    /// regardless of frame order.
+    /// regardless of input order.
     pub fn latest(releases: impl IntoIterator<Item = Self>) -> Option<Self> {
         releases
             .into_iter()
