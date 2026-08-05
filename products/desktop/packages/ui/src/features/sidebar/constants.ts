@@ -25,6 +25,12 @@ export const CUSTOMIZABLE_NAV_ITEMS = [
     defaultVisible: true,
   },
   {
+    id: "support",
+    label: "Support",
+    analyticsId: "support",
+    defaultVisible: true,
+  },
+  {
     id: "command-center",
     label: "Command Center",
     analyticsId: "command_center",

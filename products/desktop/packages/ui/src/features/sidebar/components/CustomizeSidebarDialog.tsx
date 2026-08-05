@@ -4,6 +4,7 @@ import {
   Bell,
   DotsSixVertical,
   EnvelopeSimple,
+  LifebuoyIcon,
   SlidersHorizontal,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
@@ -19,6 +20,7 @@ import {
   orderedNavItems,
 } from "@posthog/ui/features/sidebar/constants";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { FUTURE_SUPPORT_FLAG } from "@posthog/ui/features/support/featureFlag";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import { track } from "@posthog/ui/shell/analytics";
 import { Button, Checkbox, Flex, Text } from "@radix-ui/themes";
@@ -33,6 +35,7 @@ const ITEM_ICONS: Record<
   activity: Bell,
   configure: SlidersHorizontal,
   loops: LoopIcon,
+  support: LifebuoyIcon,
 };
 
 function sameOrder(
@@ -46,6 +49,10 @@ export function CustomizeSidebarSettings() {
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
+    import.meta.env.DEV,
+  );
+  const supportEnabled = useFeatureFlag(
+    FUTURE_SUPPORT_FLAG,
     import.meta.env.DEV,
   );
   const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
@@ -73,6 +80,7 @@ export function CustomizeSidebarSettings() {
     ({ id }) => {
       if (id === "loops") return loopsEnabled;
       if (id === "activity") return bluebirdEnabled;
+      if (id === "support") return supportEnabled;
       return true;
     },
   );

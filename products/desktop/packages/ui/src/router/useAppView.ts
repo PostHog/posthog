@@ -15,6 +15,7 @@ export type AppViewType =
   | "inbox"
   | "agents"
   | "loops"
+  | "support"
   | "archived"
   | "command-center"
   | "skills"
@@ -98,6 +99,10 @@ function deriveFromMatches(matches: Match[]): AppView {
       // edit subtree ($loopId is an Outlet layout), so match the prefix.
       if (last.routeId.startsWith("/code/loops")) {
         return { type: "loops" };
+      }
+      // /code/support covers the queue and per-ticket detail.
+      if (last.routeId.startsWith("/code/support")) {
+        return { type: "support" };
       }
       return { type: "task-input" };
   }

@@ -173,6 +173,7 @@ describe("CustomizeSidebarSettings", () => {
       "loops",
       "inbox",
       "activity",
+      "support",
       "command-center",
       "configure",
     ]);

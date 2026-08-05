@@ -276,6 +276,60 @@ export type {
 
 export type Evaluation = Schemas.Evaluation;
 
+export type Ticket = Schemas.Ticket;
+export type TicketStatus = Schemas.TicketStatusEnum;
+export type TicketPriority = Schemas.PriorityEnum;
+export type TicketAssignment = Schemas.TicketAssignment;
+export type TicketPerson = Schemas.TicketPerson;
+export type TicketView = Schemas.TicketView;
+export type PaginatedTicketList = Schemas.PaginatedTicketList;
+
+export interface ListTicketsOptions {
+  status?: string;
+  assignee?: string;
+  priority?: string;
+  sla?: "at-risk" | "breached" | "on-track";
+  orderBy?:
+    | "-created_at"
+    | "-sla_due_at"
+    | "-ticket_number"
+    | "-updated_at"
+    | "created_at"
+    | "sla_due_at"
+    | "ticket_number"
+    | "updated_at";
+  search?: string;
+  channelSource?: "email" | "slack" | "teams" | "widget";
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * One message in a ticket's thread. Not in the generated spec yet — shape
+ * mirrors TicketMessageSerializer in products/conversations (posthog).
+ * `author_type` is server-defined and open-ended ("customer", "agent", "AI").
+ */
+export interface TicketMessage {
+  id: string;
+  content: string;
+  rich_content: unknown;
+  author_type: string;
+  author_name: string;
+  is_private: boolean;
+  created_at: string;
+}
+
+/**
+ * The ticket fields the desktop surface edits. Priority and snooze are
+ * nullable on the server: null priority = untriaged, null snoozed_until =
+ * unsnoozed.
+ */
+export interface TicketUpdate {
+  status?: Schemas.TicketStatusEnum;
+  priority?: Schemas.PriorityEnum | null;
+  snoozed_until?: string | null;
+}
+
 export interface UserGitHubIntegration {
   id: string;
   kind: "github";
@@ -6788,5 +6842,155 @@ export class PostHogAPIClient {
       { kpi, daily, perAgent, byModel, toolErrors },
       nameById,
     );
+  }
+
+  // --- Conversations (support tickets) ---
+
+  async listTickets(
+    options?: ListTicketsOptions,
+  ): Promise<Schemas.PaginatedTicketList> {
+    const teamId = await this.getTeamId();
+    const query: Record<string, string | number> = {
+      limit: options?.limit ?? 100,
+    };
+    if (options?.offset !== undefined) query.offset = options.offset;
+    if (options?.status) query.status = options.status;
+    if (options?.assignee) query.assignee = options.assignee;
+    if (options?.priority) query.priority = options.priority;
+    if (options?.sla) query.sla = options.sla;
+    if (options?.orderBy) query.order_by = options.orderBy;
+    if (options?.search) query.search = options.search;
+    if (options?.channelSource) query.channel_source = options.channelSource;
+
+    return await this.api.get(
+      "/api/projects/{project_id}/conversations/tickets/",
+      {
+        path: { project_id: teamId.toString() },
+        query,
+      },
+    );
+  }
+
+  async getTicket(ticketId: string): Promise<Schemas.Ticket> {
+    const teamId = await this.getTeamId();
+    return await this.api.get(
+      "/api/projects/{project_id}/conversations/tickets/{id}/",
+      {
+        path: { project_id: teamId.toString(), id: ticketId },
+      },
+    );
+  }
+
+  async listTicketViews(): Promise<Schemas.TicketView[]> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.get(
+      "/api/environments/{project_id}/conversations/views/",
+      {
+        path: { project_id: teamId.toString() },
+        query: { limit: 100 },
+      },
+    );
+    return data.results ?? [];
+  }
+
+  /**
+   * Message thread for a ticket, oldest first. The endpoint is paginated but
+   * absent from the generated spec, so this pages via the raw fetcher.
+   */
+  async listTicketMessages(ticketId: string): Promise<TicketMessage[]> {
+    const TICKET_MESSAGES_MAX_PAGES = 20;
+    const teamId = await this.getTeamId();
+    const all: TicketMessage[] = [];
+    let urlPath: string = `/api/projects/${teamId}/conversations/tickets/${ticketId}/messages/`;
+    for (let i = 0; i < TICKET_MESSAGES_MAX_PAGES; i++) {
+      const url = new URL(`${this.api.baseUrl}${urlPath}`);
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch ticket messages: ${response.statusText}`,
+        );
+      }
+      const page = (await response.json()) as {
+        results: TicketMessage[];
+        next?: string | null;
+      };
+      all.push(...(page.results ?? []));
+      if (!page.next) return all;
+      const nextUrl = new URL(page.next);
+      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
+    }
+    log.warn(
+      `listTicketMessages hit MAX_PAGES (${TICKET_MESSAGES_MAX_PAGES}); returning partial thread`,
+      { ticketId, returned: all.length },
+    );
+    return all;
+  }
+
+  /**
+   * Sum of unread_team_count across the team's non-resolved tickets. The
+   * generated spec mis-annotates the response as a full Ticket; the server
+   * actually returns `{ count }` (cached in Redis for 30s server-side).
+   */
+  async getTicketUnreadCount(): Promise<number> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.get(
+      "/api/projects/{project_id}/conversations/tickets/unread_count/",
+      {
+        path: { project_id: teamId.toString() },
+      },
+    );
+    return (data as unknown as { count?: number }).count ?? 0;
+  }
+
+  async updateTicket(
+    ticketId: string,
+    updates: TicketUpdate,
+  ): Promise<Schemas.Ticket> {
+    const teamId = await this.getTeamId();
+    return await this.api.patch(
+      "/api/projects/{project_id}/conversations/tickets/{id}/",
+      {
+        path: { project_id: teamId.toString(), id: ticketId },
+        body: updates as Schemas.PatchedTicket,
+      },
+    );
+  }
+
+  /**
+   * Post a reply or internal note to a ticket. With isPrivate=false the
+   * server delivers the message to the customer over the ticket's channel;
+   * with isPrivate=true it stays a team-only note. The endpoint is absent
+   * from the generated spec — shape mirrors the reply action in
+   * products/conversations (posthog).
+   */
+  async replyToTicket(
+    ticketId: string,
+    message: string,
+    isPrivate: boolean,
+  ): Promise<TicketMessage> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/conversations/tickets/${ticketId}/reply/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ message, is_private: isPrivate }),
+      },
+    });
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as {
+        detail?: string;
+      };
+      throw new Error(
+        errorData.detail ?? `Failed to post ticket reply: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TicketMessage;
   }
 }
