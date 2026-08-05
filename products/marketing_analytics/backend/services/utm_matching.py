@@ -152,16 +152,55 @@ def resolve_source(utm_source: str, mappings: TeamMappings) -> str:
     return default_alias_to_primary().get(normalize(utm_source), utm_source)
 
 
+def normalize_source_name(source_name: str) -> str:
+    """The canonical form of a `source_name`, for keying anything per integration.
+
+    One definition so a future tweak — trimming a suffix, folding a separator — reaches every
+    caller at once instead of the handful that remembered.
+    """
+    return source_name.lower().strip()
+
+
 def get_match_field(source_name: str, mappings: TeamMappings) -> str:
     """The field this integration matches campaigns on, per `campaign_field_preferences`."""
-    return mappings.field_preferences.get(source_name.lower().strip(), DEFAULT_MATCH_FIELD)
+    return mappings.field_preferences.get(normalize_source_name(source_name), DEFAULT_MATCH_FIELD)
+
+
+def get_match_value_raw(campaign: Campaign, mappings: TeamMappings) -> str:
+    """The platform-side value a mapping has to produce, in its original casing.
+
+    Callers writing a `campaign_name_mappings` entry need this: the stored value has to equal what
+    the platform actually calls the campaign, and the query runner joins the rewritten utm_campaign
+    against it. Proposing a name while the integration matches on id writes a mapping that silently
+    never joins, which is why the field choice lives here rather than at each call site.
+    """
+    if get_match_field(campaign.source_name, mappings) == "campaign_id":
+        return campaign.campaign_id.strip()
+    return campaign.campaign_name.strip()
 
 
 def get_match_value(campaign: Campaign, mappings: TeamMappings) -> str:
-    """Get the campaign value to match against utm_campaign, based on field preference."""
-    if get_match_field(campaign.source_name, mappings) == "campaign_id":
-        return campaign.campaign_id.lower().strip()
-    return campaign.campaign_name.lower().strip()
+    """`get_match_value_raw`, lowercased for comparison against utm_campaign values.
+
+    Derived rather than reimplemented: the casing is the only difference, and a second copy of the
+    field choice is how the two answers drift.
+    """
+    return get_match_value_raw(campaign, mappings).lower()
+
+
+def group_campaigns_by_source(campaigns: list[Campaign]) -> dict[str, list[Campaign]]:
+    """Campaigns keyed by normalized `source_name`, skipping any that don't name one.
+
+    Both suggesters work per integration and each had written this; a campaign with a blank source
+    silently belonging to a `""` group is the sort of thing only one copy would grow a guard for.
+    """
+    grouped: dict[str, list[Campaign]] = {}
+    for campaign in campaigns:
+        source_name = normalize_source_name(campaign.source_name)
+        if not source_name:
+            continue
+        grouped.setdefault(source_name, []).append(campaign)
+    return grouped
 
 
 def build_campaign_lookup(

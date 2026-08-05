@@ -210,6 +210,12 @@ def get_utm_campaign_catalogue(
     return utm_map
 
 
+# Same reason as `run_utm_audit_async` above: both read team config through the ORM and run HogQL
+# inline, and the async callers — `mapping_suggester`, `setup_plan` — gather them with coroutines.
+get_campaigns_with_spend_async = database_sync_to_async(get_campaigns_with_spend)
+get_utm_campaign_catalogue_async = database_sync_to_async(get_utm_campaign_catalogue)
+
+
 def _build_all_utm_events(
     campaigns: list[Campaign],
     utm_events: dict[tuple[str, str], int],
