@@ -378,6 +378,7 @@ fn two_graph_lockfile_alone_does_not_rebuild_all() {
         "a lockfile change with an old graph to diff against must not force rebuild-all — the determinator's summary diff decides what is affected"
     );
     assert!(result.crates.is_empty());
+    assert!(result.images.is_empty());
 }
 
 #[test]
