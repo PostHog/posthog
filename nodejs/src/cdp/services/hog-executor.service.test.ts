@@ -1327,10 +1327,12 @@ describe('Hog Executor', () => {
             // The continuation consumes (pops) the checkpointed invocation's vmState stack in place, so
             // the snapshot must be taken synchronously inside the mock rather than read back afterwards.
             let checkpointedStackTop: unknown
-            const checkpoint = jest.fn().mockImplementation((checkpointedInvocation: CyclotronJobInvocationHogFunction) => {
-                checkpointedStackTop = checkpointedInvocation.state.vmState!.stack.at(-1)
-                return Promise.resolve(true)
-            })
+            const checkpoint = jest
+                .fn()
+                .mockImplementation((checkpointedInvocation: CyclotronJobInvocationHogFunction) => {
+                    checkpointedStackTop = checkpointedInvocation.state.vmState!.stack.at(-1)
+                    return Promise.resolve(true)
+                })
             const result = await executor.executeWithAsyncFunctions(invocation, { checkpoint })
 
             expect(mockRequest).toHaveBeenCalledTimes(1)
