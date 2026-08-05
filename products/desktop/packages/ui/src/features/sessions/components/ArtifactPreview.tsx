@@ -33,6 +33,7 @@ import { DocumentPreviewHeader } from "../../code-editor/components/DocumentPrev
 import { MarkdownDocumentPreview } from "../../code-editor/components/MarkdownDocumentPreview";
 import { AnnotatedArtifactHtml } from "./AnnotatedArtifactHtml";
 import { AnnotatedArtifactImage } from "./AnnotatedArtifactImage";
+import { ArtifactDocumentCommentAction } from "./ArtifactDocumentCommentAction";
 import { ArtifactTextAnnotations } from "./ArtifactTextAnnotations";
 import { artifactPreviewBlob } from "./artifactPreviewDocument";
 import {
@@ -106,7 +107,7 @@ export function ArtifactPreview({
     () => ({ scope: "task_artifact", itemId: artifactId }),
     [artifactId],
   );
-  const commentsQuery = useCommentsQuery(commentTarget);
+  const commentsQuery = useCommentsQuery(commentTarget, taskId);
   const { members } = useOrgMembers();
   const createComment = useCreateComment(commentTarget, taskId);
   const requestCommentFocus = useCommentNavigationStore(
@@ -217,6 +218,12 @@ export function ArtifactPreview({
           content={data}
           showRendered={showRendered}
           onToggleRendered={() => setShowRendered((rendered) => !rendered)}
+          actions={
+            <ArtifactDocumentCommentAction
+              target={commentTarget}
+              taskId={taskId}
+            />
+          }
         />
         {showRendered ? (
           <div
@@ -254,7 +261,15 @@ export function ArtifactPreview({
   if (data && !(data instanceof Blob) && data.kind === "html") {
     return (
       <div className="flex h-full flex-col overflow-hidden">
-        <GenericArtifactHeader name={name} />
+        <GenericArtifactHeader
+          name={name}
+          actions={
+            <ArtifactDocumentCommentAction
+              target={commentTarget}
+              taskId={taskId}
+            />
+          }
+        />
         <div className="min-h-0 min-w-0 flex-1">
           <AnnotatedArtifactHtml
             html={data.html}
@@ -279,14 +294,17 @@ export function ArtifactPreview({
     (isAllowedImageMimeType(data.type) || data.type === SVG_MIME_TYPE)
   ) {
     const imageActions = (
-      <Button
-        size="sm"
-        variant={imageCommenting ? "primary" : "outline"}
-        onClick={() => setImageCommenting((commenting) => !commenting)}
-      >
-        {imageCommenting ? <XIcon /> : <CrosshairSimpleIcon />}
-        {imageCommenting ? "Cancel" : "Add comment"}
-      </Button>
+      <div className="flex items-center gap-1">
+        <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
+        <Button
+          size="sm"
+          variant={imageCommenting ? "primary" : "outline"}
+          onClick={() => setImageCommenting((commenting) => !commenting)}
+        >
+          {imageCommenting ? <XIcon /> : <CrosshairSimpleIcon />}
+          {imageCommenting ? "Cancel" : "Pin comment…"}
+        </Button>
+      </div>
     );
     return (
       <div className="flex h-full flex-col overflow-hidden">
@@ -312,7 +330,15 @@ export function ArtifactPreview({
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <GenericArtifactHeader name={name} />
+      <GenericArtifactHeader
+        name={name}
+        actions={
+          <ArtifactDocumentCommentAction
+            target={commentTarget}
+            taskId={taskId}
+          />
+        }
+      />
       <div className="min-h-0 min-w-0 flex-1">
         <iframe
           className="h-full w-full border-0 bg-white"

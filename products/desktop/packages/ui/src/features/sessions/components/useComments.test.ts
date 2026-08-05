@@ -9,17 +9,17 @@ describe("commentCacheCoversTarget", () => {
   it.each([
     {
       what: "the target's own query",
-      key: ["comments", "identity", "task_artifact", "a"],
+      key: ["comments", "identity", "task-1", "task_artifact", "a"],
       covers: true,
     },
     {
       what: "a sibling resource's query",
-      key: ["comments", "identity", "task_artifact", "b"],
+      key: ["comments", "identity", "task-1", "task_artifact", "b"],
       covers: false,
     },
     {
       what: "the same id under another scope",
-      key: ["comments", "identity", "desktop_canvas", "a"],
+      key: ["comments", "identity", "task-1", "desktop_canvas", "a"],
       covers: false,
     },
     {
@@ -28,18 +28,19 @@ describe("commentCacheCoversTarget", () => {
         "comments",
         "targets",
         "identity",
+        "task-1",
         "desktop_canvas:c,task_artifact:a",
       ],
       covers: true,
     },
     {
       what: "a fan-out without the target",
-      key: ["comments", "targets", "identity", "task_artifact:b"],
+      key: ["comments", "targets", "identity", "task-1", "task_artifact:b"],
       covers: false,
     },
     {
       what: "a fan-out whose target only shares a prefix",
-      key: ["comments", "targets", "identity", "task_artifact:ab"],
+      key: ["comments", "targets", "identity", "task-1", "task_artifact:ab"],
       covers: false,
     },
     {

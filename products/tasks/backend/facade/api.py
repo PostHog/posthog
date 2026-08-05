@@ -74,6 +74,7 @@ from products.tasks.backend.models import (
     SandboxSnapshot,
     Task,
     TaskActivity,
+    TaskArtifact,
     TaskAutomation,
     TaskClientProvenance,
     TaskPin,
@@ -6037,6 +6038,54 @@ def _index_thread_message_mentions(message: TaskThreadMessage, mentioned_user_id
 COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
 
 
+def task_comment_target_is_accessible(
+    *, team_id: int, user_id: int | None, task_id: str | UUID, scope: str, item_id: str | None
+) -> bool:
+    """Whether a visible task actually owns the resource addressed by a comment."""
+    try:
+        parsed_task_id = UUID(str(task_id))
+    except ValueError:
+        return False
+
+    task = _visible_task_qs(team_id, user_id).filter(id=parsed_task_id).first()
+    if task is None or not item_id or scope not in COMMENT_ACTIVITY_SCOPES:
+        return False
+    if scope == "task":
+        return str(task.id) == str(item_id)
+    if scope == "task_artifact":
+        artifact_id = str(item_id)
+        try:
+            if TaskArtifact.objects.for_team(team_id).filter(task_id=task.id, id=artifact_id).exists():
+                return True
+        except (ValueError, DjangoValidationError):
+            pass
+        for artifacts in TaskRun.objects.filter(team_id=team_id, task_id=task.id).values_list("artifacts", flat=True):
+            if any(
+                isinstance(artifact, dict) and str(artifact.get("id")) == artifact_id for artifact in artifacts or []
+            ):
+                return True
+        return False
+
+    from posthog.models.file_system.file_system import FileSystem  # noqa: PLC0415
+
+    try:
+        canvas = FileSystem.objects.filter(team_id=team_id, id=item_id, type="dashboard").first()
+    except (ValueError, DjangoValidationError):
+        return False
+    if canvas is None:
+        return False
+    generation_task_id = (canvas.meta or {}).get("generationTaskId")
+    if str(generation_task_id) == str(task.id):
+        return True
+    # Older canvases can predate generationTaskId but still have the durable creation event.
+    return TaskThreadMessage.objects.filter(
+        team_id=team_id,
+        task_id=task.id,
+        event="canvas_created",
+        payload__canvas_url__endswith=f"/{item_id}",
+    ).exists()
+
+
 def _comment_task_id(scope: str, item_id: str | None, item_context: dict[str, Any] | None) -> UUID | None:
     """The task a comment was written against, or None if it isn't one of ours.
 
@@ -6088,7 +6137,13 @@ def record_comment_mention_activity(
         return
 
     try:
-        if not Task.objects.filter(team_id=team_id, id=task_id, deleted=False).exists():
+        if not task_comment_target_is_accessible(
+            team_id=team_id,
+            user_id=author_id,
+            task_id=task_id,
+            scope=scope,
+            item_id=item_id,
+        ):
             return
         for user_id in recipients:
             TaskActivity.record(
@@ -6261,6 +6316,9 @@ def list_task_activity(
                 snippet=_activity_snippet(row),
                 latest_author=_user_basic_info(_activity_author(row)),
                 latest_message_id=row.message_id,
+                latest_comment_id=(row.comment.source_comment_id or row.comment_id) if row.comment else None,
+                latest_comment_scope=row.comment.scope if row.comment else None,
+                latest_comment_item_id=row.comment.item_id if row.comment else None,
                 is_unread=row.read_at is None,
             )
             for row in rows

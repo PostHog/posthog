@@ -228,7 +228,7 @@ export function TaskArtifactsList({
   // One query for every row's badge, so N resources cost one request rather
   // than one per row. The threads themselves live in the Comments tab.
   const targets = useMemo(() => commentTargets(rows), [rows]);
-  const commentsQuery = useCommentsForTargetsQuery(targets);
+  const commentsQuery = useCommentsForTargetsQuery(targets, task.id);
   const comments = commentsQuery.data ?? EMPTY_COMMENTS;
   // Open threads only, so a row's badge agrees with what the Comments tab
   // shows on the same resource.

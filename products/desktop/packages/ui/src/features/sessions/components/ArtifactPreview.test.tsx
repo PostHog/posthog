@@ -190,7 +190,8 @@ describe("ArtifactPreview", () => {
 
     expect(screen.getByRole("img", { name: "diagram.svg" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add comment" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pin comment…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Comment…" })).toBeTruthy();
     expect(screen.queryByTitle("Preview of diagram.svg")).toBeNull();
   });
 
@@ -459,6 +460,7 @@ describe("ArtifactPreview", () => {
         target: { scope: "task_artifact", itemId: "artifact-1" },
         threadId: "comment-1",
         nonce: expect.any(Number),
+        openCommentsTab: true,
       });
     });
 

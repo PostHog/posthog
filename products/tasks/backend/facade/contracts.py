@@ -248,9 +248,8 @@ class TaskActivityDTO:
 
     Unlike ``TaskMentionDTO`` (one row per mention message), this is one row per task,
     surfacing the most recent relevant activity. ``activity_kind`` classifies the winning
-    signal so the client can pick row copy; ``snippet``/``latest_author``/``latest_message_id``
-    describe the thread message tied to ``activity_at`` (empty/None when the winning signal is
-    task creation, which has no message).
+    signal so the client can pick row copy. Source fields describe the thread message or
+    resource comment tied to ``activity_at`` and stay empty for task creation.
     """
 
     id: UUID
@@ -263,6 +262,9 @@ class TaskActivityDTO:
     snippet: str
     latest_author: "TaskUserBasicInfo | None" = None
     latest_message_id: UUID | None = None
+    latest_comment_id: UUID | None = None
+    latest_comment_scope: str | None = None
+    latest_comment_item_id: str | None = None
     is_unread: bool = True
 
 

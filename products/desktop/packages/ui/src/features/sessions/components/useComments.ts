@@ -27,10 +27,12 @@ import {
 function commentsQueryKey(
   authIdentity: string | null,
   target: CommentTarget | null,
+  taskId: string,
 ) {
   return [
     "comments",
     authIdentity,
+    taskId,
     target?.scope ?? "",
     target?.itemId ?? "",
   ] as const;
@@ -49,11 +51,11 @@ export function commentCacheCoversTarget(
 ): boolean {
   if (queryKey[0] !== "comments") return false;
   if (queryKey[1] === "targets") {
-    return String(queryKey[3] ?? "")
+    return String(queryKey[4] ?? "")
       .split(",")
       .includes(commentTargetKey(target));
   }
-  return queryKey[2] === target.scope && queryKey[3] === target.itemId;
+  return queryKey[3] === target.scope && queryKey[4] === target.itemId;
 }
 
 /** Filter for every cached comment list an optimistic write has to patch. */
@@ -91,14 +93,17 @@ function restoreCommentCaches(
 
 export function useCommentsQuery(
   target: CommentTarget | null,
+  taskId: string,
   options: { live?: boolean } = {},
 ) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const authIdentity = useAuthStateValue(getAuthIdentity);
   return useQuery({
-    queryKey: commentsQueryKey(authIdentity, target),
+    queryKey: commentsQueryKey(authIdentity, target, taskId),
     queryFn: () =>
-      target ? service.getResourceComments(target) : Promise.resolve([]),
+      target
+        ? service.getResourceComments(target, taskId)
+        : Promise.resolve([]),
     enabled: authIdentity !== null && !!target,
     staleTime: 3_000,
     refetchInterval: options.live === false ? false : 5_000,
@@ -116,6 +121,7 @@ export function useCommentsQuery(
  */
 export function useCommentsForTargetsQuery(
   targets: CommentTarget[],
+  taskId: string,
   options: { live?: boolean; intervalMs?: number } = {},
 ) {
   const service = useService<SessionService>(SESSION_SERVICE);
@@ -123,8 +129,8 @@ export function useCommentsForTargetsQuery(
   // Sorted so key identity tracks the set, not row order.
   const key = targets.map(commentTargetKey).sort().join(",");
   return useQuery({
-    queryKey: ["comments", "targets", authIdentity, key] as const,
-    queryFn: () => service.getResourceCommentsForTargets(targets),
+    queryKey: ["comments", "targets", authIdentity, taskId, key] as const,
+    queryFn: () => service.getResourceCommentsForTargets(targets, taskId),
     enabled: authIdentity !== null && targets.length > 0,
     staleTime: 3_000,
     refetchInterval: options.live ? (options.intervalMs ?? 5_000) : false,

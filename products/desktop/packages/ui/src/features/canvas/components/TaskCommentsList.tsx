@@ -70,7 +70,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 const EMPTY_COMMENTS: ResourceComment[] = [];
 /** The whole task's threads in one request; slower than a single artifact's own
  *  poll because this one fans out across every resource. */
-const POLL_INTERVAL_MS = 15_000;
+const POLL_INTERVAL_MS = 30_000;
 const PULSE_MS = 1_200;
 const ALL_SOURCES = "all";
 
@@ -266,7 +266,7 @@ export function TaskCommentsList({
     () => sources.map((source) => source.target),
     [sources],
   );
-  const commentsQuery = useCommentsForTargetsQuery(targets, {
+  const commentsQuery = useCommentsForTargetsQuery(targets, task.id, {
     live: true,
     intervalMs: POLL_INTERVAL_MS,
   });

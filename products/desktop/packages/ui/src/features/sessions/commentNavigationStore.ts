@@ -11,6 +11,7 @@ type CommentFocus = {
   threadId: string;
   /** Bumped on every request so re-picking the same thread scrolls again. */
   nonce: number;
+  openCommentsTab: boolean;
 };
 
 interface CommentNavigationStoreState {
@@ -30,6 +31,7 @@ interface CommentNavigationStoreActions {
     target: CommentTarget,
     resolutions: Map<string, HighlightResolution>,
   ) => void;
+  acknowledgeCommentsTabOpen: (taskId: string, nonce: number) => void;
 }
 
 type CommentNavigationStore = CommentNavigationStoreState &
@@ -67,13 +69,30 @@ export const useCommentNavigationStore = create<CommentNavigationStore>()(
       set((state) => ({
         focusByTask: {
           ...state.focusByTask,
-          [taskId]: { target, threadId, nonce },
+          [taskId]: { target, threadId, nonce, openCommentsTab: true },
         },
       }));
     },
 
     // The surfaces recompute anchors on every scroll and resize, so an
     // unchanged result must not become a store write the whole list re-renders on.
+    acknowledgeCommentsTabOpen: (taskId, acknowledgedNonce) =>
+      set((state) => {
+        const focus = state.focusByTask[taskId];
+        if (
+          !focus ||
+          focus.nonce !== acknowledgedNonce ||
+          !focus.openCommentsTab
+        )
+          return state;
+        return {
+          focusByTask: {
+            ...state.focusByTask,
+            [taskId]: { ...focus, openCommentsTab: false },
+          },
+        };
+      }),
+
     setCommentResolutions: (target, resolutions) =>
       set((state) => {
         const key = commentTargetKey(target);

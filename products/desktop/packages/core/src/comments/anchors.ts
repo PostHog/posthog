@@ -73,7 +73,7 @@ export function parseCommentContext(value: unknown): CommentContext | null {
 
 export type ThreadStateComment = {
   created_at: string;
-  item_context: unknown;
+  item_context?: unknown;
 };
 
 export function isThreadResolved(

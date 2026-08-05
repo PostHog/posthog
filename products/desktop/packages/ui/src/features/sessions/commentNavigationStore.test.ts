@@ -24,6 +24,23 @@ describe("commentNavigationStore", () => {
 
     expect(first?.threadId).toBe("comment-1");
     expect(second?.nonce).toBe((first?.nonce ?? 0) + 1);
+    expect(second?.openCommentsTab).toBe(true);
+  });
+
+  it("acknowledges the tab-open request without losing durable focus", () => {
+    const { requestCommentFocus, acknowledgeCommentsTabOpen } =
+      useCommentNavigationStore.getState();
+    requestCommentFocus("task-1", artifact, "comment-1");
+    const focus = useCommentNavigationStore.getState().focusByTask["task-1"];
+
+    acknowledgeCommentsTabOpen("task-1", focus?.nonce ?? -1);
+
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-1"],
+    ).toMatchObject({
+      threadId: "comment-1",
+      openCommentsTab: false,
+    });
   });
 
   it("keeps each task's focus to itself", () => {

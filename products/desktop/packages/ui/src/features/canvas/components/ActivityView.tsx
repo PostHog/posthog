@@ -30,6 +30,7 @@ import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMa
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import {
   PageHeader,
   PageHeaderActions,
@@ -149,6 +150,11 @@ export function ActivityRow({
       task_id: item.taskId,
     });
     onOpen(item);
+    if (item.commentId && item.commentTarget) {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
+    }
     onNavigate?.();
     // The channel thread route is the deep-link target; unfiled tasks fall
     // back to the plain task view.

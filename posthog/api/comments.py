@@ -58,7 +58,7 @@ def _require_ticket_editor_access(
         raise exceptions.PermissionDenied("You do not have access to this ticket")
 
 
-def _record_task_comment_activity(comment: Comment, mentions: list[int]) -> None:
+def _record_task_comment_activity(comment: Comment, mentions: list[int], *, activity_at=None) -> None:
     """Mirror mentions on a Code task's comments into that task's activity feed.
 
     The desktop app reads its own activity feed rather than the notifications inbox, so a
@@ -76,7 +76,7 @@ def _record_task_comment_activity(comment: Comment, mentions: list[int]) -> None
         item_context=comment.item_context,
         comment_id=comment.id,
         author_id=comment.created_by_id,
-        created_at=comment.created_at,
+        created_at=activity_at or comment.created_at,
         mentioned_user_ids=mentions,
     )
 
@@ -104,7 +104,8 @@ class CommentSerializer(serializers.ModelSerializer):
         find_mentions(rich_content)
         return mentions
 
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
+    item_context = serializers.JSONField(required=False, allow_null=True)
     deleted = ClassicBehaviorBooleanFieldSerializer()
     mentions = serializers.ListField(child=serializers.IntegerField(), write_only=True, required=False)
     slug = serializers.CharField(write_only=True, required=False)
@@ -200,6 +201,22 @@ class CommentSerializer(serializers.ModelSerializer):
                     user_access_control=self.context["get_user_access_control"](),
                 )
 
+        target_scope = data.get("scope", instance.scope if instance else None)
+        target_item_id = data.get("item_id", instance.item_id if instance else None)
+        target_context = data.get("item_context", instance.item_context if instance else None) or {}
+        if target_scope in {"task", "task_artifact", "desktop_canvas"}:
+            from products.tasks.backend.facade.api import task_comment_target_is_accessible  # noqa: PLC0415
+
+            task_id = target_item_id if target_scope == "task" else target_context.get("taskId")
+            if not task_comment_target_is_accessible(
+                team_id=self.context["get_team"]().id,
+                user_id=request.user.id,
+                task_id=task_id or "",
+                scope=target_scope,
+                item_id=target_item_id,
+            ):
+                raise exceptions.PermissionDenied("You do not have access to this task comment target")
+
         # Skip content validation when soft-deleting a comment
         is_deleting = data.get("deleted") is True
         if not is_deleting:
@@ -280,7 +297,7 @@ class CommentSerializer(serializers.ModelSerializer):
             send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
             produce_discussion_mention_events(updated_instance, mentions, slug)
             send_mention_notifications(updated_instance, mentions, slug)
-            _record_task_comment_activity(updated_instance, mentions)
+            _record_task_comment_activity(updated_instance, mentions, activity_at=timezone.now())
 
         return updated_instance
 
@@ -299,6 +316,9 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
         ),
     )
     item_id = serializers.CharField(required=False, help_text="Filter by the ID of the resource being commented on.")
+    task_id = serializers.UUIDField(
+        required=False, help_text="Owning task for task, task_artifact, and desktop_canvas comment scopes."
+    )
     search = serializers.CharField(required=False, help_text="Full-text search within comment content.")
     source_comment = serializers.CharField(required=False, help_text="Filter replies to a specific parent comment.")
     kind = serializers.ChoiceField(
@@ -413,6 +433,22 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             # Match the list path, where a denied ticket's comments are simply absent.
             raise exceptions.NotFound()
 
+    def get_object(self):
+        comment = super().get_object()
+        if comment.scope in {"task", "task_artifact", "desktop_canvas"}:
+            from products.tasks.backend.facade.api import task_comment_target_is_accessible  # noqa: PLC0415
+
+            task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
+            if not task_comment_target_is_accessible(
+                team_id=self.team_id,
+                user_id=self.request.user.id,
+                task_id=task_id or "",
+                scope=comment.scope,
+                item_id=comment.item_id,
+            ):
+                raise exceptions.NotFound()
+        return comment
+
     def _filter_ticket_scoped_queryset(self, queryset: QuerySet, item_id: str | None) -> QuerySet:
         """Ticket-carrying comments are ticket content — restrict them to tickets the caller has
         viewer access to, mirroring TicketViewSet's own object-level filtering."""
@@ -456,14 +492,28 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             queryset = queryset.filter(scope=scope)
             if scope in TICKET_COMMENT_SCOPES:
                 queryset = self._filter_ticket_scoped_queryset(queryset, params.get("item_id"))
+            elif scope in {"task", "task_artifact", "desktop_canvas"}:
+                from products.tasks.backend.facade.api import task_comment_target_is_accessible  # noqa: PLC0415
+
+                task_id = params.get("task_id")
+                item_id = params.get("item_id")
+                if not task_comment_target_is_accessible(
+                    team_id=self.team_id,
+                    user_id=self.request.user.id,
+                    task_id=task_id or "",
+                    scope=scope,
+                    item_id=item_id,
+                ):
+                    return queryset.none()
+                if scope != "task":
+                    queryset = queryset.filter(item_context__taskId=str(task_id))
         elif self.action in ("list", "count"):
-            # Ticket-carrying comments (customer messages and internal ticket discussions) never
-            # appear in unscoped enumeration — only when explicitly requested by scope.
-            queryset = queryset.exclude(scope__in=TICKET_COMMENT_SCOPES)
+            # Product-owned scopes require their own object-level access checks and must
+            # never leak through an unscoped generic comments query.
+            queryset = queryset.exclude(
+                scope__in=[*TICKET_COMMENT_SCOPES, "task", "task_artifact", "desktop_canvas"]
+            )
         else:
-            # Detail actions (retrieve, thread, send_to_slack, ...) carry no scope param, so the
-            # branch above never gates them — and API scope access doesn't cover session callers
-            # denied the ticket. Check the pk target's own ticket instead.
             self._require_ticket_viewer_access_for_pk()
 
         if params.get("item_id"):

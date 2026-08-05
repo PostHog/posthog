@@ -42,6 +42,7 @@ import {
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { ArtifactDocumentCommentAction } from "@posthog/ui/features/sessions/components/ArtifactDocumentCommentAction";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -294,7 +295,17 @@ function CanvasBreadcrumb({
       leafLabel={name}
       editScopeKey={dashboardId}
       onRename={(next) => void renameDashboard(dashboardId, next)}
-      trailing={trailing}
+      trailing={
+        <>
+          {dashboard?.generationTaskId && (
+            <ArtifactDocumentCommentAction
+              target={{ scope: "desktop_canvas", itemId: dashboardId }}
+              taskId={dashboard.generationTaskId}
+            />
+          )}
+          {trailing}
+        </>
+      }
     />
   );
 }

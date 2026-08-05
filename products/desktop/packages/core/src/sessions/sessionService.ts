@@ -7500,12 +7500,16 @@ export class SessionService {
     }
   }
 
-  async getResourceComments(target: CommentTarget): Promise<ResourceComment[]> {
+  async getResourceComments(
+    target: CommentTarget,
+    taskId: string,
+  ): Promise<ResourceComment[]> {
     const authStatus = await this.getAuthCredentialsStatus();
     if (authStatus.kind !== "ready") return [];
     return authStatus.auth.client.getResourceComments(
       target.scope,
       target.itemId,
+      taskId,
     );
   }
 
@@ -7518,17 +7522,28 @@ export class SessionService {
    */
   async getResourceCommentsForTargets(
     targets: CommentTarget[],
+    taskId: string,
   ): Promise<ResourceComment[]> {
     const authStatus = await this.getAuthCredentialsStatus();
     if (authStatus.kind !== "ready" || targets.length === 0) return [];
     const client = authStatus.auth.client;
-    const pages = await Promise.all(
-      targets.map((target) =>
-        client
-          .getResourceComments(target.scope, target.itemId)
+    const pages: ResourceComment[][] = Array.from(
+      { length: targets.length },
+      () => [],
+    );
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < targets.length) {
+        const index = nextIndex++;
+        const target = targets[index];
+        pages[index] = await client
+          .getResourceComments(target.scope, target.itemId, taskId)
           // One unreadable resource must not blank the whole pane.
-          .catch(() => [] as ResourceComment[]),
-      ),
+          .catch(() => [] as ResourceComment[]);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(4, targets.length) }, worker),
     );
     return pages.flat();
   }

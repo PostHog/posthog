@@ -15,11 +15,90 @@ from posthog.models.comment.utils import build_comment_item_url, extract_plain_t
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
+from products.tasks.backend.models import (
+    Channel as TaskChannel,
+    Task,
+    TaskRun,
+)
 
 from ee.models.rbac.access_control import AccessControl
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):
+    def _task_artifact_target(self, *, public: bool = True, creator=None):
+        channel = (
+            TaskChannel.objects.create(team=self.team, name="comment-test", created_by=self.user) if public else None
+        )
+        task = Task.objects.create(
+            team=self.team,
+            title="Comment target",
+            created_by=creator or self.user,
+            channel=channel,
+        )
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            artifacts=[{"id": "artifact-1", "name": "report.md", "type": "output"}],
+        )
+        return task
+
+    def test_task_artifact_comments_require_a_visible_owning_task(self) -> None:
+        task = self._task_artifact_target()
+        payload = {
+            "content": "Review this",
+            "scope": "task_artifact",
+            "item_id": "artifact-1",
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+        }
+
+        created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
+        assert created.status_code == status.HTTP_201_CREATED
+        without_task = self.client.get(f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1")
+        assert without_task.json()["results"] == []
+        unscoped = self.client.get(f"/api/projects/{self.team.id}/comments?item_id=artifact-1")
+        assert unscoped.json()["results"] == []
+        with_task = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1&task_id={task.id}"
+        )
+        assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
+
+    def test_task_artifact_comments_reject_mismatched_and_private_targets(self) -> None:
+        other = User.objects.create_and_join(self.organization, "private-task-owner@posthog.com", "password")
+        task = self._task_artifact_target(public=False, creator=other)
+        payload = {
+            "content": "Should not land",
+            "scope": "task_artifact",
+            "item_id": "artifact-1",
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+        }
+        assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+
+        visible_task = self._task_artifact_target()
+        payload["item_context"]["taskId"] = str(visible_task.id)
+        payload["item_id"] = "not-on-visible-task"
+        assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+
+    @mock.patch("posthog.api.comments._record_task_comment_activity")
+    def test_edit_mentions_use_the_edit_time_for_activity(self, record_activity: mock.Mock) -> None:
+        task = self._task_artifact_target()
+        mentioned = User.objects.create_and_join(self.organization, "mentioned@posthog.com", "password")
+        comment = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            content="Old comment",
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"anchor": {"kind": "document"}, "taskId": str(task.id)},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{comment.id}",
+            {"content": "Edited mention", "mentions": [mentioned.id]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert record_activity.call_args.kwargs["activity_at"] > comment.created_at
+
     def _create_comment(self, data: dict | None = None) -> Any:
         if data is None:
             data = {}

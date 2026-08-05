@@ -199,14 +199,6 @@ export interface TaskSessionStorageAccess {
   content_sha256: string | null;
 }
 
-export interface ResourceCommentUser {
-  id: number;
-  uuid: string;
-  first_name?: string;
-  last_name?: string;
-  email: string;
-}
-
 /**
  * The commentable resources this client knows how to address. `scope` is a
  * free-form column on the backend `Comment` model, so adding a resource is a
@@ -214,19 +206,12 @@ export interface ResourceCommentUser {
  */
 export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
 
-/** A row from the generic comments API. Named `Resource*` so it never collides
- *  with the DOM's global `Comment` type. */
-export interface ResourceComment {
-  id: string;
-  created_by: ResourceCommentUser | null;
-  content: string | null;
-  created_at: string;
-  item_id: string | null;
-  item_context: unknown;
-  scope: string;
-  source_comment: string | null;
-  completed_at?: string | null;
-}
+/** Named `Resource*` so it never collides with the DOM's global `Comment`.
+ * Optimistic rows do not have a server version yet, while item_context is a
+ * real JSON value despite the generated serializer's historically narrow type. */
+export type ResourceComment = Omit<Schemas.Comment, "version"> & {
+  version?: number;
+};
 
 export interface CreateResourceCommentRequest {
   scope: CommentScope;
@@ -3277,6 +3262,7 @@ export class PostHogAPIClient {
   async getResourceComments(
     scope: CommentScope,
     itemId: string,
+    taskId: string,
   ): Promise<ResourceComment[]> {
     const teamId = await this.getTeamId();
     const comments: ResourceComment[] = [];
@@ -3284,9 +3270,9 @@ export class PostHogAPIClient {
     do {
       const page = await this.api.get("/api/projects/{project_id}/comments/", {
         path: { project_id: String(teamId) },
-        query: { scope, item_id: itemId, cursor },
+        query: { scope, item_id: itemId, task_id: taskId, cursor },
       });
-      comments.push(...(page.results as unknown as ResourceComment[]));
+      comments.push(...page.results);
       cursor = page.next
         ? (new URL(page.next).searchParams.get("cursor") ?? undefined)
         : undefined;
@@ -3309,10 +3295,10 @@ export class PostHogAPIClient {
       // same PAT-compatible write path as ordinary comments.
       is_task: false,
     };
-    return (await this.api.post("/api/projects/{project_id}/comments/", {
+    return await this.api.post("/api/projects/{project_id}/comments/", {
       path: { project_id: String(teamId) },
       body: payload as unknown as Schemas.Comment,
-    })) as unknown as ResourceComment;
+    });
   }
 
   async getTaskSessionStorageAccess(

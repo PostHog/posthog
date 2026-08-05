@@ -3,9 +3,10 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from posthog.models import Comment, Organization, OrganizationMembership, Team, User
+from posthog.models.file_system.file_system import FileSystem
 
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.models import Task, TaskActivity
+from products.tasks.backend.models import Channel, Task, TaskActivity, TaskRun
 
 
 class CommentMentionTestCase(TestCase):
@@ -19,7 +20,13 @@ class CommentMentionTestCase(TestCase):
             OrganizationMembership.objects.filter(user=user, organization=self.organization).update(
                 level=OrganizationMembership.Level.ADMIN
             )
-        self.task = Task.objects.create(team=self.team, title="Ship it", created_by=self.author)
+        self.channel = Channel.objects.create(team=self.team, name="general", created_by=self.author)
+        self.task = Task.objects.create(team=self.team, title="Ship it", created_by=self.author, channel=self.channel)
+        self.run = TaskRun.objects.create(
+            team=self.team,
+            task=self.task,
+            artifacts=[{"id": "artifact-1", "name": "report.md", "type": "output"}],
+        )
 
     def _comment(self, *, scope: str = "task_artifact", item_id: str = "artifact-1", **kwargs) -> Comment:
         context = kwargs.pop("item_context", {"anchor": {"kind": "document"}, "taskId": str(self.task.id)})
@@ -66,6 +73,22 @@ class TestCommentMentionActivity(CommentMentionTestCase):
 
         assert TaskActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
 
+    def test_canvas_comment_uses_its_generation_task(self):
+        canvas = FileSystem.objects.create(
+            team=self.team,
+            path="general/Launch canvas",
+            depth=2,
+            type="dashboard",
+            surface="desktop",
+            created_by=self.peer,
+            meta={"generationTaskId": str(self.task.id)},
+        )
+        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+
+        self._record_mentions(comment, [self.author.id])
+
+        assert TaskActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
+
     def test_feed_renders_the_comment_author_and_text(self):
         comment = self._comment()
         self._record_mentions(comment, [self.author.id])
@@ -76,6 +99,16 @@ class TestCommentMentionActivity(CommentMentionTestCase):
         assert page.results[0].snippet == "this needs a guard"
         assert page.results[0].latest_author is not None
         assert page.results[0].latest_author.id == self.peer.id
+        assert page.results[0].latest_comment_id == comment.id
+        assert page.results[0].latest_comment_scope == "task_artifact"
+        assert page.results[0].latest_comment_item_id == "artifact-1"
+
+    def test_artifact_must_belong_to_the_named_task(self):
+        comment = self._comment(item_id="not-this-task-artifact")
+
+        self._record_mentions(comment, [self.author.id])
+
+        assert not TaskActivity.objects.filter(team=self.team, user=self.author).exists()
 
     def test_author_is_not_notified_of_their_own_mention(self):
         comment = self._comment(created_by=self.author)

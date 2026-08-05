@@ -240,6 +240,7 @@ describe("TaskCommentsList", () => {
       target: { scope: "task_artifact", itemId: "a" },
       threadId: "comment-1",
       nonce: expect.any(Number),
+      openCommentsTab: true,
     });
   });
 

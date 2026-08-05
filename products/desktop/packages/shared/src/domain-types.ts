@@ -190,6 +190,9 @@ export interface TaskActivity {
   snippet: string;
   latest_author?: UserBasic | null;
   latest_message_id?: string | null;
+  latest_comment_id?: string | null;
+  latest_comment_scope?: string | null;
+  latest_comment_item_id?: string | null;
   is_unread: boolean;
 }
 

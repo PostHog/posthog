@@ -1,4 +1,5 @@
 import { Theme } from "@radix-ui/themes";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -6,14 +7,14 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));
 
-const { useChannelTasks, useParams, usePathname, useTasks } = vi.hoisted(
-  () => ({
+const { useChannelTasks, useDashboard, useParams, usePathname, useTasks } =
+  vi.hoisted(() => ({
     useChannelTasks: vi.fn(),
+    useDashboard: vi.fn(),
     useParams: vi.fn(),
     usePathname: vi.fn(),
     useTasks: vi.fn(),
-  }),
-);
+  }));
 
 vi.mock("@tanstack/react-router", () => ({
   Outlet: () => null,
@@ -45,9 +46,17 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
-  useDashboard: () => ({ dashboard: undefined }),
+  useDashboard,
   useDashboardMutations: () => ({}),
 }));
+vi.mock(
+  "@posthog/ui/features/sessions/components/ArtifactDocumentCommentAction",
+  () => ({
+    ArtifactDocumentCommentAction: ({ taskId }: { taskId: string }) => (
+      <div data-testid="canvas-comment-action">{taskId}</div>
+    ),
+  }),
+);
 vi.mock("@posthog/ui/features/canvas/stores/dashboardEditStore", () => ({
   useDashboardEditStore: (sel: (s: unknown) => unknown) =>
     sel({ setEditing: vi.fn() }),
@@ -68,11 +77,17 @@ function renderLayout({
   params,
   tasks = [{ id: "task-1", title: "Fix the bug" }],
   channelTaskIds = tasks.map((task) => task.id),
+  dashboard,
 }: {
   pathname: string;
   params: Record<string, string>;
   tasks?: { id: string; title: string }[];
   channelTaskIds?: string[];
+  dashboard?: {
+    name: string;
+    templateId: string;
+    generationTaskId: string;
+  };
 }) {
   usePathname.mockReturnValue(pathname);
   useParams.mockReturnValue(params);
@@ -81,15 +96,34 @@ function renderLayout({
     tasks: channelTaskIds.map((taskId) => ({ taskId })),
     isLoading: false,
   });
+  useDashboard.mockReturnValue({ dashboard });
   useHeaderStore.setState({ content: <span>crumb</span> });
   render(
-    <Theme>
-      <WebsiteLayout />
-    </Theme>,
+    <QueryClientProvider client={new QueryClient()}>
+      <Theme>
+        <WebsiteLayout />
+      </Theme>
+    </QueryClientProvider>,
   );
 }
 
 describe("WebsiteLayout task header actions", () => {
+  it("offers document comments on a task-generated canvas", () => {
+    renderLayout({
+      pathname: "/website/chan-1/dashboards/canvas-1",
+      params: { channelId: "chan-1", dashboardId: "canvas-1" },
+      dashboard: {
+        name: "Launch",
+        templateId: "freeform",
+        generationTaskId: "task-1",
+      },
+    });
+
+    expect(screen.getByTestId("canvas-comment-action")).toHaveTextContent(
+      "task-1",
+    );
+  });
+
   it("renders the task action row on a channel task detail", () => {
     renderLayout({
       pathname: "/website/chan-1/tasks/task-1",
