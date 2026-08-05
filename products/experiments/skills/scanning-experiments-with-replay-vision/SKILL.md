@@ -15,12 +15,12 @@ The flow: resolve the experiment → derive the recordings query from its exposu
 
 `experiment-get` returns everything needed: `feature_flag_key`, the linked `feature_flag` (its `filters.multivariate.variants` list is the source of truth for variant keys — `parameters.feature_flag_variants` can be stale), `exposure_criteria`, `resolved_exposure_event`, `start_date`, `end_date`, and `status`. If the user didn't identify the experiment, resolve it via [[finding-experiments]] rather than guessing.
 
-**Read `resolved_exposure_event` and substitute it wherever `<resolved_exposure_event>` appears below.** It is the event the analysis counts default exposures on, resolved server-side; don't re-derive the logic behind it:
+**Derive the exposure event once and substitute it wherever `<exposure_event>` appears below.** Mirror `get_exposure_event_and_property`: an `exposure_config` explicitly naming `$experiment_exposure` keeps that event on either side of the rollout — the resolved field never overrides an explicit config. Otherwise — no config, or a config naming `$feature_flag_called`, the stored default rather than a custom choice — `<exposure_event>` is the experiment's **`resolved_exposure_event`**, verbatim: the event the analysis counts default exposures on, resolved server-side. Don't re-derive the logic behind it:
 
 - For most experiments today it is plain `$feature_flag_called`. It resolves to the dedicated `$experiment_exposure` event only when **both** hold: the experiment started at or after the rollout cutoff, **and** the team is flagged into the rollout.
 - Whichever event resolves covers the experiment's **whole** window — an experiment that predates the new event never resolves to it, so you never query historical sessions on an event that didn't exist yet.
-- Ingestion emits `$experiment_exposure` by duplicating flag events, so during the transition both events exist side by side. The analysis counts exactly one — the resolved one — and so must every query derived here: **never union `$feature_flag_called` with `$experiment_exposure`**.
-- For a draft the field reports what the experiment would resolve to if launched now. For a custom exposure config (Case C) the field is still populated but irrelevant — the config's own event wins.
+- Ingestion emits `$experiment_exposure` by duplicating flag events, so during the transition both events exist side by side. The analysis counts exactly one — the derived `<exposure_event>` — and so must every query derived here: **never union `$feature_flag_called` with `$experiment_exposure`**.
+- For a draft the field reports what the experiment would resolve to if launched now. The field is blind to the exposure config: for an explicit `$experiment_exposure` config or a custom exposure (Case C) it is still populated but must not decide the event — the config wins.
 
 Guards before doing anything else:
 
@@ -39,15 +39,15 @@ Set `filter_test_accounts` from the experiment's own `exposure_criteria.filterTe
 
 ### Case A — default exposure (the common case)
 
-`exposure_criteria.exposure_config` is absent, or is an event config naming one of the two default events. No config, or a config naming `$feature_flag_called`, follows the experiment's **`resolved_exposure_event`** — never a hardcoded event name; a config explicitly naming `$experiment_exposure` keeps that event on either side of the rollout. The shape is the same for both default events, with the variant on `$feature_flag_response`:
+`exposure_criteria.exposure_config` is absent, or is an event config naming one of the two default events. `<exposure_event>` is the Step 1 derivation: no config, or a config naming `$feature_flag_called`, follows the experiment's **`resolved_exposure_event`** — never a hardcoded event name; a config explicitly naming `$experiment_exposure` keeps that event on either side of the rollout, and the resolved field does not apply to it. The shape is the same for both default events, with the variant on `$feature_flag_response`:
 
 ```json
 {
   "kind": "RecordingsQuery",
   "events": [
     {
-      "id": "<resolved_exposure_event>",
-      "name": "<resolved_exposure_event>",
+      "id": "<exposure_event>",
+      "name": "<exposure_event>",
       "type": "events",
       "properties": [
         { "key": "$feature_flag_response", "type": "event", "operator": "exact", "value": ["control", "test"] },
@@ -59,7 +59,7 @@ Set `filter_test_accounts` from the experiment's own `exposure_criteria.filterTe
 }
 ```
 
-**Never match on the event alone.** Both property predicates are load-bearing whichever event resolved. `$feature_flag` keeps other experiments out — each default event is shared by every flag on the team. The variant property must be IN the experiment's variant keys — `$feature_flag_called` also fires for users who evaluated the flag but were never enrolled (e.g. a `false` response on a partial rollout), and those would silently pollute the population. `$experiment_exposure` carries only enrolled variant responses in practice, but keep the variant filter there too: it is what excludes removed variants and holdouts, and it costs nothing.
+**Never match on the event alone.** Both property predicates are load-bearing whichever event `<exposure_event>` derived to. `$feature_flag` keeps other experiments out — each default event is shared by every flag on the team. The variant property must be IN the experiment's variant keys — `$feature_flag_called` also fires for users who evaluated the flag but were never enrolled (e.g. a `false` response on a partial rollout), and those would silently pollute the population. `$experiment_exposure` carries only enrolled variant responses in practice, but keep the variant filter there too: it is what excludes removed variants and holdouts, and it costs nothing.
 
 **Keep the config's `properties`.** An exposure config can name the default event _and_ carry its own property filters (e.g. exposures only on a specific page). The analysis applies them (`_build_property_filters` in `products/experiments/backend/hogql_queries/exposure_query_logic.py`); the experiment page's own recordings link currently drops them. Mirror the analysis and append them to the filter above — otherwise the scanner watches a wider population than the experiment measures, and pays for it.
 
@@ -74,8 +74,8 @@ SELECT
     count() AS total,
     countIf(notEmpty(properties.$session_id)) AS with_session_id
 FROM events
-WHERE event = '<exposure event>'
-  AND properties.$feature_flag = '<flag_key>'  -- for the resolved default event; drop for custom events
+WHERE event = '<exposure_event>'
+  AND properties.$feature_flag = '<flag_key>'  -- for either default event; drop for custom events
   AND timestamp >= '<experiment start_date>'
 ```
 
@@ -199,7 +199,7 @@ FROM (
 JOIN (
     SELECT properties.$session_id AS session_id, any(properties.$feature_flag_response) AS variant
     FROM events
-    WHERE event = '<resolved_exposure_event>'
+    WHERE event = '<exposure_event>'
       AND properties.$feature_flag = '<flag_key>'
       AND properties.$feature_flag_response IN ('control', 'test')
       AND notEmpty(properties.$session_id)
