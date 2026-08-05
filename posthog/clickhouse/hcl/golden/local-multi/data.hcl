@@ -1,7 +1,7 @@
 database "posthog" {
   table "adhoc_events_deletion" {
     order_by = ["team_id", "uuid"]
-    ttl      = "deleted_at + toIntervalMonth(3)"
+    ttl      = "deleted_at + toIntervalMonth(3) WHERE is_deleted = 1"
     settings = {
       index_granularity = "8192"
     }
@@ -1682,6 +1682,119 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_experiment_metric_events_preaggregated"
       sharding_key    = "cityHash64(entity_id)"
+    }
+  }
+
+  table "flag_evaluations" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "uuid" {
+      type = "UUID"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "session_id" {
+      type = "String"
+    }
+    column "device_id" {
+      type = "String"
+    }
+    column "flag_key" {
+      type = "String"
+    }
+    column "response" {
+      type = "LowCardinality(String)"
+    }
+    column "flag_id" {
+      type = "UInt64"
+    }
+    column "flag_version" {
+      type = "UInt32"
+    }
+    column "reason" {
+      type = "LowCardinality(String)"
+    }
+    column "request_id" {
+      type = "String"
+    }
+    column "evaluated_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "error" {
+      type = "String"
+    }
+    column "locally_evaluated" {
+      type = "Bool"
+    }
+    column "lib" {
+      type = "LowCardinality(String)"
+    }
+    column "lib_version" {
+      type = "LowCardinality(String)"
+    }
+    column "is_server" {
+      type = "Bool"
+    }
+    column "os" {
+      type = "LowCardinality(String)"
+    }
+    column "os_version" {
+      type = "LowCardinality(String)"
+    }
+    column "app_version" {
+      type = "LowCardinality(String)"
+    }
+    column "current_url" {
+      type = "String"
+    }
+    column "pathname" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "LowCardinality(String)"
+    }
+    column "subdivision_1_code" {
+      type = "LowCardinality(String)"
+    }
+    column "group_0" {
+      type = "String"
+    }
+    column "group_1" {
+      type = "String"
+    }
+    column "group_2" {
+      type = "String"
+    }
+    column "group_3" {
+      type = "String"
+    }
+    column "group_4" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_flag_evaluations"
+      sharding_key    = "sipHash64(distinct_id)"
     }
   }
 
@@ -5993,6 +6106,144 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated"
       replica_name   = "{replica}"
       version_column = "computed_at"
+    }
+  }
+
+  table "sharded_flag_evaluations" {
+    order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)"]
+    partition_by = "toYYYYMM(timestamp)"
+    ttl          = "toDate(timestamp) + toIntervalDay(90)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "uuid" {
+      type = "UUID"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "session_id" {
+      type = "String"
+    }
+    column "device_id" {
+      type = "String"
+    }
+    column "flag_key" {
+      type = "String"
+    }
+    column "response" {
+      type = "LowCardinality(String)"
+    }
+    column "flag_id" {
+      type = "UInt64"
+    }
+    column "flag_version" {
+      type = "UInt32"
+    }
+    column "reason" {
+      type = "LowCardinality(String)"
+    }
+    column "request_id" {
+      type = "String"
+    }
+    column "evaluated_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "error" {
+      type = "String"
+    }
+    column "locally_evaluated" {
+      type = "Bool"
+    }
+    column "lib" {
+      type = "LowCardinality(String)"
+    }
+    column "lib_version" {
+      type = "LowCardinality(String)"
+    }
+    column "is_server" {
+      type = "Bool"
+    }
+    column "os" {
+      type = "LowCardinality(String)"
+    }
+    column "os_version" {
+      type = "LowCardinality(String)"
+    }
+    column "app_version" {
+      type = "LowCardinality(String)"
+    }
+    column "current_url" {
+      type = "String"
+    }
+    column "pathname" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "LowCardinality(String)"
+    }
+    column "subdivision_1_code" {
+      type = "LowCardinality(String)"
+    }
+    column "group_0" {
+      type = "String"
+    }
+    column "group_1" {
+      type = "String"
+    }
+    column "group_2" {
+      type = "String"
+    }
+    column "group_3" {
+      type = "String"
+    }
+    column "group_4" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    index "distinct_id_idx" {
+      expr        = "distinct_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "session_id_idx" {
+      expr        = "session_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "request_id_idx" {
+      expr        = "request_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "inserted_at_idx" {
+      expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.flag_evaluations"
+      replica_name = "{replica}"
     }
   }
 

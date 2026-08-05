@@ -282,6 +282,15 @@ class TestRemoteConfig(_RemoteConfigBase):
 
         list_limited_team_attributes.clear_cache()
 
+    def test_site_functions_query_failure_degrades_to_empty_list(self):
+        with patch(
+            "products.cdp.backend.models.hog_functions.hog_function.HogFunction.objects.select_related",
+            side_effect=Exception("column posthog_hogfunction.version does not exist"),
+        ):
+            result = self.remote_config._build_site_apps_js()
+
+        assert result == []
+
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
     # Largely copied from TestSurveysAPIList

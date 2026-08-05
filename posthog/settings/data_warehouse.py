@@ -24,6 +24,12 @@ PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=s
 # stays fully authoritative. Validation-only — nothing consumes the buffer yet.
 CDC_BUFFER_SHADOW_WRITE = get_from_env("CDC_BUFFER_SHADOW_WRITE", False, type_cast=str_to_bool)
 
+# Region hosting BUCKET_URL. Only used to build the bucket's virtual-hosted hostname for the
+# egress-proxy bypass in products/data_warehouse/backend/s3_proxy.py; the AWS clients resolve their
+# own region as before. Falls back to the ambient AWS_REGION, and an empty value leaves the bypass
+# off (the bypass itself is gated by a feature flag, not by a setting).
+DATA_WAREHOUSE_S3_REGION: str = os.getenv("DATA_WAREHOUSE_S3_REGION", os.getenv("AWS_REGION", ""))
+
 # Rollback-only escape hatch: restores the legacy delta-rs unsafe-rename S3 backend,
 # which has no commit-conflict detection. Default (false) keeps conditional-put commits.
 DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
@@ -40,6 +46,20 @@ DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
 # override below rather than by trying to model per-column expansion here.
 DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
+)
+
+# How often each sync activity self-reports its workload (phase, buffer bytes, RSS) to the warehouse
+# Redis, for post-mortem enrichment of silent worker deaths. Zero or negative disables reporting
+# entirely (the fleet kill switch — hooks become no-ops and no thread starts).
+DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS = get_from_env(
+    "DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS", 30.0, type_cast=float
+)
+
+# A run whose peak self-reported buffer crosses this emits one `dwh_workload_high_watermark` event on
+# completion. Deaths are enriched separately; this captures the tail of *surviving* runs, which is
+# what calibrates OOM-classification thresholds. Zero disables the event.
+DATA_WAREHOUSE_WORKLOAD_HIGH_WATERMARK_BYTES = get_from_env(
+    "DATA_WAREHOUSE_WORKLOAD_HIGH_WATERMARK_BYTES", 500_000_000, type_cast=int
 )
 
 # A schema that records at least this many sync OOMs within the lookback window is force-repartitioned

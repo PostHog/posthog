@@ -27,6 +27,19 @@ export function isSessionFresh(session: WizardSessionDTOApi, now: number): boole
     return !Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS
 }
 
+// Tolerance for the sandbox clock minting `started_at` slightly behind our kickoff stamp.
+const RUN_SESSION_SKEW_MS = 5 * 60 * 1000
+
+// Whether a session belongs to this cloud run: it started inside the run's own window. Used for
+// the handoff doc, which must outlive the recency gate — the wizard stage ends hours before the
+// pipeline does, so by completion the session is long past `isSessionFresh`, yet its doc is still
+// this run's report. A session from a previous run keeps failing this check by starting earlier.
+export function isSessionFromRun(session: WizardSessionDTOApi, runStartedAt: string): boolean {
+    const sessionStart = new Date(session.started_at).getTime()
+    const runStart = new Date(runStartedAt).getTime()
+    return !Number.isNaN(sessionStart) && !Number.isNaN(runStart) && sessionStart >= runStart - RUN_SESSION_SKEW_MS
+}
+
 // A dead wizard can't clear its own prompt (the clearing push never arrives), so the attention state
 // must go quiet with the session: gated on the server's staleness verdict and a live (running) phase.
 export function pendingInputFromSession(session: WizardSessionDTOApi | null): WizardPendingInput | null {
@@ -81,7 +94,9 @@ export function cloudProgress(
     taskConnectionStatus: string,
     latestSession: WizardSessionDTOApi | null,
     isStalled: boolean = false,
-    now: number = Date.now()
+    now: number = Date.now(),
+    /** When this run kicked off (from the persisted handle) — scopes the handoff doc to the run. */
+    runStartedAt: string | null = null
 ): InstallationProgress {
     let phase: InstallationPhase
     let stalledError: { title: string; detail: string | null } | null = null
@@ -222,6 +237,17 @@ export function cloudProgress(
               })
             : null
 
+    // The doc rides the run-window check, not the recency gate: the cloud wizard finishes (and
+    // publishes its report) hours before the pipeline completes, so by the time the completed
+    // surfaces would show the button the session is long stale. Without a run window (no handle),
+    // fall back to the recency-gated session rather than trusting an arbitrary old row.
+    const handoffSession =
+        latestSession && runStartedAt !== null
+            ? isSessionFromRun(latestSession, runStartedAt)
+                ? latestSession
+                : null
+            : session
+
     return {
         phase,
         steps,
@@ -231,6 +257,7 @@ export function cloudProgress(
         isCurrent: phase !== 'idle',
         pendingInput: phase === 'running' ? pendingInputFromSession(session) : null,
         startedBy: startedByFromSession(session),
+        handoffText: handoffSession?.handoff_text ?? null,
     }
 }
 
@@ -254,6 +281,7 @@ export function localProgress(
             isCurrent: false,
             pendingInput: null,
             startedBy: null,
+            handoffText: null,
         }
     }
 
@@ -303,6 +331,7 @@ export function localProgress(
         isCurrent: sessionIsCurrent && !dismissed,
         pendingInput: phase === 'running' && !dismissed ? pendingInputFromSession(latestSession) : null,
         startedBy: startedByFromSession(latestSession),
+        handoffText: latestSession.handoff_text ?? null,
     }
 }
 
@@ -321,5 +350,6 @@ export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): In
         isCurrent: true,
         pendingInput: null,
         startedBy: handle.startedBy ?? null,
+        handoffText: handle.handoffText ?? null,
     }
 }

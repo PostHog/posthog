@@ -5,7 +5,6 @@ import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { finishedLocalRunLogic } from './finishedLocalRunLogic'
 import { InstallationProgressContent } from './InstallationProgressContent'
 import { installationProgressLogic } from './installationProgressLogic'
-import { wizardDashboardLogic } from './wizardDashboardLogic'
 import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 
 /**
@@ -41,11 +40,9 @@ export function InstallationProgressView({
     const { installationProgress, latestSession } = useValues(
         installationProgressLogic({ mode, runId, taskId, workflowId })
     )
-    const { claimInlinePanel, releaseInlinePanel } = useActions(wizardSyncUiLogic)
-    const { detectedDashboard } = useValues(wizardDashboardLogic)
+    const { claimInlinePanel, releaseInlinePanel, openHandoffDoc } = useActions(wizardSyncUiLogic)
     const { dismissLocalRun } = useActions(finishedLocalRunLogic)
-    const { reportWizardSyncHandoffShown, reportWizardSyncDashboardCtaShown, reportWizardSyncDashboardCtaClicked } =
-        useActions(onboardingEventUsageLogic)
+    const { reportWizardSyncHandoffShown, reportWizardSyncHandoffDocOpened } = useActions(onboardingEventUsageLogic)
 
     // While shown inline on the install step, hide the floating FAB so the same run isn't in two places.
     useEffect(() => {
@@ -58,7 +55,6 @@ export function InstallationProgressView({
 
     const runKey = mode === 'cloud' ? runId : latestSession?.session_id
     const completed = installationProgress.phase === 'completed'
-    const dashboard = completed ? detectedDashboard : null
     const prOpened = !!installationProgress.prUrl
 
     // The completed-handoff funnel (exposure + CTA impression), deduped per run inside the events
@@ -68,12 +64,15 @@ export function InstallationProgressView({
             reportWizardSyncHandoffShown({ runKey, mode, surface: 'inline', prOpened })
         }
     }, [completed, runKey, mode, prOpened, reportWizardSyncHandoffShown])
-    const dashboardVisible = !!dashboard
-    useEffect(() => {
-        if (dashboardVisible && runKey) {
-            reportWizardSyncDashboardCtaShown({ runKey, mode, surface: 'inline' })
-        }
-    }, [dashboardVisible, runKey, mode, reportWizardSyncDashboardCtaShown])
+
+    const handoffText = installationProgress.handoffText
+    const handleViewReport =
+        handoffText && runKey
+            ? () => {
+                  reportWizardSyncHandoffDocOpened({ runKey, mode, trigger: 'button' })
+                  openHandoffDoc({ key: runKey, text: handoffText })
+              }
+            : undefined
 
     // Local runs always get a dismissal: it releases the install-step takeover and the FAB in one
     // move, and nothing else knows the session to clear. Cloud dismissal stays with the caller
@@ -87,10 +86,7 @@ export function InstallationProgressView({
             continueHint={continueHint}
             progress={installationProgress}
             mode={mode}
-            dashboard={dashboard}
-            onDashboardClick={
-                runKey ? () => reportWizardSyncDashboardCtaClicked({ runKey, mode, surface: 'inline' }) : undefined
-            }
+            onViewReport={handleViewReport}
             onDismiss={onDismiss ?? defaultLocalDismiss}
             onRetryLocally={onRetryLocally}
         />

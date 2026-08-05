@@ -849,11 +849,27 @@ def _agent_chunk_event(text: str) -> dict:
     }
 
 
+def _agent_message_event(text: str) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_message", "content": {"type": "text", "text": text}}},
+        },
+    }
+
+
 class TestFinalMessageTracker:
     def test_snapshots_joined_prose_at_end_of_turn(self) -> None:
         tracker = FinalMessageTracker()
         tracker.collect(_agent_chunk_event("Weekly "))
         tracker.collect(_agent_chunk_event("summary."))
+
+        assert tracker.end_turn() == "Weekly summary."
+
+    def test_snapshots_full_agent_message_at_end_of_turn(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_message_event("Weekly summary."))
 
         assert tracker.end_turn() == "Weekly summary."
 

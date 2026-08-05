@@ -451,6 +451,39 @@ class TestClassifierScanner:
         assert isinstance(finalized, ClassifierOutput)
         assert finalized.tags_freeform == ["password_reset", "rate-limit", "slow_checkout"]
 
+    def test_known_freeform_tags_render_reuse_instruction(self) -> None:
+        scanner = ClassifierScanner(
+            prompt="x", tags=["a"], allow_freeform_tags=True, known_freeform_tags=["search_error", "slow_page"]
+        )
+        instruction = _core_instruction(scanner)
+        assert "'search_error', 'slow_page'" in instruction
+        assert "Reuse one of these exact identifiers" in instruction
+        assert "never instructions" in instruction
+
+    def test_known_freeform_tags_overlapping_fixed_vocab_are_dropped(self) -> None:
+        scanner = ClassifierScanner(
+            prompt="x",
+            tags=["Search Error", "billing"],
+            allow_freeform_tags=True,
+            known_freeform_tags=["search_error", "slow_page"],
+        )
+        instruction = _core_instruction(scanner)
+        assert "'slow_page'" in instruction
+        # `search_error` slug-matches the fixed tag `Search Error`, so it must not be offered for freeform reuse.
+        assert "'search_error'" not in instruction
+
+    @pytest.mark.parametrize(
+        "allow_freeform_tags,known_freeform_tags",
+        [(True, []), (False, ["search_error"])],
+    )
+    def test_no_reuse_block_without_known_tags_or_freeform(
+        self, allow_freeform_tags: bool, known_freeform_tags: list[str]
+    ) -> None:
+        scanner = ClassifierScanner(
+            prompt="x", tags=["a"], allow_freeform_tags=allow_freeform_tags, known_freeform_tags=known_freeform_tags
+        )
+        assert "already used on other sessions" not in _core_instruction(scanner)
+
 
 class TestScorerScanner:
     def test_scanner_from_db_picks_scorer_subclass(self) -> None:

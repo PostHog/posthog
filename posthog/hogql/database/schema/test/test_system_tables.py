@@ -108,6 +108,8 @@ TEAM_ID_FILTER_PATTERNS = {
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
     "_ticket_assignments": "system__support_tickets.team_id",
+    # Roles scope one level deeper, through the assignments that reference them
+    "_ticket_assignee_roles": "system__support_tickets.team_id",
 }
 
 
@@ -146,6 +148,8 @@ class TestSystemTablesTeamScoping(BaseTest):
             "_ticket_tagged_items",
             # Hidden table backing system.support_tickets.assignee; covered by TestSystemTicketAssignmentLazyJoin.
             "_ticket_assignments",
+            # Hidden table backing the assignee role_name resolution; covered by TestSystemTicketAssignmentLazyJoin.
+            "_ticket_assignee_roles",
             # information_schema is a namespace of virtual catalog tables (tables/columns/
             # relationships/data_types) computed per-query from the caller's own Database object,
             # so it has no team_id column to isolate; behaviour is covered by TestInformationSchema.
@@ -383,6 +387,20 @@ def _create_hog_flow(team: Team, label: str) -> HogFlow:
     return HogFlow.objects.create(team=team, name=f"flow_{label}")
 
 
+def _create_message_category(team: Team, label: str):
+    from products.messaging.backend.models.message_category import MessageCategory
+
+    return MessageCategory.objects.create(team=team, key=f"category_{label}", name=f"Category {label}")
+
+
+def _create_message_recipient_preference(team: Team, label: str):
+    from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+
+    return MessageRecipientPreference.objects.create(
+        team=team, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
+    )
+
+
 def _create_hog_function(team: Team, label: str) -> HogFunction:
     return HogFunction.objects.create(
         team=team,
@@ -581,6 +599,15 @@ def _create_task(team: Team, label: str):
     )
 
 
+def _create_canvas(team: Team, label: str):
+    Channel = apps.get_model("tasks", "Channel")
+    Canvas = apps.get_model("canvas", "Canvas")
+
+    with team_scope(team.pk):
+        channel = Channel.objects.create(team=team, name=f"channel_for_canvas_{label}")
+        return Canvas.objects.create(team=team, channel=channel, name=f"canvas_{label}")
+
+
 def _create_task_run(team: Team, label: str):
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
@@ -681,6 +708,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("business_knowledge_chunks", _create_business_knowledge_chunk),
     ("business_knowledge_documents", _create_business_knowledge_document),
     ("business_knowledge_sources", _create_business_knowledge_source),
+    ("canvases", _create_canvas),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("custom_property_definitions", _create_custom_property_definition),
@@ -716,6 +744,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
     ("logs_views", _create_logs_view),
+    ("message_categories", _create_message_category),
+    ("message_recipient_preferences", _create_message_recipient_preference),
     ("notebooks", _create_notebook),
     ("review_queue_items", _create_review_queue_item),
     ("review_queues", _create_review_queue),
@@ -818,6 +848,39 @@ class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
 
         assert str(regular_env.pk) in ids
         assert str(internal_env.pk) not in ids
+
+
+class TestSystemTablesCanvasDeletedExclusion(BaseTest):
+    """Verify the canvases system table excludes soft-deleted canvases,
+    mirroring the REST API's default filter."""
+
+    def test_generated_sql_includes_deleted_predicate(self):
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query, _ = prepare_and_print_ast(parse_select("SELECT id FROM system.canvases"), context, dialect="clickhouse")
+        assert "system__canvases.deleted" in query
+        assert f"equals(system__canvases.team_id, {self.team.pk})" in query
+
+
+class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
+    """End-to-end check that soft-deleted canvases are never returned via HogQL."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_deleted_canvases_excluded(self):
+        Channel = apps.get_model("tasks", "Channel")
+        Canvas = apps.get_model("canvas", "Canvas")
+
+        with team_scope(self.team.pk):
+            channel = Channel.objects.create(team=self.team, name="canvas-exclusion-channel")
+            live_canvas = Canvas.objects.create(team=self.team, channel=channel, name="live")
+            deleted_canvas = Canvas.objects.create(team=self.team, channel=channel, name="deleted", deleted=True)
+
+        response = execute_hogql_query("SELECT id FROM system.canvases", team=self.team, user=self.user)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(live_canvas.pk) in ids
+        assert str(deleted_canvas.pk) not in ids
 
 
 class TestSystemTablesTaskInternalExclusion(BaseTest):
@@ -1001,6 +1064,31 @@ class TestSystemTicketAssignmentLazyJoin(NonAtomicBaseTest):
         )
 
         assert response.results == [(None, None)]
+
+    def test_assignee_role_name_resolves_for_role_assignee(self):
+        self.role = Role.objects.create(name="Team Support", organization=self.organization)
+        ticket = _create_support_ticket(self.team, "role")
+        TicketAssignment.objects.create(ticket=ticket, role=self.role)
+
+        response = execute_hogql_query(
+            f"SELECT assignee.role_name FROM system.support_tickets WHERE id = '{ticket.id}'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results[0][0] == "Team Support"
+
+    def test_assignee_role_name_null_for_user_assignee(self):
+        ticket = _create_support_ticket(self.team, "user")
+        TicketAssignment.objects.create(ticket=ticket, user=self.user)
+
+        response = execute_hogql_query(
+            f"SELECT assignee.role_name FROM system.support_tickets WHERE id = '{ticket.id}'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results[0][0] is None
 
     def test_assignee_lazy_join_isolated_per_team(self):
         other_ticket = _create_support_ticket(self.other_team, "theirs")

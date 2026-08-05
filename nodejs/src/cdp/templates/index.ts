@@ -18,6 +18,7 @@ import { template as linearTemplate } from './_destinations/linear/linear.templa
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
 import { template as microsoftAdsTemplate } from './_destinations/microsoft_ads/microsoft.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
+import { template as openaiAdsTemplate } from './_destinations/openai_ads/openai.template'
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
 import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
 import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
@@ -70,6 +71,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     googleAdsTemplate,
     linkedinAdsTemplate,
     microsoftAdsTemplate,
+    openaiAdsTemplate,
     redditAdsTemplate,
     twilioTemplate,
     whatsappTemplate,

@@ -1407,6 +1407,14 @@ export const LogsRetentionRulesReorderCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Suggest a human-readable name for a retention rule from its retention tier and filter group. Used by the create form as an auto-suggest; nothing is persisted. Returns an empty name when a suggestion can't be generated.
+ */
+export const LogsRetentionRulesSuggestNameCreateBody = /* @__PURE__ */ zod.object({
+    retention_days: zod.number().describe('Retention tier the rule would assign, in days.'),
+    filter_group: zod.unknown().describe('PropertyGroupFilter tree the rule would match on.'),
+})
+
 export const logsSamplingRulesCreateBodyNameMax = 255
 
 export const logsSamplingRulesCreateBodyEnabledDefault = false
@@ -1767,6 +1775,13 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Break down sparkline by \"severity\" (default) or \"service\".\n\n\* `severity` - severity\n\* `service` - service'
+                ),
+            sparklineRankBy: zod
+                .enum(['count', 'bytes'])
+                .describe('\* `count` - count\n\* `bytes` - bytes')
+                .optional()
+                .describe(
+                    'Rank breakdown values by \"count\" (default) or \"bytes\" before collapsing the tail into \"other\".\n\n\* `count` - count\n\* `bytes` - bytes'
                 ),
             personId: zod
                 .string()
