@@ -192,7 +192,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         recordingOpened,
         scannerCrossSellClicked,
     } = useActions(logic)
-    const replayVisionEnabled = useFeatureFlag('REPLAY_VISION')
+    const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_EXPERIMENTS')
 
     // One object feeds both the playlist below and the findMounted lookup, because the logic's
     // kea key is derived from these props: hand-duplicating them at the two sites would let the
@@ -254,7 +254,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     {EXPOSURE_FALLBACK_NOTICE}
                 </LemonBanner>
             )}
-            {replayVisionEnabled && (
+            {scannerCrossSellEnabled && (
                 <LemonBanner
                     type="info"
                     className="mb-2"
