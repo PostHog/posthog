@@ -99,6 +99,7 @@ the row lists both.
 | baserow                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | baseten                          | HTTP                        | requests                                                        | ✅                          |
 | beamer                           | HTTP                        | requests                                                        | ✅                          |
+| beehiiv                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | better_stack                     | HTTP                        | requests                                                        | ✅                          |
 | bettermode                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | bigmailer                        | HTTP                        | requests                                                        | ✅                          |
@@ -829,7 +830,6 @@ doesn't conflict with concurrent PRs.
 - backblaze
 - basecamp
 - bcms
-- beehiiv
 - bexio
 - bigcommerce
 - bigeye
