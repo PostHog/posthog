@@ -735,7 +735,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_ticket_comment_content_redacted_in_activity_log(self) -> None:
+    def test_ticket_comment_content_masked_in_activity_log(self) -> None:
         # Activity logs are readable with activity_log:read only — ticket bodies must not leak there.
         Comment.objects.create(
             team=self.team, scope="Ticket", item_id="t1", content="internal discussion", created_by=self.user
@@ -743,8 +743,39 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         entry = ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", activity="commented").first()
         assert entry is not None
         assert entry.detail is not None
-        assert entry.detail["changes"][0]["after"] == "[redacted]"
+        assert entry.detail["changes"][0]["after"] == "masked"
         assert "internal discussion" not in str(entry.detail)
+
+    def test_ticket_reply_content_masked_in_activity_log(self) -> None:
+        # Replies are logged under the parent thread's "Comment" activity scope, not the ticket
+        # scope — masking must key off the comment's own scope or reply bodies leak.
+        parent = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="internal discussion", created_by=self.user
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="Ticket",
+            item_id="t1",
+            content="secret reply",
+            created_by=self.user,
+            source_comment=parent,
+        )
+        entry = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="Comment", item_id=str(parent.id), activity="commented"
+        ).first()
+        assert entry is not None
+        assert entry.detail is not None
+        assert entry.detail["changes"][0]["after"] == "masked"
+        assert "secret reply" not in str(entry.detail)
+
+    def test_non_ticket_comment_content_not_masked_in_activity_log(self) -> None:
+        Comment.objects.create(
+            team=self.team, scope="Notebook", item_id="n1", content="plain note", created_by=self.user
+        )
+        entry = ActivityLog.objects.filter(team_id=self.team.id, scope="Notebook", activity="commented").first()
+        assert entry is not None
+        assert entry.detail is not None
+        assert entry.detail["changes"][0]["after"] == "plain note"
 
 
 TICKET_SCOPE_CASES = [("conversations_ticket",), ("Ticket",)]

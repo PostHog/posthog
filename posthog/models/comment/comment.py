@@ -4,7 +4,13 @@ from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
 from django.db.models.functions import Upper
 
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import (
+    AuditableScope,
+    Change,
+    Detail,
+    field_with_masked_contents,
+    log_activity,
+)
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamMixin, UUIDTModel
@@ -99,7 +105,11 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
 
         # Ticket comment bodies are gated on ticket access; the activity log is readable with
         # only activity_log:read, so the content must not ride along in the change record.
-        logged_content = "[redacted]" if instance.scope in TICKET_COMMENT_SCOPES else instance.content
+        # Masking is driven by field_with_masked_contents, keyed by the comment's own scope
+        # (not the activity scope) so ticket replies — logged under the parent thread's
+        # "Comment" scope — are masked too.
+        masked_fields = field_with_masked_contents.get(cast(AuditableScope, instance.scope), [])
+        logged_content = "masked" if "content" in masked_fields else instance.content
 
         log_activity(
             organization_id=None,

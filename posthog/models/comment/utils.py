@@ -22,9 +22,11 @@ SCOPE_TO_SOURCE_TYPE: dict[str, str] = {
     "Survey": "survey",
     "Experiment": "experiment",
     "ErrorTracking": "error_tracking",
-    # Unlike the PascalCase model-name scopes above, ticket comments are written with the literal
-    # "conversations_ticket" scope (see products/conversations). This must match that literal.
+    # Unlike the PascalCase model-name scopes above, customer-facing ticket messages are written
+    # with the literal "conversations_ticket" scope (see products/conversations), while internal
+    # ticket discussions use the "Ticket" scope. Both are ticket-sourced.
     "conversations_ticket": "ticket",
+    "Ticket": "ticket",
 }
 
 SCOPE_TO_PATH_MAPPING: dict[str, str] = {
