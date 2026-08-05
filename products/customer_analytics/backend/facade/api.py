@@ -1407,8 +1407,8 @@ def _batch_source_enrichment(
         .order_by("source_id", "-created_at")
         .distinct("source_id")
     }
-    _expire_stale_running_runs(team_id, latest_run_by_source_id.values())
     enrichment: dict[Any, tuple[Any, CustomPropertySyncRun | None]] = {}
+    authorized_runs: list[CustomPropertySyncRun | None] = []
     for source in person_sources:
         schema = schemas_by_id.get(source.external_data_schema_id)
         if (
@@ -1418,7 +1418,12 @@ def _batch_source_enrichment(
         ):
             schema = None
         latest = latest_run_by_source_id.get(source.id) if schema is not None else None
+        # Only mutate runs the caller can view; expiring runs for hidden schemas would let a
+        # denied viewer flip their status through the source-list endpoint.
+        if latest is not None:
+            authorized_runs.append(latest)
         enrichment[source.id] = (schema, latest)
+    _expire_stale_running_runs(team_id, authorized_runs)
     return enrichment
 
 

@@ -325,6 +325,28 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         run.refresh_from_db()
         assert run.status == expected_status
 
+    def test_listing_sources_only_expires_runs_the_caller_can_view(self):
+        # The source-list page expires abandoned running runs as it enriches. A caller denied
+        # warehouse-source viewer access can't see the source's status, so it must not flip that
+        # source's run either — otherwise the list endpoint mutates rows hidden from the caller.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        run = CustomPropertySyncRun.objects.create(
+            team_id=self.team.id,
+            source_id=source.id,
+            schema_id=self.schema.id,
+            trigger="sync",
+            status="running",
+            started_at=timezone.now() - (api.STALE_RUNNING_RUN_AFTER + timedelta(minutes=1)),
+        )
+
+        api.list_custom_property_sources(self.team.id, offset=0, limit=10, user_access_control=self._uac(allowed=False))
+        run.refresh_from_db()
+        assert run.status == "running"
+
+        api.list_custom_property_sources(self.team.id, offset=0, limit=10, user_access_control=self._uac(allowed=True))
+        run.refresh_from_db()
+        assert run.status == "failed"
+
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
     def test_triggers_reject_disabled_source(self, _flag):
         # A disabled source can't be re-triggered: sync returns False (→ 400) and backfill None (→ 400).
