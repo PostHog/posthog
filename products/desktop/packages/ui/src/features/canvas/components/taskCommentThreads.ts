@@ -201,14 +201,16 @@ export type ThreadSourceOption = {
 };
 
 /**
- * The sources present in a set of threads, for the source filter. Newest-first
- * like the list, except the task itself sits at the top (just under "All
- * sources") since it's the one source every task has.
+ * The available sources for the source filter, including those without a
+ * thread yet. The task itself sits at the top because every task has one.
  */
 export function threadSourceOptions(
   threads: TaskCommentThread[],
+  availableSources: Omit<ThreadSourceOption, "count">[] = [],
 ): ThreadSourceOption[] {
-  const byKey = new Map<string, ThreadSourceOption>();
+  const byKey = new Map<string, ThreadSourceOption>(
+    availableSources.map((source) => [source.key, { ...source, count: 0 }]),
+  );
   for (const thread of threads) {
     const source = byKey.get(thread.sourceKey);
     if (!source) {

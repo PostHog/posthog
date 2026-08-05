@@ -549,6 +549,34 @@ describe("TaskCommentsList", () => {
     expect(screen.queryByText("Tighten this summary")).toBeNull();
   });
 
+  it("labels an active artifact that has no comments", () => {
+    mocks.runs = [
+      run([
+        outputFile({ id: "a", name: "report.md" }),
+        outputFile({
+          id: "empty",
+          name: "empty.md",
+          storage_path: "runs/1/empty.md",
+        }),
+      ]),
+    ];
+    mocks.comments = [comment({})];
+    mocks.activeArtifactId = "empty";
+
+    render(<TaskCommentsList task={task} timeline={[]} />);
+
+    expect(screen.getByLabelText("Filter by source")).toHaveTextContent(
+      "empty.md",
+    );
+    expect(screen.queryByText("Tighten this summary")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Filter by source"));
+    const emptySourceOption = screen
+      .getAllByText("empty.md")
+      .at(-1)
+      ?.closest('[role="menuitemradio"]');
+    expect(emptySourceOption).toHaveTextContent("0");
+  });
+
   it("stops following the main pane once a source is picked by hand", () => {
     mocks.activeArtifactId = "b";
     const { rerender } = render(<TaskCommentsList task={task} timeline={[]} />);

@@ -383,7 +383,22 @@ export function TaskCommentsList({
     for (const prUrl of prUrls) keys.add(prUrl);
     return keys;
   }, [sources, prUrls]);
-  const sourceOptions = useMemo(() => threadSourceOptions(threads), [threads]);
+  const sourceOptions = useMemo(
+    () =>
+      threadSourceOptions(threads, [
+        ...sources.map((source) => ({
+          key: commentTargetKey(source.target),
+          label: source.name,
+          kind: source.kind,
+        })),
+        ...prUrls.map((prUrl) => ({
+          key: prUrl,
+          label: prTitles[prUrl] ?? `PR #${prUrl.split("/").at(-1)}`,
+          kind: "pr" as const,
+        })),
+      ]),
+    [prTitles, prUrls, sources, threads],
+  );
   const effectiveSourceFilter =
     sourceFilter === ALL_SOURCES || knownSourceKeys.has(sourceFilter)
       ? sourceFilter
