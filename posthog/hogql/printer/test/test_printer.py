@@ -7926,7 +7926,6 @@ class TestDuckDBPrinter(SimpleTestCase):
                 "dateTrunc('day', timestamp)",
                 "date_trunc(%(hogql_val_0)s, events.timestamp)",
             ),
-            ("tuple_renames_to_row", "tuple(event, 1)", "row(events.event, 1)"),
             ("range_is_allowed", "range(3)", "range(3)"),
             (
                 "JSON_VALUE_renames_to_json_extract_string",
@@ -7977,9 +7976,14 @@ class TestDuckDBPrinter(SimpleTestCase):
                 "list(DISTINCT events.event) FILTER (WHERE (events.event = %(hogql_val_0)s))",
             ),
             (
-                "tupleElement_uses_struct_extract",
+                "tuple_uses_named_struct_pack",
+                "tuple(event, 1)",
+                "struct_pack(f1 := events.event, f2 := 1)",
+            ),
+            (
+                "tupleElement_with_index_uses_struct_extract_at",
                 "tupleElement(tuple(1, event), 2)",
-                "struct_extract(row(1, events.event), 2)",
+                "struct_extract_at(struct_pack(f1 := 1, f2 := events.event), 2)",
             ),
             ("multiply_uses_operator", "multiply(2, 3)", "(2 * 3)"),
             ("not_uses_operator", ast.Call(name="NOT", args=[ast.Constant(value=True)]), "(NOT true)"),

@@ -26,7 +26,6 @@ DUCKDB_FUNCTION_RENAMES: dict[str, str] = {
     "argMax": "arg_max",
     "argMin": "arg_min",
     "dateTrunc": "date_trunc",
-    "tuple": "row",
     "range": "range",
     # ClickHouse's JSON_VALUE takes a real JSONPath argument, which DuckDB's
     # json_extract_string accepts directly.
@@ -60,7 +59,18 @@ def _handle_group_uniq_array_if(args: list[str]) -> str:
     return f"list(DISTINCT {args[0]}) FILTER (WHERE {args[1]})"
 
 
+def _handle_tuple(args: list[str]) -> str:
+    # DuckDB cannot CREATE TABLE from an unnamed struct (row(...)), which is exactly
+    # what shadow materialization does with every query result, so name the fields.
+    fields = ", ".join(f"f{index + 1} := {arg}" for index, arg in enumerate(args))
+    return f"struct_pack({fields})"
+
+
 def _handle_tuple_element(args: list[str]) -> str:
+    # struct_extract rejects integer keys on named structs; struct_extract_at is
+    # 1-based like ClickHouse's tupleElement and works on both.
+    if args[1].isdigit():
+        return f"struct_extract_at({args[0]}, {args[1]})"
     return f"struct_extract({args[0]}, {args[1]})"
 
 
@@ -117,6 +127,7 @@ DUCKDB_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "dateAdd": _handle_date_add,
     "groupUniqArray": _handle_group_uniq_array,
     "groupUniqArrayIf": _handle_group_uniq_array_if,
+    "tuple": _handle_tuple,
     "tupleElement": _handle_tuple_element,
     "multiply": _handle_multiply,
     "not": _handle_not,
