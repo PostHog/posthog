@@ -24,8 +24,8 @@ tools:
             BigQuery, Postgres, AwsS3, S3Compatible and Snowflake destinations. All of those except Snowflake require a
             team-scoped Integration for credentials (use integrations-list to find one). Other destination types are
             permitted by the API but typically must be created via the PostHog UI because their credentials are stored
-            in the destination config. Always specify the model field (events, persons, or sessions) —
-            omitting it defaults to events but the field should be set explicitly.
+            in the destination config. Always specify the model field (events, persons, or sessions) — omitting it
+            defaults to events but the field should be set explicitly.
         exclude_params:
             - id
             - team_id
