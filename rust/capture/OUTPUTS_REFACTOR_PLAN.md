@@ -64,11 +64,14 @@ The `assert_routing` suite pins topic + partition key + every stamped header + t
 
 #### Step 2 · Extract routing into a pure `route()`
 
-`route(&ProcessedEventMetadata) -> Route { target, key_policy, effect }`, consulted by the sink. This is the function Step 5 hoists out of the sink into lane resolution.
+`route(&ProcessedEventMetadata, ai_events_overflow_armed) -> Result<Route { target, ordering }, CaptureError>`, consulted by the sink.
+The decision is the target `Output` plus the customer-facing `OrderingGuarantee` the sink realizes as a partition key; side effects are implied by the target rather than carried as decision data, the AI overflow valve rides in as an explicit argument to keep the function pure, and a replay decision with no session id is rejected rather than returned unrealizable.
+This is the function Step 5 hoists out of the sink into lane resolution.
 
 #### Step 3 · `OutputRegistry` + startup completeness check
 
-One output→topic wiring point plus refuse-to-boot on a blank topic. Step 7 absorbs it into the `OutputTable`; the mode-scoped demand is folded in at Step 9, where `(Pipeline, Lane)` makes the per-mode reachable set explicit.
+One output→topic wiring point plus refuse-to-boot on a blank topic, gated behind `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` (default off; see Step 9's arming precondition).
+Step 7 absorbs it into the `OutputTable`; the mode-scoped demand is folded in at Step 9, where `(Pipeline, Lane)` makes the per-mode reachable set explicit.
 
 ### Stage B — the two new seams (no caller-visible change)
 
@@ -86,9 +89,9 @@ One output→topic wiring point plus refuse-to-boot on a blank topic. Step 7 abs
 - **Goal.** Introduce the address pair and relocate the decision logic:
   - `Pipeline { Analytics, Heatmaps, Warnings, ErrorTracking, Replay }` (`Pipeline::from_data_type` extracts the pipeline half of `DataType`).
   - `Lane { Main, Overflow, Historical, Dlq, Custom(&str) }`.
-  - `pipeline::resolve(&ProcessedEventMetadata) -> LaneDecision { pipeline, lane, key_policy, effect }` — Step-2's `route()` moved out of the sink module wholesale, precedence unchanged (dlq > custom > historical > overflow > main), pure (no counters, no headers, no I/O). `KeyPolicy` and the effect enum move with it as decision *data*.
-  - The sink keeps a private `output_for((pipeline, lane)) -> Outputs` bridge and still *invokes* `resolve` from its prep path — the invocation site moves up in Step 7 when the outputs layer exists to own it. This keeps the commit a pure relocation: no metadata changes, no call-site changes, goldens byte-identical.
-- **Files.** `rust/capture/src/pipeline.rs` (new); `rust/capture/src/sinks/kafka.rs` (drops `route()`/`Route`/`KeyPolicy`/ `RouteEffect`, gains the `output_for` bridge); `rust/capture/src/lib.rs`.
+  - `pipeline::resolve(&ProcessedEventMetadata) -> Result<LaneDecision { pipeline, lane, ordering }, CaptureError>` — Step-2's `route()` moved out of the sink module wholesale, precedence unchanged (dlq > custom > historical > overflow > main), pure (no counters, no headers, no I/O). `OrderingGuarantee` moves with it as decision *data*.
+  - The sink keeps a private `output_for((pipeline, lane)) -> Output` bridge and still *invokes* `resolve` from its prep path — the invocation site moves up in Step 7 when the outputs layer exists to own it. This keeps the commit a pure relocation: no metadata changes, no call-site changes, goldens byte-identical.
+- **Files.** `rust/capture/src/pipeline.rs` (new); `rust/capture/src/sinks/kafka.rs` (drops `route()`/`Route`/`OrderingGuarantee`, gains the `output_for` bridge); `rust/capture/src/lib.rs`.
 - **Parity proof.** Step-1 goldens unmodified. `route()`'s precedence tests move to `pipeline::tests` with assertions preserved, plus a pipeline classification test.
 - **Risk / rollback.** Low-medium — mechanical relocation. Revert.
 - **Size.** M/L.
@@ -179,6 +182,8 @@ Goal: v1 endpoints publish through `dyn Outputs` like every other ingress, so fa
 2. **Named surfaces.** `CAPTURE_V1_SINKS` names become named `Arc<dyn Outputs>` rows (each a `KafkaOutputs` built from that sink's config); the v1 `Router`/`Sink`/`Event` traits and `serialize_batch` dissolve.
 3. **Response granularity.** `Outputs::publish` already returns per-event `SinkResult`s; `merge_sink_results` consumes them unchanged.
 4. **Parity oracle.** The v1 pipeline tests and the real-Kafka `v1_sink_integration` suite must pass against the converged path — payload bytes, headers, topics, keys. Documented v1-vs-v0 header deltas (overflow/person-processing decoupling) must be preserved in the mapping, not silently erased. The legacy serializer/header builder survive only as a frozen `cfg(test)` oracle (`legacy_serialize`/`legacy_headers`) the parity suite compares against.
+5. **Plan retirement.** The 20c commit deletes this document — the plan must not outlive its last step.
+   Anything still load-bearing then (the repartitioning design note, the ordering-vs-person-processing contract) graduates into module docs or `v1/sinks/DESIGN.md` first.
 
 **Hazard.** `pipeline::resolve`'s overflow arm couples `ForceLimited` to `ForceDisablePersonProcessing` (and a null key) — the exact v0 behavior v1 deliberately decoupled. The `Destination::Overflow` → metadata mapping must select `overflow_reason`/flags that keep v1's semantics (event-keyed overflow; person-processing disable only when the operator set it), or `resolve` learns a v1-shaped overflow intent. Verify against v1's kafka sink key handling per destination before choosing.
 
@@ -210,7 +215,7 @@ Not built in this PR; this note records where it plugs in so nothing landed here
 
 The hold window is per-shard and bounded by one producer flush — that is the "minimal delay" drain. Shards move independently, so the deployment migrates partition by partition.
 
-**Keyless traffic needs no fence.** `KeyPolicy::Null` payloads (anonymous analytics without ordering constraints) have no per-key ordering contract — they switch clusters with a bare assignment swap, no hold/flush/watermark. Replay is keyed by session and follows the fenced path; dlq/custom redirects partition on the event key (`token:distinct_id`), same as main.
+**Keyless traffic needs no fence.** `OrderingGuarantee::None` payloads (anonymous analytics without ordering constraints) have no per-key ordering contract — they switch clusters with a bare assignment swap, no hold/flush/watermark. Replay is keyed by session and follows the fenced path; dlq/custom redirects partition on the event key (`token:distinct_id`), same as main.
 
 **Seam inventory:**
 
@@ -273,4 +278,4 @@ When all steps land, the five strata hold:
 | 19d · Per-event publish results | pending | `refactor(capture): Outputs::publish reports per-event results` |
 | 20a · v1 boundary mapping + parity oracle | pending | `feat(capture): v1 boundary mapping onto the shared produce interchange` |
 | 20b · v1 publishes through shared outputs | pending | `feat(capture): v1 endpoints publish through the shared outputs machinery` |
-| 20c · Legacy v1 sink stack deleted | pending | `refactor(capture): delete the legacy v1 sink stack` |
+| 20c · Legacy v1 sink stack deleted; this plan retired | pending | `refactor(capture): delete the legacy v1 sink stack` |
