@@ -372,6 +372,25 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.stepId).toBe('')
             expect(logic.values.currentFlowStep?.id).toBe('install:web_analytics')
         })
+
+        it('self-corrects a valid step key the flow has no step for', async () => {
+            // Product selection always routes to ?step=install, but Support's flow has no
+            // install step, so a key being valid is not reason enough to keep waiting on it.
+            logic.actions.setProductKey(ProductKey.CONVERSATIONS)
+            logic.actions.setStepId(OnboardingStepKey.INSTALL)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('invite_teammates:conversations')
+        })
+
+        it('holds a shared trailing step open until it is appended', async () => {
+            // `plans` joins the flow only once billing loads, which it has not here.
+            // Self-correcting it would lose the request before the flow settles.
+            logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+            logic.actions.setStepId(OnboardingStepKey.PLANS)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe(OnboardingStepKey.PLANS)
+        })
     })
 
     describe('navigation', () => {
