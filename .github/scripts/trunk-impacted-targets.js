@@ -1101,10 +1101,16 @@ function addJavaScriptLanes(targets, context) {
 // products/*/manifest.tsx for the routes the generated app-url manifest cannot
 // carry — so svc:mcp is a reader like any other, and ci-cli.yml builds the CLI
 // from those same sources.
+//
+// The Python half is spelled out rather than delegated to addPythonLanes, which
+// also claims the independent tools/ lanes. Those exist because the Python
+// toolchain spans tools/, and no tool in that list loads products.json or globs
+// the manifests.
 function addProductSurfaceLanes(targets, context) {
-    addPythonLanes(targets, context)
+    targets.add('py:core')
     targets.add('fe:core')
     for (const product of context.products) {
+        targets.add(pyProduct(product))
         targets.add(feProduct(product))
     }
     targets.add('svc:mcp')

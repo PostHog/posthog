@@ -196,6 +196,12 @@ test('a product manifest claims the frontend and python lanes together', () => {
     for (const target of ['node:ingestion', 'svc:oauth-proxy', 'rust:crate:shared']) {
         assert.equal(manifest.includes(target), false, target)
     }
+    // The independent tools/ lanes ride along with any other Python tripwire,
+    // and none of those tools reads a manifest or products.json.
+    assert.equal(
+        manifest.some((target) => target.startsWith('tools:')),
+        false
+    )
 })
 
 // The manifest is the file a person edits, and it already claims both families.
