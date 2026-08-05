@@ -5583,6 +5583,7 @@ export namespace Schemas {
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       LinkedinAds: 'linkedin-ads',
+      LinkedinPages: 'linkedin-pages',
       Snapchat: 'snapchat',
       Stripe: 'stripe',
       Intercom: 'intercom',
@@ -38841,6 +38842,7 @@ export namespace Schemas {
      * * `jira` - Jira
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
+     * * `linkedin-pages` - Linkedin Pages
      * * `meta-ads` - Meta Ads
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
@@ -38890,6 +38892,7 @@ export namespace Schemas {
       Jira: 'jira',
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
+      LinkedinPages: 'linkedin-pages',
       MetaAds: 'meta-ads',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
@@ -38939,6 +38942,7 @@ export namespace Schemas {
        * * `jira` - Jira
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
+       * * `linkedin-pages` - Linkedin Pages
        * * `meta-ads` - Meta Ads
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
@@ -82490,6 +82494,7 @@ export namespace Schemas {
      * * `jira` - Jira
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
+     * * `linkedin-pages` - Linkedin Pages
      * * `meta-ads` - Meta Ads
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
@@ -82550,6 +82555,7 @@ export namespace Schemas {
       Jira: 'jira',
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
+      LinkedinPages: 'linkedin-pages',
       MetaAds: 'meta-ads',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',

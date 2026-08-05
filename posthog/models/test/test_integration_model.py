@@ -4469,3 +4469,65 @@ class TestPardotIntegrationModel(BaseTest):
 
         assert integration.integration_id == "https://acme.my.salesforce.com"
         assert integration.config["expires_in"] == 3600
+
+
+@override_settings(LINKEDIN_APP_CLIENT_ID="linkedin-client-id", LINKEDIN_APP_CLIENT_SECRET="linkedin-client-secret")
+class TestLinkedInPagesIntegrationModel(BaseTest):
+    def setUp(self):
+        super().setUp()
+        OauthIntegration.oauth_config_for_kind.clear_cache()
+
+    def test_oauth_config_asks_for_the_community_management_scopes(self):
+        config = OauthIntegration.oauth_config_for_kind("linkedin-pages")
+
+        assert config.authorize_url == "https://www.linkedin.com/oauth/v2/authorization"
+        assert config.token_url == "https://www.linkedin.com/oauth/v2/accessToken"
+        assert config.client_id == "linkedin-client-id"
+        assert config.client_secret == "linkedin-client-secret"
+        # Organization page data sits behind these two; without them every sync 403s.
+        assert "rw_organization_admin" in config.scope
+        assert "r_organization_social" in config.scope
+        # openid is what makes LinkedIn return the id_token the account label is read from.
+        assert "openid" in config.scope
+        assert config.id_path == "sub"
+
+    def test_oauth_config_does_not_share_a_consent_screen_with_linkedin_ads(self):
+        # Both kinds use one registered app, so the only thing keeping a LinkedIn Ads user from
+        # being asked for page admin access (and vice versa) is the scopes staying separate.
+        pages = OauthIntegration.oauth_config_for_kind("linkedin-pages")
+        ads = OauthIntegration.oauth_config_for_kind("linkedin-ads")
+
+        assert pages.scope != ads.scope
+        assert "r_ads" not in pages.scope
+        assert "rw_organization_admin" not in ads.scope
+
+    @override_settings(LINKEDIN_APP_CLIENT_ID="", LINKEDIN_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="LinkedIn Pages app not configured"):
+            OauthIntegration.oauth_config_for_kind("linkedin-pages")
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_extracts_the_account_from_the_id_token(self, mock_post):
+        # LinkedIn's token response carries no account identifier, and /v2/userinfo intermittently
+        # answers REVOKED_ACCESS_TOKEN for valid tokens, so the id_token JWT is the only source.
+        payload = {"sub": "linkedin_member_1", "email": "admin@acme.com"}
+        id_token = f"header.{base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')}.signature"
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at_1",
+            "refresh_token": "rt_1",
+            "id_token": id_token,
+            "expires_in": 3600,
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "linkedin-pages",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "next=/projects/test"},
+        )
+
+        assert integration.kind == "linkedin-pages"
+        assert integration.integration_id == "linkedin_member_1"
+        assert integration.config["email"] == "admin@acme.com"
+        assert integration.sensitive_config["access_token"] == "at_1"
