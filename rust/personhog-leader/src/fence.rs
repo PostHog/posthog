@@ -135,6 +135,29 @@ pub fn drop_partition_fences(fences: &FenceMap, partition: u32, num_partitions: 
     before - fences.len()
 }
 
+/// The committed-release check: the status of the op's mark row for this
+/// person, straight from the source of truth. `None` when the op never
+/// claimed the person (or claimed it only as a merge target — targets are
+/// never destroyed). A committed release must find a live mark here before
+/// it may produce a death document: the request alone must never be enough
+/// to destroy a person.
+pub async fn mark_status(
+    pool: &PgPool,
+    op_id: Uuid,
+    team_id: i64,
+    person_id: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT status FROM lifecycle_op_person \
+         WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
+    )
+    .bind(op_id)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .fetch_optional(pool)
+    .await
+}
+
 /// The lazy liveness check: a map entry can briefly outlive its op (the op
 /// finished just after the takeover scan read the marks). A rejected write
 /// triggers this check; a finished or GC'd op means the entry is stale and

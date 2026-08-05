@@ -20,7 +20,7 @@ use personhog_common::partitioning::partition_for_person;
 use crate::cache::{
     CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
 };
-use crate::fence::{fenced_status, op_is_live, FenceMap, FenceState};
+use crate::fence::{fenced_status, mark_status, op_is_live, FenceMap, FenceState};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
@@ -924,6 +924,45 @@ impl PersonHogLeader for PersonHogLeaderService {
                     self.fences.remove(&cache_key);
                     return Ok(Response::new(ReleaseFenceResponse {}));
                 }
+
+                // The mark row — the fence's source of truth — must vouch
+                // for the op before anything is destroyed. The in-memory
+                // fence is not enough: FencePerson never verified the op
+                // either, so the request (plus a fence it installed
+                // itself) must never be sufficient to produce a death
+                // document. Unverifiable requests are refused — fail
+                // closed.
+                let Some(fallback) = &self.fallback else {
+                    return Err(Status::failed_precondition(
+                        "no lifecycle database configured; refusing to produce a death document",
+                    ));
+                };
+                match mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await {
+                    // A live mark: the op holds the person; proceed.
+                    Ok(Some(status)) if status == "marked" || status == "sealed" => {}
+                    // The mark already settled as deleted: this release
+                    // already happened and the tombstone is durable;
+                    // absorb the retry.
+                    Ok(Some(status)) if status == "deleted" => {
+                        self.fences.remove(&cache_key);
+                        return Ok(Response::new(ReleaseFenceResponse {}));
+                    }
+                    Ok(_) => {
+                        counter!("personhog_leader_fences_total", "action" => "release_unverified")
+                            .increment(1);
+                        return Err(Status::failed_precondition(
+                            "op holds no live mark for this person; \
+                             refusing to produce a death document",
+                        ));
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "mark verification failed; rejecting (fail closed)");
+                        return Err(Status::unavailable(
+                            "could not verify the lifecycle op against its mark; retry",
+                        ));
+                    }
+                }
+
                 if !self.dirty_index.can_admit(&cache_key) {
                     counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
                         .increment(1);

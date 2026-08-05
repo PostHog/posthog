@@ -17,6 +17,7 @@ use personhog_common::partitioning::partition_for_person;
 use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache};
 use personhog_leader::fence::{FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY};
 use personhog_leader::inflight::InflightTracker;
+use personhog_leader::pg::PgFallback;
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
@@ -79,7 +80,7 @@ struct FenceHarness {
         rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
 }
 
-async fn start_fence_harness(seed: CachedPerson) -> FenceHarness {
+async fn start_fence_harness(seed: CachedPerson, fallback: Option<PgFallback>) -> FenceHarness {
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
     let bootstrap = mock_cluster.bootstrap_servers();
 
@@ -93,7 +94,7 @@ async fn start_fence_harness(seed: CachedPerson) -> FenceHarness {
         Arc::clone(&cache),
         kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
-        None,
+        fallback,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,
@@ -171,7 +172,7 @@ fn changelog_records(harness: &FenceHarness) -> Vec<Person> {
 
 #[tokio::test]
 async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
-    let mut harness = start_fence_harness(test_cached_person()).await;
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
     let partition = harness.partition;
     let person_id = harness.person_id;
     let op = Uuid::now_v7();
@@ -282,11 +283,41 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
 
 #[tokio::test]
 async fn a_committed_release_produces_the_death_document_above_every_version() {
-    let mut harness = start_fence_harness(test_cached_person()).await;
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+        }),
+    )
+    .await;
     let partition = harness.partition;
     let person_id = harness.person_id;
     let person_uuid = test_cached_person().uuid;
     let op = Uuid::now_v7();
+
+    // The mark rows the committed release verifies against — committed by
+    // the saga before the fence in the real flow.
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(TEAM_ID as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+    )
+    .bind(op)
+    .bind(TEAM_ID as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
 
     let sealed = harness
         .client
@@ -376,14 +407,88 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         .await
         .expect("duplicate release is idempotent");
     assert_eq!(changelog_records(&harness).len(), records_before);
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup");
+}
+
+/// The fail-closed half of the committed release: the request — even with
+/// a fence the caller installed itself — is never enough to destroy a
+/// person. Without a live mark row vouching for the op, the release is
+/// refused and the person is untouched.
+#[tokio::test]
+async fn a_committed_release_without_a_live_mark_is_refused() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool,
+            table: "posthog_person".to_string(),
+        }),
+    )
+    .await;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let op = Uuid::now_v7();
+
+    // Fencing succeeds — the fence RPC does not verify the op…
+    let sealed = harness
+        .client
+        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .expect("sealed state returned");
+
+    // …but the committed release must find the live mark, and there is
+    // none: no lifecycle_op_person row was ever committed for this op.
+    let status = harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id: TEAM_ID,
+                person_id,
+                person_uuid: test_cached_person().uuid,
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: sealed.version,
+            },
+            partition,
+        ))
+        .await
+        .expect_err("a release with no live mark is refused");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+
+    // The person is untouched: had a death document been produced, the
+    // entry would have been evicted and this read would answer not-found.
+    let read = harness
+        .client
+        .get_person(with_partition(
+            GetPersonRequest {
+                team_id: TEAM_ID,
+                person_id,
+                read_options: None,
+            },
+            partition,
+        ))
+        .await
+        .expect("the person is still alive");
+    assert_eq!(read.into_inner().person.unwrap().version, sealed.version);
 }
 
 #[tokio::test]
 async fn a_destroyed_person_rejects_fencing_and_writes_with_not_found() {
-    let harness = start_fence_harness(CachedPerson {
-        is_deleted: true,
-        ..test_cached_person()
-    })
+    let harness = start_fence_harness(
+        CachedPerson {
+            is_deleted: true,
+            ..test_cached_person()
+        },
+        None,
+    )
     .await;
     let mut client = harness.client.clone();
     let op = Uuid::now_v7();
