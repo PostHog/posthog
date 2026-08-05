@@ -27296,7 +27296,8 @@ export namespace Schemas {
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
-      readonly created_by: UserBasic;
+      /** User who created the evaluation. */
+      readonly created_by: UserBasic | null;
       /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
     }
@@ -52406,7 +52407,8 @@ export namespace Schemas {
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
-      readonly created_by?: UserBasic;
+      /** User who created the evaluation. */
+      readonly created_by?: UserBasic | null;
       /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
     }
@@ -77800,6 +77802,7 @@ export namespace Schemas {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
@@ -77892,6 +77895,7 @@ export namespace Schemas {
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
+      EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
       LLMTrace: 'LLMTrace',
@@ -77970,6 +77974,7 @@ export namespace Schemas {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
@@ -78050,6 +78055,7 @@ export namespace Schemas {
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
+      EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
       LLMTrace: 'LLMTrace',
@@ -80365,6 +80371,10 @@ export namespace Schemas {
      * Filter evaluations by directory UUID.
      */
     directory_id?: string;
+    /**
+     * Filter evaluations by whether they are at the top level.
+     */
+    directory_id__isnull?: boolean;
     /**
      * Filter by enabled status
      */

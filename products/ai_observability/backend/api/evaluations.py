@@ -265,7 +265,11 @@ class EvaluationConditionSerializer(serializers.Serializer):
 
 
 class EvaluationSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="User who created the evaluation.",
+    )
     directory_id = TeamScopedPrimaryKeyRelatedField(
         source="directory",
         queryset=EvaluationDirectory.objects.unscoped(),
@@ -654,6 +658,11 @@ class EvaluationFilter(django_filters.FilterSet):
     directory_id = django_filters.UUIDFilter(
         field_name="directory_id",
         help_text="Filter evaluations by directory UUID.",
+    )
+    directory_id__isnull = django_filters.BooleanFilter(
+        field_name="directory_id",
+        lookup_expr="isnull",
+        help_text="Filter evaluations by whether they are at the top level.",
     )
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
     evaluation_type = django_filters.ChoiceFilter(

@@ -5,6 +5,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
@@ -82,6 +83,9 @@ class TestEvaluationDirectoriesApi(APIBaseTest):
         deleted_evaluation = self._create_evaluation("Deleted")
         Evaluation.objects.filter(id__in=[active_evaluation.id, deleted_evaluation.id]).update(directory=directory)
         Evaluation.objects.filter(id=deleted_evaluation.id).update(deleted=True)
+        active_evaluation.refresh_from_db()
+        previous_updated_at = active_evaluation.updated_at
+        ActivityLog.objects.filter(team_id=self.team.id).delete()
 
         listed = self.client.get(f"/api/projects/{self.team.id}/evaluation_directories/")
         response = self.client.delete(f"/api/projects/{self.team.id}/evaluation_directories/{directory.id}/")
@@ -94,6 +98,39 @@ class TestEvaluationDirectoriesApi(APIBaseTest):
             Evaluation.objects.filter(id__in=[active_evaluation.id, deleted_evaluation.id], directory=None).count(),
             2,
         )
+        active_evaluation.refresh_from_db()
+        self.assertGreater(active_evaluation.updated_at, previous_updated_at)
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="Evaluation",
+                item_id=str(active_evaluation.id),
+                activity="updated",
+                detail__changes__contains=[{"field": "directory", "action": "deleted"}],
+            ).exists()
+        )
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="EvaluationDirectory",
+                item_id=str(directory.id),
+                activity="deleted",
+            ).exists()
+        )
+
+    def test_evaluations_can_be_filtered_to_the_top_level(self) -> None:
+        directory = self._create_directory()
+        top_level_evaluation = self._create_evaluation("Top level")
+        directory_evaluation = self._create_evaluation("In directory")
+        Evaluation.objects.filter(id=directory_evaluation.id).update(directory=directory)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/evaluations/",
+            {"directory_id__isnull": "true"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["id"] for result in response.json()["results"]], [str(top_level_evaluation.id)])
 
     @pytest.mark.ee
     def test_specific_evaluation_access_does_not_authorize_directory_changes(self) -> None:

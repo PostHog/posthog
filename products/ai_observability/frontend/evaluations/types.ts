@@ -80,7 +80,7 @@ export interface BaseEvaluationConfig {
     /** Target-specific settings — see EvaluationTargetConfig. Empty for 'generation'. */
     target_config: EvaluationTargetConfig
     model_configuration: ModelConfiguration | null
-    total_runs: number
+    total_runs?: number
     last_run_at?: string
     created_at: string
     updated_at: string

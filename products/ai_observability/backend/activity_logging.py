@@ -7,12 +7,15 @@ from posthog.models.activity_logging.activity_log import (
     Change,
     ChangeAction,
     Detail,
+    LogActivityEntry,
+    bulk_log_activity,
     changes_between,
     log_activity,
 )
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
+from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.llm_prompt import LLMPromptLabel
 
@@ -147,6 +150,60 @@ def handle_evaluation_change(
         detail=Detail(
             changes=changes,
             name=after_update.name,
+        ),
+    )
+
+
+def log_evaluations_moved_to_top_level(evaluations: list[Evaluation]) -> None:
+    user = activity_storage.get_user()
+    was_impersonated = activity_storage.get_was_impersonated()
+    bulk_log_activity(
+        [
+            LogActivityEntry(
+                organization_id=None,
+                team_id=evaluation.team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=str(evaluation.id),
+                scope="Evaluation",
+                activity="updated",
+                detail=Detail(
+                    name=evaluation.name,
+                    changes=[
+                        Change(
+                            type="Evaluation",
+                            action="deleted",
+                            field="directory",
+                            before=str(evaluation.directory_id),
+                            after=None,
+                        )
+                    ],
+                ),
+            )
+            for evaluation in evaluations
+        ]
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=EvaluationDirectory)
+def handle_evaluation_directory_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    directory = after_update or before_update
+    if directory is None:
+        return
+
+    log_activity(
+        organization_id=directory.team.organization_id,
+        team_id=directory.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=directory.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            name=directory.name,
+            changes=changes_between(scope, before_update, after_update),
         ),
     )
 

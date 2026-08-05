@@ -815,7 +815,8 @@ export interface EvaluationApi {
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
-    readonly created_by: UserBasicApi
+    /** User who created the evaluation. */
+    readonly created_by: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
 }
@@ -943,7 +944,8 @@ export interface PatchedEvaluationApi {
     model_configuration?: ModelConfigurationApi | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly created_by?: UserBasicApi
+    /** User who created the evaluation. */
+    readonly created_by?: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
 }
@@ -3089,6 +3091,10 @@ export type EvaluationsListParams = {
      * Filter evaluations by directory UUID.
      */
     directory_id?: string
+    /**
+     * Filter evaluations by whether they are at the top level.
+     */
+    directory_id__isnull?: boolean
     /**
      * Filter by enabled status
      */

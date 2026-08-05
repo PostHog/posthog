@@ -1,7 +1,6 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { cloneElement, forwardRef, useEffect, useRef, useState } from 'react'
-import type { ComponentProps, ReactElement } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
     IconArrowLeft,
@@ -37,6 +36,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -92,26 +92,6 @@ function getActiveTab(
     const tab = searchParams.tab
     return tab === 'offline-evals' || tab === 'offline' ? 'offline-evals' : 'online-evals'
 }
-
-type AccessControlledLemonMenuProps = ComponentProps<typeof LemonMenu> & {
-    disabled?: boolean
-    disabledReason: string | null
-}
-
-const AccessControlledLemonMenu = forwardRef<HTMLElement, AccessControlledLemonMenuProps>(
-    function AccessControlledLemonMenu({ children, disabled, disabledReason, ...menuProps }, ref): JSX.Element {
-        const trigger = children as ReactElement<{ disabled?: boolean; disabledReason?: string | null }>
-
-        return (
-            <LemonMenu {...menuProps} ref={ref}>
-                {cloneElement(trigger, {
-                    disabled: trigger.props.disabled ?? disabled,
-                    disabledReason: trigger.props.disabledReason ?? disabledReason,
-                })}
-            </LemonMenu>
-        )
-    }
-)
 
 function getProviderKeyIssue(evaluation: EvaluationConfig, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
     if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
@@ -224,6 +204,10 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.aiObservabilityEvaluation(id), searchParams).url
     const settingsUrl = urls.settings('project-ai-observability', 'ai-observability-byok')
+    const moveEvaluationDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.LlmAnalytics,
+        AccessControlLevel.Editor
+    )
 
     const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
         displayedEvaluations.some((filtered) => filtered.id === evaluation.id)
@@ -248,7 +232,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
             title: 'Directory',
             key: 'directory',
             render: (_, evaluation) =>
-                evaluation.directory_id ? directoryById.get(evaluation.directory_id)?.name || 'Unknown' : 'Top level',
+                evaluation.directory_id ? directoryById.get(evaluation.directory_id)?.name : 'Top level',
             sorter: (a, b) => {
                 const directoryName = (evaluation: EvaluationConfig): string =>
                     evaluation.directory_id ? directoryById.get(evaluation.directory_id)?.name || '' : ''
@@ -430,42 +414,37 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
             key: 'actions',
             render: (_, evaluation) => (
                 <div className="flex gap-1">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
+                    <LemonMenu
+                        items={[
+                            {
+                                icon: <IconFolder />,
+                                label: 'Top level',
+                                onClick: () => moveEvaluation(evaluation.id, null),
+                                disabledReason:
+                                    !evaluation.directory_id || movingEvaluationId === evaluation.id
+                                        ? 'Evaluation is already here'
+                                        : undefined,
+                            },
+                            ...evaluationDirectories.map((directory) => ({
+                                icon: <IconFolder />,
+                                label: directory.name,
+                                onClick: () => moveEvaluation(evaluation.id, directory.id),
+                                disabledReason:
+                                    evaluation.directory_id === directory.id || movingEvaluationId === evaluation.id
+                                        ? 'Evaluation is already here'
+                                        : undefined,
+                            })),
+                        ]}
                     >
-                        <AccessControlledLemonMenu
-                            disabledReason={null}
-                            items={[
-                                {
-                                    icon: <IconFolder />,
-                                    label: 'Top level',
-                                    onClick: () => moveEvaluation(evaluation.id, null),
-                                    disabledReason:
-                                        !evaluation.directory_id || movingEvaluationId === evaluation.id
-                                            ? 'Evaluation is already here'
-                                            : undefined,
-                                },
-                                ...evaluationDirectories.map((directory) => ({
-                                    icon: <IconFolder />,
-                                    label: directory.name,
-                                    onClick: () => moveEvaluation(evaluation.id, directory.id),
-                                    disabledReason:
-                                        evaluation.directory_id === directory.id || movingEvaluationId === evaluation.id
-                                            ? 'Evaluation is already here'
-                                            : undefined,
-                                })),
-                            ]}
-                        >
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                icon={<IconFolder />}
-                                tooltip="Move evaluation"
-                                loading={movingEvaluationId === evaluation.id}
-                            />
-                        </AccessControlledLemonMenu>
-                    </AccessControlAction>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconFolder />}
+                            tooltip="Move evaluation"
+                            loading={movingEvaluationId === evaluation.id}
+                            disabledReason={moveEvaluationDisabledReason}
+                        />
+                    </LemonMenu>
                     <AccessControlAction
                         resourceType={AccessControlResourceType.LlmAnalytics}
                         minAccessLevel={AccessControlLevel.Editor}
@@ -710,7 +689,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     <LemonTable
                         columns={columns}
                         dataSource={filteredEvaluationsWithMetrics}
-                        loading={evaluationsLoading}
+                        loading={evaluationsLoading || evaluationDirectoriesLoading}
                         rowKey="id"
                         pagination={{
                             pageSize: 50,

@@ -2,6 +2,7 @@ from typing import cast
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, QuerySet
+from django.utils import timezone
 
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -12,7 +13,9 @@ from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.ai_observability.backend.activity_logging import log_evaluations_moved_to_top_level
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
+from products.ai_observability.backend.models.evaluations import Evaluation
 
 
 class EvaluationDirectorySerializer(serializers.ModelSerializer):
@@ -63,7 +66,7 @@ class EvaluationDirectoryViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet[EvaluationDirectory]) -> QuerySet[EvaluationDirectory]:
         return (
-            EvaluationDirectory.objects.for_team(self.team_id)
+            queryset.filter(team_id=self.team_id)
             .select_related("created_by")
             .annotate(evaluation_count=Count("evaluations", filter=Q(evaluations__deleted=False)))
             .order_by("name", "id")
@@ -83,3 +86,17 @@ class EvaluationDirectoryViewSet(
                 serializer.save()
         except IntegrityError as error:
             raise serializers.ValidationError({"name": "A directory with this name already exists."}) from error
+
+    def perform_destroy(self, instance: EvaluationDirectory) -> None:
+        with transaction.atomic():
+            evaluations = list(
+                Evaluation.objects.filter(team_id=self.team_id, directory_id=instance.id).only(
+                    "id", "name", "team_id", "directory_id", "enabled", "status"
+                )
+            )
+            if evaluations:
+                Evaluation.objects.filter(id__in=[evaluation.id for evaluation in evaluations]).update(
+                    directory=None, updated_at=timezone.now()
+                )
+                log_evaluations_moved_to_top_level(evaluations)
+            instance.delete()

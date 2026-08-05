@@ -405,6 +405,7 @@ export const EvaluationsListParams = /* @__PURE__ */ zod.object({
 
 export const EvaluationsListQueryParams = /* @__PURE__ */ zod.object({
     directory_id: zod.string().optional().describe('Filter evaluations by directory UUID.'),
+    directory_id__isnull: zod.boolean().optional().describe('Filter evaluations by whether they are at the top level.'),
     enabled: zod.boolean().optional().describe('Filter by enabled status'),
     evaluation_type: zod
         .enum(['hog', 'llm_judge', 'sentiment'])

@@ -769,6 +769,7 @@ const llmaEvaluationList = (): ToolBase<typeof LlmaEvaluationListSchema, Schemas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/`,
             query: {
                 directory_id: params.directory_id,
+                directory_id__isnull: params.directory_id__isnull,
                 enabled: params.enabled,
                 evaluation_type: params.evaluation_type,
                 id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,

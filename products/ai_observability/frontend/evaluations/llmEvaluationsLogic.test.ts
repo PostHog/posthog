@@ -313,5 +313,33 @@ describe('llmEvaluationsLogic', () => {
                 displayedEvaluations: [rootEvaluation],
             })
         })
+
+        it('does not reload evaluations when the selected directory changes', async () => {
+            const evaluation = evaluationWithKey('local-state', null)
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadEvaluationsSuccess([evaluation])
+
+            router.actions.push(
+                combineUrl(urls.aiObservabilityEvaluations(), {
+                    directory: 'directory-a',
+                }).url
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.evaluations).toEqual([evaluation])
+        })
+
+        it('restores an evaluation in server list order', async () => {
+            const newerEvaluation = {
+                ...evaluationWithKey('newer', null),
+                created_at: '2024-02-01T00:00:00Z',
+            }
+            const olderEvaluation = evaluationWithKey('older', null)
+            logic.actions.loadEvaluationsSuccess([newerEvaluation])
+
+            logic.actions.restoreEvaluationSuccess(olderEvaluation)
+
+            expect(logic.values.evaluations).toEqual([newerEvaluation, olderEvaluation])
+        })
     })
 })
