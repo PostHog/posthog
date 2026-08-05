@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.ver
     VercelResumeConfig,
     _billing_window_start,
     _build_params,
+    _cursor_from_page,
     _floor_to_day,
     _focus_charge_id,
     _iso8601_utc,
@@ -81,6 +82,16 @@ class TestBuildParams:
             ("since_and_until", "deployments", None, 123, 456, {"limit": PAGE_SIZE, "since": 123, "until": 456}),
             # projects has no since_param, so a cursor value must not become a query filter.
             ("no_since_param_drops_since", "projects", None, 123, None, {"limit": PAGE_SIZE}),
+            # Without withPayload the response carries only each event's summary text, so the
+            # payload column lands empty and the table loses the detail it exists for.
+            (
+                "events_requests_the_payload",
+                "events",
+                "team_1",
+                None,
+                None,
+                {"limit": PAGE_SIZE, "teamId": "team_1", "withPayload": "true"},
+            ),
         ]
     )
     def test_build_params(
@@ -113,6 +124,22 @@ class TestShouldStopDesc:
         assert _should_stop_desc(items, field_name, cutoff) is expected
 
 
+class TestCursorFromPage:
+    @parameterized.expand(
+        [
+            # The oldest value bounds the next page. Taking the newest would re-request page one.
+            ("oldest_wins", [{"createdAt": 300}, {"createdAt": 100}, {"createdAt": 200}], 100),
+            ("single_row", [{"createdAt": 42}], 42),
+            ("ignores_rows_missing_the_field", [{"createdAt": 300}, {"other": 1}], 300),
+            ("ignores_non_integer_values", [{"createdAt": "300"}, {"createdAt": 200}], 200),
+            ("no_usable_values", [{"other": 1}], None),
+            ("empty_page", [], None),
+        ]
+    )
+    def test_cursor_from_page(self, _name: str, items: list[dict[str, Any]], expected: int | None) -> None:
+        assert _cursor_from_page(items, "createdAt") == expected
+
+
 class TestValidateCredentials:
     @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
     def test_status_mapping(self, status: int, expected_ok: bool) -> None:
@@ -126,14 +153,42 @@ class TestValidateCredentials:
         assert ok is expected_ok, f"status={status}"
         assert (error is None) is expected_ok, f"status={status}"
 
-    def test_request_exception_is_handled(self, monkeypatch: Any) -> None:
+    def test_request_exception_returns_retry_message_without_leaking_raw_error(self, monkeypatch: Any) -> None:
         session = MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         monkeypatch.setattr(vercel, "make_tracked_session", lambda *a, **k: session)
 
         ok, error = validate_credentials("token")
         assert ok is False
-        assert error == "boom"
+        assert error == vercel._VERCEL_UNREACHABLE_ERROR
+        assert "boom" not in (error or "")
+
+    @parameterized.expand([(429,), (500,), (503,)])
+    def test_transient_status_returns_retry_message_not_token_advice(self, status: int) -> None:
+        response = requests.Response()
+        response.status_code = status
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
+            ok, error = validate_credentials("token")
+
+        assert ok is False
+        assert error == vercel._VERCEL_UNREACHABLE_ERROR
+        # A transient Vercel-side error must not tell the user to fix their (possibly valid) token.
+        assert "Check that it's a valid token" not in (error or "")
+
+    def test_unexpected_status_does_not_leak_raw_status_code(self) -> None:
+        response = requests.Response()
+        response.status_code = 404
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
+            ok, error = validate_credentials("token")
+
+        assert ok is False
+        assert error is not None
+        assert "Vercel API error" not in error
+        assert "404" not in error
 
 
 class TestGetRows:
@@ -198,6 +253,53 @@ class TestGetRows:
         assert rows == []
         assert len(calls) == 1
 
+    def test_events_pages_without_a_pagination_envelope(self, monkeypatch: Any) -> None:
+        # /v3/events returns rows but no `pagination` object. Without the derived cursor the walk
+        # ends after page one and the table silently caps at a single page of history forever.
+        responses: list[dict] = [
+            {"events": [{"id": "e1", "createdAt": 300}, {"id": "e2", "createdAt": 200}]},
+            {"events": [{"id": "e3", "createdAt": 100}]},
+            {"events": []},
+        ]
+        rows, calls = _collect("events", _FakeResumableManager(), monkeypatch, responses)
+
+        assert [r["id"] for r in rows] == ["e1", "e2", "e3"]
+        assert "until=" not in calls[0]
+        # The oldest row on each page bounds the next, so page two asks for until=200, not 300.
+        assert "until=200" in calls[1]
+        assert "until=100" in calls[2]
+
+    def test_events_stop_when_a_whole_page_shares_one_timestamp(self, monkeypatch: Any) -> None:
+        # The derived cursor can't advance past a page whose rows share a timestamp; the walk has
+        # to end there rather than re-request the same page forever.
+        responses = [
+            {"events": [{"id": "e1", "createdAt": 500}, {"id": "e2", "createdAt": 500}]},
+            {"events": [{"id": "e3", "createdAt": 500}]},
+        ]
+        rows, calls = _collect("events", _FakeResumableManager(), monkeypatch, responses)
+
+        assert [r["id"] for r in rows] == ["e1", "e2", "e3"]
+        assert len(calls) == 2
+
+    def test_events_incremental_sends_since_and_stops_at_watermark(self, monkeypatch: Any) -> None:
+        responses = [
+            {"events": [{"id": "e1", "createdAt": 300}, {"id": "e2", "createdAt": 200}]},
+            {"events": [{"id": "e3", "createdAt": 120}]},
+            {"events": [{"id": "e4", "createdAt": 50}]},
+        ]
+        rows, calls = _collect(
+            "events",
+            _FakeResumableManager(),
+            monkeypatch,
+            responses,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=150,
+        )
+
+        assert [r["id"] for r in rows] == ["e1", "e2", "e3"]
+        assert "since=150" in calls[0]
+        assert len(calls) == 2
+
     def test_mid_page_yield_checkpoints_current_page_not_next(self, monkeypatch: Any) -> None:
         # Regression: a mid-page yield must checkpoint the cursor for the CURRENT page, not the
         # next one. Page two crosses the batcher's 2000-row chunk, so the batch yields while the
@@ -222,7 +324,14 @@ class TestGetRows:
 
 class TestVercelSource:
     @parameterized.expand(
-        [("deployments", "uid"), ("projects", "id"), ("teams", "id"), ("domains", "id"), ("aliases", "uid")]
+        [
+            ("deployments", "uid"),
+            ("events", "id"),
+            ("projects", "id"),
+            ("teams", "id"),
+            ("domains", "id"),
+            ("aliases", "uid"),
+        ]
     )
     def test_source_response_primary_key_and_sort(self, endpoint: str, expected_pk: str) -> None:
         response = vercel_source(

@@ -40,6 +40,10 @@ class CloudflareEndpointConfig:
     params: dict[str, Any] = field(default_factory=dict)
     # Query param carrying the incremental watermark, when the API filters server-side.
     incremental_param: Optional[str] = None
+    # Extra per-parent status codes to skip (in addition to FANOUT_SKIP_STATUS_CODES) —
+    # for endpoints where Cloudflare returns a non-403/404 error on a plan/feature that
+    # a specific zone or account doesn't have, rather than on missing read access.
+    extra_skip_status_codes: tuple[int, ...] = ()
 
 
 # Most Cloudflare v4 REST lists are small configuration tables with no updated-since
@@ -88,6 +92,10 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
         path="/zones/{zone_id}/rate_limits",
         parent=ZONES_PARENT,
         parent_key="_zone_id",
+        # Cloudflare deprecated the legacy Rate Limiting Rules API in favor of the
+        # Ruleset Engine; zones without legacy rules get a 410 Gone rather than an
+        # empty list.
+        extra_skip_status_codes=(410,),
     ),
     "bot_management": CloudflareEndpointConfig(
         name="bot_management",
@@ -174,6 +182,8 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
         path="/zones/{zone_id}/custom_certificates",
         parent=ZONES_PARENT,
         parent_key="_zone_id",
+        # Zones without custom SSL for SaaS enabled get a 400 rather than an empty list.
+        extra_skip_status_codes=(400,),
     ),
     # --- Zone-scoped client-side security ---
     "page_shield_scripts": CloudflareEndpointConfig(
@@ -227,6 +237,8 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
         parent=ACCOUNTS_PARENT,
         parent_key="_account_id",
         pagination=SINGLE_PAGE,
+        # Accounts without billing-usage entitlement get a 400 rather than an empty list.
+        extra_skip_status_codes=(400,),
     ),
     "billable_usage": CloudflareEndpointConfig(
         name="billable_usage",

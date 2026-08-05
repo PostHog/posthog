@@ -168,6 +168,7 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
         created_at: '2026-05-01T00:00:00Z',
         merged_at: null,
         open_to_merge_seconds: null,
+        ready_to_merge_seconds: null,
         labels: [],
         pushes: 0,
         push_history: [],
@@ -706,6 +707,7 @@ describe('engineeringAnalyticsLogic', () => {
             duration_seconds: 300,
             run_attempt: 1,
             pr_number: 10,
+            commit_pr_number: null,
             ...overrides,
         })
         const groups = groupRunsByCommit([

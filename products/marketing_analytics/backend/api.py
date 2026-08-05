@@ -25,6 +25,7 @@ from posthog.models.user import User
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import SelfManagedAdapter
+from products.marketing_analytics.backend.hogql_queries.constants import CONVERSION_GOAL_KIND_CHOICES
 from products.marketing_analytics.backend.hogql_queries.utils import map_url_to_provider
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     explain_conversion_goal,
@@ -34,6 +35,7 @@ from products.marketing_analytics.backend.services.data_source_health import get
 from products.marketing_analytics.backend.services.event_suggestions import suggest_conversion_goals
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
 from products.marketing_analytics.backend.services.marketing_diagnostic import get_marketing_diagnostic
+from products.marketing_analytics.backend.services.types import UTM_ISSUE_KIND_CHOICES
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -64,10 +66,34 @@ class UtmAuditQuerySerializer(serializers.Serializer):
     )
 
 
+class UtmAlternativeSourceSerializer(serializers.Serializer):
+    utm_source = serializers.CharField(help_text="A utm_source value found on this campaign's pageviews")
+    event_count = serializers.IntegerField(help_text="Number of pageview events with this utm_source")
+
+
 class UtmIssueSerializer(serializers.Serializer):
     field = serializers.CharField(help_text="The UTM field with the issue (e.g. utm_campaign, utm_source)")
     severity = serializers.ChoiceField(choices=["error", "warning"], help_text="Issue severity level")
-    message = serializers.CharField(help_text="Human-readable description of the issue")
+    # `kind` collides with other enums in drf-spectacular, so it carries a stable name via
+    # ENUM_NAME_OVERRIDES ("UtmIssueKindEnum") rather than being flattened to a plain string —
+    # consumers get the five values as a union instead of having to restate them.
+    kind = serializers.ChoiceField(
+        choices=UTM_ISSUE_KIND_CHOICES,
+        help_text="Which kind of UTM problem this campaign has",
+    )
+    message = serializers.CharField(
+        help_text="Human-readable headline; the frontend composes richer text from the fields below"
+    )
+    alternative_sources = UtmAlternativeSourceSerializer(
+        many=True, help_text="utm_source values actually found on this campaign's pageviews, ordered by event count"
+    )
+    shared_with_integrations = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Other integrations whose campaigns share this campaign's name (name_collision only)",
+    )
+    missing_source_count = serializers.IntegerField(
+        help_text="Pageviews that matched this campaign but carried no utm_source, on any issue kind"
+    )
 
 
 class CampaignAuditResultSerializer(serializers.Serializer):
@@ -109,10 +135,12 @@ class UtmAuditResponseSerializer(serializers.Serializer):
 class ConversionGoalSummarySerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Unique id of the goal (event name, action id, or DW goal id)")
     name = serializers.CharField(help_text="Display name of the conversion goal")
-    # `kind` is a collision-prone enum name in drf-spectacular, so we expose it as a
-    # documented string rather than a ChoiceField to avoid a CI --fail-on-warn break.
-    kind = serializers.CharField(
-        help_text="Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table)"
+    # `kind` collides with other enums in drf-spectacular, so it carries a stable name via
+    # ENUM_NAME_OVERRIDES ("ConversionGoalKindEnum") — a plain CharField would leave consumers
+    # reading the valid values out of this help text.
+    kind = serializers.ChoiceField(
+        choices=CONVERSION_GOAL_KIND_CHOICES,
+        help_text="Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)",
     )
     target_label = serializers.CharField(
         help_text="Human-readable target the goal matches (event/action name or table)"
@@ -248,7 +276,10 @@ class GoalExplanationPeriodSerializer(serializers.Serializer):
 class GoalExplanationSerializer(serializers.Serializer):
     goal_id = serializers.CharField(help_text="Id of the explained conversion goal")
     goal_name = serializers.CharField(help_text="Display name of the conversion goal")
-    kind = serializers.CharField(help_text="EventsNode/ActionsNode/DataWarehouseNode")
+    kind = serializers.ChoiceField(
+        choices=CONVERSION_GOAL_KIND_CHOICES,
+        help_text="Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)",
+    )
     period = GoalExplanationPeriodSerializer(help_text="The period the breakdown was computed over")
     total_count = serializers.IntegerField(help_text="Total matching conversion events in the period")
     integrated_count = serializers.IntegerField(

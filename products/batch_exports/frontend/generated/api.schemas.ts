@@ -1645,10 +1645,28 @@ export interface FileDownloadSessionsRequestApi {
     data_interval_end: string
 }
 
+export type FileDownloadHogQLRequestApiModel =
+    (typeof FileDownloadHogQLRequestApiModel)[keyof typeof FileDownloadHogQLRequestApiModel]
+
+export const FileDownloadHogQLRequestApiModel = {
+    Hogql: 'hogql',
+} as const
+
+/**
+ * Typed configuration for the hogql model.
+ */
+export interface FileDownloadHogQLRequestApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadHogQLRequestApiModel
+    /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+    hogql_query: string
+}
+
 export type CreateFileDownloadRequestApi =
     | FileDownloadEventsRequestApi
     | FileDownloadPersonsRequestApi
     | FileDownloadSessionsRequestApi
+    | FileDownloadHogQLRequestApi
 
 /**
  * Typed output for view set `create`.
@@ -1716,6 +1734,7 @@ export type RetrieveFileDownloadResponseApi =
  * * `events` - events
  * * `persons` - persons
  * * `sessions` - sessions
+ * * `hogql` - hogql
  */
 export type FileDownloadBatchExportOnDemandModelEnumApi =
     (typeof FileDownloadBatchExportOnDemandModelEnumApi)[keyof typeof FileDownloadBatchExportOnDemandModelEnumApi]
@@ -1724,6 +1743,7 @@ export const FileDownloadBatchExportOnDemandModelEnumApi = {
     Events: 'events',
     Persons: 'persons',
     Sessions: 'sessions',
+    Hogql: 'hogql',
 } as const
 
 /**
@@ -1734,8 +1754,12 @@ export interface FileDownloadBatchExportOnDemandApi {
     model: FileDownloadBatchExportOnDemandModelEnumApi
     include?: string[]
     exclude?: string[]
-    data_interval_start: string
-    data_interval_end: string
+    /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+    hogql_query?: string
+    /** Start of the data interval to export */
+    data_interval_start?: string
+    /** End of the data interval to export */
+    data_interval_end?: string
 }
 
 /**
@@ -1766,6 +1790,16 @@ export type FileDownloadSessionsRequestModelEnumApi =
 
 export const FileDownloadSessionsRequestModelEnumApi = {
     Sessions: 'sessions',
+} as const
+
+/**
+ * * `hogql` - hogql
+ */
+export type FileDownloadHogQLRequestModelEnumApi =
+    (typeof FileDownloadHogQLRequestModelEnumApi)[keyof typeof FileDownloadHogQLRequestModelEnumApi]
+
+export const FileDownloadHogQLRequestModelEnumApi = {
+    Hogql: 'hogql',
 } as const
 
 /**
