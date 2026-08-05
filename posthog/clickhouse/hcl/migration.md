@@ -93,7 +93,15 @@ Envs:
 - prod-us
 - prod-eu
 
-Each table shall be defined once, if there's a difference between envs, it shall be extended (prefered) or overriden, whatever is simple.
+Each table shall be **defined** once, if there's a difference between envs, it shall be extended (prefered) or overriden, whatever is simple.
+
+"Defined once" counts *plain declarations only*. A `patch_table`, an `extend`, or a declaration carrying `override = true` is not a second definition — those are the sanctioned ways to say "same table, different here", and a table may legitimately be touched by several of them across layers. What the rule forbids is the same table declared plainly in two layers, i.e. copied.
+
+`hclexp locate -duplicates` already draws exactly this line (verified: table+`patch_table` → 0, table+`extend` → 0, table+`override=true` → 0, table+plain redeclaration → 1), so it is the enforcement mechanism, not a heuristic. Both repos gate on it against a `duplicates-baseline.txt` that may only shrink.
+
+The patch vocabulary is complete, so "express it as a patch" is always available for a content difference. `patch_table` carries `column` and `index` (both with positional `after`), `engine`, `order_by`, `partition_by`, `ttl` and `settings`; `patch_view` and `patch_dictionary` do the same for the other kinds. `settings` merge into the target with the patch winning on collision; everything else replaces. Built on demand in PostHog/chschema — #153 (settings merge), #156 (full vocab + `patch_view`/`patch_dictionary`), #159 (positioned column adds), #161 (positioned index adds).
+
+Vocabulary is therefore no longer why a baseline is non-empty. What remains is *structural*, not expressible-but-unexpressed: objects declared by a set of envs that no layer expresses (e.g. dev and prod-eu but not prod-us), and cross-*role* duplicates that resolve via `roles/coshared/` here rather than any cloud-infra override.
 
 The purpose of the extension is to making the schema changes uniform across all envs: think adding a column or table shall be possible in one place and affect all envs.
 
