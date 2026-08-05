@@ -933,6 +933,7 @@ from .quay.source import QuaySource
 from .quickbooks.source import QuickBooksSource
 from .railway.source import RailwaySource
 from .railz.source import RailzSource
+from .raisely.source import RaiselySource
 from .raken.source import RakenSource
 from .ramp.source import RampSource
 from .rapid7_insightvm.source import Rapid7InsightvmSource
@@ -1228,6 +1229,8 @@ from .who_gho.source import WhoGhoSource
 from .whop.source import WhopSource
 from .wikipedia_pageviews.source import WikipediaPageviewsSource
 from .windmill.source import WindmillSource
+from .windsor_ai.source import WindsorAiSource
+from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource
 from .woocommerce.source import WooCommerceSource

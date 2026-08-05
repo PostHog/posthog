@@ -24,7 +24,6 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { fullName } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
@@ -45,7 +44,6 @@ import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
-import type { UserType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
@@ -177,7 +175,6 @@ export interface supportTicketSceneLogicValues {
     draftModeDefault: boolean // conversationsDraftModeLogic
     availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    user: UserType | null // userLogic
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
@@ -462,8 +459,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ['currentTeam'],
             conversationsDraftModeLogic,
             ['draftModeDefault'],
-            userLogic,
-            ['user'],
             assigneeSelectLogic,
             ['resolveAssignee'],
             tagsModel,
@@ -1159,10 +1154,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
                 if (statusAfterSend) {
                     actions.setStatus(statusAfterSend)
-                    // Pick up the ticket for the sender unless a specific user is already assigned.
-                    if (values.assignee?.type !== 'user' && values.user) {
-                        actions.setAssignee({ type: 'user', id: values.user.id })
-                    }
                     actions.updateTicket()
                 }
                 setTimeout(() => {

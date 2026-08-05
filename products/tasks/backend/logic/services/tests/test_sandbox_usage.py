@@ -14,7 +14,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     open_sandbox_session,
     record_task_run_user_activity,
 )
-from products.tasks.backend.models import SandboxSession, Task, TaskRun
+from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
 
 
 def _config(**overrides) -> SandboxConfig:
@@ -24,9 +24,13 @@ def _config(**overrides) -> SandboxConfig:
 
 
 class SandboxUsageBase(APIBaseTest):
-    def _run(self, *, state: dict | None = None) -> TaskRun:
+    def _run(self, *, state: dict | None = None, client_provenance: TaskClientProvenance | None = None) -> TaskRun:
         task = Task.objects.create(
-            team=self.team, title="t", description="", origin_product=Task.OriginProduct.USER_CREATED
+            team=self.team,
+            title="t",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            client_provenance=client_provenance,
         )
         return TaskRun.objects.create(task=task, team=self.team, state=state or {})
 
@@ -49,13 +53,56 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert session.cpu_request_cores is None
 
     def test_open_leaves_warm_runs_unattributed(self):
-        run = self._run(state={"await_user_message": True, "prewarmed": True})
+        run = self._run(
+            state={"await_user_message": True, "prewarmed": True},
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+        )
 
         open_sandbox_session(run_id=run.id, sandbox_id="sb-warm", config=_config())
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-warm")
         assert session.user_attributed_at is None
         assert session.prewarmed is True
+        assert session.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
+
+    def test_warm_claim_snapshots_provenance_set_after_provisioning(self):
+        run = self._run(state={"await_user_message": True, "prewarmed": True})
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-claim", config=_config())
+        Task.objects.filter(id=run.task_id).update(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+
+        record_task_run_user_activity(run.id, self.team.id)
+
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-warm-claim")
+        assert session.user_attributed_at is not None
+        assert session.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
+
+    def test_warm_claim_keeps_provenance_snapshotted_at_provisioning(self):
+        run = self._run(
+            state={"await_user_message": True, "prewarmed": True},
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+        )
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-snapshot", config=_config())
+        Task.objects.filter(id=run.task_id).update(client_provenance=None)
+
+        record_task_run_user_activity(run.id, self.team.id)
+
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-warm-snapshot")
+        assert session.user_attributed_at is not None
+        assert session.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
+
+    def test_reprovisioned_session_keeps_task_provenance_snapshot(self):
+        run = self._run(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-first", config=_config())
+        resumed_run = run.task.create_run(extra_state={"resume_from_run_id": str(run.id)})
+        open_sandbox_session(run_id=resumed_run.id, sandbox_id="sb-resumed", config=_config())
+
+        Task.objects.filter(id=run.task_id).update(client_provenance=None)
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-first", config=_config(cpu_cores=2.0))
+
+        first = SandboxSession.objects.unscoped().get(sandbox_id="sb-first")
+        resumed = SandboxSession.objects.unscoped().get(sandbox_id="sb-resumed")
+        assert first.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
+        assert resumed.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
 
     def test_open_records_burstable_request_floors(self):
         run = self._run()

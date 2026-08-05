@@ -1138,7 +1138,7 @@
         }
     },
     "cdp-functions-create": {
-        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.\nRecipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create / alert-update point here):\n1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration\n   id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user\n   provides the destination URL directly. For Discord, the user provides an incoming webhook URL\n   (https://discord.com/api/webhooks/...) directly — no integration needed, like a webhook.\n\n2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the\n   response now includes filters. Look for an existing function whose filters.properties has an entry\n   with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on\n   that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)\n\n3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook or\n   template-discord), and:\n     filters = {\n       \"events\": [{\"id\": \"$insight_alert_firing\", \"type\": \"events\"}],\n       \"properties\": [{\"key\": \"alert_id\", \"value\": \"<alert.id>\", \"operator\": \"exact\", \"type\": \"event\"}]\n     }\n     # Slack. Channel id is preferred (e.g. C0123ABC); \"#general\" is also accepted.\n     # Override text + blocks with the same shape the alert-wizard UI uses, so\n     # agent-created and UI-created alerts produce identical Slack messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"Alert triggered: {event.properties.insight_name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"{event.properties.breaches}\"}},\n         {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\",\n           \"text\": \"Project: <{project.url}|{project.name}>\"}]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"block_id\": \"insight_alert_snooze:{event.properties.alert_id}\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Insight\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}\"},\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Alert\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"},\n           {\"type\": \"static_select\", \"action_id\": \"insight_alert_snooze\",\n            \"placeholder\": {\"type\": \"plain_text\", \"text\": \"Snooze…\"},\n            \"options\": [\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 hour\"}, \"value\": \"{event.properties.alert_id}|1h\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 6 hours\"}, \"value\": \"{event.properties.alert_id}|6h\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 day\"}, \"value\": \"{event.properties.alert_id}|1d\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 week\"}, \"value\": \"{event.properties.alert_id}|1w\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"Pick a date & time…\"}, \"value\": \"{event.properties.alert_id}|custom\"}\n            ]}\n         ]}\n       ]}\n     }\n     # Webhook — must be an https:// URL.\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n     # Discord — incoming webhook URL (https://discord.com/api/webhooks/...). No integration.\n     # Override content with the same shape the alert-wizard UI uses, so agent-created and\n     # UI-created alerts produce identical Discord messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-discord in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"webhookUrl\": {\"value\": \"<discord_webhook_url>\"},\n       \"content\": {\"value\": \"**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\\n{event.properties.breaches}\\n{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n     }\n\n4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,\n   insight_id (short_id), state (always \"Firing\" — the event is only emitted on a firing transition,\n   not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.\n   \"Series A is below 1000\"), and detector metadata: alert_mode (always present), detector_type and\n   ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is\n   available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do\n   not reference value, threshold_lower, or insight_url — those are not emitted.\n\nAfter a successful create, do not stop at a silent success: in chat, tell the user the function was created and offer a link to it. Build the link with the generate-app-url tool, path template /functions/{id} and the created function's id. Never share a URL read from the function's inputs — those are destination endpoints (e.g. incoming webhook URLs) and may grant access to the destination.",
+        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field. Create destinations disabled: test with cdp-functions-invocations-create, then enable with cdp-functions-partial-update once the config looks right. (Other types, like internal_destination below, create as sent.)\nRecipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create / alert-update point here):\n1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration\n   id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user\n   provides the destination URL directly. For Discord, the user provides an incoming webhook URL\n   (https://discord.com/api/webhooks/...) directly — no integration needed, like a webhook.\n\n2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the\n   response now includes filters. Look for an existing function whose filters.properties has an entry\n   with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on\n   that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)\n\n3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook or\n   template-discord), and:\n     filters = {\n       \"events\": [{\"id\": \"$insight_alert_firing\", \"type\": \"events\"}],\n       \"properties\": [{\"key\": \"alert_id\", \"value\": \"<alert.id>\", \"operator\": \"exact\", \"type\": \"event\"}]\n     }\n     # Slack. Channel id is preferred (e.g. C0123ABC); \"#general\" is also accepted.\n     # Override text + blocks with the same shape the alert-wizard UI uses, so\n     # agent-created and UI-created alerts produce identical Slack messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"Alert triggered: {event.properties.insight_name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"{event.properties.breaches}\"}},\n         {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\",\n           \"text\": \"Project: <{project.url}|{project.name}>\"}]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"block_id\": \"insight_alert_snooze:{event.properties.alert_id}\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Insight\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}\"},\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Alert\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"},\n           {\"type\": \"static_select\", \"action_id\": \"insight_alert_snooze\",\n            \"placeholder\": {\"type\": \"plain_text\", \"text\": \"Snooze…\"},\n            \"options\": [\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 hour\"}, \"value\": \"{event.properties.alert_id}|1h\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 6 hours\"}, \"value\": \"{event.properties.alert_id}|6h\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 day\"}, \"value\": \"{event.properties.alert_id}|1d\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 week\"}, \"value\": \"{event.properties.alert_id}|1w\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"Pick a date & time…\"}, \"value\": \"{event.properties.alert_id}|custom\"}\n            ]}\n         ]}\n       ]}\n     }\n     # Webhook — must be an https:// URL.\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n     # Discord — incoming webhook URL (https://discord.com/api/webhooks/...). No integration.\n     # Override content with the same shape the alert-wizard UI uses, so agent-created and\n     # UI-created alerts produce identical Discord messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-discord in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"webhookUrl\": {\"value\": \"<discord_webhook_url>\"},\n       \"content\": {\"value\": \"**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\\n{event.properties.breaches}\\n{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n     }\n\n4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,\n   insight_id (short_id), state (always \"Firing\" — the event is only emitted on a firing transition,\n   not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.\n   \"Series A is below 1000\"), and detector metadata: alert_mode (always present), detector_type and\n   ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is\n   available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do\n   not reference value, threshold_lower, or insight_url — those are not emitted.\n\nAfter a successful create, do not stop at a silent success: in chat, tell the user the function was created and offer a link to it. Build the link with the generate-app-url tool, path template /functions/{id} and the created function's id. Never share a URL read from the function's inputs — those are destination endpoints (e.g. incoming webhook URLs) and may grant access to the destination.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Create function",
@@ -1165,8 +1165,36 @@
             "readOnlyHint": false
         }
     },
+    "cdp-functions-discard-draft": {
+        "description": "Throw away the config staged on a function, leaving the live config untouched. Idempotent — discarding when nothing is staged is a no-op. Returns 400 when drafts aren't enabled for the project.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Discard staged changes",
+        "title": "Discard staged changes",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-get-revision": {
+        "description": "Get one version of a function's config by version number, including the full snapshot (hog, inputs_schema, inputs, filters, mappings, masking) as it was at that version. Secret input values are never included. Use cdp-functions-list-revisions first to find the version you want.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Get function revision",
+        "title": "Get function revision",
+        "required_scopes": ["hog_function:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "cdp-functions-invocations-create": {
-        "description": "Test-invoke a function with a mock event payload. Sends the function configuration and test data to the plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to simulate external calls like fetch() without making real HTTP requests.",
+        "description": "Test-invoke a function with a mock event payload. Sends the function configuration and test data to the plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to simulate external calls like fetch() without making real HTTP requests. To test config that is staged for review, pass 'use_draft: true' instead of a 'configuration' — staged secret inputs are used, so the test exercises exactly what publishing would ship.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Test-invoke function",
@@ -1185,6 +1213,20 @@
         "feature": "hog_functions",
         "summary": "List functions",
         "title": "List functions",
+        "required_scopes": ["hog_function:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-functions-list-revisions": {
+        "description": "List a function's config versions, newest first — one per change to its live config, with who made it and when. The config itself is not included; fetch a single version with cdp-functions-get-revision, then stage it for review with cdp-functions-restore-revision. Returns 400 when revision history isn't enabled for the project.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "List function revisions",
+        "title": "List function revisions",
         "required_scopes": ["hog_function:read"],
         "annotations": {
             "destructiveHint": false,
@@ -1222,7 +1264,7 @@
         }
     },
     "cdp-functions-partial-update": {
-        "description": "Partially update a function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a function, use the cdp-functions-delete tool instead.",
+        "description": "Partially update a function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a function, use the cdp-functions-delete tool instead.\nOn a destination that is currently enabled, config edits (hog, inputs_schema, inputs, filters, mappings, masking) are staged for review rather than applied — they show up as 'draft' on the function and do not change what is running. Name, description and enable/disable still apply immediately, except that enabling a function with staged config is refused until it is published or discarded. Tell the user what you staged and that they need to publish it; publish it yourself only when they ask, with cdp-functions-publish. Discard it with cdp-functions-discard-draft. To test a staged config before publishing, call cdp-functions-invocations-create with 'use_draft: true'. Optionally pass 'base_updated_at' (the draft_updated_at or updated_at you last read) to fail with 409 instead of overwriting a concurrent edit.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Update function",
@@ -1231,6 +1273,20 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-publish": {
+        "description": "Apply the config staged on a function to what is actually running. Two steps, and the first is mandatory on an enabled function: call it without 'confirm' to see which config fields would change and get a 'confirm_token', then call it again with confirm=true and that token. The token expires after 15 minutes, and any further edit to either the staged config or the live config invalidates it (409) — so you always publish exactly what you previewed, and never silently overwrite someone else's edit. A disabled function processes nothing, so publishing into one skips the token. Returns 400 when nothing is staged, when the token is missing or expired, or when drafts aren't enabled for the project.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Publish staged changes",
+        "title": "Publish staged changes",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -1244,6 +1300,20 @@
         "required_scopes": ["hog_function:write"],
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-restore-revision": {
+        "description": "Roll a function back to an earlier version by staging that version's config for review. Nothing goes live here — finish with cdp-functions-publish so the rollback is previewed and confirmed like any other change. Returns 409 when config is already staged; pass overwrite=true to replace it.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Restore function revision",
+        "title": "Restore function revision",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -2174,7 +2244,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-certification-propose": {
-        "description": "Propose a trust mark on a warehouse table or view. Address the target by id, or by name (an ambiguous name returns the candidate ids to pick from).",
+        "description": "Propose a trust mark on a warehouse table or view. Address the target by id, or by name (an ambiguous name returns the candidate ids to pick from). Pass proposed_status 'deprecated' to propose deprecating a stale or wrong source; an approver settles the proposal with the certify or deprecate tool.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Propose a table/view certification",
@@ -3506,6 +3576,20 @@
             "readOnlyHint": false
         }
     },
+    "experiment-create-from-prompt": {
+        "description": "Create a draft experiment that compares versions of an existing LLM prompt (managed with the llma-prompt tools). Pass the prompt's exact name (call llma-prompt-list to discover names), two or more of its version numbers (the first entry becomes the control variant), and one or more metric templates — call experiment-prompt-templates for the allowed template keys. Builds one variant per version, each carrying a feature flag payload with the prompt name and version so the SDK can resolve which version to serve, and attaches one primary metric per template, scoped to the prompt. The feature flag is auto-created — do not create one separately. Launch the experiment with the launch tool when ready.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Create experiment from LLM prompt",
+        "title": "Create experiment from LLM prompt",
+        "required_scopes": ["experiment:write", "llm_prompt:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "experiment-delete": {
         "description": "Delete an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Always confirm by name before deleting.",
         "category": "Experiments",
@@ -3742,6 +3826,20 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "experiment-prompt-templates": {
+        "description": "List the metric templates accepted by experiment-create-from-prompt. Each entry has a key (the value to pass in that tool's templates parameter), a label, and a description of what the metric measures.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "List LLM prompt metric templates",
+        "title": "List LLM prompt metric templates",
+        "required_scopes": ["experiment:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "experiment-reset": {
@@ -7208,6 +7306,34 @@
             "readOnlyHint": false
         }
     },
+    "opt-outs-add": {
+        "description": "Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own message category via category_key; entries without one use the request-level category_key, or all marketing messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Add recipients to the opt-out list",
+        "title": "Add recipients to the opt-out list",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "opt-outs-list": {
+        "description": "List recipients opted out of a message category, most recently updated first. Omit category_key to list recipients opted out of all marketing messages.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "List opt-outs",
+        "title": "List opt-outs",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "org-member-get-github-login": {
         "description": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
         "category": "Platform Features",
@@ -7421,7 +7547,7 @@
         }
     },
     "pr-lifecycle": {
-        "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". metric_quality is \"partial\" — it covers CI events only; review and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.",
+        "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events — opened, ready for review, converted to draft, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". Draft/ready transitions appear only when the issue-events table is synced and cover a bounded recent window. metric_quality is \"partial\" — review and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "PR lifecycle timeline",
@@ -7576,7 +7702,7 @@
         }
     },
     "pull-requests": {
-        "description": "Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI rollup (runs / passing / failing / pending). Use this for \"which PRs are stuck\", \"which open PRs have failing or pending CI\", and per-author or per-repo PR triage. open_to_merge_seconds is coarse — it is merged_at minus created_at and fuses draft and ready-for-review time, so report it as \"open to merge\", never \"cycle time\". CI counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput questions.",
+        "description": "Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI rollup (runs / passing / failing / pending). Use this for \"which PRs are stuck\", \"which open PRs have failing or pending CI\", and per-author or per-repo PR triage. open_to_merge_seconds is coarse — it is merged_at minus created_at and fuses draft and ready-for-review time, so report it as \"open to merge\", never \"cycle time\". ready_to_merge_seconds is the true cycle time: merged_at minus the last observed ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null means \"not observed\" (the issue-events window is bounded), never zero. CI counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput questions.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "List pull requests with CI status",
@@ -7712,8 +7838,8 @@
     },
     "query-llm-trace": {
         "description": "Fetch a single LLM trace by its trace ID for deep inspection. Returns the complete trace with all nested events and their full properties — including inputs, outputs, model parameters, costs, and errors. Use after finding a trace via `query-llm-traces-list` to inspect the complete event tree.\n\nUse cases:\n\n- Inspect the full input/output of each generation in a trace\n- Debug a specific error trace found in the list\n- Examine the agent's decision-making flow across spans\n- Review tool calls and their results within a trace\n- Analyze token usage and costs per generation\n\nCRITICAL: This tool requires a `traceId`. Get the trace ID from `query-llm-traces-list` results first.\n\n# Response shape\n\nThe response contains a single trace in JSON format with:\n\n- `id` — the trace ID\n- `traceName` — name of the trace (if set via SDK)\n- `createdAt` — timestamp of the first event in the trace\n- `distinctId` — the person's distinct ID\n- `aiSessionId` — session ID grouping related traces (e.g., a conversation)\n- `totalLatency` — total latency in seconds\n- `inputTokens` / `outputTokens` — token counts across all generations\n- `inputCost` / `outputCost` / `totalCost` — costs in USD\n- `inputState` / `outputState` — JSON input/output state from the root `$ai_trace` event (e.g., conversation messages)\n- `events` — **all** child events in the trace at every nesting depth (not just direct children). Each event has full `properties`.\n\nUnlike `query-llm-traces-list`, this tool does NOT return `errorCount`, `isSupportTrace`, or `tools` — those are summary fields on the list tool only.\n\n# Event types and their properties\n\nEach event in `events` has an `event` field indicating its type. Key properties vary by type:\n\n- **`$ai_generation`** / **`$ai_embedding`** — an LLM or embedding API call. Properties include `$ai_input` (input prompt JSON), `$ai_output_choices` (output message JSON), `$ai_model`, `$ai_provider`, `$ai_latency`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_input_cost_usd`, `$ai_output_cost_usd`, `$ai_total_cost_usd`, `$ai_tools_called`, `$ai_is_error`, `$ai_error`.\n- **`$ai_span`** — a unit of work within a trace (e.g., a retrieval step, tool execution). Properties include `$ai_input_state`, `$ai_output_state`, `$ai_latency`, `$ai_span_name`, `$ai_parent_id`.\n- **`$ai_metric`** — a named evaluation metric. Properties include `$ai_metric_name`, `$ai_metric_value`.\n- **`$ai_feedback`** — user-provided feedback. Properties include `$ai_feedback_text`.\n\nNote: `$ai_trace` events are NOT included in the `events` array — their data is surfaced via the trace-level `inputState`, `outputState`, and `traceName` fields.\n\n# Tree structure (IDs and parent-child relationships)\n\nEvents in a trace form a tree. Each event carries three IDs that define its position:\n\n- `$ai_trace_id` — present on every event, identifies which trace it belongs to (same as the trace's `id`)\n- `$ai_span_id` (or `$ai_generation_id` for generations) — the event's own unique identifier\n- `$ai_parent_id` — points to the parent event's `$ai_span_id`\n\nTo reconstruct the tree:\n\n1. Events where `$ai_parent_id` equals `$ai_trace_id` are **root-level children** of the trace\n2. Other events are children of the event whose `$ai_span_id` matches their `$ai_parent_id`\n3. Group events by `$ai_parent_id` and walk from root children downward\n\nGenerations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf nodes. Spans (`$ai_span`) can have children.\n\n# Examples\n\n## Fetch a trace by ID\n\n```json\n{\n  \"kind\": \"TraceQuery\",\n  \"traceId\": \"c9222e05-8708-41b8-98ea-d4a21849e761\"\n}\n```\n\n## Fetch with a date range hint\n\nIf the trace is old, provide a date range to help the query find it efficiently:\n\n```json\n{\n  \"kind\": \"TraceQuery\",\n  \"traceId\": \"c9222e05-8708-41b8-98ea-d4a21849e761\",\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```\n\n# Response size\n\nTo protect the agent's context window, very large traces are compacted before they reach you. Long string values are truncated (with a `… [truncated N chars]` marker), oversized arrays and objects have their tail members dropped (`… [N more items omitted]` / an `_omittedKeys` count), and if a trace is still over the size limit, trailing events are dropped and a `_truncated` object reports how many events were omitted. When you see any of these markers, open the trace in PostHog for the full, untruncated data, or narrow the query to the specific events you need. The underlying trace data is never altered — only this response is bounded.\n\n# Reminders\n\n- Always get the `traceId` from `query-llm-traces-list` results — do not guess or fabricate trace IDs.\n- If no date range is provided, the default lookback window is used. For older traces, provide an explicit `dateRange`.\n- The `events` array contains ALL events in the trace (including deeply nested ones), making this suitable for full tree reconstruction.\n- Use `query-llm-traces-list` first to find traces, then this tool to inspect a specific one.",
-        "category": "Query wrappers",
-        "feature": "insights",
+        "category": "AI observability",
+        "feature": "llm_analytics",
         "summary": "Get LLM trace",
         "title": "Get LLM trace",
         "required_scopes": ["query:read"],
@@ -7727,8 +7853,8 @@
     },
     "query-llm-traces-list": {
         "description": "List LLM traces to inspect AI/LLM usage across your application. Returns traces with their events, latency, token usage, costs, errors, and other metadata. Use this tool for AI observability — debugging slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.\n\nUse 'read-data-schema' to discover available event properties for filtering (e.g. `$ai_model`, `$ai_provider`).\n\nExamples of use cases include:\n\n- How much are we spending on LLM tokens per day?\n- Which LLM generations are the slowest?\n- Are there any traces with errors in the last 24 hours?\n- What models are being used and how do their costs compare?\n- Show me traces for a specific user to debug their experience.\n- Are there any traces with unusually high token usage?\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Common AI properties include `$ai_model`, `$ai_provider`, `$ai_trace_id`, `$ai_session_id`, `$ai_latency`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_total_cost_usd`, `$ai_is_error`, `$ai_http_status`, `$ai_span_name`.\n- **Note:** `$ai_is_error` and `$ai_error` are valid filter properties but may not appear via `read-data-schema`. Use `$ai_is_error` with operator `exact` and value `[\"true\"]` to find error traces, or use `$ai_error` with `is set` to find traces with error messages.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 7 days as a default time period.\n\n# Traces guidelines\n\nThis is a listing tool, not a visualization/insight tool. It returns a paginated list of LLM traces — it does NOT support series, breakdowns, math aggregations, or chart types.\n\n## Response shape\n\nEach trace in the results contains:\n\n- `id` — unique trace ID\n- `traceName` — name of the trace (if set via SDK)\n- `createdAt` — timestamp of the first event in the trace\n- `distinctId` — the person's distinct ID\n- `aiSessionId` — session ID grouping related traces (e.g., a conversation)\n- `totalLatency` — total latency in seconds\n- `inputTokens` / `outputTokens` — token counts across all generations in the trace\n- `inputCost` / `outputCost` / `totalCost` — costs in USD\n- `inputState` / `outputState` — JSON input/output state of the trace (e.g., conversation messages), from the `$ai_trace` event\n- `errorCount` — number of errors in the trace\n- `isSupportTrace` — whether the trace was from a support impersonation session\n- `tools` — list of tool names called during the trace\n- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the full event data — see \"Event types and their properties\" below.\n\n## Event types and their properties\n\nEach event in `events` has an `event` field indicating its type. The key properties vary by type:\n\n- **`$ai_generation`** / **`$ai_embedding`** — an LLM or embedding API call. Properties include `$ai_input` (input prompt JSON), `$ai_output_choices` (output message JSON), `$ai_model`, `$ai_provider`, `$ai_latency`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_input_cost_usd`, `$ai_output_cost_usd`, `$ai_total_cost_usd`, `$ai_tools_called`, `$ai_is_error`, `$ai_error`.\n- **`$ai_span`** — a unit of work within a trace (e.g., a retrieval step, a tool execution). Properties include `$ai_input_state`, `$ai_output_state`, `$ai_latency`, `$ai_span_name`, `$ai_parent_id`.\n- **`$ai_trace`** — the root trace event. Properties include `$ai_input_state` (e.g., conversation messages sent), `$ai_output_state` (e.g., final response), `$ai_span_name`.\n- **`$ai_metric`** — a named evaluation metric. Properties include `$ai_metric_name`, `$ai_metric_value`.\n- **`$ai_feedback`** — user-provided feedback. Properties include `$ai_feedback_text`.\n\nAll event types share `$ai_trace_id`, `$ai_span_id`, and `$ai_parent_id` for tree structure (see below).\n\n## Tree structure (IDs and parent-child relationships)\n\nEvents in a trace form a tree. Each event carries three IDs that define its position:\n\n- `$ai_trace_id` — present on every event, identifies which trace it belongs to (same as the trace's `id`)\n- `$ai_span_id` (or `$ai_generation_id` for generations) — the event's own unique identifier\n- `$ai_parent_id` — points to the parent event's `$ai_span_id`\n\nTo reconstruct the tree:\n\n1. Events where `$ai_parent_id` equals `$ai_trace_id` are **root-level children** of the trace\n2. Other events are children of the event whose `$ai_span_id` matches their `$ai_parent_id`\n3. Group events by `$ai_parent_id` and walk from root children downward\n\nGenerations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf nodes. Spans (`$ai_span`) can have children.\n\n**Important:** This list tool only returns **direct children** of the trace (events where `$ai_parent_id` = trace ID) plus all `$ai_metric` and `$ai_feedback` events — NOT deeply nested events. For the full event tree with all nested children, use `query-llm-trace` with the trace's `id`.\n\n## Response size\n\nTo protect the agent's context window, the response is bounded before it reaches you. Long string values are truncated (with a `… [truncated N chars]` marker) and oversized arrays/objects have their tail members dropped. If the combined list is still too large, trailing traces are dropped and a final `{ \"_truncated\": { \"omittedTraces\": N, ... } }` entry reports how many. When you see these markers, narrow the query (shorter date range, filters, or a smaller `limit`) or fetch a specific trace with `query-llm-trace`. The underlying data is never altered — only this response is bounded.\n\n## Pagination\n\nUse `limit` and `offset` for pagination. The default limit is 100. The response includes a `hasMore` field indicating whether more results are available.\n\n## Filtering\n\n- `filterTestAccounts` — exclude internal/test users\n- `filterSupportTraces` — exclude support impersonation traces\n- `personId` — filter by a specific person UUID\n- `groupKey` + `groupTypeIndex` — filter by a specific group\n- `randomOrder` — use random ordering instead of newest-first (useful for representative sampling)\n\n# Examples\n\n## Recent traces with errors\n\n```json\n{\n  \"kind\": \"TracesQuery\",\n  \"dateRange\": { \"date_from\": \"-7d\" },\n  \"filterTestAccounts\": true,\n  \"properties\": [{ \"key\": \"$ai_is_error\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"true\"] }],\n  \"limit\": 50\n}\n```\n\n## Traces for a specific model\n\n```json\n{\n  \"kind\": \"TracesQuery\",\n  \"dateRange\": { \"date_from\": \"-7d\" },\n  \"filterTestAccounts\": true,\n  \"properties\": [{ \"key\": \"$ai_model\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"gpt-4o\"] }]\n}\n```\n\n## Traces for a specific person\n\n```json\n{\n  \"kind\": \"TracesQuery\",\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"personId\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filterTestAccounts\": true\n}\n```\n\n## Random sample of traces (avoids recency bias)\n\n```json\n{\n  \"kind\": \"TracesQuery\",\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true,\n  \"randomOrder\": true,\n  \"limit\": 20\n}\n```\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.\n- This tool returns raw trace data — it does not aggregate or visualize. For aggregated LLM metrics over time (e.g. total token usage per day), use `query-trends` with AI events like `$ai_generation` instead.\n- Use `filterTestAccounts: true` by default to exclude internal users unless the user asks otherwise.\n- The default time range is last 7 days. LLM trace data tends to be recent, so shorter ranges are usually appropriate.\n- For deep inspection of a single trace (full event tree with all nested children and complete properties), use `query-llm-trace` with the trace's `id`.",
-        "category": "Query wrappers",
-        "feature": "insights",
+        "category": "AI observability",
+        "feature": "llm_analytics",
         "summary": "List LLM traces",
         "title": "List LLM traces",
         "required_scopes": ["query:read"],
@@ -11215,6 +11341,37 @@
             "readOnlyHint": false
         }
     },
+    "web-analytics-path-cleaning-suggestions-apply": {
+        "description": "Apply a suggested set of path-cleaning rules by its health-issue `id`, merging them into the project's path cleaning configuration. Existing rules are never overwritten — only new rules are appended — and the underlying `path_cleaning_suggestions` health issue is resolved. Returns how many rules were added. Requires project admin (the same gate as editing path cleaning rules in team settings). Applying changes historical numbers in every Web analytics and Paths chart that has cleaning enabled, so confirm with the user before calling this.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Apply a path-cleaning suggestion",
+        "title": "Apply a path-cleaning suggestion",
+        "required_scopes": ["web_analytics:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "web-analytics-path-cleaning-suggestions"
+    },
+    "web-analytics-path-cleaning-suggestions-generate": {
+        "description": "Analyze the project's recent URL paths and generate suggested path-cleaning rules on demand. Samples the most-viewed paths, asks the model for `{regex, alias}` rules, and validates each against the real paths (dropping any that don't match), then stores the result as a `path_cleaning_suggestions` health issue. Returns `status` ('generated' with a `suggestion`, or a skip reason like 'skipped_no_paths' / 'skipped_low_cardinality' when there isn't enough to suggest from). Pending suggestions surface through the health-issues API (filter `kind=path_cleaning_suggestions`); dismiss one by PATCHing the issue's `dismissed` flag. Use when the user asks to clean up or normalize their paths and no suggestion exists yet. This only proposes rules — apply them with `web-analytics-path-cleaning-suggestions-apply`; nothing changes until then.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Generate path-cleaning suggestions",
+        "title": "Generate path-cleaning suggestions",
+        "required_scopes": ["web_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "web-analytics-path-cleaning-suggestions"
+    },
     "web-analytics-weekly-digest": {
         "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
         "category": "Web analytics",
@@ -11315,7 +11472,7 @@
         }
     },
     "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish; if draft editing isn't enabled for the project yet, a live change means recreating the workflow as a new draft.",
+        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Enable workflow",
@@ -11483,7 +11640,7 @@
         }
     },
     "workflows-patch-action-email": {
-        "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
+        "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch a workflow step's email",
@@ -11511,7 +11668,7 @@
         }
     },
     "workflows-patch-graph": {
-        "description": "Surgically edit a workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any graph change — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until workflows-publish. A rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft. The full updated workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
+        "description": "Surgically edit a workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any graph change — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until workflows-publish. The full updated workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch workflow graph",
@@ -11623,7 +11780,7 @@
         }
     },
     "workflows-update": {
-        "description": "Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet - then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable / workflows-archive.",
+        "description": "Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately. Status changes go through workflows-enable / workflows-archive.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

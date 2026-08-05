@@ -18,7 +18,11 @@ import {
 import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocation } from '../types'
-import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals, logEntry } from '../utils'
+import {
+    convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals,
+    convertBatchHogFlowRequestToHogFunctionInvocationGlobals,
+    logEntry,
+} from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterBatchHogFlowTriggerFailed } from './metrics'
@@ -187,17 +191,33 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             return
         }
 
-        let page
+        const isAccountAudience = state.filters.audience_type === 'accounts'
+
+        // Normalized page shape so budget/truncation/state logic below stays single-path.
+        let page: { ids: string[]; cursor: string | null; has_more: boolean; accountGroupType?: string }
         try {
-            page = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
-                this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
-                    team,
-                    state.filters,
-                    state.groupTypeIndex,
-                    state.cursor,
-                    state.dedupeKey
+            if (isAccountAudience) {
+                const accountPage = await instrumentFn('cdpBatchResolve.getAccountAudiencePage', () =>
+                    this.hogFlowBatchPersonQueryService.getAccountAudiencePage(team, state.filters, state.cursor)
                 )
-            )
+                page = {
+                    ids: accountPage.accounts,
+                    cursor: accountPage.cursor,
+                    has_more: accountPage.has_more,
+                    accountGroupType: accountPage.group_type,
+                }
+            } else {
+                const personsPage = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
+                    this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
+                        team,
+                        state.filters,
+                        state.groupTypeIndex,
+                        state.cursor,
+                        state.dedupeKey
+                    )
+                )
+                page = { ids: personsPage.users_affected, cursor: personsPage.cursor, has_more: personsPage.has_more }
+            }
         } catch (err) {
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'fetch_failure' }).inc()
             const nextAttempts = state.attempts + 1
@@ -239,20 +259,30 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         // up to one full page's worth of children before the next dequeue
         // notices and stops.
         const remainingBudget = Math.max(0, state.maxAudienceSize - state.totalEnqueued)
-        const eligibleUsers = page.users_affected.slice(0, remainingBudget)
-        const pageTruncated = eligibleUsers.length < page.users_affected.length
+        const eligibleIds = page.ids.slice(0, remainingBudget)
+        const pageTruncated = eligibleIds.length < page.ids.length
 
         const defaultVariables = mergeDefaultVariables(hogFlow.variables, state.variables)
-        const children: CyclotronV2JobInit[] = eligibleUsers.map((personId) =>
+        const children: CyclotronV2JobInit[] = eligibleIds.map((id) =>
             invocationToV2JobInit(
-                buildHogFlowInvocation({
-                    siteUrl: this.config.SITE_URL,
-                    parentRunId: state.batchJobId,
-                    team,
-                    hogFlowId: hogFlow.id,
-                    personId,
-                    defaultVariables,
-                })
+                isAccountAudience
+                    ? buildAccountHogFlowInvocation({
+                          siteUrl: this.config.SITE_URL,
+                          parentRunId: state.batchJobId,
+                          team,
+                          hogFlowId: hogFlow.id,
+                          externalId: id,
+                          groupType: page.accountGroupType ?? '',
+                          defaultVariables,
+                      })
+                    : buildHogFlowInvocation({
+                          siteUrl: this.config.SITE_URL,
+                          parentRunId: state.batchJobId,
+                          team,
+                          hogFlowId: hogFlow.id,
+                          personId: id,
+                          defaultVariables,
+                      })
             )
         )
 
@@ -284,7 +314,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
         logger.info(
             '📝',
-            `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} persons (${newState.totalEnqueued} total, ${newState.pagesProcessed} pages)`
+            `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} (${newState.totalEnqueued} total, ${newState.pagesProcessed} pages)`
         )
     }
 
@@ -432,6 +462,45 @@ function mergeDefaultVariables(
         defaults[variable.key] = variable.default ?? null
     }
     return { ...defaults, ...runOverrides }
+}
+
+// Mirrors buildHogFlowInvocation for an account audience: the invocation carries the
+// account's group key (via $groups and distinct_id) and no person at all — the hogflow
+// worker skips person resolution for account audiences.
+export function buildAccountHogFlowInvocation(params: {
+    siteUrl: string
+    parentRunId: string
+    team: Team
+    hogFlowId: string
+    externalId: string
+    groupType: string
+    defaultVariables: Record<string, unknown>
+}): CyclotronJobInvocation {
+    const invocationGlobals = convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals({
+        team: params.team,
+        externalId: params.externalId,
+        groupType: params.groupType,
+        siteUrl: params.siteUrl,
+    })
+
+    const filterGlobals = convertToHogFunctionFilterGlobal(invocationGlobals)
+
+    return {
+        id: new UUIDT().toString(),
+        state: {
+            event: invocationGlobals.event,
+            accountAudience: true,
+            actionStepCount: 0,
+            variables: params.defaultVariables,
+        } as any,
+        teamId: params.team.id,
+        functionId: params.hogFlowId,
+        parentRunId: params.parentRunId,
+        filterGlobals,
+        queue: 'hogflow' as const,
+        queuePriority: 1,
+        queueScheduledAt: DateTime.now(),
+    } as CyclotronJobInvocation
 }
 
 // Mirrors `createHogFlowInvocation` from the legacy Kafka consumer so children

@@ -810,6 +810,39 @@ def test_log_messages_renderer_event_level_log_source_override():
     assert payload["instance_id"] == "abc-run-id"
 
 
+def test_log_messages_renderer_keeps_structured_fields_out_of_the_produce_message():
+    """Only the message text reaches `log_entries`; other event keys stay in the written log.
+
+    Callers rely on this to keep sensitive values (compiled SQL, credentials) out of the rows
+    users can read, by passing them as fields instead of interpolating them into the message.
+    """
+    from posthog.temporal.common.logger import Logger, LogMessagesRenderer
+
+    renderer = LogMessagesRenderer(event_key="msg")
+    event_dict = {
+        "msg": "Running clickhouse query",
+        "query": "SELECT secret_column FROM some_private_table",
+        "level": "debug",
+        "team_id": 2,
+        "timestamp": "2024-01-01 00:00:00.000000",
+        "workflow_type": "data-modeling-materialize-view",
+        "workflow_id": "materialize-view-abc-def",
+        "workflow_run_id": "abc-run-id",
+        "log_source": "data_modeling_run",
+        "log_source_id": "019df430-79ff-0000-4434-e9fc02f7216b",
+    }
+
+    rendered = renderer(logger=cast(Logger, None), name="debug", event_dict=event_dict)
+
+    assert rendered["produce_message"] is not None
+    assert rendered["write_message"] is not None
+
+    produced = rendered["produce_message"].decode("utf-8")
+    assert json.loads(produced)["message"] == "Running clickhouse query"
+    assert "secret_column" not in produced
+    assert "secret_column" in rendered["write_message"]
+
+
 def test_log_messages_renderer_appends_resource_to_message():
     """`resource_name` / `resource` in the event dict gets appended to the produce message text.
 
