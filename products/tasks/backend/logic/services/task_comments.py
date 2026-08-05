@@ -36,11 +36,14 @@ def _bounded_anchor(comment: Comment) -> dict | None:
     if not isinstance(anchor, dict):
         return None
     kind = anchor.get("kind")
-    bounded = {"kind": kind}
-    allowed_fields = {
+    allowed_fields_by_kind: dict[str, tuple[str, ...]] = {
         "text": ("prefix", "suffix", "start", "end"),
         "region": ("x", "y", "width", "height"),
-    }.get(kind, ())
+    }
+    if not isinstance(kind, str) or kind not in allowed_fields_by_kind:
+        return None
+    bounded = {"kind": kind}
+    allowed_fields = allowed_fields_by_kind[kind]
     for field in allowed_fields:
         if field in anchor:
             bounded[field] = anchor[field]
