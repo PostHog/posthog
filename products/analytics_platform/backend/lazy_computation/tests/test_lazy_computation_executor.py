@@ -31,7 +31,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     DEFAULT_RETRIES,
     DEFAULT_TTL_SCHEDULE,
     DEFAULT_WAIT_TIMEOUT_SECONDS,
-    EMPTY_RESULT_TTL_SECONDS,
     EXPIRY_BUFFER_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
     PREAGGREGATION_INSERT_QUORUM,
@@ -1314,6 +1313,30 @@ class TestParseTtlSchedule(BaseTest):
         with pytest.raises(ValueError, match="must be positive"):
             parse_ttl_schedule(ttl)
 
+    @parameterized.expand(
+        [
+            ("zero_empty_ttl", {"empty_result_ttl_seconds": 0}),
+            ("negative_empty_ttl", {"empty_result_ttl_seconds": -60}),
+            ("zero_max_age", {"empty_result_max_age_seconds": 0}),
+            ("negative_max_age", {"empty_result_max_age_seconds": -60}),
+        ]
+    )
+    def test_rejects_non_positive_empty_result_settings(self, name, kwargs):
+        # Validated like every sibling TTL: 0 would expire a job the moment it is created.
+        with pytest.raises(ValueError, match="must be positive"):
+            parse_ttl_schedule(3600, **kwargs)
+
+    def test_carries_empty_result_settings(self):
+        schedule = parse_ttl_schedule(
+            {"default": 3600}, "UTC", empty_result_ttl_seconds=600, empty_result_max_age_seconds=86400
+        )
+        assert schedule.empty_result_ttl_seconds == 600
+        assert schedule.empty_result_max_age_seconds == 86400
+
+        uncapped = parse_ttl_schedule(3600)
+        assert uncapped.empty_result_ttl_seconds is None
+        assert uncapped.empty_result_max_age_seconds is None
+
 
 class TestSplitRangesByTtl(BaseTest):
     def test_single_range_uniform_ttl(self):
@@ -1657,6 +1680,7 @@ class TestComputationExecutorExecute(BaseTest):
     # a capped TTL for that case.
 
     LONG_TTL = 7 * 24 * 60 * 60
+    EMPTY_TTL = 6 * 60 * 60
 
     def _expires_in_seconds(self, job_id) -> float:
         job = PreaggregationJob.objects.get(id=job_id)
@@ -1676,11 +1700,11 @@ class TestComputationExecutorExecute(BaseTest):
     def test_zero_row_insert_caps_ttl_when_opted_in(self):
         result = self._execute_with_insert(
             lambda t, j: 0,
-            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=EMPTY_RESULT_TTL_SECONDS),
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=self.EMPTY_TTL),
         )
 
         assert result.ready is True
-        assert abs(self._expires_in_seconds(result.job_ids[0]) - EMPTY_RESULT_TTL_SECONDS) < 100
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.EMPTY_TTL) < 100
 
     def test_zero_row_insert_keeps_band_ttl_when_not_opted_in(self):
         # Shared infrastructure: a caller whose source can't lag (event tables) is unaffected.
@@ -1693,7 +1717,7 @@ class TestComputationExecutorExecute(BaseTest):
         one_hour = 60 * 60
         result = self._execute_with_insert(
             lambda t, j: 0,
-            TtlSchedule.from_seconds(one_hour, empty_result_ttl_seconds=EMPTY_RESULT_TTL_SECONDS),
+            TtlSchedule.from_seconds(one_hour, empty_result_ttl_seconds=self.EMPTY_TTL),
         )
 
         assert result.ready is True
@@ -1703,7 +1727,7 @@ class TestComputationExecutorExecute(BaseTest):
     def test_productive_insert_keeps_the_band_ttl(self):
         result = self._execute_with_insert(
             lambda t, j: 42,
-            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=EMPTY_RESULT_TTL_SECONDS),
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=self.EMPTY_TTL),
         )
 
         assert result.ready is True
@@ -1713,7 +1737,54 @@ class TestComputationExecutorExecute(BaseTest):
         # Returning None isn't a claim that the window was empty, so leave the TTL alone.
         result = self._execute_with_insert(
             lambda t, j: None,
-            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=EMPTY_RESULT_TTL_SECONDS),
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=self.EMPTY_TTL),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_empty_window_older_than_the_max_age_keeps_the_band_ttl(self):
+        # Past the horizon a sync could deliver in, empty means empty. Re-capping forever would
+        # turn the long band into a rescan of history that will never change. The fixed 2024
+        # window the helper uses is far outside any sane max age.
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(
+                self.LONG_TTL,
+                empty_result_ttl_seconds=self.EMPTY_TTL,
+                empty_result_max_age_seconds=14 * 24 * 60 * 60,
+            ),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_empty_window_inside_the_max_age_is_still_capped(self):
+        query_info, _ = self._make_query_info()
+        # A window that ended an hour ago is well inside the horizon.
+        end = django_timezone.now()
+        result = LazyComputationExecutor(
+            ttl_schedule=TtlSchedule.from_seconds(
+                self.LONG_TTL,
+                empty_result_ttl_seconds=self.EMPTY_TTL,
+                empty_result_max_age_seconds=14 * 24 * 60 * 60,
+            )
+        ).execute(
+            team=self.team,
+            query_info=query_info,
+            start=end - timedelta(hours=1),
+            end=end,
+            run_insert=lambda t, j: 0,
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.EMPTY_TTL) < 100
+
+    def test_max_age_alone_does_not_cap_anything(self):
+        # The horizon only bounds an opt-in that must still be made explicitly.
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_max_age_seconds=14 * 24 * 60 * 60),
         )
 
         assert result.ready is True
@@ -3030,6 +3101,70 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
 
         assert mock_execute.call_count == 1
         assert mock_execute.call_args.kwargs["settings"] == _get_insert_settings(self.team.pk)
+
+
+class TestInsertsReportRowsWritten(BaseTest):
+    """Both insert wrappers must hand `sync_execute`'s row count back to the executor.
+
+    The empty-window cap keys entirely on this return value, and `None` is deliberately read as
+    "no claim of emptiness" — so a wrapper that stopped returning would disable the cap silently,
+    with no exception and no failing assertion anywhere else.
+    """
+
+    INSERT_QUERY = TestInsertSettingsAppliedToInserts.INSERT_QUERY
+
+    def _pending_job(self) -> PreaggregationJob:
+        return PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+    def _query_info(self) -> QueryInfo:
+        query = parse_select(
+            self.INSERT_QUERY,
+            placeholders={
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 2, tzinfo=UTC)),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+
+    @parameterized.expand([("productive", 42, 42), ("empty_passthrough", [], 0), ("empty_none", None, 0)])
+    def test_ast_insert_returns_rows_written(self, _name, sync_execute_result, expected):
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            return_value=sync_execute_result,
+        ):
+            assert run_lazy_computation_insert(self.team, self._pending_job(), self._query_info()) == expected
+
+    @parameterized.expand([("productive", 42, 42), ("empty_passthrough", [], 0), ("empty_none", None, 0)])
+    def test_manual_insert_returns_rows_written(self, _name, sync_execute_result, expected):
+        # `_run_manual_insert` is a closure inside ensure_precomputed, so drive it the way the
+        # executor does and read the count back off the capped TTL.
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            return_value=sync_execute_result,
+        ):
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                ttl_seconds=7 * 24 * 60 * 60,
+                empty_result_ttl_seconds=60 * 60,
+            )
+
+        assert result.ready is True
+        job = PreaggregationJob.objects.get(id=result.job_ids[0])
+        assert job.expires_at is not None
+        expires_in = (job.expires_at - django_timezone.now()).total_seconds()
+        # Only a reported 0 caps the TTL; 42 and None must leave the 7-day band alone.
+        assert abs(expires_in - (60 * 60 if expected == 0 else 7 * 24 * 60 * 60)) < 100
 
 
 class TestMaxWindowDaysCap(BaseTest):

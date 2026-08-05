@@ -58,11 +58,6 @@ DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 # waiting for something else, it expires and is deleted in clickhouse.
 EXPIRY_BUFFER_SECONDS = 48 * 60 * 60  # 48 hours
 
-# Suggested cap for a job that wrote no rows, for callers that opt into
-# `TtlSchedule.empty_result_ttl_seconds`. Short enough that a lagging source heals the same day,
-# long enough that a genuinely empty window isn't re-scanned on every read.
-EMPTY_RESULT_TTL_SECONDS = 6 * 60 * 60  # 6 hours
-
 # Waiting configuration for pending jobs
 DEFAULT_WAIT_TIMEOUT_SECONDS = 180  # 3 minutes
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0  # Initial poll interval (doubles each iteration)
@@ -136,10 +131,15 @@ LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
 # to get average jobs per miss execution (i.e. average miss window size).
 #
 # `finished` outcomes:
-#   - `ready`  → INSERT succeeded, row moved PENDING → READY.
-#   - `failed` → INSERT raised (retryable or non-retryable), row moved PENDING → FAILED.
-#   - `stale`  → another waiter detected the owning executor crashed and marked
-#                the row FAILED via `_try_mark_stale_job_as_failed`.
+#   - `ready`       → INSERT succeeded and wrote rows, row moved PENDING → READY.
+#   - `ready_empty` → INSERT succeeded but wrote no rows, row moved PENDING → READY. Split out
+#                     from `ready` because an empty window is only provisionally computed (see
+#                     `TtlSchedule.empty_result_ttl_seconds`); a climbing share here means a
+#                     source is lagging. Alert on `outcome=~"failed|stale"` rather than
+#                     `outcome!="ready"`, and sum both ready labels for total successes.
+#   - `failed`      → INSERT raised (retryable or non-retryable), row moved PENDING → FAILED.
+#   - `stale`       → another waiter detected the owning executor crashed and marked
+#                     the row FAILED via `_try_mark_stale_job_as_failed`.
 LAZY_COMPUTATION_JOBS_CREATED_TOTAL = Counter(
     "lazy_computation_jobs_created_total",
     "PreaggregationJob rows inserted in PENDING status (one per missing range, per executor).",
@@ -222,7 +222,17 @@ class TtlSchedule:
     `find_missing_contiguous_windows`), so an empty job holding a long band TTL freezes the
     window at zero for that whole TTL even once the data lands. Opt in when a caller reads from
     a source that can lag — data warehouse tables — and leave it `None` when empty genuinely
-    means empty (event tables), since the cap trades recompute work for freshness.
+    means empty (event tables), since the cap trades recompute work for freshness. Note the cap
+    bounds when the window is *recomputed*, not when a reader stops seeing zero: a caller serving
+    stale within a grace (`stale_while_revalidate_seconds`) can hand back the empty window for up
+    to the cap plus that grace.
+
+    `empty_result_max_age_seconds` bounds *which* empty windows get that cap, measured from
+    `time_range_end` to now. The cap only buys something while a sync could still deliver the
+    window; past that, empty almost certainly means empty, and re-capping forever turns a 7-day
+    band TTL into a 6-hourly rescan of history that will never change (~28x the insert work on a
+    long warmer window). Windows older than this keep their full band TTL. `None` caps every
+    empty window regardless of age.
 
     Use parse_ttl_schedule() to create from user-facing dict format.
     """
@@ -232,6 +242,7 @@ class TtlSchedule:
     max_window_days: int | None = None
     settling_period_seconds: int | None = None
     empty_result_ttl_seconds: int | None = None
+    empty_result_max_age_seconds: int | None = None
 
     def get_ttl(self, window_start: datetime) -> int:
         for cutoff, ttl in self.rules:
@@ -239,9 +250,34 @@ class TtlSchedule:
                 return ttl
         return self.default_ttl_seconds
 
+    def empty_result_expires_at(self, computed_at: datetime, window_end: datetime) -> datetime | None:
+        """When a zero-row job for this window should expire, or None to keep the band TTL.
+
+        A ceiling, never a floor: the caller takes `min` with the band expiry, so a short band
+        (today's window) still comes back sooner than the cap.
+        """
+        if self.empty_result_ttl_seconds is None:
+            return None
+        if (
+            self.empty_result_max_age_seconds is not None
+            and (computed_at - window_end).total_seconds() > self.empty_result_max_age_seconds
+        ):
+            return None
+        return computed_at + timedelta(seconds=self.empty_result_ttl_seconds)
+
     @classmethod
-    def from_seconds(cls, ttl_seconds: int, empty_result_ttl_seconds: int | None = None) -> "TtlSchedule":
-        return cls(rules=[], default_ttl_seconds=ttl_seconds, empty_result_ttl_seconds=empty_result_ttl_seconds)
+    def from_seconds(
+        cls,
+        ttl_seconds: int,
+        empty_result_ttl_seconds: int | None = None,
+        empty_result_max_age_seconds: int | None = None,
+    ) -> "TtlSchedule":
+        return cls(
+            rules=[],
+            default_ttl_seconds=ttl_seconds,
+            empty_result_ttl_seconds=empty_result_ttl_seconds,
+            empty_result_max_age_seconds=empty_result_max_age_seconds,
+        )
 
 
 DEFAULT_TTL_SCHEDULE = TtlSchedule.from_seconds(DEFAULT_TTL_SECONDS)
@@ -253,6 +289,7 @@ def parse_ttl_schedule(
     max_window_days: int | None = None,
     settling_period_seconds: int | None = None,
     empty_result_ttl_seconds: int | None = None,
+    empty_result_max_age_seconds: int | None = None,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -270,6 +307,13 @@ def parse_ttl_schedule(
 
     Raises ValueError for unrecognized keys or non-positive TTL values.
     """
+    # Validated like every other TTL on the schedule: 0 would expire a job the instant it is
+    # created, leaving the executor to lean on its own no-infinite-loop guard instead.
+    if empty_result_ttl_seconds is not None and empty_result_ttl_seconds <= 0:
+        raise ValueError(f"empty_result_ttl_seconds must be positive, got {empty_result_ttl_seconds}")
+    if empty_result_max_age_seconds is not None and empty_result_max_age_seconds <= 0:
+        raise ValueError(f"empty_result_max_age_seconds must be positive, got {empty_result_max_age_seconds}")
+
     if isinstance(ttl, int):
         if ttl <= 0:
             raise ValueError(f"TTL must be positive, got {ttl}")
@@ -279,6 +323,7 @@ def parse_ttl_schedule(
             max_window_days=max_window_days,
             settling_period_seconds=settling_period_seconds,
             empty_result_ttl_seconds=empty_result_ttl_seconds,
+            empty_result_max_age_seconds=empty_result_max_age_seconds,
         )
 
     tz = ZoneInfo(team_timezone)
@@ -308,6 +353,7 @@ def parse_ttl_schedule(
         max_window_days=max_window_days,
         settling_period_seconds=settling_period_seconds,
         empty_result_ttl_seconds=empty_result_ttl_seconds,
+        empty_result_max_age_seconds=empty_result_max_age_seconds,
     )
 
 
@@ -1046,15 +1092,15 @@ class LazyComputationExecutor:
                             # insert function can't report a count, which is not a claim of
                             # emptiness. `min` because the cap is a ceiling, never a floor: a short
                             # band (today's window) already comes back sooner than the cap.
-                            empty_ttl = self.ttl_schedule.empty_result_ttl_seconds
                             wrote_nothing = rows_written == 0
                             new_job.status = PreaggregationJob.Status.READY
                             new_job.computed_at = django_timezone.now()
-                            if wrote_nothing and empty_ttl is not None and new_job.expires_at is not None:
-                                new_job.expires_at = min(
-                                    new_job.expires_at,
-                                    new_job.computed_at + timedelta(seconds=empty_ttl),
+                            if wrote_nothing and new_job.expires_at is not None:
+                                empty_expires_at = self.ttl_schedule.empty_result_expires_at(
+                                    new_job.computed_at, range_end
                                 )
+                                if empty_expires_at is not None:
+                                    new_job.expires_at = min(new_job.expires_at, empty_expires_at)
                             new_job.save()
                             publish_job_completion(new_job.id, "ready")
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
@@ -1272,6 +1318,7 @@ def ensure_precomputed(
     modifiers: HogQLQueryModifiers | None = None,
     run_inserts: bool = True,
     empty_result_ttl_seconds: int | None = None,
+    empty_result_max_age_seconds: int | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1307,6 +1354,9 @@ def ensure_precomputed(
                        source hadn't synced yet doesn't stay cached as zero for the full band
                        TTL. See TtlSchedule.empty_result_ttl_seconds. Ignored when `ttl_seconds`
                        is already a built TtlSchedule — set it on the schedule instead.
+        empty_result_max_age_seconds: Bounds which empty windows get that cap, measured from
+                       `time_range_end`. See TtlSchedule.empty_result_max_age_seconds. Same
+                       caveat: ignored when `ttl_seconds` is already a built TtlSchedule.
         table: The target computation table (default "preaggregation_results")
         placeholders: Additional placeholder values to substitute into the query.
                       time_window_min and time_window_max are added automatically.
@@ -1426,7 +1476,12 @@ def ensure_precomputed(
     ttl_schedule = (
         ttl_seconds
         if isinstance(ttl_seconds, TtlSchedule)
-        else parse_ttl_schedule(ttl_seconds, team.timezone, empty_result_ttl_seconds=empty_result_ttl_seconds)
+        else parse_ttl_schedule(
+            ttl_seconds,
+            team.timezone,
+            empty_result_ttl_seconds=empty_result_ttl_seconds,
+            empty_result_max_age_seconds=empty_result_max_age_seconds,
+        )
     )
     executor = LazyComputationExecutor(
         ttl_schedule=ttl_schedule,
