@@ -18,13 +18,11 @@ describe('journeyGridModel', () => {
             expect(buildJourneyGridModel(null)).toEqual({
                 columns: [],
                 ribbons: [],
-                maxRibbonCount: 0,
                 displayedItemKeys: new Set(),
             })
             expect(buildJourneyGridModel({ steps: [], edges: [], prefixes: [] })).toEqual({
                 columns: [],
                 ribbons: [],
-                maxRibbonCount: 0,
                 displayedItemKeys: new Set(),
             })
         })
@@ -121,7 +119,6 @@ describe('journeyGridModel', () => {
             // Edge share is relative to the source row's count (positional: ribbons subset their cards)
             expect(model.ribbons[0].fractionOfSource).toEqual(0.4)
             expect(model.ribbons[2].fractionOfSource).toEqual(0.6)
-            expect(model.maxRibbonCount).toEqual(20)
         })
 
         it('skips zero-count edges and edges whose endpoints are not in the grid', () => {
