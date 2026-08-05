@@ -6,7 +6,7 @@ from django.apps import apps
 
 from posthog.models import IdentityProviderConfig, LinkedIdentityProviderConfig, OrganizationDomain
 
-migration = import_module("posthog.migrations.1279_linked_identity_provider_configs")
+migration = import_module("posthog.migrations.1288_backfill_linked_identity_provider_configs")
 
 
 class TestLinkedIdentityProviderConfigBackfill(BaseTest):

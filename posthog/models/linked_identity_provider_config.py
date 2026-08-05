@@ -1,7 +1,9 @@
 from django.db import models
 
+from posthog.models.utils import UUIDModel
 
-class LinkedIdentityProviderConfig(models.Model):
+
+class LinkedIdentityProviderConfig(UUIDModel):
     organization_domain = models.ForeignKey(
         "posthog.OrganizationDomain", on_delete=models.CASCADE, related_name="linked_identity_provider_configs"
     )
