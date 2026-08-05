@@ -4,9 +4,10 @@
 //! and provides a startup completeness check ([`OutputRegistry::check_complete`])
 //! that refuses to boot when any fixed output resolves to an empty topic. This
 //! is the single place the output→topic wiring lives, so adding an output is a
-//! one-place change: the `topic_for` match is compiler-forced exhaustive, and
-//! `check_complete` catches an unwired output at boot rather than at first
-//! produce.
+//! one-place change: the `topic_for` and `is_required` matches are
+//! compiler-forced exhaustive, a test pins `REGISTERED` to the required set,
+//! and `check_complete` catches an unwired output at boot rather than at
+//! first produce.
 //!
 //! Two outputs sit outside the completeness check: `Custom` topics are
 //! admin-supplied inline on the event's metadata (they carry their own topic),
@@ -66,6 +67,30 @@ impl Output {
         Output::Dlq,
         Output::ErrorTrackingMain,
     ];
+
+    /// Whether this output participates in the boot completeness check.
+    /// Deliberately exhaustive: a new variant cannot compile without
+    /// declaring which side it is on, and
+    /// `registered_is_exactly_the_required_outputs` pins [`Self::REGISTERED`]
+    /// to the `true` arms so declaring `true` without joining the array
+    /// fails a test instead of silently skipping the check.
+    #[cfg(test)]
+    fn is_required(&self) -> bool {
+        match self {
+            Output::AnalyticsMain
+            | Output::AnalyticsOverflow
+            | Output::AnalyticsHistorical
+            | Output::ClientWarningsMain
+            | Output::HeatmapsMain
+            | Output::SessionReplayMain
+            | Output::SessionReplayOverflow
+            | Output::Dlq
+            | Output::ErrorTrackingMain => true,
+            // Opt-in AI lanes (setup validates them against the routing
+            // mode) and per-event custom topics sit outside the check.
+            Output::AiMain | Output::AiOverflow | Output::Custom(_) => false,
+        }
+    }
 
     /// Stable, low-cardinality label for diagnostics. `Custom` collapses to
     /// "custom" so admin topic names never leak into error messages.
@@ -262,6 +287,37 @@ mod tests {
     #[test]
     fn check_complete_accepts_full_registry() {
         assert!(test_topics().check_complete().is_ok());
+    }
+
+    /// `REGISTERED` is a hand-maintained array while `is_required` is
+    /// compiler-exhaustive; this pins them together. A new variant cannot
+    /// compile without an `is_required` arm, and putting it on the wrong
+    /// side of `REGISTERED` fails here. The all-variants list below is the
+    /// one hand-maintained enumeration left — grow it with the enum.
+    #[test]
+    fn registered_is_exactly_the_required_outputs() {
+        let all = [
+            Output::AnalyticsMain,
+            Output::AnalyticsOverflow,
+            Output::AnalyticsHistorical,
+            Output::ClientWarningsMain,
+            Output::HeatmapsMain,
+            Output::SessionReplayMain,
+            Output::SessionReplayOverflow,
+            Output::Dlq,
+            Output::ErrorTrackingMain,
+            Output::AiMain,
+            Output::AiOverflow,
+            Output::Custom("t".to_string()),
+        ];
+        for output in &all {
+            assert_eq!(
+                Output::REGISTERED.contains(output),
+                output.is_required(),
+                "'{}' must be in REGISTERED exactly when it is required",
+                output.name()
+            );
+        }
     }
 
     /// Every registered output, blanked one at a time, must fail the check and
