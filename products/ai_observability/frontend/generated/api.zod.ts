@@ -176,6 +176,18 @@ export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Replacement JSON object for descriptive dataset metadata.'),
 })
 
+/**
+ * Create an asynchronous JSONL export pinned to an immutable dataset revision.
+ */
+
+export const DatasetsExportsCreateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Dataset revision to export. Defaults to the latest revision when the export is created.'),
+})
+
 export const evaluationDirectoriesCreateBodyNameMax = 400
 
 export const EvaluationDirectoriesCreateBody = /* @__PURE__ */ zod.object({
@@ -193,18 +205,6 @@ export const EvaluationDirectoriesPartialUpdateBody = /* @__PURE__ */ zod.object
         .max(evaluationDirectoriesPartialUpdateBodyNameMax)
         .optional()
         .describe('Directory name shown in the online evals list.'),
-})
-
-/**
- * Create an asynchronous JSONL export pinned to an immutable dataset revision.
- */
-
-export const DatasetsExportsCreateBody = /* @__PURE__ */ zod.object({
-    revision: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe('Dataset revision to export. Defaults to the latest revision when the export is created.'),
 })
 
 /**

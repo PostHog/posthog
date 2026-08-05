@@ -412,6 +412,23 @@ export const DatasetsRestoreParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * List immutable dataset revisions, newest first.
+ */
+export const DatasetsRevisionsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetsRevisionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
 export const EvaluationDirectoriesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -472,23 +489,6 @@ export const EvaluationDirectoriesDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-})
-
-/**
- * List immutable dataset revisions, newest first.
- */
-export const DatasetsRevisionsListParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this dataset.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const DatasetsRevisionsListQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
