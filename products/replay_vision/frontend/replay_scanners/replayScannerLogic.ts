@@ -31,6 +31,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import {
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
+    visionScannersDraftCreate,
     visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
@@ -41,6 +42,7 @@ import {
 } from '../generated/api'
 import { ObservationStatusEnumApi, ObservationTriggerEnumApi } from '../generated/api.schemas'
 import type {
+    DraftScannerResponseApi,
     EstimateResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
@@ -228,6 +230,8 @@ export interface replayScannerLogicValues {
     copyingAllObservations: boolean
     durationValidationError: string | null
     estimateRequestVersion: number
+    goalDraft: DraftScannerResponseApi | null
+    goalDraftLoading: boolean
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
     hasUnsavedChanges: boolean
@@ -299,6 +303,23 @@ export interface replayScannerLogicActions {
     }
     dismissTagSuggestions: () => {
         value: true
+    }
+    draftScannerFromGoal: (goal: string) => {
+        goal: string
+    }
+    draftScannerFromGoalFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    draftScannerFromGoalSuccess: (
+        goalDraft: DraftScannerResponseApi | null,
+        payload?: any
+    ) => {
+        goalDraft: DraftScannerResponseApi | null
+        payload?: any
     }
     loadObservationStats: () => {
         value: true
@@ -578,6 +599,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
+        draftScannerFromGoal: (goal: string) => ({ goal }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -737,6 +759,23 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     } catch (error: any) {
                         lemonToast.error(`Failed to create cohort${error?.detail ? `: ${error.detail}` : ''}`)
                         return values.affectedCohort
+                    }
+                },
+            },
+        ],
+        goalDraft: [
+            null as DraftScannerResponseApi | null,
+            {
+                draftScannerFromGoal: async ({ goal }) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !goal.trim()) {
+                        return values.goalDraft
+                    }
+                    try {
+                        return await visionScannersDraftCreate(String(teamId), { goal: goal.trim() })
+                    } catch (error: any) {
+                        lemonToast.error(`Couldn't draft a scanner${error?.detail ? `: ${error.detail}` : ''}`)
+                        return null
                     }
                 },
             },
@@ -1220,6 +1259,23 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
                 } as ReplayScanner)
+            },
+
+            // A successful AI draft seeds the wizard form, then the configure step opens for review.
+            draftScannerFromGoalSuccess: ({ goalDraft }) => {
+                if (!goalDraft) {
+                    return
+                }
+                actions.resetScanner(newScanner())
+                // Applied as form values (not baked into the reset) so the draft persists like hand-edited
+                // input and survives a reload of the configure step.
+                actions.setScannerValues({
+                    name: goalDraft.name,
+                    description: goalDraft.description,
+                    scanner_type: goalDraft.scanner_type as ScannerType,
+                    scanner_config: goalDraft.scanner_config as ScannerConfig,
+                })
+                router.actions.push(urls.replayVisionScannerConfigure('new'))
             },
 
             // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.

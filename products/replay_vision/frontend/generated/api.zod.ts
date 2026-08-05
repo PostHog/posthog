@@ -682,6 +682,20 @@ export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */
 })
 
 /**
+ * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ */
+export const visionScannersDraftCreateBodyGoalMax = 2000
+
+export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
+    .object({
+        goal: zod
+            .string()
+            .max(visionScannersDraftCreateBodyGoalMax)
+            .describe("What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'."),
+    })
+    .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")
+
+/**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
  */
 export const visionScannersEstimateCreateBodySamplingRateDefault = 1

@@ -472,6 +472,7 @@ export const FEATURE_FLAGS = {
     REPLAY_VIDEO_BASED_SUMMARIZATION: 'replay-video-based-summarization', // owner: #team-replay
     REPLAY_VISION: 'replay-vision', // owner: #team-replay
     REPLAY_VISION_ACTIONS: 'replay-vision-actions', // owner: #team-replay
+    REPLAY_VISION_GOAL_DRAFT: 'replay-vision-goal-draft', // owner: #team-replay, goal-based AI scanner creation flow
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry

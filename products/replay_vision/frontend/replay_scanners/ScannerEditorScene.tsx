@@ -34,6 +34,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
@@ -173,6 +174,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                 </p>
                             </div>
                             <ScannerTemplatePicker />
+                            {featureFlags[FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT] ? <ScannerGoalDraft /> : null}
                         </>
                     ) : (
                         <Form

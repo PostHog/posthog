@@ -16,6 +16,8 @@ import type {
     BulkObserveResponseApi,
     CreateTaskFromObservationResponseApi,
     CurrentPromptSuggestionApi,
+    DraftScannerRequestApi,
+    DraftScannerResponseApi,
     EstimateRequestApi,
     EstimateResponseApi,
     EvaluatePromptSuggestionRequestApi,
@@ -986,6 +988,26 @@ export const visionScannersCreatorsRetrieve = async (
     return apiMutator<ScannerCreatorsResponseApi>(getVisionScannersCreatorsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersDraftCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/draft/`
+}
+
+/**
+ * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ */
+export const visionScannersDraftCreate = async (
+    projectId: string,
+    draftScannerRequestApi: DraftScannerRequestApi,
+    options?: RequestInit
+): Promise<DraftScannerResponseApi> => {
+    return apiMutator<DraftScannerResponseApi>(getVisionScannersDraftCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(draftScannerRequestApi),
     })
 }
 
