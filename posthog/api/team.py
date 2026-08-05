@@ -42,7 +42,7 @@ from posthog.schema import (
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, validate_authorized_url_wildcards
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -1393,7 +1393,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
             return value
-        return [url for url in value if url]
+        urls = [url for url in value if url]
+        validate_authorized_url_wildcards(urls)
+        return urls
 
     def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -1406,6 +1408,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+            validate_authorized_url_wildcards(value["widget_domains"])
         # Strip widget_public_token from user input - it's auto-generated only
         if "widget_public_token" in value:
             value.pop("widget_public_token")

@@ -25,7 +25,7 @@ from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 from products.cohorts.backend.models.cohort import Cohort
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True, slots=True)
 class BlastRadiusResult:
     affected: int
     total: int
@@ -101,10 +101,9 @@ def get_user_blast_radius(
         cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
         if group_type_index is not None:
-            affected, total = _get_group_blast_radius(team, cleaned_filter, group_type_index)
+            return _get_group_blast_radius(team, cleaned_filter, group_type_index)
         else:
-            affected, total = _get_person_blast_radius(team, cleaned_filter)
-    return BlastRadiusResult(affected=affected, total=total)
+            return _get_person_blast_radius(team, cleaned_filter)
 
 
 def get_user_blast_radius_persons(
@@ -123,7 +122,7 @@ def get_user_blast_radius_persons(
             return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
-def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
+def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
     from posthog.hogql.query import execute_hogql_query
 
@@ -132,7 +131,7 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
     if len(properties) == 0:
         # No filters means all persons are affected
         total_users = team.persons_seen_so_far
-        return total_users, total_users
+        return BlastRadiusResult(affected=total_users, total=total_users)
 
     # Build the SELECT query - property_to_expr handles all properties including cohorts
     select_query = _build_person_query(team, filter, return_count=True)
@@ -148,7 +147,7 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
     total_users = team.persons_seen_so_far
     blast_radius = min(total_count, total_users)
 
-    return blast_radius, total_users
+    return BlastRadiusResult(affected=blast_radius, total=total_users)
 
 
 def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
@@ -204,7 +203,7 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
     return select_query
 
 
-def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> tuple[int, int]:
+def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> BlastRadiusResult:
     """Calculate blast radius for group-based feature flags using HogQL."""
     from posthog.hogql.query import execute_hogql_query
 
@@ -225,7 +224,7 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
     if len(properties) == 0:
         # No filters means all groups of this type are affected
         total_groups = team.groups_seen_so_far(group_type_index)
-        return total_groups, total_groups
+        return BlastRadiusResult(affected=total_groups, total=total_groups)
 
     # Build the SELECT query for groups
     select_query = _build_group_query(team, filter, group_type_index, return_count=True)
@@ -241,7 +240,7 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
     total_affected = response.results[0][0] if response.results else 0
     total_groups = team.groups_seen_so_far(group_type_index)
 
-    return total_affected, total_groups
+    return BlastRadiusResult(affected=total_affected, total=total_groups)
 
 
 PERSON_BATCH_SIZE = 500

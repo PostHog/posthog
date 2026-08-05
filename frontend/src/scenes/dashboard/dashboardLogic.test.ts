@@ -1437,6 +1437,31 @@ describe('dashboardLogic', () => {
                 expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
                 expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
             })
+
+            it('persisting the last refresh keeps refreshed results instead of an earlier snapshot', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const snapshot = logic.values.dashboard!
+                dashboardsModel.actions.updateDashboardSuccess(snapshot)
+
+                const insight = snapshot.tiles.find((tile) => !!tile.insight)!.insight!
+                const freshResult = [{ count: 42 }]
+
+                await expectLogic(logic, () => {
+                    dashboardsModel.actions.updateDashboardInsight(
+                        { ...insight, result: freshResult, query: insight.query ?? null },
+                        undefined,
+                        5
+                    )
+                }).toFinishAllListeners()
+
+                await expectLogic(dashboardsModel, () => {
+                    logic.actions.updateDashboardLastRefresh(now())
+                }).toDispatchActions(['updateDashboard', 'updateDashboardSuccess'])
+
+                const refreshedTile = logic.values.tiles.find((tile) => tile.insight?.short_id === insight.short_id)
+                expect(refreshedTile?.insight?.result).toEqual(freshResult)
+            })
         })
 
         describe('insight refresh', () => {
