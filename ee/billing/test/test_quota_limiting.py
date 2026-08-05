@@ -20,6 +20,7 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 
 from ee.billing.quota_limiting import (
+    INFORMATIONAL_USAGE_RESOURCES,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
     OrganizationUsageInfo,
     QuotaLimitingCaches,
@@ -1804,8 +1805,12 @@ class TestQuotaLimiting(BaseTest):
         quota_resource_keys = {resource.value for resource in QuotaResource}
         usage_counter_keys = set(UsageCounters.__annotations__.keys())
 
-        # Check QuotaResource matches OrganizationUsageInfo
-        missing_from_quota = org_usage_keys - quota_resource_keys
+        # Check QuotaResource matches OrganizationUsageInfo, except the informational
+        # component fields, which are deliberately never quota-enforced
+        informational_keys = set(INFORMATIONAL_USAGE_RESOURCES)
+        assert informational_keys <= org_usage_keys
+        assert not informational_keys & quota_resource_keys, "informational resources must not be QuotaResources"
+        missing_from_quota = org_usage_keys - quota_resource_keys - informational_keys
         extra_in_quota = quota_resource_keys - org_usage_keys
         assert not missing_from_quota, f"QuotaResource is missing keys from OrganizationUsageInfo: {missing_from_quota}"
         assert not extra_in_quota, f"QuotaResource has extra keys not in OrganizationUsageInfo: {extra_in_quota}"
