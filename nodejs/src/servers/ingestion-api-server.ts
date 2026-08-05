@@ -106,6 +106,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
@@ -308,7 +309,6 @@ export class IngestionApiServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
-            teamManager,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()
@@ -385,7 +385,6 @@ export class IngestionApiServer implements NodeServer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
-            cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             outputs: ingestionOutputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,

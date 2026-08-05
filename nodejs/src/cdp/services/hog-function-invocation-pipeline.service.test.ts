@@ -1,11 +1,16 @@
 import { QuotaLimiting } from '../../common/services/quota-limiting.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { HogExecutorService } from './hog-executor.service'
+import { buildHogFunctionInvocations } from '../utils/invocation-utils'
 import { HogFunctionInvocationPipeline } from './hog-function-invocation-pipeline.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState } from './monitoring/hog-watcher.service'
+
+jest.mock('../utils/invocation-utils', () => ({
+    ...jest.requireActual('../utils/invocation-utils'),
+    buildHogFunctionInvocations: jest.fn().mockResolvedValue({ invocations: [], metrics: [], logs: [] }),
+}))
 
 // Mock the rate limiter to give us deterministic control
 jest.mock('../../common/services/keyed-rate-limiter.service', () => ({
@@ -53,7 +58,7 @@ function makeGlobals(teamId = 1): HogFunctionInvocationGlobals {
 
 describe('HogFunctionInvocationPipeline', () => {
     let hogFunctionManager: jest.Mocked<HogFunctionManagerService>
-    let hogExecutor: jest.Mocked<HogExecutorService>
+
     let hogWatcher: jest.Mocked<HogWatcherService>
     let hogMasker: jest.Mocked<HogMaskerService>
     let hogFunctionMonitoringService: jest.Mocked<HogFunctionMonitoringService>
@@ -65,10 +70,6 @@ describe('HogFunctionInvocationPipeline', () => {
         hogFunctionManager = {
             getHogFunctionsForTeams: jest.fn().mockResolvedValue({}),
         } as unknown as jest.Mocked<HogFunctionManagerService>
-
-        hogExecutor = {
-            buildHogFunctionInvocations: jest.fn().mockResolvedValue({ invocations: [], metrics: [], logs: [] }),
-        } as unknown as jest.Mocked<HogExecutorService>
 
         hogWatcher = {
             getEffectiveStates: jest.fn().mockResolvedValue({}),
@@ -90,7 +91,7 @@ describe('HogFunctionInvocationPipeline', () => {
 
         pipeline = new HogFunctionInvocationPipeline(config, {
             hogFunctionManager,
-            hogExecutor,
+            hogInputsService: {} as any,
             hogWatcher,
             hogWatcherMirror: null,
             hogMasker,
@@ -120,7 +121,7 @@ describe('HogFunctionInvocationPipeline', () => {
     it('returns invocations for matching hog functions and queues triggered + billing metrics', async () => {
         const fn = makeHogFunction()
         const inv = makeInvocation(fn, 'evt-uuid-1')
-        hogExecutor.buildHogFunctionInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        jest.mocked(buildHogFunctionInvocations).mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [fn.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
 
@@ -143,7 +144,7 @@ describe('HogFunctionInvocationPipeline', () => {
     it('drops invocations in disabled watcher state', async () => {
         const fn = makeHogFunction()
         const inv = makeInvocation(fn)
-        hogExecutor.buildHogFunctionInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        jest.mocked(buildHogFunctionInvocations).mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [fn.id]: { state: HogWatcherState.disabled } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
 
@@ -162,7 +163,7 @@ describe('HogFunctionInvocationPipeline', () => {
     it('routes degraded invocations to hogoverflow queue when overflow enabled', async () => {
         const fn = makeHogFunction()
         const inv = makeInvocation(fn)
-        hogExecutor.buildHogFunctionInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        jest.mocked(buildHogFunctionInvocations).mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [fn.id]: { state: HogWatcherState.degraded } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
 
@@ -179,7 +180,7 @@ describe('HogFunctionInvocationPipeline', () => {
     it('drops quota-limited invocations', async () => {
         const fn = makeHogFunction()
         const inv = makeInvocation(fn)
-        hogExecutor.buildHogFunctionInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        jest.mocked(buildHogFunctionInvocations).mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [fn.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
         quotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
@@ -195,7 +196,7 @@ describe('HogFunctionInvocationPipeline', () => {
     it('drops masked invocations', async () => {
         const fn = makeHogFunction()
         const inv = makeInvocation(fn)
-        hogExecutor.buildHogFunctionInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        jest.mocked(buildHogFunctionInvocations).mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [fn.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
         hogMasker.filterByMasking.mockResolvedValue({ masked: [inv], notMasked: [] })
@@ -217,7 +218,7 @@ describe('HogFunctionInvocationPipeline', () => {
         const fn2 = makeHogFunction({ id: 'fn-2' })
         const inv1 = makeInvocation(fn1, 'evt-same')
         const inv2 = makeInvocation(fn2, 'evt-same')
-        hogExecutor.buildHogFunctionInvocations.mockResolvedValue({ invocations: [inv1, inv2], metrics: [], logs: [] })
+        jest.mocked(buildHogFunctionInvocations).mockResolvedValue({ invocations: [inv1, inv2], metrics: [], logs: [] })
         hogWatcher.getEffectiveStates.mockResolvedValue({
             [fn1.id]: { state: HogWatcherState.healthy },
             [fn2.id]: { state: HogWatcherState.healthy },
@@ -241,7 +242,7 @@ describe('HogFunctionInvocationPipeline', () => {
     it('does not drop rate-limited invocations (monitoring-only)', async () => {
         const fn = makeHogFunction()
         const inv = makeInvocation(fn)
-        hogExecutor.buildHogFunctionInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        jest.mocked(buildHogFunctionInvocations).mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [fn.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: true }]])
 

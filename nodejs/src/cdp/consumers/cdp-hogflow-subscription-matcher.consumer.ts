@@ -72,6 +72,17 @@ const counterHogflowMatcherJobsRekeyedOnMove = new Counter({
     help: 'Parked wait_until_condition jobs re-keyed to the surviving person after a distinct_id was repointed by a merge.',
 })
 
+// A wait parked before its distinct_id had a person keeps a null person_id, and person wakes are keyed on
+// person_id alone, so nothing can ever wake it — only the polling re-check advances it. The distinct_id's
+// first mapping (version 0) is where that anchor becomes available. 'seen' is every first mapping admitted
+// for a team with a wait flow, which is the load this path adds; 'filled' is the jobs it actually anchored.
+// A 'seen' rate far above 'filled' is expected — watch the gap for query cost, not correctness.
+const counterHogflowMatcherFirstMapping = new Counter({
+    name: 'cdp_hogflow_matcher_first_mapping_total',
+    help: 'distinct_id first mappings processed for parked waits with no person anchor, by outcome.',
+    labelNames: ['outcome'],
+})
+
 // Latency of the cyclotron lookup for parked jobs. Watch this for cyclotron-node
 // read pressure as the wait-until-event feature ramps.
 const histogramHogflowMatcherFindParkedJobs = new Histogram({
@@ -684,9 +695,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         for (const message of messages) {
             try {
                 const data = parseJSON(message.value!.toString()) as ClickHousePersonDistinctId2
-                // Only repoints matter. version 0 is a brand-new distinct_id (person creation) that no
-                // parked wait can be keyed on yet — skipping it also keeps this off the insert firehose.
-                if (!data.version || data.version <= 0) {
+                // version > 0 is a repoint (identify/merge). version 0 is the distinct_id's first mapping
+                // to a person, which a wait parked before the person resolved needs to acquire its anchor:
+                // person wakes are keyed on person_id alone, so a job left with a null anchor is
+                // unwakeable by any person-property change. processMoveBatch scopes version 0 to exactly
+                // those jobs, which is what keeps this off the insert firehose.
+                if (data.version === undefined || data.version === null || data.version < 0) {
                     continue
                 }
                 // A distinct_id being deleted can't wake anything, and must never re-point a wait at a
@@ -712,18 +726,32 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return moves
     }
 
-    // Re-key parked wait_until_condition jobs whose distinct_id was repointed by a merge onto the
-    // surviving person. We only rewrite the person_id anchor (column + state.personId) and leave the
-    // schedule alone: the survivor's clickhouse_person / event updates then wake the wait through the
-    // existing person/event streams (matched by the new person_id), and the worker takes the matched
-    // branch via the eventMatched flag without re-resolving the person. Waking here instead would make
-    // the worker re-resolve the distinct_id against PersonsManager's ~1-minute cache, which can return
-    // the stale pre-merge person and, on re-park, write the old person_id back — undoing this re-key.
+    // Point parked wait_until_condition jobs at the person their distinct_id now belongs to, for the two
+    // ways that can change: a merge repointing it onto a survivor, or the distinct_id acquiring a person
+    // for the first time. Either way the job's existing anchor can no longer be woken — person and event
+    // wakes are keyed on person_id — so we rewrite the anchor (column + state.personId) and wake it.
     public async processMoveBatch(moves: PersonDistinctIdMove[]): Promise<void> {
         if (moves.length === 0) {
             return
         }
 
+        // A repoint (version > 0) may rewrite any parked wait's anchor. A first mapping (version 0) may
+        // only fill an anchor that is missing: it says "this distinct_id now has a person", which tells us
+        // nothing about a job already anchored elsewhere, and the null-anchor scope is what keeps the
+        // insert firehose off the whole flow set.
+        const repoints = moves.filter((m) => m.version > 0)
+        const firstMappings = moves.filter((m) => m.version === 0)
+
+        if (repoints.length > 0) {
+            await this.applyMoves(repoints, false)
+        }
+        if (firstMappings.length > 0) {
+            counterHogflowMatcherFirstMapping.labels({ outcome: 'seen' }).inc(firstMappings.length)
+            await this.applyMoves(firstMappings, true)
+        }
+    }
+
+    private async applyMoves(moves: PersonDistinctIdMove[], onlyNullAnchor: boolean): Promise<void> {
         // Only flows with a wait_until_condition step can have a parked wait to re-key. Scope the
         // function_id filter to them so the cyclotron query stays index-friendly and skips repoints for
         // teams with no such flow.
@@ -763,6 +791,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             flow.actions.filter((a: HogFlowAction) => a.type === 'wait_until_condition').map((a) => a.id)
         )
 
+        let updatedCount = 0
         const client = await this.cyclotronPool.connect()
         try {
             await client.query('BEGIN')
@@ -774,6 +803,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                  WHERE status = 'available'
                    AND function_id = ANY($3::uuid[])
                    AND action_id = ANY($4::text[])
+                   ${onlyNullAnchor ? 'AND person_id IS NULL' : ''}
                    AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
                  ORDER BY id
                  FOR UPDATE`,
@@ -795,7 +825,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 if (!newPerson || !row.state) {
                     continue
                 }
-                const newState = rewriteStatePersonId(row.state, newPerson.personId, newPerson.version, row.id)
+                const newState = rewriteStatePersonId(
+                    row.state,
+                    newPerson.personId,
+                    newPerson.version,
+                    row.id,
+                    onlyNullAnchor
+                )
                 if (!newState) {
                     continue
                 }
@@ -816,9 +852,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                      WHERE cj.id = u.id AND cj.status = 'available'`,
                     [updates.map((u) => u.id), updates.map((u) => u.personId), updates.map((u) => u.state)]
                 )
-                counterHogflowMatcherJobsRekeyedOnMove.inc(result.rowCount ?? 0)
+                updatedCount = result.rowCount ?? 0
             }
             await client.query('COMMIT')
+            // Counted after COMMIT: an UPDATE that succeeds and then fails to commit is rolled back, so
+            // counting before this would report anchors that no job actually carries.
+            if (updatedCount > 0) {
+                if (onlyNullAnchor) {
+                    counterHogflowMatcherFirstMapping.labels({ outcome: 'filled' }).inc(updatedCount)
+                } else {
+                    counterHogflowMatcherJobsRekeyedOnMove.inc(updatedCount)
+                }
+            }
         } catch (err) {
             await client.query('ROLLBACK').catch(() => {})
             throw err
@@ -1040,7 +1085,8 @@ function rewriteStatePersonId(
     stateBuffer: Buffer,
     newPersonId: string,
     newVersion: number,
-    jobId: string
+    jobId: string,
+    fillingNullAnchor = false
 ): Buffer | null {
     try {
         const parsed = parseJSON(stateBuffer.toString('utf-8'))
@@ -1048,8 +1094,10 @@ function rewriteStatePersonId(
         // delayed lower-version move (anon → A, v2) can arrive in a later batch than a higher one already
         // applied (anon → B, v3); without this watermark it would rewind the wait onto the obsolete
         // person A, and B's person-stream updates would no longer address the parked job.
+        // A first mapping is exempt: it carries version 0, which no watermark can beat, and there is no
+        // anchor to rewind — the caller has already scoped it to jobs with none.
         const appliedVersion = parsed.state?.personIdRepointVersion ?? 0
-        if (newVersion <= appliedVersion) {
+        if (!fillingNullAnchor && newVersion <= appliedVersion) {
             return null
         }
         // Flag the re-key so the worker resolves the person by this survivor personId, not the repointed
@@ -1062,7 +1110,9 @@ function rewriteStatePersonId(
         }
         // Mark this as a re-key wake so the wait handler can attribute its re-check outcome to the
         // re-key (see rekeyWake). currentAction is always a wait_until_condition here (re-key scope).
-        if (parsed.state.currentAction) {
+        // Only for merges: counterHogflowRekeyWake exists to judge whether waking on a merge is wasted
+        // churn, so folding first-mapping fills into it would blend two causes into one ratio.
+        if (parsed.state.currentAction && !fillingNullAnchor) {
             parsed.state.currentAction = { ...parsed.state.currentAction, rekeyWake: true }
         }
         return Buffer.from(JSON.stringify(parsed))
