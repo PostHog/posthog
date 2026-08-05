@@ -398,6 +398,16 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
     "product_tours",
 )
 
+# Creation contexts whose forms have no field to pick evaluation contexts, so a team
+# requiring them (with no default contexts configured) could never auto-create these
+# flags otherwise. Default contexts are still applied when configured (see
+# apply_default_evaluation_contexts) - this exemption only covers the no-defaults gap.
+EVALUATION_CONTEXT_EXEMPT_CREATION_CONTEXTS = (
+    "surveys",
+    "experiments",
+    "early_access_features",
+)
+
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     """Find all active flags that depend on the given flag via flag-type filter properties."""
@@ -1059,10 +1069,10 @@ class FeatureFlagSerializer(
         if not request:
             return attrs
 
-        # Survey flags are exempt from evaluation tag requirements
-        # They are created automatically by the survey system and don't need manual tagging
+        # Auto-created flags (surveys, experiments, early access features) are exempt from
+        # evaluation tag requirements - their creation forms have no field to supply contexts.
         creation_context = self.initial_data.get("creation_context") if hasattr(self, "initial_data") else None
-        if creation_context == "surveys":
+        if creation_context in EVALUATION_CONTEXT_EXEMPT_CREATION_CONTEXTS:
             return attrs
 
         # Get the team to check if evaluation contexts are required

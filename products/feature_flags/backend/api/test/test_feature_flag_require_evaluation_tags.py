@@ -346,7 +346,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
     def test_create_experiment_flag_without_tags_when_required(self):
-        """Test that experiment flags cannot be created without tags when requirement is enabled"""
+        """Experiment flags have no field to supply contexts, so they're exempt like surveys"""
         self.team.require_evaluation_contexts = True
         self.team.save()
 
@@ -360,9 +360,28 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
             format="json",
         )
 
-        # Should fail because experiments are subject to the requirement
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("evaluation context is required", str(response.content))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="experiment-flag", team=self.team)
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+
+    def test_create_early_access_feature_flag_without_tags_when_required(self):
+        """Early access feature flags have no field to supply contexts, so they're exempt like surveys"""
+        self.team.require_evaluation_contexts = True
+        self.team.save()
+
+        response = self.client.post(
+            self.feature_flag_url,
+            {
+                "key": "eaf-flag",
+                "name": "EAF Flag",
+                "creation_context": "early_access_features",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="eaf-flag", team=self.team)
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
     def test_create_experiment_flag_with_tags_when_required(self):
         """Test that experiment flags can be created with tags when requirement is enabled"""

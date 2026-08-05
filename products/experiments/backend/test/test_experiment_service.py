@@ -197,6 +197,19 @@ class TestExperimentService(APIBaseTest):
         )
         assert context_names == {"production"}
 
+    def test_create_experiment_without_default_evaluation_contexts_when_required(self):
+        """Creating an experiment has no field to pick evaluation contexts, so a team requiring them
+        with no defaults configured must not be blocked from creating the flag."""
+        self.team.require_evaluation_contexts = True
+        self.team.save()
+
+        experiment = self._service().create_experiment(
+            name="No Defaults Experiment",
+            feature_flag_key="no-defaults-flag",
+        )
+
+        assert experiment.feature_flag.flag_evaluation_contexts.count() == 0
+
     def test_create_launched_experiment_activates_flag(self):
         from django.utils import timezone
 

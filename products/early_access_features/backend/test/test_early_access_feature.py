@@ -887,6 +887,26 @@ class TestEarlyAccessFeature(APIBaseTest):
         context_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
         assert context_names == {"production"}
 
+    def test_create_without_default_evaluation_contexts_when_required(self):
+        """Creating an early access feature has no field to pick evaluation contexts, so a team
+        requiring them with no defaults configured must not be blocked from creating the flag."""
+        self.team.require_evaluation_contexts = True
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "No defaults feature",
+                "description": "A feature auto-creating its flag",
+                "stage": "beta",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        flag = FeatureFlag.objects.get(id=response.json()["feature_flag"]["id"])
+        assert flag.flag_evaluation_contexts.count() == 0
+
 
 class TestPreviewList(BaseTest, QueryMatchingTest):
     def setUp(self):
