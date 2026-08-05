@@ -132,7 +132,10 @@ procs:
             AI_BLOB_S3_REGION: us-east-1
             AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
             AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
-            AI_BLOB_OFFLOAD_TEAMS: '1'
+            # Offload for every team, not just team 1: acceptance/E2E tests create fresh teams whose
+            # ids are never 1, and matching the docker ingestion-ai service keeps the two consumers'
+            # offload behaviour identical when both run against the shared single-partition topic.
+            AI_BLOB_OFFLOAD_TEAMS: '*'
 
     ingestion:
         sandbox: true

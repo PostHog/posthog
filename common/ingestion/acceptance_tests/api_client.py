@@ -1,5 +1,6 @@
 """PostHog API client for acceptance tests."""
 
+import os
 import json
 import time
 import uuid
@@ -7,7 +8,8 @@ import logging
 from typing import Any, Optional
 
 import requests
-from posthoganalytics import Posthog
+
+from posthog import Posthog
 
 from .utils import get_service_url
 
@@ -186,6 +188,62 @@ class PostHogTestClient:
                 results.append(event)
             return results
         return []
+
+    def capture_ai_event(self, api_key: str, event: str, distinct_id: str, properties: dict[str, Any]) -> None:
+        """Send an AI event on the SDK's dedicated AI lane (POSTs JSON to /i/v0/ai/batch/).
+
+        _enable_multimodal_capture is required: without it the SDK sanitizer replaces base64
+        images with a placeholder, and it is also what selects the AI lane.
+        """
+        from posthog import Posthog
+
+        client = Posthog(
+            api_key,
+            host=self.base_url,
+            _enable_multimodal_capture=True,
+            sync_mode=True,
+            debug=True,
+        )
+        logger.info("Sending %s on the AI lane for distinct_id=%s", event, distinct_id)
+        client._capture_ai(event, distinct_id=distinct_id, properties=properties)
+        client.flush()
+        client.shutdown()
+
+    def read_ai_events_input(self, trace_id: str) -> Optional[str]:
+        """Read the `input` column of `posthog.ai_events` over the ClickHouse HTTP interface.
+
+        A HogQL query against `posthog.ai_events` raises UntaggedQueryError on a local DEBUG
+        server, so this bypasses the query API and talks to ClickHouse directly — the only
+        table that carries the offloaded blob pointer (the `events` copy has it stripped).
+        """
+        query = f"SELECT input FROM posthog.ai_events WHERE trace_id = '{trace_id}' LIMIT 1 FORMAT TabSeparatedRaw"
+        clickhouse_url = get_service_url("clickhouse")
+        logger.debug("Executing ClickHouse HTTP query: %s", query)
+        response = requests.get(clickhouse_url, params={"query": query})
+        response.raise_for_status()
+        result = response.text.strip("\n")
+        return result or None
+
+    def read_ai_blob(self, team_id: str, hash: str) -> bytes:
+        """Read an offloaded AI blob straight from object storage.
+
+        The ai_blob HTTP endpoint is session-only and rejects personal API keys, so this
+        reads the object the ingestion consumer wrote, at the key layout blob-store.ts uses.
+        """
+        import boto3
+
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=os.environ.get("AI_BLOB_S3_ENDPOINT", "http://localhost:19000"),
+            aws_access_key_id=os.environ.get("AI_BLOB_S3_ACCESS_KEY_ID", "object_storage_root_user"),
+            aws_secret_access_key=os.environ.get("AI_BLOB_S3_SECRET_ACCESS_KEY", "object_storage_root_password"),
+            region_name=os.environ.get("AI_BLOB_S3_REGION", "us-east-1"),
+        )
+        prefix = os.environ.get("AI_BLOB_S3_PREFIX", "aio/")
+        bucket = os.environ.get("AI_BLOB_S3_BUCKET", "ai-blobs")
+        key = f"{prefix}{team_id}/sha256/{hash}"
+        logger.debug("Reading blob s3://%s/%s", bucket, key)
+        return s3.get_object(Bucket=bucket, Key=key)["Body"].read()
 
     def wait_for_event(
         self,
