@@ -1,8 +1,7 @@
-import type { Adapter } from "@posthog/shared";
+import type { Adapter, McpServerConnection } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 import type { AgentMode } from "../types";
 import type { RtkSavingsSummary } from "./rtk-savings";
-import type { RemoteMcpServer } from "./schemas";
 
 export interface ClaudeCodeConfig {
   systemPrompt?:
@@ -41,7 +40,7 @@ export interface AgentServerConfig {
   // manual (non-automated-origin) cloud runs. createPr=false still wins.
   autoPublish?: boolean;
   version?: string;
-  mcpServers?: RemoteMcpServer[];
+  mcpServers?: McpServerConnection[];
   /**
    * Case-insensitive JavaScript regex matched against PostHog `exec` sub-tool
    * names. Overrides the default approval regex for interactive calls.
