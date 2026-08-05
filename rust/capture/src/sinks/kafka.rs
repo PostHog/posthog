@@ -1742,6 +1742,19 @@ mod tests {
                     }
                 })
             };
+            // Recorder liveness: enqueue emits the bytes counter for every
+            // record, on the same inline pre-await path as the reroute
+            // counters. If it is absent, the thread-local recorder is no
+            // longer observing prep (e.g. prep moved to a spawned thread)
+            // and every absence assertion below would pass vacuously — so
+            // fail here first, in every case.
+            assert_eq!(
+                count("capture_kafka_produce_bytes_total"),
+                Some(record.payload.len() as u64),
+                "recorder did not observe the produce path for {ctx}; \
+                 the counter assertions below cannot be trusted"
+            );
+
             let dlq_count = count("capture_events_rerouted_dlq");
             let custom_count = count("capture_events_rerouted_custom_topic");
             match expected.rerouted {
