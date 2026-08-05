@@ -7,7 +7,7 @@ import { resourceTypeToString } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, InsightShortId } from '~/types'
 
 import { AccessLevelSelect } from '../AccessLevelSelect'
 import { AccessObjectRule, OBJECT_RULE_RESOURCES, accessDetailLogic } from './accessDetailLogic'
@@ -45,6 +45,8 @@ function objectUrl(o: AccessObjectRule): string | null {
             return urls.survey(o.resource_id)
         case 'action':
             return urls.action(o.resource_id)
+        case 'insight':
+            return o.short_id ? urls.insightView(o.short_id as InsightShortId) : null
         case 'warehouse_view':
             return urls.sqlEditor({ view_id: o.resource_id })
         case 'external_data_source':
@@ -53,7 +55,7 @@ function objectUrl(o: AccessObjectRule): string | null {
             // Tables have no page of their own, so open them the way the warehouse UI does — querying them
             return urls.sqlEditor({ query: `SELECT * FROM ${o.name} LIMIT 100` })
         default:
-            // insight / notebook pages need a short_id we don't have here — show as plain text
+            // notebook pages need a short_id we don't have here — show as plain text
             return null
     }
 }

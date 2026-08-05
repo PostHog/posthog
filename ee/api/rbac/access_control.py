@@ -1,4 +1,5 @@
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from django.apps import apps
@@ -201,11 +202,22 @@ _EXTRA_RESOURCE_MODELS: dict[str, tuple[str, str, str]] = {
 }
 
 
-def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) -> dict[str, str]:
-    """Map {resource_id -> display name} for one resource type. Best-effort: on any failure returns {}.
+@dataclass(frozen=True, kw_only=True)
+class _ResolvedObjectName:
+    name: str | None
+    # Insights link by short_id rather than pk, so the frontend needs it alongside the name
+    short_id: str | None = None
+
+
+def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) -> dict[str, _ResolvedObjectName]:
+    """Map {resource_id -> display info} for one resource type. Best-effort: on any failure returns {}.
 
     Models and display fields come from universal search's ENTITY_MAP, whose keys match
     access-control resources, with a small supplement for resources search doesn't index.
+
+    Queries through _base_manager so rules pointing at soft-deleted objects still resolve —
+    those are exactly the rows someone opens this page to clean up. Tenant isolation holds
+    via the explicit team_id filter.
     """
     from posthog.api.search import (
         ENTITY_MAP,  # noqa: PLC0415 — imports every searchable product model, keep it off this module's import path
@@ -221,8 +233,14 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
         if name_field is None:
             return {}
         try:
-            rows = model._default_manager.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
-            return {str(pk): name for pk, name in rows}
+            qs = model._base_manager.filter(team_id=team_id, pk__in=resource_ids)
+            if resource == "insight":
+                # Insight.name is nullable and saved insights often carry only derived_name
+                return {
+                    str(pk): _ResolvedObjectName(name=name or derived_name, short_id=short_id)
+                    for pk, name, derived_name, short_id in qs.values_list("pk", "name", "derived_name", "short_id")
+                }
+            return {str(pk): _ResolvedObjectName(name=name) for pk, name in qs.values_list("pk", name_field)}
         except Exception as e:
             # The rules list falls back to raw ids, but report the error: it likely affects the whole resource type
             capture_exception(e, {"resource": resource})
@@ -233,8 +251,8 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
     app_label, model_name, name_field = registry
     try:
         model = apps.get_model(app_label, model_name)
-        rows = model._default_manager.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
-        return {str(pk): name for pk, name in rows}
+        rows = model._base_manager.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
+        return {str(pk): _ResolvedObjectName(name=name) for pk, name in rows}
     except Exception as e:
         # Type mismatch on pk (e.g. non-numeric id for an int pk), missing model, or missing team_id column
         capture_exception(e, {"resource": resource})
@@ -884,15 +902,18 @@ class AccessControlViewSetMixin(_GenericViewSet):
             resource: _resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
         }
 
-        results = [
-            {
-                "resource": ac.resource,
-                "resource_id": ac.resource_id,
-                "name": names_by_resource.get(ac.resource, {}).get(str(ac.resource_id)) or ac.resource_id,
-                "access_level": ac.access_level,
-            }
-            for ac in rows
-        ]
+        results = []
+        for ac in rows:
+            resolved = names_by_resource.get(ac.resource, {}).get(str(ac.resource_id))
+            results.append(
+                {
+                    "resource": ac.resource,
+                    "resource_id": ac.resource_id,
+                    "name": (resolved.name if resolved else None) or ac.resource_id,
+                    "short_id": resolved.short_id if resolved else None,
+                    "access_level": ac.access_level,
+                }
+            )
         results.sort(key=lambda r: (r["resource"], (r["name"] or "").lower()))
         return Response({"results": results})
 

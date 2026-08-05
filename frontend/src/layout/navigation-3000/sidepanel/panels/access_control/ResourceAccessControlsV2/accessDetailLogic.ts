@@ -23,6 +23,8 @@ export interface AccessObjectRule {
     resource: APIScopeObject
     resource_id: string
     name: string
+    /** Insights link by short_id rather than resource_id; null for other resources. */
+    short_id: string | null
     access_level: AccessControlLevel
 }
 
