@@ -34,6 +34,9 @@ from products.marketing_analytics.backend.services.types import (
 from products.marketing_analytics.backend.services.utm_matching import (
     DEFAULT_MATCH_FIELD,
     get_match_field,
+    group_campaigns_by_source,
+    normalize_campaign_name,
+    normalize_source_name,
     resolve_source,
 )
 
@@ -98,9 +101,15 @@ class FieldPreferenceSuggestion:
     suggested: MatchRates
     campaigns_considered: int
     total_spend: float
-    # Spend on campaigns that don't match under the *current* field. What switching
-    # is worth, and what `setup_plan` ranks on.
+    # Spend on campaigns that don't match under the *current* field — the size of the problem.
+    # Not the same as the size of the fix: see `spend_recovered`.
     spend_at_risk: float
+    # Spend that switching actually reconnects, i.e. what the suggested field matches minus what the
+    # current one already does. This is the ranking key: a big integration whose suggested field
+    # barely helps should not outrank a smaller one the switch nearly repairs, which is what keying
+    # on `spend_at_risk` did. Can be <= 0 on the collision path, where the arithmetic does not favour
+    # switching and the case for it is structural ambiguity rather than recovered spend.
+    spend_recovered: float
     confidence: float
     safe_to_batch: bool
     reason: str
@@ -139,7 +148,7 @@ def suggest_campaign_field_preferences(
     collisions_by_source = _collisions_by_source(audit_results or [])
 
     suggestions: list[FieldPreferenceSuggestion] = []
-    for source_name, group in _group_by_source(campaigns).items():
+    for source_name, group in group_campaigns_by_source(campaigns).items():
         suggestion = _suggest_for_integration(
             source_name=source_name,
             group=group,
@@ -150,8 +159,9 @@ def suggest_campaign_field_preferences(
         if suggestion is not None:
             suggestions.append(suggestion)
 
-    # Highest-value switch first; `id` breaks ties so the output is stable.
-    suggestions.sort(key=lambda s: (-s.spend_at_risk, s.integration))
+    # Biggest actual recovery first — not the biggest current gap, which ranked an integration the
+    # switch barely helps above one it nearly fixes. `integration` breaks ties so output is stable.
+    suggestions.sort(key=lambda s: (-s.spend_recovered, s.integration))
     return suggestions
 
 
@@ -167,31 +177,35 @@ def _utm_values_by_source(
     row rather than the platform's, so counting it here would claim spend is attributed when
     it isn't. Such a platform reports a 0 rate, which is the truth — the fix it needs is a
     source mapping, which the plan suggests separately.
+
+    Both halves of the key are folded the same way `_candidate_value` folds the campaign side.
+    `get_utm_campaign_catalogue` happens to lowercase already, but that is the caller's habit
+    rather than this function's contract, and the campaign side is folded unconditionally — so a
+    caller passing raw platform values would have every MixedCase name read as unmatched. That
+    reads as "campaign_name matches 0% of spend" for an integration tagged perfectly, which is
+    exactly the false switch this module exists to avoid.
     """
+    aliased = {raw for raws in mappings.campaign_aliases.values() for raw in raws}
+
     values: dict[str, set[str]] = {}
     for (utm_campaign, utm_source), _ in utm_events.items():
-        if not utm_campaign:
+        value = normalize_campaign_name(utm_campaign)
+        # A value a manual `campaign_name_mappings` entry already rewrites resolves to its
+        # campaign whichever field is preferred — `build_campaign_lookup` keys aliases off the
+        # campaign name, not the match field. Counting it credits whichever side it happens to
+        # spell like, so it inflates one rate over a hit both sides already get.
+        if not value or value in aliased:
             continue
-        primary = resolve_source(utm_source.lower().strip(), mappings)
-        values.setdefault(primary, set()).add(utm_campaign)
+        primary = resolve_source(normalize_source_name(utm_source), mappings)
+        values.setdefault(primary, set()).add(value)
     return values
-
-
-def _group_by_source(campaigns: list[Campaign]) -> dict[str, list[Campaign]]:
-    grouped: dict[str, list[Campaign]] = {}
-    for campaign in campaigns:
-        source_name = campaign.source_name.lower().strip()
-        if not source_name:
-            continue
-        grouped.setdefault(source_name, []).append(campaign)
-    return grouped
 
 
 def _collisions_by_source(audit_results: list[CampaignAuditResult]) -> dict[str, set[str]]:
     """source_name -> the other platforms it collides with on a campaign name."""
     collisions: dict[str, set[str]] = {}
     for result in audit_results:
-        source_name = result.source_name.lower().strip()
+        source_name = normalize_source_name(result.source_name)
         for issue in result.issues:
             if issue.kind == UtmIssueKind.NAME_COLLISION:
                 collisions.setdefault(source_name, set()).update(issue.shared_with_integrations)
@@ -217,7 +231,7 @@ def _candidate_value(campaign: Campaign, match_field: str) -> str:
     raw = campaign.campaign_id if match_field == "campaign_id" else campaign.campaign_name
     # Empty never matches: `utm_campaign_values` excludes the empty string, but being
     # explicit keeps an empty id from silently counting as a hit if that changes.
-    return raw.lower().strip()
+    return normalize_campaign_name(raw)
 
 
 def _id_coverage(group: list[Campaign]) -> float:
@@ -296,6 +310,7 @@ def _suggest_for_integration(
         campaigns_considered=len(group),
         total_spend=total_spend,
         spend_at_risk=total_spend - current.matched_spend,
+        spend_recovered=suggested.matched_spend - current.matched_spend,
         confidence=confidence,
         safe_to_batch=safe_to_batch,
         reason=reason,
@@ -341,6 +356,17 @@ def _delta_reason(display_name: str, current: MatchRates, suggested: MatchRates,
     return reason
 
 
+def _display_name_for_source(source_name: str) -> str:
+    """Primary source key -> the name a human recognises, e.g. "meta" -> "Meta Ads".
+
+    Collisions arrive from the audit as raw keys while the subject integration is already rendered
+    through `display_name_for_key`, so without this one sentence mixes both vocabularies. Falls back
+    to the raw key rather than dropping a platform we can't resolve.
+    """
+    native = native_for_primary_source(source_name)
+    return display_name_for_key(NATIVE_TO_KEY[native]) if native is not None else source_name
+
+
 def _collision_reason(
     display_name: str,
     colliding: list[str],
@@ -351,7 +377,7 @@ def _collision_reason(
     # This read `not in` before, which counted the campaigns receiving no traffic at all and so
     # reported "0 campaign(s) worth $0.00" in precisely the collision case it exists to describe.
     affected = [c for c in group if _candidate_value(c, DEFAULT_MATCH_FIELD) in utm_campaign_values]
-    others = ", ".join(colliding) or "another integration"
+    others = ", ".join(_display_name_for_source(source) for source in colliding) or "another integration"
     return (
         f"{display_name} shares campaign names with {others}, so name matching can't tell them "
         f"apart — {len(affected)} campaign(s) worth {_money(sum(c.spend for c in affected))} are "
