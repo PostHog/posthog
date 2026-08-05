@@ -1285,6 +1285,11 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     # nullable). Single source of truth — keep in sync when adding AI-derived delivery fields.
     # ai_report_prompt is user-authored (not query-derived) and already readable on the parent
     # subscription, so it is intentionally not scrubbed.
+    # recipient_results is also intentionally not scrubbed: its human_readable_error values are
+    # audience-independent delivery failure reasons (auto-disable causes, prompt rejections, Slack
+    # thread-failure counts) that carry no query-derived data. New producers of
+    # recipient_results[].human_readable_error must keep that invariant — never route a
+    # query/executor-derived message through it, since query-restricted viewers can read it.
     AI_REPORT_SCRUBBED: ClassVar[dict[str, object | None]] = {
         "content_snapshot": {},
         "change_summary": None,
