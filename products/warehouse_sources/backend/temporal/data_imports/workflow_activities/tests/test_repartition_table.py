@@ -1,10 +1,13 @@
 import uuid
 import datetime as dt
+import contextvars
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+
+from posthog.exceptions_capture import ambient_exception_properties
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
@@ -105,6 +108,57 @@ class TestRepartitionActivityDeltaFolder:
         assert mock_job_model.objects.get.call_args.kwargs == {"id": JOB_ID}
 
 
+class TestJobContextBinding:
+    """The import activity tags every captured exception with the sync's source/schema identity
+    (`warehouse_sources_*` properties) via `bind_job_context`; this activity previously never called
+    it, so an exception captured here (e.g. `RepartitionBudgetExceededError`) landed in error
+    tracking with no way to attribute it to a connector, table, or sync mode."""
+
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_activity_binds_source_and_schema_identity_for_captured_exceptions(
+        self,
+        mock_schema_model: MagicMock,
+        mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        _mock_capture_event: MagicMock,
+    ) -> None:
+        schema = _schema(name="public.charges", s3_folder_name="charges")
+        schema.source = MagicMock(source_type="Stripe")
+        schema.sync_type = "incremental"
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_job_model.objects.get.return_value.pipeline_version = "v3"
+        mock_repartition.return_value = {"outcome": "completed"}
+
+        # Runs in a copied context so the ambient exception properties `bind_job_context` sets
+        # don't leak into other tests sharing this interpreter thread.
+        ctx = contextvars.copy_context()
+        captured_props: dict = {}
+
+        def _run() -> None:
+            _maybe_repartition_table(
+                RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+                MagicMock(),
+            )
+            captured_props.update(ambient_exception_properties())
+
+        ctx.run(_run)
+
+        assert captured_props["warehouse_sources_source_type"] == "Stripe"
+        assert captured_props["warehouse_sources_schema_name"] == "public.charges"
+        assert captured_props["warehouse_sources_sync_type"] == "incremental"
+        assert captured_props["warehouse_sources_pipeline_version"] == "v3"
+        assert captured_props["warehouse_sources_job_id"] == JOB_ID
+
+
 NO_ACTIVITY_CONTEXT = object()
 
 
@@ -185,16 +239,20 @@ class TestBudgetExhaustion:
 class TestFeatureFlagGate:
     @parameterized.expand(
         [
-            ("flag_off_releases_a_queued_rewrite", False, None, "proactive_threshold", False),
-            ("flag_off_still_finishes_a_staged_swap", False, {"state": "ready"}, "proactive_threshold", True),
-            ("flag_off_does_not_block_an_operator", False, None, "admin", True),
-            ("flag_on_rewrites_as_usual", True, None, "proactive_threshold", True),
+            ("flag_off_releases_a_queued_rewrite", False, True, None, "proactive_threshold", False),
+            ("flag_off_still_finishes_a_staged_swap", False, True, {"state": "ready"}, "proactive_threshold", True),
+            ("flag_off_does_not_block_an_operator", False, True, None, "admin", True),
+            ("flag_on_rewrites_as_usual", True, True, None, "proactive_threshold", True),
+            ("flag_off_does_not_release_a_nomination", False, False, None, "coarsening_requested", True),
+            ("coarsen_flag_off_releases_a_queued_coarsen", True, False, None, "coarsening", False),
+            ("repartition_flag_off_keeps_a_queued_coarsen", False, True, None, "coarsening", True),
         ]
     )
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_coarsen_enabled")
     @patch(f"{MODULE}.is_auto_repartition_enabled")
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
@@ -202,18 +260,21 @@ class TestFeatureFlagGate:
         self,
         _name: str,
         enabled: bool,
+        coarsen_enabled: bool,
         swap: dict | None,
         trigger_reason: str,
         expect_rewrite: bool,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
         mock_enabled: MagicMock,
+        mock_coarsen_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
         _mock_capture_event: MagicMock,
     ) -> None:
         mock_enabled.return_value = enabled
+        mock_coarsen_enabled.return_value = coarsen_enabled
         schema = _schema(
             name="public.usages",
             s3_folder_name="usages",

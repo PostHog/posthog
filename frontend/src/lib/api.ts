@@ -365,15 +365,16 @@ export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (error) {
-        // A body read cancelled mid-stream (navigation, superseded request) surfaces here as an
-        // AbortError. Propagate it so it flows through the normal cancellation path instead of
-        // masquerading as a successful `null` — otherwise callers dereference it (`.results`,
-        // `.count`, …) and blow up with a `Cannot read properties of null` TypeError.
         if (isAbortError(error)) {
             throw error
         }
         return null
     }
+}
+
+function apiErrorFallback(response: Response, method: string, url: string): string {
+    const pathname = new URL(url, location.origin).pathname
+    return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
 }
 
 /**
@@ -3547,28 +3548,24 @@ const api = {
                 .assembleFullUrl(true)
 
             const abortController = new AbortController()
+            let streamFinished = false
+            const handleConnectionError = (error: any): void => {
+                if (isAbortError(error)) {
+                    return
+                }
+                apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
+                onError(error)
+            }
 
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
                 openWhenHidden: true,
                 onopen: async (response) => {
-                    if (!response.ok) {
-                        // Get server error message if available
-                        let errorMessage = `HTTP ${response.status}`
-                        try {
-                            const errorText = await response.text()
-                            if (errorText) {
-                                errorMessage = `HTTP ${response.status}: ${errorText}`
-                            }
-                        } catch {
-                            // If we can't read the response, just use the status
-                        }
+                    apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
 
-                        // Carry the real HTTP status so callers can classify the failure by status code
-                        // rather than string-matching the message (which misfires on transient/stream errors).
-                        const error = new Error(errorMessage) as Error & { status?: number }
-                        error.status = response.status
+                    if (!response.ok) {
+                        const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
                         onError(error)
                         abortController.abort()
                         return
@@ -3578,8 +3575,10 @@ const api = {
                     try {
                         const data = JSON.parse(event.data)
                         if (data.type === 'complete') {
+                            streamFinished = true
                             onComplete()
                         } else if (data.type === 'error') {
+                            streamFinished = true
                             onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
@@ -3589,9 +3588,15 @@ const api = {
                     }
                 },
                 onerror: (error) => {
-                    onError(error)
+                    handleConnectionError(error)
                 },
-            }).catch(onError)
+            }).then(() => {
+                if (!abortController.signal.aborted && !streamFinished) {
+                    handleConnectionError(
+                        new Error('Dashboard stream ended before loading finished. Refresh the page.')
+                    )
+                }
+            }, handleConnectionError)
 
             return () => abortController.abort()
         },
@@ -4955,6 +4960,8 @@ const api = {
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
                 node_type?: 'hogql' | 'python'
                 output_name?: string
+                connection_id?: string | null
+                send_raw_query?: boolean
             }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
@@ -7334,12 +7341,8 @@ const api = {
                         abortController.abort()
                     }
                 } else if (!response.ok) {
-                    let errorData: any = {}
-                    try {
-                        errorData = await response.json()
-                    } catch {
-                        // If JSON parsing fails, leave errorData empty
-                    }
+                    const error = await ApiError.fromResponse(response, `Request failed with status ${response.status}`)
+                    const errorData = error.data
                     // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
                     // identify which failure mode is producing the livestream auth baseline.
                     // Remove once root cause is known.
@@ -7352,14 +7355,7 @@ const api = {
                             server_message: errorData?.message || errorData?.error,
                         })
                     }
-                    onError(
-                        new ApiError(
-                            errorData.error || `Request failed with status ${response.status}`,
-                            response.status,
-                            response.headers,
-                            errorData
-                        )
-                    )
+                    onError(error)
                     abortController.abort()
                 } else {
                     onOpen?.()
@@ -7571,28 +7567,7 @@ async function handleFetch(
             }
         }
 
-        const data = await getJSONOrNull(response)
-
-        if (response.status >= 400 && data) {
-            if (typeof data.error === 'string') {
-                throw new ApiError(data.error, response.status, response.headers, data)
-            }
-
-            if (typeof data.detail === 'string') {
-                throw new ApiError(data.detail, response.status, response.headers, data)
-            }
-
-            if (typeof data.message === 'string') {
-                throw new ApiError(data.message, response.status, response.headers, data)
-            }
-        }
-
-        throw new ApiError(
-            `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
-            response.status,
-            response.headers,
-            data
-        )
+        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
     }
 
     return response

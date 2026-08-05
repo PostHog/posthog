@@ -52,9 +52,11 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'Connection terminated unexpectedly',
     'ECONNREFUSED',
     'ECONNRESET', // Connection reset by peer, e.g. PgBouncer/PG closed an idle or in-flight connection
+    'EHOSTUNREACH', // No route to host, e.g. the PgBouncer pod's IP vanished during a restart
     'ETIMEDOUT',
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
+    'pooler is shutting down', // PgBouncer terminating client connections during a restart
 ]
 
 export function isTransientPgError(err: unknown): boolean {

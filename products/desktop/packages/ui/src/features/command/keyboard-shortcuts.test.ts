@@ -47,6 +47,17 @@ describe("getShortcutsByCategory", () => {
 });
 
 describe("SHORTCUTS", () => {
+  it("registers the task detail archive shortcut", () => {
+    expect(SHORTCUTS.ARCHIVE_TASK).toBe("mod+shift+a");
+    expect(KEYBOARD_SHORTCUTS).toContainEqual(
+      expect.objectContaining({
+        id: "archive-task",
+        keys: SHORTCUTS.ARCHIVE_TASK,
+        context: "Task detail",
+      }),
+    );
+  });
+
   // The Electron View menu binds CmdOrCtrl+0 to "Actual Size" in the main
   // process, which a renderer preventDefault can't reliably beat.
   it("leaves mod+0 to the host's reset-zoom accelerator", () => {

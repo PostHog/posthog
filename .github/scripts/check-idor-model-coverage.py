@@ -285,6 +285,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "PromptSequence",
         "UserPromptState",
         # --- Global catalogs ---
+        "CommunitySkill",  # instance-global community skills catalog, synced from GitHub
+        "CommunitySkillFile",  # bundled files of a CommunitySkill (scoped via the catalog row)
         "HogFunctionTemplate",
         "MCPServer",
         # --- Special (has source_team + destination_team, not a plain team) ---
@@ -301,6 +303,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ProxyRecord",
         "Role",
         "RoleMembership",
+        "LinkedIdentityProviderConfig",
         # --- User-scoped (cross-tenant by design) ---
         "NotificationViewed",
         "SCIMProvisionedUser",
