@@ -849,7 +849,7 @@ jobs:
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
                   - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+                    uses: ./.github/actions/setup-python-cached
                     with:
                         python-version: 3.13.13
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -1152,7 +1152,7 @@ jobs:
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -1285,7 +1285,7 @@ jobs:
                   repositories: ${{ github.event.repository.name }}
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
                   python-version: 3.13.13
                   # Reuse the app token already minted above instead of a second mint.
@@ -1383,7 +1383,7 @@ jobs:
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -2027,7 +2027,7 @@ jobs:
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -2590,7 +2590,7 @@ jobs:
 
             - parallel:
                   - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+                    uses: ./.github/actions/setup-python-cached
                     with:
                         python-version: ${{ matrix.python-version }}
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
