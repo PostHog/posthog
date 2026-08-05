@@ -62,8 +62,9 @@ COHORT_DEFINITION_FIELDS = frozenset({"filters", "query", "groups", "is_static"}
 # inlines a dependency_chain of keys). Delivery and metadata attributes are deliberately
 # out: `ensure_experience_continuity`, `evaluation_runtime` and `bucketing_identifier`
 # shape how the base flag itself is served rather than what it resolves to, and
-# name/folder/analytics bookkeeping don't touch conditions at all. `archived` implies
-# `active=False`, so it's covered transitively.
+# name/folder/analytics bookkeeping don't touch conditions at all. `archived` is covered
+# transitively: the `archived_flag_must_be_disabled` constraint means archiving always
+# moves `active` too.
 FLAG_DEFINITION_FIELDS = frozenset({"filters", "active", "deleted", "key"})
 
 _DEFINITION_BEFORE_SAVE_ATTR = "_definition_before_save"
