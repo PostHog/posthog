@@ -480,7 +480,8 @@ function ManagedSchemaTable({
                         ),
                 },
                 {
-                    title: 'Rows synced',
+                    title: 'Rows stored',
+                    tooltip: 'Deduplicated size of the synced table. This is not the number of rows billed.',
                     key: 'rows_synced',
                     align: 'right',
                     sorter: (a, b) => (a.table?.row_count ?? 0) - (b.table?.row_count ?? 0),

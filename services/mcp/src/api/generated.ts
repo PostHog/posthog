@@ -74557,6 +74557,38 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    /**
+     * Billable rows synced in the current billing period, keyed by external data source id
+     */
+    export type TotalRowsStatsResponseBreakdownOfRowsBySource = {[key: string]: number};
+
+    export interface TotalRowsStatsResponse {
+      /** Whether billing period information could be retrieved for this organization */
+      billing_available: boolean;
+      /** Billing period interval, e.g. 'month' */
+      billing_interval: string;
+      /**
+         * End of the current billing period
+         * @nullable
+         */
+      billing_period_end: string | null;
+      /**
+         * Start of the current billing period
+         * @nullable
+         */
+      billing_period_start: string | null;
+      /** Billable rows synced in the current billing period, keyed by external data source id */
+      breakdown_of_rows_by_source: TotalRowsStatsResponseBreakdownOfRowsBySource;
+      /** Rows materialized by data modeling jobs in the current billing period */
+      materialized_rows_in_billing_period: number;
+      /** Total billable rows synced in the current billing period, the same quantity used to calculate the invoice */
+      total_rows: number;
+      /** Billable rows already reported by the billing service for this period */
+      tracked_billing_rows: number;
+      /** Billable rows synced since the billing service's last usage report, not yet reflected in tracked_billing_rows */
+      pending_billing_rows: number;
+    }
+
     export interface TraceReviewCreate {
       /**
          * Trace ID for the review. Only one active review can exist per trace and team.

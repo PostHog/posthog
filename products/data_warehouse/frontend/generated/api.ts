@@ -61,6 +61,7 @@ import type {
     SavedQueryMaterializeApi,
     SavedQueryResumeApi,
     TableApi,
+    TotalRowsStatsResponseApi,
     ViewLinkApi,
     ViewLinkValidationApi,
     ViewLinkValidationResponseApi,
@@ -503,8 +504,11 @@ export const getDataWarehouseTotalRowsStatsRetrieveUrl = (projectId: string) => 
  * Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
  * Used by the frontend data warehouse scene to display usage information.
  */
-export const dataWarehouseTotalRowsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataWarehouseTotalRowsStatsRetrieveUrl(projectId), {
+export const dataWarehouseTotalRowsStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TotalRowsStatsResponseApi> => {
+    return apiMutator<TotalRowsStatsResponseApi>(getDataWarehouseTotalRowsStatsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

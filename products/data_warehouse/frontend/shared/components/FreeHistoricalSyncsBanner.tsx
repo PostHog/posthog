@@ -95,7 +95,9 @@ export function FreeHistoricalSyncsBanner({ hideGetStarted }: { hideGetStarted?:
                     )}
 
                     <p className="text-sm opacity-70">
-                        After the first 7-day period, standard data warehouse pricing will apply.
+                        After the first 7-day period, standard data warehouse pricing applies. The source keeps syncing
+                        on its schedule, and every sync run is billed by the rows it processes, even if those rows were
+                        synced before.
                     </p>
                 </div>
             </LemonModal>

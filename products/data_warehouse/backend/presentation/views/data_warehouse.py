@@ -151,6 +151,43 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             resp["Cache-Control"] = "max-age=10"
             return resp
 
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                "TotalRowsStatsResponse",
+                fields={
+                    "billing_available": serializers.BooleanField(
+                        help_text="Whether billing period information could be retrieved for this organization"
+                    ),
+                    "billing_interval": serializers.CharField(help_text="Billing period interval, e.g. 'month'"),
+                    "billing_period_end": serializers.DateTimeField(
+                        allow_null=True, help_text="End of the current billing period"
+                    ),
+                    "billing_period_start": serializers.DateTimeField(
+                        allow_null=True, help_text="Start of the current billing period"
+                    ),
+                    "breakdown_of_rows_by_source": serializers.DictField(
+                        child=serializers.IntegerField(),
+                        help_text="Billable rows synced in the current billing period, keyed by external data source id",
+                    ),
+                    "materialized_rows_in_billing_period": serializers.IntegerField(
+                        help_text="Rows materialized by data modeling jobs in the current billing period"
+                    ),
+                    "total_rows": serializers.IntegerField(
+                        help_text="Total billable rows synced in the current billing period, "
+                        "the same quantity used to calculate the invoice"
+                    ),
+                    "tracked_billing_rows": serializers.IntegerField(
+                        help_text="Billable rows already reported by the billing service for this period"
+                    ),
+                    "pending_billing_rows": serializers.IntegerField(
+                        help_text="Billable rows synced since the billing service's last usage report, "
+                        "not yet reflected in tracked_billing_rows"
+                    ),
+                },
+            )
+        },
+    )
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:
         """

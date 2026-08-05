@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconInfo, IconPlusSmall } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -27,6 +27,7 @@ import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
+import { billingRowStatsLogic } from '../logics/billingRowStatsLogic'
 import { sourceManagementLogic } from '../logics/sourceManagementLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
@@ -47,6 +48,7 @@ export function ManagedSourcesTable(): JSX.Element {
     const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { billingRowStats } = useValues(billingRowStatsLogic)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     if (availableSourcesLoading) {
@@ -55,6 +57,17 @@ export function ManagedSourcesTable(): JSX.Element {
 
     return (
         <div>
+            {billingRowStats?.billing_available && (
+                <div className="flex items-center gap-1 mb-2 text-sm text-muted">
+                    <span>
+                        Billable rows synced this period:{' '}
+                        <strong className="text-default">{billingRowStats.total_rows.toLocaleString()}</strong>
+                    </span>
+                    <Tooltip title="Rows processed across all sync runs in the current billing period. This is what you're charged for. It's often higher than rows stored below, since every sync run is billed even when it re-reads existing rows.">
+                        <IconInfo className="text-secondary" />
+                    </Tooltip>
+                </div>
+            )}
             <div className="flex gap-2 justify-between items-center mb-4">
                 <LemonInput
                     type="search"
@@ -118,9 +131,10 @@ export function ManagedSourcesTable(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Total Rows Synced',
+                        title: 'Rows stored',
                         key: 'rows_synced',
-                        tooltip: 'Total number of rows synced across all schemas in this source',
+                        tooltip:
+                            "Deduplicated size of the synced tables for this source. See billable rows above for what you're charged for.",
                         render: (_, source) =>
                             source.schemas
                                 .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
