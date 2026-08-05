@@ -523,7 +523,15 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
     )
     prompt = build_run_prompt(
-        skill, run_id=str(run_id), team_id=team.id, started_at=started_at, github_read_access=github_guidance
+        skill,
+        run_id=str(run_id),
+        team_id=team.id,
+        started_at=started_at,
+        github_read_access=github_guidance,
+        # Renders the structured-output section (schema + `scout-record-output` contract) only
+        # when the config carries a schema AND emit is on — records land solely as project
+        # events, so a dry-run scout must not be steered at a tool that fails closed.
+        structured_output_schema=(config.structured_output_schema if config.emit else None),
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -776,6 +784,14 @@ def _create_run_row(
     # minted. Both can change between runs, so this is a fourth composition fork rather than a
     # property of the build.
     metadata["github_guidance"] = github_guidance
+    # Dispatch-time snapshot of the structured-output contract. The prompt renders this exact
+    # schema, so the record endpoint validates against the snapshot rather than the live config
+    # value — a mid-run schema edit must not reject records that match what the run was shown.
+    # Clearing the config's schema entirely still fails the channel closed mid-run (the kill
+    # switch); see `tools/structured_output._resolve_schema`. Gated on `emit` like the prompt
+    # section: records land solely as project events, so a dry-run scout has no channel.
+    if config.structured_output_schema and config.emit:
+        metadata["structured_output_schema"] = config.structured_output_schema
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,

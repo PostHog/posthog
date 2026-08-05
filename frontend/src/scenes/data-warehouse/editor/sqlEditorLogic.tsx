@@ -606,7 +606,11 @@ export interface sqlEditorLogicActions {
         payload?: any
     } // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueryFolders: () => any // dataWarehouseViewsLogic
-    materializeDataWarehouseSavedQuery: (viewId: string) => {
+    materializeDataWarehouseSavedQuery: (
+        viewId: string,
+        syncFrequency?: import('~/types').DataModelingSyncInterval | undefined
+    ) => {
+        syncFrequency: import('~/types').DataModelingSyncInterval | undefined
         viewId: string
     } // dataWarehouseViewsLogic
     runDataWarehouseSavedQuery: (viewId: string) => {

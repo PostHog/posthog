@@ -3032,6 +3032,12 @@ def postgres_source(
                             logger.debug("Checking if source is a read replica...")
                             using_read_replica = _is_read_replica(cursor)
                             logger.debug(f"using_read_replica = {using_read_replica}")
+                            # DuckDB/duckgres-backed Postgres-wire engines don't implement
+                            # `DECLARE CURSOR` (or the `pg_catalog.pg_cursors` check psycopg's
+                            # ServerCursor runs before it), so `get_rows` must skip the
+                            # server-side cursor read path against them.
+                            is_duckdb = _is_duckdb_connection(cursor)
+                            logger.debug(f"is_duckdb = {is_duckdb}")
                             logger.debug("Getting primary keys...")
                             primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                             if primary_keys:
@@ -3278,7 +3284,7 @@ def postgres_source(
             # the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
             arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
         with _tunnel_with_handshake_translation(tunnel) as (host, port):
-            cursor_factory = psycopg.ServerCursor if not using_read_replica else None
+            cursor_factory = psycopg.ServerCursor if not using_read_replica and not is_duckdb else None
 
             def get_connection():
                 try:
@@ -3535,6 +3541,13 @@ def postgres_source(
                 # and failing the whole activity. Only the connect is retried; a drop mid-fetch still
                 # propagates, so a partially read window/partition is never re-yielded.
                 return _connect_with_dropped_retry(get_connection, logger)
+
+            if is_duckdb:
+                # No server-side cursor support (see `is_duckdb` above), so read with the same
+                # LIMIT/OFFSET fallback a read replica uses on a recovery conflict — a plain client
+                # cursor, no DECLARE required.
+                yield from offset_chunking(0, chunk_size)
+                return
 
             if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
 
