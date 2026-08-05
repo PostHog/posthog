@@ -10,6 +10,16 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 
+# Trunk's merge-queue batch branches. Trunk-specific and hardcoded like KNOWN_BOT_HANDLES;
+# defined once here so every surface breaks queue spend out with the same key.
+MERGE_QUEUE_BRANCH_PREFIX = "trunk-merge/"
+
+
+def merge_queue_branch_predicate(branch_sql: str) -> str:
+    """True when the branch expression names a merge-queue batch branch."""
+    return f"startsWith({branch_sql}, '{MERGE_QUEUE_BRANCH_PREFIX}')"
+
+
 # The base duration-percentile population, for runs and jobs alike: successful instances
 # only. Cancelled/skipped (superseded) and failed instances end early, so including them
 # answers "how long until CI stopped", not "how long does CI take to pass". Jobs use this

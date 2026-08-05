@@ -78,6 +78,7 @@ def _job_row(
     labels: str = '["depot-ubuntu-22.04-4"]',
     started: str = "2026-01-01 00:00:00",
     completed: str = "2026-01-01 00:02:00",
+    head_branch: str = "main",
 ) -> dict[str, Any]:
     return {
         "id": job_id,
@@ -88,7 +89,7 @@ def _job_row(
         "status": "completed",
         "conclusion": conclusion,
         "head_sha": "sha60",
-        "head_branch": "main",
+        "head_branch": head_branch,
         "labels": labels,
         "runner_name": "runner-1",
         "runner_group_name": "depot",
