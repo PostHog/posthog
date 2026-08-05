@@ -34,7 +34,7 @@
             "description": "MCP connector configuration for this loop's runs.",
             "properties": {
                 "mcp_installation_ids": {
-                    "description": "MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs.",
+                    "description": "MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. Must be the loop owner's own active installations; selecting one also shares that connection with the Loops agent.",
                     "items": {
                         "type": "string"
                     },
