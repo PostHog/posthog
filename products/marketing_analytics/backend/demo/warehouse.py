@@ -570,6 +570,10 @@ BIGQUERY_ADS_COLUMNS = {
 STRIPE_INVOICES_COLUMNS = {
     "id": STRING,
     "distinct_id": STRING,
+    # Deliberately String, not a datetime. This is how CSV and several DLT sources
+    # actually land timestamps, and it is what caught the conversion-goal health
+    # check comparing an uncast String column against DateTime64. Don't "fix" it —
+    # a datetime here removes the only coverage of that path.
     "created_at": STRING,
     "amount": FLOAT,
     "utm_campaign": STRING,

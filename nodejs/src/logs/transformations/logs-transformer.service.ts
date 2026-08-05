@@ -70,6 +70,12 @@ export const transformationUnexpectedErrorsCounter = new Counter({
     help: 'Unexpected (non-customer-code) errors in the logs transformer. Any occurrence should alert.',
 })
 
+export const transformationInfraErrorsCounter = new Counter({
+    name: 'logs_ingestion_transformations_infra_errors_total',
+    help: 'Infrastructure errors while fetching functions or reading watcher state; function fetch errors pass records through untransformed.',
+    labelNames: ['source'], // functions_fetch | watcher_state
+})
+
 export interface LogsTransformerConfig {
     siteUrl: string
     /** Hard per-record VM kill */
@@ -140,8 +146,19 @@ export class LogsTransformerService {
     /** Cheap existence check (in-process LazyLoader cache) used to preserve the
      * no-decode passthrough for teams without transformations. */
     public async teamHasTransformations(teamId: number): Promise<boolean> {
-        const idsByTeam = await this.hogFunctionManager.getHogFunctionIdsForTeams([teamId], ['transformation_log'])
-        return (idsByTeam[teamId] ?? []).length > 0
+        // Fail open: a fetch failure (cold cache + Postgres blip) must skip transformations
+        // for the message, never bubble into the consumer's catch and DLQ valid records.
+        try {
+            const idsByTeam = await this.hogFunctionManager.getHogFunctionIdsForTeams([teamId], ['transformation_log'])
+            return (idsByTeam[teamId] ?? []).length > 0
+        } catch (error) {
+            transformationInfraErrorsCounter.inc({ source: 'functions_fetch' })
+            logger.warn('[logs-transformer] function id fetch failed — skipping transformations', {
+                teamId,
+                error: String(error),
+            })
+            return false
+        }
     }
 
     public async flush(): Promise<void> {
@@ -156,8 +173,23 @@ export class LogsTransformerService {
         const recordsDroppedByFunctionId = new Map<string, number>()
         let recordsDropped = 0
 
-        const functionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams([teamId], ['transformation_log'])
-        const allFunctions = functionsByTeam[teamId] ?? []
+        let allFunctions: HogFunctionType[]
+        try {
+            const functionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
+                [teamId],
+                ['transformation_log']
+            )
+            allFunctions = functionsByTeam[teamId] ?? []
+        } catch (error) {
+            // Fail open like the fetch in teamHasTransformations: pass records through
+            // untransformed rather than DLQ the message.
+            transformationInfraErrorsCounter.inc({ source: 'functions_fetch' })
+            logger.warn('[logs-transformer] function fetch failed — records passed through untransformed', {
+                teamId,
+                error: String(error),
+            })
+            return { recordsDropped, recordsDroppedByFunctionId }
+        }
         if (allFunctions.length === 0 || records.length === 0) {
             return { recordsDropped, recordsDroppedByFunctionId }
         }
@@ -237,9 +269,13 @@ export class LogsTransformerService {
             }
         }
 
-        // Replace contents in place so callers holding the array reference see the result
+        // Replace contents in place so callers holding the array reference see the result.
+        // One-by-one push: spreading an unbounded record array would exceed V8's argument
+        // limit and throw RangeError, escaping the per-record fail-open handling.
         records.length = 0
-        records.push(...kept)
+        for (const record of kept) {
+            records.push(record)
+        }
 
         transformationVmDurationHistogram.observe(messageVmMs / 1000)
         this.queueAggregates(teamId, aggregates)
@@ -259,7 +295,19 @@ export class LogsTransformerService {
         if (!this.hogWatcher) {
             return functions
         }
-        const states = await this.hogWatcher.getEffectiveStates(functions.map((fn) => fn.id))
+        let states: Awaited<ReturnType<HogWatcherService['getEffectiveStates']>>
+        try {
+            states = await this.hogWatcher.getEffectiveStates(functions.map((fn) => fn.id))
+        } catch (error) {
+            // Fail open: a Redis blip on a sampled message must not DLQ it — run every
+            // function as if unsampled rather than propagate.
+            transformationInfraErrorsCounter.inc({ source: 'watcher_state' })
+            logger.warn('[logs-transformer] watcher state read failed — running all functions', {
+                teamId,
+                error: String(error),
+            })
+            return functions
+        }
         const active: HogFunctionType[] = []
         for (const fn of functions) {
             if (states[fn.id]?.state === HogWatcherState.disabled) {

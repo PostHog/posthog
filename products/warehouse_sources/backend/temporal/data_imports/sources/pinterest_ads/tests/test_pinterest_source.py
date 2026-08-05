@@ -96,15 +96,43 @@ class TestPinterestAdsSource:
             "campaigns",
             "ad_groups",
             "ads",
+            "ad_accounts",
+            "audiences",
+            "conversion_tags",
+            "keywords",
             "campaign_analytics",
             "ad_group_analytics",
             "ad_analytics",
+            "campaign_targeting_analytics",
+            "ad_group_targeting_analytics",
+            "ad_targeting_analytics",
         ]
         assert len(schemas) == len(expected_endpoints)
 
         schema_names = [schema.name for schema in schemas]
         for endpoint in expected_endpoints:
             assert endpoint in schema_names
+
+    @pytest.mark.parametrize(
+        "endpoint,should_sync_default",
+        [
+            ("campaigns", True),
+            ("campaign_analytics", True),
+            ("ad_accounts", True),
+            ("audiences", True),
+            ("conversion_tags", True),
+            ("keywords", True),
+            # Breakdown tables fan out over every entity, day and targeting type, so a customer has
+            # to opt into them rather than have them switched on by the schema picker.
+            ("campaign_targeting_analytics", False),
+            ("ad_group_targeting_analytics", False),
+            ("ad_targeting_analytics", False),
+        ],
+    )
+    def test_expensive_breakdown_tables_are_off_by_default(self, endpoint, should_sync_default):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=[endpoint])
+
+        assert [schema.should_sync_default for schema in schemas] == [should_sync_default]
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source.PinterestAdsSource.get_oauth_integration"

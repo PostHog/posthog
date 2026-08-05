@@ -560,7 +560,6 @@ const ExperimentsTable = ({
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
     const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
-
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
     const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
     const [surveyModalExperiment, setSurveyModalExperiment] = useState<Experiment | null>(null)

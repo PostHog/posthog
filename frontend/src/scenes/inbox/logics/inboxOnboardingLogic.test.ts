@@ -7,6 +7,8 @@ describe('computeOnboardingMode', () => {
         areCountsResolved: true,
         hasExistingWork: false,
         bannerDismissed: false,
+        isWizardRunning: false,
+        isWizardStateResolved: true,
     }
 
     it.each<[string, Partial<OnboardingModeInputs>, InboxOnboardingMode]>([
@@ -29,6 +31,19 @@ describe('computeOnboardingMode', () => {
         ['not set up, with work, banner dismissed', { hasExistingWork: true, bannerDismissed: true }, 'none'],
         // Dismissing the banner has no effect on the takeover (the takeover has no dismiss).
         ['not set up, empty inbox, banner dismissed', { bannerDismissed: true }, 'takeover'],
+        // A run in flight is setup in progress: telling the user to go run the wizard would
+        // contradict the progress widget already showing it running.
+        ['wizard running, would otherwise take over', { isWizardRunning: true }, 'none'],
+        ['wizard running, would otherwise banner', { isWizardRunning: true, hasExistingWork: true }, 'none'],
+        // Until the detector has actually checked, "not running" is absence of evidence: the
+        // config/count loaders settle far faster than the detector's jittered poll, so acting on it
+        // would show the takeover to someone landing in the inbox mid-run.
+        ['wizard state unknown, would otherwise take over', { isWizardStateResolved: false }, 'none'],
+        [
+            'wizard state unknown, would otherwise banner',
+            { isWizardStateResolved: false, hasExistingWork: true },
+            'none',
+        ],
     ])('%s', (_label, overrides, expected) => {
         expect(computeOnboardingMode({ ...base, ...overrides })).toBe(expected)
     })

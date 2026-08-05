@@ -133,6 +133,12 @@ impl PersonCache {
     pub fn remove(&self, key: &PersonCacheKey) {
         self.inner.remove(key);
     }
+
+    /// Resident weight in bytes — the sum of entries' `approx_bytes` as
+    /// foyer accounts it against the capacity.
+    pub fn usage_bytes(&self) -> usize {
+        self.inner.usage()
+    }
 }
 
 #[cfg(test)]
