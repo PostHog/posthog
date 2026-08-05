@@ -71,8 +71,9 @@ class SummarizerFacetsResponse(BaseModel, frozen=True):
     @field_validator("keywords", "friction_points", mode="after")
     @classmethod
     def _lowercase(cls, value: list[str]) -> list[str]:
-        # Lowercase so embedding similarity isn't fragmented by mixed casing.
-        return [v.lower() for v in value]
+        # Lowercase so embedding similarity isn't fragmented by mixed casing. Dedupe so a phrase the
+        # model repeats is stored once (the UI keys facet tags by term).
+        return list(dict.fromkeys(v.lower() for v in value))
 
 
 class SummarizerOutput(BaseScannerOutput, frozen=True):

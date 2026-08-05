@@ -36,6 +36,10 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
     "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "changelog_bot": ProductCostLimit(limit_usd=500.0, window_seconds=86400),
+    # Path-cleaning suggestions: haiku-only, a few short calls per team per week. The product is
+    # unbilled and reachable with any feature-gated llm_gateway:read key, so a tight cap bounds
+    # abuse of the shared budget rather than real usage.
+    "web_analytics": ProductCostLimit(limit_usd=100.0, window_seconds=86400),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
@@ -164,6 +168,8 @@ class Settings(BaseSettings):
     fireworks_api_key: str | None = None
     cloudflare_api_key: str | None = None
     cloudflare_account_id: str | None = None
+    baseten_api_base: str | None = None
+    baseten_api_key: str | None = None
 
     # Modal-hosted GLM inference (OpenAI-compatible vLLM endpoint); auth is a proxy-token pair
     # sent as Modal-Key/Modal-Secret headers. All three must be set for Modal routing.
@@ -185,6 +191,10 @@ class Settings(BaseSettings):
     # so the EU deployment lands EU events on EU PostHog (team_id=1) for regional billing.
     posthog_secondary_project_token: str | None = None
     posthog_secondary_host: str | None = None
+
+    # Set false on local dev stacks whose ingestion-ai forwarder rejects AI-lane batches
+    # (401 on /batch/, events silently dropped) — capture falls back to the standard lane.
+    posthog_ai_lane_capture: bool = True
 
     metrics_enabled: bool = True
 

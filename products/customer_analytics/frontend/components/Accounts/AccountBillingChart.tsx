@@ -26,8 +26,7 @@ import {
     buildComboChartConfig,
     buildLineChartConfig,
     buildSeries,
-    canRenderSqlBarGraph,
-    canRenderSqlComboGraph,
+    sqlChartKind,
 } from '~/queries/nodes/DataVisualization/Components/Charts/sqlLineGraphAdapter'
 import { AxisSeries, dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
@@ -120,13 +119,14 @@ function BillingChartByKind({
     chartProps: BillingChartProps
     hiddenKeys: string[]
 }): JSX.Element | null {
-    if (canRenderSqlComboGraph(chartProps)) {
-        return <BillingComboChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
+    switch (sqlChartKind(chartProps)) {
+        case 'combo':
+            return <BillingComboChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
+        case 'bar':
+            return <BillingBarChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
+        case 'line':
+            return <BillingLineChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
     }
-    if (canRenderSqlBarGraph(chartProps)) {
-        return <BillingBarChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
-    }
-    return <BillingLineChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
 }
 
 // One subcomponent per chart kind because useBillingChartModel's config type follows the builder it's given.
@@ -201,7 +201,7 @@ function BillingComboChart({
  * embedded DataVisualization, so Customer analytics owns the per-series show/hide chips without
  * touching shared data-viz code. `dataVisualizationLogic` is still reused read-only for fetch +
  * SQL-results→series parsing, and the series/config builders come from `sqlLineGraphAdapter`'s
- * pure functions — but not the SQL chart's React layer (`LineGraph`, `useSqlChartModel`), so this
+ * pure functions — but not the SQL chart's React layer (`SqlChart`, `useSqlChartModel`), so this
  * stays clear of the legacy paths being cleaned up there. Hidden series go into quill's controlled
  * `legend.hiddenKeys`: excluded from drawing and scales, the rest rescale into the freed space.
  */

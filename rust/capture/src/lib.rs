@@ -1,4 +1,5 @@
 pub mod ai_endpoint;
+pub mod ai_rejection;
 pub mod ai_s3;
 pub mod api;
 pub mod config;
@@ -6,6 +7,7 @@ pub mod event_restrictions;
 pub mod events;
 pub mod extractors;
 pub mod global_rate_limiter;
+pub mod ingestion_warnings;
 pub mod log_util;
 pub mod metrics_middleware;
 pub mod otel;

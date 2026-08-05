@@ -27,6 +27,11 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
+    truncate_events,
+    truncate_persons,
+    truncate_sessions,
+)
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     PersonDistinctId2Values,
     PersonValues,
@@ -34,6 +39,14 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_persons_in_clickhouse,
     insert_person_distinct_id2_values_in_clickhouse,
 )
+
+
+@pytest_asyncio.fixture
+async def truncate_clickhouse_tables(clickhouse_client):
+    yield
+    await truncate_events(clickhouse_client)
+    await truncate_persons(clickhouse_client)
+    await truncate_sessions(clickhouse_client)
 
 
 @pytest.fixture(scope="package", autouse=True)

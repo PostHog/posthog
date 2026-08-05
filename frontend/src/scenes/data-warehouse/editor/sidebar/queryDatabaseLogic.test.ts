@@ -1,7 +1,12 @@
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+
+import { initKeaTests } from '~/test/init'
+
 import {
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
     groupDirectConnectionTableNodesBySchema,
+    queryDatabaseLogic,
     shouldInitializeDirectConnectionExpandedFolders,
 } from './queryDatabaseLogic'
 
@@ -198,5 +203,44 @@ describe('queryDatabaseLogic', () => {
                 ['views', 'schema-system']
             )
         ).toEqual(false)
+    })
+
+    describe('failed schema load', () => {
+        let logic: ReturnType<typeof queryDatabaseLogic.build>
+
+        const childNames = (sectionType: string): (string | undefined)[] =>
+            logic.values.treeData
+                .find((item) => item.record?.type === sectionType)
+                ?.children?.map((child) => child.name) ?? []
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = queryDatabaseLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('shows the failure and a retry instead of an empty tree', () => {
+            databaseTableListLogic.findMounted()?.actions.loadDatabaseFailure('A server error occurred.')
+
+            expect(childNames('sources')).toEqual(["Couldn't load your schema", 'Try again'])
+            expect(childNames('managed-views')).toEqual(["Couldn't load your schema", 'Try again'])
+        })
+
+        it('retries the schema load when the retry node is clicked', () => {
+            databaseTableListLogic.findMounted()?.actions.loadDatabaseFailure('A server error occurred.')
+
+            const retryNode = logic.values.treeData
+                .find((item) => item.record?.type === 'sources')
+                ?.children?.find((child) => child.record?.type === 'schema-load-retry')
+
+            retryNode?.onClick?.()
+
+            expect(logic.values.databaseLoadError).toEqual(null)
+            expect(childNames('sources')).not.toContain("Couldn't load your schema")
+        })
     })
 })

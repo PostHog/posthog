@@ -1,5 +1,5 @@
 import * as prometheus from 'prom-client'
-import express, { Request, Response } from 'ultimate-express'
+import express, { NextFunction, Request, Response } from 'ultimate-express'
 
 import { corsMiddleware } from '~/common/api/middleware/cors'
 import { httpMetricsMiddleware } from '~/common/api/middleware/http-metrics'
@@ -29,6 +29,8 @@ export interface SetupExpressAppOptions {
     internalApiSecret?: string
     // Comma-separated previous secrets still accepted for verification during rotation.
     internalApiSecretFallbacks?: string
+    // JSON body size limit, e.g. '20mb'. Overridable in tests.
+    jsonBodyLimit?: string
 }
 
 export function setupCommonRoutes(
@@ -66,12 +68,26 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
 
     app.use(
         express.json({
-            limit: '20mb',
+            limit: options.jsonBodyLimit ?? '20mb',
             verify: (req, res, buf) => {
                 ;(req as any).rawBody = buf.toString('utf8')
             },
         })
     )
+
+    // ultimate-express reports an oversized body as a plain Error with no
+    // status, which the default handler renders as a 500 — indistinguishable
+    // from a worker crash for callers deciding whether to retry. Answer 413 so
+    // clients (the Rust ingestion consumer) split the payload instead of
+    // retrying it verbatim. Also match express-style body-parser errors
+    // (status 413 / type entity.too.large) for compatibility.
+    app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+        if (err?.message === 'Request entity too large' || err?.status === 413 || err?.type === 'entity.too.large') {
+            res.status(413).json({ status: 'error', error: 'Request entity too large' })
+            return
+        }
+        next(err)
+    })
 
     return app
 }

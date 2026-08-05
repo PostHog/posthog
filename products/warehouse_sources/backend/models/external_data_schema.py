@@ -3,6 +3,7 @@ import sys
 import uuid
 import fnmatch
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -19,7 +20,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
 )
@@ -445,7 +446,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partition_size_override", None)
         self.sync_type_config.pop("partition_mode_override", None)
         self.sync_type_config.pop("partitioning_keys_override", None)
-        self.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT (see save()).
+        self.save(skip_activity_log=True)
 
     # --- In-place repartition controller state ------------------------------------------------
     # These keys drive the automated, no-source-pull repartition that bounds per-partition memory
@@ -497,9 +500,18 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     def _save_sync_type_config(self) -> None:
+        # temporalio at module scope would put the Temporal client on the django.setup() path —
+        # this is a models module (see external_data_source.reload_schemas for the same pattern).
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
         # Internal bookkeeping write — skip the activity-log SELECT (see save()) since these run
         # inside the sync/repartition activity where a dropped pooler connection would fail the run.
-        self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        # These fire once per batch across every schema sync, so a transient pooler wait_timeout
+        # (the pool momentarily out of free backend connections) is worth one retry rather than
+        # losing the write silently.
+        retry_on_db_connection_drop(
+            lambda: self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        )
 
     def record_partition_measurement(self, max_partition_bytes: int) -> None:
         self.sync_type_config["max_partition_bytes"] = max_partition_bytes
@@ -557,7 +569,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if earliest_value is not None:
             staged["earliest_value"] = self._serialize_incremental_value(earliest_value)
         self.sync_type_config["incremental_staged"] = staged
-        self.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT (see save()).
+        self.save(skip_activity_log=True)
 
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
         staged = self.sync_type_config.get("incremental_staged")
@@ -568,7 +582,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if "earliest_value" in staged:
             self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
         self.sync_type_config.pop("incremental_staged", None)
-        self.save()
+        self.save(skip_activity_log=True)
         return True
 
     def _serialize_incremental_value(self, value: Any) -> Any:
@@ -986,6 +1000,12 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
             schema.save(update_fields=["label", "updated_at"])
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SchemaSyncResult:
+    created: list[str]
+    deleted: list[str]
+
+
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None],
     source_id: str,
@@ -993,7 +1013,7 @@ def sync_old_schemas_with_new_schemas(
     descriptions: dict[str, str | None] | None = None,
     strict_name_match: bool = False,
     schema_metadata_by_name: dict[str, dict] | None = None,
-) -> tuple[list[str], list[str]]:
+) -> SchemaSyncResult:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
@@ -1086,7 +1106,7 @@ def sync_old_schemas_with_new_schemas(
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 
-    return actually_created, deleted_schemas
+    return SchemaSyncResult(created=actually_created, deleted=deleted_schemas)
 
 
 def schema_name_matches_auto_sync_patterns(name: str, patterns: list[str] | None) -> bool:

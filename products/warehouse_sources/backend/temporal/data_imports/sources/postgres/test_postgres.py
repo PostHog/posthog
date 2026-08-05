@@ -23,13 +23,13 @@ from psycopg import sql
 from sshtunnel import BaseSSHTunnelForwarderError
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -798,6 +798,8 @@ class TestPostgresSourceNonRetryableErrors:
         [
             'invalid input syntax for type integer: "1.5"',
             'InvalidTextRepresentation: invalid input syntax for type integer: "1.5"',
+            'invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
+            'InvalidTextRepresentation: invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
         ],
     )
     def test_non_integer_incremental_cursor_errors_are_non_retryable(self, source, error_msg):
@@ -827,6 +829,32 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Missing incremental field error should surface an actionable message"
         assert "incremental field" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            # schema, table_name, should_use_incremental_field, table_type, incremental_field,
+            # incremental_field_type, db_incremental_field_last_value
+            lambda: _build_query("public", "my_table", True, None, "xmin", IncrementalFieldType.XID, None),
+            # _build_count_query has no `table_type` parameter
+            lambda: _build_count_query("public", "my_table", True, "xmin", IncrementalFieldType.XID, None),
+        ],
+    )
+    def test_xmin_as_incremental_field_is_non_retryable(self, source, builder):
+        # `xmin` is only valid through the dedicated xmin replication sync type. Picking it as a
+        # plain incremental/append field used to build `"xmin" >= 0`, which Postgres rejects with
+        # `UndefinedFunction: operator does not exist: xid >= integer`. Drive the real raise sites so
+        # a message change that breaks the classifier key is caught.
+        with pytest.raises(ValueError) as exc_info:
+            builder()
+        error_msg = str(exc_info.value)
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"xmin-as-incremental-field error should be non-retryable: {error_msg}"
+
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "xmin-as-incremental-field error should surface an actionable message"
+        assert "xmin replication" in friendly[0]
 
     def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source):
         error_msg = str(_recovery_conflict_abort_error(10))
@@ -934,6 +962,38 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — no class name.
+            'infinite recursion detected in policy for relation "list_members"',
+            'infinite recursion detected in policy for relation "grocery_lists"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'InvalidObjectDefinition: infinite recursion detected in policy for relation "orders"',
+        ],
+    )
+    def test_recursive_rls_policy_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Recursive RLS policy error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'infinite recursion detected in policy for relation "list_members"',
+            # Temporal-wrapped form matches both this pattern and the "InvalidObjectDefinition"
+            # class-name key; `update_external_data_job_model` takes the friendly message from the
+            # *first* matching dict entry, so the specific pattern must be ordered before the
+            # class-name key or its `None` value silently shadows this actionable message.
+            'InvalidObjectDefinition: infinite recursion detected in policy for relation "orders"',
+        ],
+    )
+    def test_recursive_rls_policy_returns_friendly_message(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        first_match = next((reason for pattern, reason in non_retryable.items() if pattern in error_msg), None)
+        assert first_match is not None, "Recursive RLS policy error should surface an actionable message"
+        assert "BYPASSRLS" in first_match
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)).
             'materialized view "mv_dayplan_blocks" has not been populated\nHINT:  Use the REFRESH MATERIALIZED VIEW command.',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
@@ -989,6 +1049,27 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"jsonb_each on non-object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'unit "week" not supported for type interval',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'FeatureNotSupported: unit "week" not supported for type interval',
+        ],
+    )
+    def test_interval_unit_not_supported_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unsupported interval-unit error should be non-retryable: {error_msg}"
+
+    def test_interval_unit_not_supported_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'unit "week" not supported for type interval'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Unsupported interval-unit error should surface an actionable message"
+        assert "interval" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1132,6 +1213,30 @@ class TestPostgresSourceRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Admin-shutdown error should not be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQLSTATE 57P03: connect-time refusal while a smart/fast shutdown is in progress — the
+            # connect-time sibling of the admin-shutdown case above. The offset-chunking reconnect
+            # already retries this in-process (`_SERVER_STARTING_UP_ERROR_SUBSTRINGS` in
+            # postgres.py); this is the whole-activity-retry fallback for when that budget is
+            # exhausted (e.g. a longer maintenance window).
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+            "FATAL:  the database system is shutting down",
+            "OperationalError: the database system is shutting down",
+        ],
+    )
+    def test_server_shutting_down_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Server-shutting-down error should be classified retryable: {error_msg}"
+
+    def test_server_shutting_down_is_not_also_non_retryable(self, source):
+        error_msg = "the database system is shutting down"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Server-shutting-down error should not be non-retryable: {error_msg}"
 
 
 def _raise_eof() -> None:
@@ -1509,6 +1614,14 @@ class TestIsConnectionDroppedError:
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
             ),
+            # Supavisor's own auth_query secret lookup (used to authenticate a tenant with no static
+            # user record) times out waiting for the backend, reporting a bare OperationalError
+            # carrying its "(EAUTHQUERY)" code. A race in the pooler's bookkeeping, not a credential
+            # rejection — transient and recovers once the secret is cached.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (EAUTHQUERY) auth_query secret check timed out"
+            ),
             # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
             # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the
             # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
@@ -1581,6 +1694,14 @@ class TestDroppedOrConnectTimeout:
             psycopg.OperationalError(
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  the database system is starting up"
+            ),
+            # The mirror-image 57P03 refusal at shutdown: a smart/fast shutdown in progress refuses
+            # new connections the same way a not-yet-started server does. Transient — the source
+            # accepts connections again once it restarts — so the offset-chunking reconnect must
+            # retry it in-process instead of failing the whole activity.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is shutting down"
             ),
         ],
     )
@@ -1888,16 +2009,33 @@ class TestResolveHostaddrWithTimeout:
             assert _resolve_hostaddr_with_timeout(host, 5432, 15) is None
         getaddrinfo_mock.assert_not_called()
 
-    def test_resolved_hostname_returns_first_address(self):
+    def test_resolved_hostname_returns_every_address_in_order(self):
+        # A dual-stack host resolving to more than one address must return all of them, in order —
+        # collapsing to just the first would defeat psycopg's own per-address failover and turn an
+        # unreachable address family (e.g. no IPv6 egress) into a hard connection failure instead of
+        # falling back to the other address.
         addrinfo = [
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::5", 5432)),
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
-            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.6", 5432)),
         ]
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
             return_value=addrinfo,
         ):
-            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == "10.0.0.5"
+            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["2001:db8::5", "10.0.0.5"]
+
+    def test_resolved_hostname_dedupes_repeated_addresses(self):
+        # getaddrinfo can repeat an address across otherwise-distinct tuples (e.g. differing canonical
+        # names); a duplicate must not produce a duplicate connection attempt.
+        addrinfo = [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
+        ]
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            return_value=addrinfo,
+        ):
+            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["10.0.0.5"]
 
     def test_genuine_resolution_failure_falls_through(self):
         # A host that doesn't resolve must return None (not raise) so psycopg connects as before and
@@ -1927,9 +2065,77 @@ class TestResolveHostaddrWithTimeout:
         assert "Name or service not known" not in message
 
 
-# Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy)
-# reject the libpq `options` startup parameter we send to pin client_encoding=UTF8. When they do, we
-# drop `options` and retry rather than failing the connection.
+# A dual-stack host (e.g. Neon) can resolve to both an IPv6 and an IPv4 address. Passing psycopg a
+# single pre-resolved `hostaddr` collapses its connection attempt to just that one address, so a
+# network that can't route that address family (no IPv6 egress) fails outright instead of falling
+# back to the other address the way an unresolved `host` would. `_connect_to_postgres` must expand
+# every resolved address into a matching-length comma-separated `host`/`hostaddr` pair so psycopg's
+# own attempt loop (`Connection.connect`) still tries each one in turn.
+class TestConnectToPostgresMultiAddressFailover:
+    def test_expands_every_resolved_address_for_psycopg_failover(self):
+        addrinfo = [
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::1", 5432)),
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("203.0.113.5", 5432)),
+        ]
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+            ) as mock_settings,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                return_value=addrinfo,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
+            ) as connect_mock,
+        ):
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            _connect_to_postgres(
+                host="db.example.com",
+                port=5432,
+                database="postgres",
+                user="user",
+                password="password",
+            )
+
+        assert connect_mock.call_args.kwargs["host"] == "db.example.com,db.example.com"
+        assert connect_mock.call_args.kwargs["hostaddr"] == "2001:db8::1,203.0.113.5"
+
+    def test_single_resolved_address_keeps_plain_host_and_hostaddr(self):
+        addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("203.0.113.5", 5432))]
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+            ) as mock_settings,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                return_value=addrinfo,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
+            ) as connect_mock,
+        ):
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            _connect_to_postgres(
+                host="db.example.com",
+                port=5432,
+                database="postgres",
+                user="user",
+                password="password",
+            )
+
+        assert connect_mock.call_args.kwargs["host"] == "db.example.com"
+        assert connect_mock.call_args.kwargs["hostaddr"] == "203.0.113.5"
+
+
+# Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy,
+# Neon's pooled endpoint) reject the libpq `options` startup parameter we send to pin
+# client_encoding=UTF8 and, on the CDC path, server-side timeouts. When they do, we drop `options`
+# and retry rather than failing the connection.
 class TestConnectOptionsStartupParamFallback:
     @pytest.mark.parametrize(
         "message,expected",
@@ -1941,6 +2147,19 @@ class TestConnectOptionsStartupParamFallback:
             (
                 "connection failed: FATAL:  Feature not supported: RDS Proxy currently "
                 "doesn’t support command-line options.",
+                True,
+            ),
+            # Neon names the rejected setting after the colon, so a match on the exact
+            # "parameter: options" wording above misses it and the connection never opens.
+            (
+                'connection to server at "1.2.3.4", port 5432 failed: ERROR:  unsupported startup '
+                "parameter in options: statement_timeout. Please use unpooled connection or remove "
+                "this parameter from the startup package.",
+                True,
+            ),
+            (
+                'connection to server at "1.2.3.4", port 5432 failed: ERROR:  unsupported startup '
+                "parameter in options: idle_in_transaction_session_timeout.",
                 True,
             ),
             ("password authentication failed for user", False),
@@ -3395,6 +3614,44 @@ class TestPostgresSchemaDiscovery:
         good_connection.close.assert_called_once()
         # The refused connection was never rolled back — that's what masked the real cause before.
         refused_connection.rollback.assert_not_called()
+
+    def test_get_schemas_retries_recovery_conflict_during_discovery_query(self):
+        # A hot-standby (read replica) can cancel the discovery catalog scan with a
+        # SerializationFailure ("canceling statement due to conflict with recovery") once WAL replay
+        # needs to remove row versions the query is still reading — the same transient condition the
+        # import read path already retries mid-stream. Before the fix, `_is_dropped_or_connection_limit`
+        # didn't recognize it, so the conflict escaped on the first attempt and surfaced as captured
+        # error-tracking noise instead of retrying discovery on a fresh connection.
+        conflict = psycopg.errors.SerializationFailure(
+            "canceling statement due to conflict with recovery\n"
+            "DETAIL:  User query might have needed to see row versions that must be removed."
+        )
+        conflicted_connection = self._drop_on_execute_connection(conflict)
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[conflicted_connection, good_connection],
+        ) as connect_mock:
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
+        conflicted_connection.close.assert_called_once()
+        good_connection.close.assert_called_once()
 
     def test_get_schemas_retries_connection_limit_refused_on_connect(self):
         # The customer database can refuse the discovery connect outright once it's out of slots
@@ -5534,6 +5791,27 @@ class TestIsReadReplica:
         with django_connection.cursor() as dj_cursor:
             result = _is_read_replica(cast(Any, dj_cursor))
             assert result is False
+
+    def test_unsupported_function_error_returns_false(self):
+        # A DuckDB/Flight-SQL-backed Postgres-wire engine accepts the connection but doesn't
+        # implement `pg_is_in_recovery` (a Postgres-only replication concept), surfacing a generic
+        # InternalError instead of UndefinedFunction. Such an engine is never a physical hot-standby,
+        # so this must degrade to False rather than crashing table setup.
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.InternalError(
+            "Catalog Error: Scalar Function with name pg_is_in_recovery does not exist!"
+        )
+        assert _is_read_replica(cast(Any, cursor)) is False
+
+    def test_reraises_other_errors(self):
+        # A failure unrelated to the missing-function shape (e.g. a connection drop) must propagate
+        # so the caller's retry/reconnect handling still runs, instead of being swallowed here.
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.InternalError_(
+            "(EDBHANDLEREXITED) DbHandler exited. Check logs for more information"
+        )
+        with pytest.raises(psycopg.errors.InternalError_):
+            _is_read_replica(cast(Any, cursor))
 
 
 class _RecordingCursor:

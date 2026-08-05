@@ -436,6 +436,8 @@ export interface PullRequestApi {
 
 /**
  * * `opened` - OPENED
+ * * `ready_for_review` - READY_FOR_REVIEW
+ * * `converted_to_draft` - CONVERTED_TO_DRAFT
  * * `ci_started` - CI_STARTED
  * * `ci_finished` - CI_FINISHED
  * * `merged` - MERGED
@@ -445,6 +447,8 @@ export type PRLifecycleEventKindEnumApi = (typeof PRLifecycleEventKindEnumApi)[k
 
 export const PRLifecycleEventKindEnumApi = {
     Opened: 'opened',
+    ReadyForReview: 'ready_for_review',
+    ConvertedToDraft: 'converted_to_draft',
     CiStarted: 'ci_started',
     CiFinished: 'ci_finished',
     Merged: 'merged',
@@ -452,9 +456,11 @@ export const PRLifecycleEventKindEnumApi = {
 } as const
 
 export interface PRLifecycleEventApi {
-    /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+    /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
      *
      * * `opened` - OPENED
+     * * `ready_for_review` - READY_FOR_REVIEW
+     * * `converted_to_draft` - CONVERTED_TO_DRAFT
      * * `ci_started` - CI_STARTED
      * * `ci_finished` - CI_FINISHED
      * * `merged` - MERGED
@@ -463,7 +469,7 @@ export interface PRLifecycleEventApi {
     /** When the event occurred. */
     at: string
     /**
-     * Optional detail, e.g. workflow name and conclusion for CI events.
+     * Optional detail: workflow name and conclusion for CI events, the acting user's login for draft/ready transitions.
      * @nullable
      */
     detail?: string | null
@@ -535,8 +541,13 @@ export interface WorkflowRunDetailApi {
     duration_seconds: number | null
     /** Re-run attempt number; 1 for the first attempt. */
     run_attempt: number
-    /** Attributed pull request number, or 0 when unattributed. */
+    /** Pull request this run ran for, from the run's own-repo PR association; 0 when unattributed (a default-branch push, or a fork PR). */
     pr_number: number
+    /**
+     * Pull request whose merge produced this run's head commit, resolved through the merged pull request's merge commit and falling back to the commit subject's '(#NNNN)' suffix. Null when neither resolves. The only PR attribution a default-branch push has: read pr_number first and fall back to this.
+     * @nullable
+     */
+    commit_pr_number: number | null
 }
 
 export interface CIStatusRollupApi {
@@ -601,6 +612,11 @@ export interface PullRequestListItemApi {
      * @nullable
      */
     open_to_merge_seconds: number | null
+    /**
+     * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
+     * @nullable
+     */
+    ready_to_merge_seconds: number | null
     /** GitHub label names on the pull request. */
     labels: string[]
     /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
@@ -906,6 +922,16 @@ export interface RepoOverviewApi {
      * @nullable
      */
     estimated_cost_usd_prev: number | null
+    /**
+     * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
+     * @nullable
+     */
+    merge_queue_billable_minutes: number | null
+    /**
+     * Merge-queue billable minutes over the previous window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    merge_queue_billable_minutes_prev: number | null
     /** Whether the job-level source is synced (cost and queue figures exist). */
     jobs_available: boolean
     /** 'master' or 'main', picked by observed run volume in the window. */
@@ -1309,10 +1335,22 @@ export type EngineeringAnalyticsFlakyTestsParams = {
      */
     repo?: string
     /**
+     * Optional test runner to return: 'pytest' or 'jest'.
+     */
+    runner?: EngineeringAnalyticsFlakyTestsRunner
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsFlakyTestsRunner =
+    (typeof EngineeringAnalyticsFlakyTestsRunner)[keyof typeof EngineeringAnalyticsFlakyTestsRunner]
+
+export const EngineeringAnalyticsFlakyTestsRunner = {
+    Jest: 'jest',
+    Pytest: 'pytest',
+} as const
 
 export type EngineeringAnalyticsJobAggregatesParams = {
     /**

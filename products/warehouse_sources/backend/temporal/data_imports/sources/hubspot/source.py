@@ -10,10 +10,6 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -23,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubspot import (
     HubspotSourceConfig,
 )
@@ -40,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_API_VERSION_2026_03,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
+    HUBSPOT_METADATA_ENDPOINTS as HUBSPOT_METADATA_ENDPOINT_CONFIGS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -164,6 +162,20 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint in HUBSPOT_ENDPOINTS:
+            metadata_config = HUBSPOT_METADATA_ENDPOINT_CONFIGS.get(endpoint)
+            if metadata_config is not None:
+                # Lookup tables have no server-side timestamp filter, so they are full refresh only.
+                schemas.append(
+                    SourceSchema(
+                        name=endpoint,
+                        supports_incremental=False,
+                        supports_append=False,
+                        incremental_fields=[],
+                        should_sync_default=metadata_config.should_sync_default,
+                    )
+                )
+                continue
+
             endpoint_config = HUBSPOT_ENDPOINT_CONFIGS[endpoint]
             supports_incremental = bool(endpoint_config.cursor_filter_property_field)
             schemas.append(
@@ -172,6 +184,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                     supports_incremental=supports_incremental,
                     supports_append=supports_incremental,
                     incremental_fields=endpoint_config.incremental_fields,
+                    should_sync_default=endpoint_config.should_sync_default,
                 )
             )
 
