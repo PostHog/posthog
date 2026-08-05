@@ -446,6 +446,15 @@ class EnterpriseExperimentsViewSet(
         if not has_tasks_access(cast(User, request.user)):
             raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Desktop.")
 
+    def _check_team_default_repository_access(self, request: Request) -> None:
+        """The team default cleanup repository is environment-wide configuration; writing it via
+        experiments_config requires project admin (TeamMemberStrictManagementPermission), so the
+        write through end/ship_variant must hold the same bar."""
+        user_permissions = UserPermissions(user=cast(User, request.user))
+        effective_level = user_permissions.team(self.team).effective_membership_level
+        if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Setting the default cleanup repository requires project admin access.")
+
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
 
@@ -571,6 +580,8 @@ class EnterpriseExperimentsViewSet(
         request_serializer.is_valid(raise_exception=True)
         if request_serializer.validated_data["open_cleanup_pr"]:
             self._check_cleanup_pr_access(request)
+        if request_serializer.validated_data["set_repository_as_team_default"]:
+            self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         ended_experiment = service.end_experiment(
             experiment,
@@ -578,6 +589,7 @@ class EnterpriseExperimentsViewSet(
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             repository=request_serializer.validated_data.get("repository"),
+            set_repository_as_team_default=request_serializer.validated_data["set_repository_as_team_default"],
             request=request,
         )
         return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
@@ -617,6 +629,8 @@ class EnterpriseExperimentsViewSet(
         request_serializer.is_valid(raise_exception=True)
         if request_serializer.validated_data["open_cleanup_pr"]:
             self._check_cleanup_pr_access(request)
+        if request_serializer.validated_data["set_repository_as_team_default"]:
+            self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         shipped_experiment = service.ship_variant(
             experiment,
@@ -626,6 +640,7 @@ class EnterpriseExperimentsViewSet(
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             repository=request_serializer.validated_data.get("repository"),
+            set_repository_as_team_default=request_serializer.validated_data["set_repository_as_team_default"],
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
@@ -686,10 +701,11 @@ class EnterpriseExperimentsViewSet(
         """
         Repository a flag-cleanup pull request for this experiment would be opened in.
 
-        Resolution order: the experiment's saved repository, else the team's only connected
-        GitHub repository. When the team has several repositories and none is saved
-        (source=ambiguous), pass one via `repository` on end/ship_variant. Requires access
-        to PostHog Desktop, like open_cleanup_pr (403 otherwise).
+        Resolution order: the experiment's saved repository, else the environment's default
+        cleanup repository, else the team's only connected GitHub repository. When the team
+        has several repositories and none is saved (source=ambiguous), pass one via
+        `repository` on end/ship_variant. Requires access to PostHog Desktop, like
+        open_cleanup_pr (403 otherwise).
         """
         experiment: Experiment = self.get_object()
         # The repository list mirrors what the cleanup checkbox needs, so gate it the same way.

@@ -25016,11 +25016,13 @@ export namespace Schemas {
       /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
       /**
-         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
          * @maxLength 255
          * @nullable
          */
       repository?: string | null;
+      /** When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise). */
+      set_repository_as_team_default?: boolean;
     }
 
     export interface EndpointBreakdownLimitExceededSignalExtra {
@@ -29035,6 +29037,7 @@ export namespace Schemas {
 
     /**
      * * `explicit` - explicit
+     * * `team_default` - team_default
      * * `single_repo` - single_repo
      * * `ambiguous` - ambiguous
      * * `no_integration` - no_integration
@@ -29044,6 +29047,7 @@ export namespace Schemas {
 
     export const ExperimentFlagCleanupTargetSourceEnum = {
       Explicit: 'explicit',
+      TeamDefault: 'team_default',
       SingleRepo: 'single_repo',
       Ambiguous: 'ambiguous',
       NoIntegration: 'no_integration',
@@ -29055,9 +29059,10 @@ export namespace Schemas {
          * @nullable
          */
       repository: string | null;
-      /** How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none saved — pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
+      /** How the repository was determined: `explicit` (saved on the experiment), `team_default` (the environment's default cleanup repository), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none saved — pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
        *
        * * `explicit` - explicit
+       * * `team_default` - team_default
        * * `single_repo` - single_repo
        * * `ambiguous` - ambiguous
        * * `no_integration` - no_integration */
@@ -65978,11 +65983,13 @@ export namespace Schemas {
       /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
       /**
-         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
          * @maxLength 255
          * @nullable
          */
       repository?: string | null;
+      /** When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise). */
+      set_repository_as_team_default?: boolean;
       /** The key of the variant to ship. */
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
