@@ -1,7 +1,7 @@
 use chrono::Utc;
 use property_defs_rs::types::{
     detect_property_type, floor_last_seen, last_seen_jitter_seed, Event, PropertyValueType, Update,
-    DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS,
+    DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS,
 };
 use rstest::rstest;
 use serde_json::{json, Map, Number, Value};
@@ -148,6 +148,29 @@ fn test_non_positive_period_floors_at_the_default(#[case] period_secs: i64) {
         floor_last_seen(now, period_secs, 12345),
         floor_last_seen(now, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, 12345)
     );
+}
+
+// The same hazard from the other end. An uncapped period lets the jitter offset push bucket_start
+// outside chrono's representable range, and the resulting fallback hands back an unfloored `now` —
+// a unique dedup key per event, which is exactly the write amplification flooring exists to stop.
+#[rstest]
+#[case(MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS + 1)]
+#[case(i64::MAX)]
+fn test_oversized_period_floors_at_the_maximum(#[case] period_secs: i64) {
+    let now = Utc::now();
+
+    for seed in [0, 12345, u64::MAX] {
+        let floored = floor_last_seen(now, period_secs, seed);
+        assert_eq!(
+            floored,
+            floor_last_seen(now, MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS, seed),
+            "seed {seed} did not clamp to the maximum period"
+        );
+        assert!(
+            floored <= now && (now - floored).num_seconds() < MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS,
+            "seed {seed} floored outside the current window"
+        );
+    }
 }
 
 #[test]
