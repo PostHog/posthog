@@ -230,6 +230,8 @@ def _upsert_meeting(team: Team, parsed: dict, account: Account | None, person_uu
                 "person_id": person_uuid_by_email.get(participant["email"]),
             },
         )
+    current_emails = [participant["email"] for participant in parsed["participants"]]
+    MeetingParticipant.objects.for_team(team.id).filter(meeting=meeting).exclude(email__in=current_emails).delete()
 
 
 def _delete_filtered_out(team: Team, event: dict) -> None:
