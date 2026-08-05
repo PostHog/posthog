@@ -258,9 +258,8 @@ class MissingDagNodeError(Exception):
     """Raised when a saved query on a v2 team has no node to schedule through.
 
     On v2 the node is the unit of execution: the DAG run materializes nodes, so a saved query
-    with no node is not reachable by any schedule. Every caller syncs the query to the DAG before
-    scheduling it, and each one swallows that sync failing, so without this the query would be
-    left claiming to be materialized while nothing refreshes it.
+    with no node is not reachable by any schedule. Without this the query would be left claiming
+    to be materialized while nothing refreshes it.
     """
 
     pass

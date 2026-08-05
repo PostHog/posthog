@@ -15,7 +15,6 @@ import hashlib
 from collections import defaultdict
 from collections.abc import Collection
 from datetime import timedelta
-from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
 from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow, ScheduleRange, ScheduleSpec
@@ -31,10 +30,8 @@ from posthog.temporal.common.search_attributes import (
 
 from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
-
-if TYPE_CHECKING:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 # v2 (DAG-based) schedules run this workflow; their schedule id is the bare DAG id, or
 # "{dag_id}:{interval_seconds}" for a per-cadence-tier schedule. The v1 backend
@@ -92,21 +89,17 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
     return dag_ids
 
 
-def _fallback_dag_ids_for_nodeless(saved_query_ids: set[uuid.UUID]) -> dict[uuid.UUID, set[str]]:
+def _team_dag_ids_for_nodeless_queries(saved_query_ids: set[uuid.UUID]) -> dict[uuid.UUID, set[str]]:
     """Stand in the owning team's DAGs for saved queries that have no node to resolve through.
 
     A saved query normally reaches its DAG via its node, but the node can be absent when we are
-    asked: `sync_saved_query_to_dag` deletes it when dependency resolution raises, and a caller
-    that swallows that failure still goes on to schedule the query. Resolving "no node" to "not
-    on v2" mints a v1 per-query schedule beside the team's live tier, and the query then
-    materializes twice on every cycle. Answering from the team is the safe direction, because a
-    team with no v2-scheduled DAG still comes back v1-eligible.
+    asked: `sync_saved_query_to_dag` deletes it when dependency resolution raises. Resolving "no
+    node" to "not on v2" mints a v1 per-query schedule beside the team's live tier, and the query
+    then materializes twice on every cycle. Answering from the team is the safe direction, because
+    a team with no v2-scheduled DAG still comes back v1-eligible.
     """
     if not saved_query_ids:
         return {}
-
-    # schedule.py is imported by the saved query model, so this import cannot be module-level.
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery  # noqa: PLC0415
 
     team_by_saved_query = dict(
         DataWarehouseSavedQuery.objects.filter(id__in=saved_query_ids).values_list("id", "team_id")
@@ -133,6 +126,10 @@ def get_v2_saved_query_ids(candidate_ids: Collection[uuid.UUID] | None = None) -
     A saved query counts as on v2 when any DAG it belongs to has a v2 schedule, because it can sit
     in several DAGs and one v1-scheduled placement does not make a v1 schedule safe to mint.
 
+    A saved query with no node at all counts as on v2 when its team has any v2-scheduled DAG, so a
+    failed DAG sync never routes it to v1. Callers that then need a node must check for one
+    themselves, because this answers about the team rather than about a placement.
+
     Optionally restrict the lookup to `candidate_ids` to keep the query bounded. These saved
     queries must be skipped by v1 schedule commands so we never undo migration progress.
     """
@@ -149,7 +146,7 @@ def get_v2_saved_query_ids(candidate_ids: Collection[uuid.UUID] | None = None) -
                 dag_ids_by_saved_query[saved_query_id].add(str(dag_id))
 
         dag_ids_by_saved_query.update(
-            _fallback_dag_ids_for_nodeless(set(candidate_ids) - dag_ids_by_saved_query.keys())
+            _team_dag_ids_for_nodeless_queries(set(candidate_ids) - dag_ids_by_saved_query.keys())
         )
         if not dag_ids_by_saved_query:
             return set()
@@ -166,8 +163,8 @@ def get_v2_saved_query_ids(candidate_ids: Collection[uuid.UUID] | None = None) -
 
 
 def partition_saved_queries_by_v2_schedule(
-    saved_queries: list["DataWarehouseSavedQuery"],
-) -> tuple[list["DataWarehouseSavedQuery"], list["DataWarehouseSavedQuery"]]:
+    saved_queries: list[DataWarehouseSavedQuery],
+) -> tuple[list[DataWarehouseSavedQuery], list[DataWarehouseSavedQuery]]:
     """Split saved queries into (v1_eligible, on_v2).
 
     A saved query is "on v2" when any DAG it belongs to already has a `data-modeling-execute-dag`

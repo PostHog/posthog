@@ -72,8 +72,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
             mock.patch(f"{SERVICE}.sync_saved_query_workflow") as sync_wf,
             mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
-            mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths"),
-            mock.patch(f"{NODE_MAT}.sync_connect"),
             self.captureOnCommitCallbacks(execute=True),
         ):
             nodeless.schedule_materialization()

@@ -369,7 +369,7 @@ class TestV2ScheduleGuard(BaseTest):
             result = get_v2_saved_query_ids([nodeless.id])
         assert result == {nodeless.id}
 
-    def test_saved_query_without_a_node_stays_v1_eligible_when_the_team_has_no_v2_dag(self):
+    def test_saved_query_without_a_node_stays_v1_eligible_when_no_dag_is_v2_scheduled(self):
         nodeless = self._saved_query("sync_failed_on_v1_team")
         with mock.patch(
             "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
