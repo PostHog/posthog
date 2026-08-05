@@ -106,6 +106,20 @@ def increment_ch_wait_completion(mode: str, result: str) -> None:
     ).add(1)
 
 
+def increment_research_run_collapsed() -> None:
+    """Count a promotion that folded into an already-running research workflow instead of its own run.
+
+    This is the research-debounce savings metric: with the debounce off it counts the rare race where
+    a signal lands mid-run, and with it on it counts every signal that a waiting run absorbed.
+    """
+    if not _in_temporal_context():
+        return
+    get_metric_meter().create_counter(
+        "signals_research_runs_collapsed_total",
+        "Report promotions absorbed by an already-running research workflow",
+    ).add(1)
+
+
 def increment_scout_run(status: str) -> None:
     """Count a scout run by terminal status."""
     if not _in_temporal_context():

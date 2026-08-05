@@ -1,11 +1,11 @@
 import "./generated.augment";
 import type {
   Adapter,
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   CloudRunSource,
   CreateTaskAutomationOptions,
   ExecutionMode,
+  McpServerConnection,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
@@ -712,7 +712,7 @@ export interface CloudRunOptions {
    * Local url-based MCP servers to make available inside the sandbox. The
    * backend merges these into the agent server's `--mcpServers` at spawn.
    */
-  importedMcpServers?: CloudMcpServerImport[];
+  importedMcpServers?: McpServerConnection[];
   relayedMcpServers?: CloudMcpServerRelayDesignation[];
 }
 
