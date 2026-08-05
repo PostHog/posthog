@@ -1,1 +1,1 @@
-0006_require_build_enqueued_at
+0008_remove_home_canvas

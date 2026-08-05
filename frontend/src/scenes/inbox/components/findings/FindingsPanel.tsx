@@ -263,9 +263,8 @@ function FindingsHeader({
                 <span className="text-base font-semibold text-default">Scout signals</span>
             </div>
             <p className="mb-0 text-sm text-secondary">
-                Everything your scouts have surfaced recently, in one place — newest first: the signals they emitted and
-                the inbox reports they authored or edited. See what's been found across the whole troop and which scout
-                found it.
+                Everything your scouts have surfaced recently, newest first: the signals they emitted and the inbox
+                reports they authored or edited. See what's been found across the whole troop and which scout found it.
             </p>
             {tallyParts.length > 0 && (
                 <span className="text-xs text-muted">
