@@ -335,6 +335,8 @@ def select_repartition_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
     target_partition_bytes: int,
+    *,
+    true_budget_bytes: int | None = None,
 ) -> tuple[RepartitionTarget | None, str]:
     """Pick the next finer partition scheme, returning (target, reason).
 
@@ -342,7 +344,16 @@ def select_repartition_target(
     than stepping blindly: md5 grows the bucket count, numerical shrinks the row-size, datetime steps
     one format tier finer. When no target is chosen the reason explains why (reported in metrics so a
     skipped table is diagnosable): `within_budget`, `datetime_at_finest_tier`, `numerical_cannot_shrink`,
-    `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target carries reason `selected`.
+    `numerical_no_size`, `composite_needs_over_budget`, or `unpartitionable_no_keys`. A chosen target
+    carries reason `selected`.
+
+    `true_budget_bytes` guards md5 sub-bucketing: creating or growing `datetime_md5` sub-buckets is
+    allowed only while the largest partition exceeds it. The OOM trigger passes a halved split budget
+    as `target_partition_bytes`, which any partition trivially exceeds, and the OOM signal itself is
+    noisy — without this guard a ceiling-tier table under the real budget doubles its sub-bucket count
+    on every false-OOM cycle. Tier steps and bucket growth within a plain scheme stay governed by
+    `target_partition_bytes` alone; None (the admin path, where an operator chose the escalation)
+    disables the guard.
     """
     if not partition_bytes:
         return None, "no_partitions"
@@ -363,6 +374,8 @@ def select_repartition_target(
         ), "selected"
 
     if mode == "datetime_md5":
+        if true_budget_bytes is not None and max_bytes <= true_budget_bytes:
+            return None, "composite_needs_over_budget"
         # Already composite (a datetime tier split by md5 sub-buckets) but a sub-bucket is still over
         # budget: grow the sub-bucket count. Sized from the largest composite partition so a date's
         # heaviest sub-bucket lands near budget after the rewrite.
@@ -397,6 +410,8 @@ def select_repartition_target(
         # no-op'd to `hour` before the ceiling existed) has nothing finer to gain either.
         ceiling_index = DATETIME_FORMAT_TIERS.index(_datetime_tier_ceiling(schema))
         if current_index >= ceiling_index:
+            if true_budget_bytes is not None and max_bytes <= true_budget_bytes:
+                return None, "composite_needs_over_budget"
             # At the finest usable datetime tier and a single bucket is still over budget. Escalate to a
             # composite datetime+md5 scheme: keep the date bucket (so incremental merges still touch only
             # recent dates) but split each date into md5 sub-buckets over the primary keys. Needs primary
@@ -544,6 +559,55 @@ def _simulate_modulo_coarsening(partition_bytes: dict[str | None, int], new_coun
     return dict(merged)
 
 
+def _simulate_composite_collapse(
+    partition_bytes: dict[str | None, int], current_format: PartitionFormat
+) -> dict[str | None, int] | None:
+    """Bytes per datetime bucket after dropping a composite scheme's md5 sub-buckets.
+
+    Exact: a composite key is `<datetime bucket>_<md5 bucket>`, so stripping the suffix merges a date's
+    sub-buckets back into the single datetime partition they came from. None when any key is not a
+    parseable date plus a digit bucket, because an unknown layout must not be coarsened on a guess.
+    """
+    merged: dict[str | None, int] = defaultdict(int)
+    for key, size in partition_bytes.items():
+        if key is None or "_" not in key:
+            return None
+        date_part, bucket = key.rsplit("_", 1)
+        if not bucket.isdigit() or _parse_datetime_partition_key(date_part, current_format) is None:
+            return None
+        merged[date_part] += size
+    return dict(merged)
+
+
+def _simulate_composite_subbucket_coarsening(
+    partition_bytes: dict[str | None, int], new_count: int
+) -> dict[str | None, int] | None:
+    """Bytes per composite partition after reducing the md5 sub-bucket count to `new_count`.
+
+    Exact only when `new_count` divides the current count, same as `_simulate_modulo_coarsening`.
+    """
+    merged: dict[str | None, int] = defaultdict(int)
+    for key, size in partition_bytes.items():
+        if key is None or "_" not in key:
+            return None
+        date_part, bucket = key.rsplit("_", 1)
+        if not bucket.isdigit():
+            return None
+        merged[f"{date_part}_{int(bucket) % new_count}"] += size
+    return dict(merged)
+
+
+def _proper_divisors(count: int) -> list[int]:
+    """Every divisor of `count` except itself, ascending — the clean-merge candidate bucket counts."""
+    divisors: set[int] = set()
+    for low in range(1, math.isqrt(count) + 1):
+        if count % low == 0:
+            divisors.add(low)
+            divisors.add(count // low)
+    divisors.discard(count)
+    return sorted(divisors)
+
+
 def _simulate_numerical_coarsening(
     partition_bytes: dict[str | None, int], multiplier: int
 ) -> dict[str | None, int] | None:
@@ -617,6 +681,43 @@ def select_coarsen_target(
                 ), "selected"
         return None, "no_coarser_layout_fits"
 
+    if mode == "datetime_md5":
+        current_format = schema.partition_format or "month"
+        # Coarsest option first: collapse the md5 sub-buckets entirely and step the datetime tier
+        # coarser, then a plain collapse at the current tier, and only then keep the composite with
+        # fewer sub-buckets. A composite layout exists because the finer path escalated past the
+        # datetime ceiling, so once whole dates fit again the sub-buckets have no reason to stay.
+        collapsed = _simulate_composite_collapse(partition_bytes, current_format)
+        if collapsed is not None:
+            for new_format in _COARSER_DATETIME_TIERS.get(current_format, ()):
+                if acceptable(_simulate_datetime_coarsening(collapsed, current_format, new_format)):
+                    return RepartitionTarget(
+                        partition_keys=keys,
+                        trigger_reason="",
+                        partition_mode="datetime",
+                        partition_format=new_format,
+                    ), "selected"
+            if acceptable(collapsed):
+                return RepartitionTarget(
+                    partition_keys=keys,
+                    trigger_reason="",
+                    partition_mode="datetime",
+                    partition_format=current_format,
+                ), "selected"
+        count = schema.partition_count
+        if count:
+            # Divisors only, for the same clean-merge exactness as the md5 branch below.
+            for new_count in _proper_divisors(count):
+                if acceptable(_simulate_composite_subbucket_coarsening(partition_bytes, new_count)):
+                    return RepartitionTarget(
+                        partition_keys=keys,
+                        trigger_reason="",
+                        partition_mode="datetime_md5",
+                        partition_format=current_format,
+                        partition_count=new_count,
+                    ), "selected"
+        return None, "no_coarser_layout_fits"
+
     if mode == "md5":
         count = schema.partition_count
         if not count:
@@ -628,13 +729,7 @@ def select_coarsen_target(
         # cleanly (a row in bucket h % N lands in (h % N) % M exactly when M divides N), which is what
         # makes the simulation exact rather than an assumption about how md5 redistributes rows. The
         # finer path produces arbitrary counts, so halving alone would strand any non-power-of-two.
-        divisors: set[int] = set()
-        for low in range(1, math.isqrt(count) + 1):
-            if count % low == 0:
-                divisors.add(low)
-                divisors.add(count // low)
-        divisors.discard(count)
-        for new_count in sorted(divisors):  # ascending, so the coarsest layout that fits wins
+        for new_count in _proper_divisors(count):  # ascending, so the coarsest layout that fits wins
             if acceptable(_simulate_modulo_coarsening(partition_bytes, new_count)):
                 return RepartitionTarget(
                     partition_keys=keys,

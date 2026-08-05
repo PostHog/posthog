@@ -382,7 +382,10 @@ async def maybe_flag_for_repartition(
         # A table the circuit breaker parked stays skipped until its backoff elapses; once it has, clear
         # the marker (and the failure counter) so this run evaluates it fresh — a table that has since
         # come back under budget heals here, one that hasn't is re-abandoned after the usual attempts.
-        if schema.repartition_abandoned is not None:
+        # A coarsening nomination bypasses the park: the operator explicitly asked for this evaluation,
+        # and without the bypass the nomination is never consumed, so a parked table re-measures the
+        # delta log every sync until the backoff elapses.
+        if schema.repartition_abandoned is not None and schema.coarsen_requested is None:
             if is_repartition_backing_off(schema):
                 await logger.adebug(
                     f"repartition: skipped detection, table parked by circuit breaker schema_id={schema.id} "
@@ -532,7 +535,7 @@ async def maybe_flag_for_repartition(
         # budget, while an OOM-triggered one targets roughly half its current largest partition to force
         # a meaningfully finer scheme (md5 grows buckets, numerical halves the row-size, datetime steps
         # one tier finer).
-        target, reason = select_repartition_target(schema, partition_bytes, split_budget)
+        target, reason = select_repartition_target(schema, partition_bytes, split_budget, true_budget_bytes=budget)
         if target is None:
             # Needs repartition but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).
             # `reason` is reported on the metric + event so a skipped table is diagnosable.

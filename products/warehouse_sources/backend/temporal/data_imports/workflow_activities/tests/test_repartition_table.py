@@ -59,6 +59,7 @@ def _schema(
     # The failure bookkeeping re-reads the claim to check it still owns the schema, so the mock has
     # to actually remember the token the activity just staked.
     schema.set_repartition_claim.side_effect = lambda claim: setattr(schema, "repartition_claim", claim)
+    schema.increment_repartition_failure_count.return_value = 1
     return schema
 
 

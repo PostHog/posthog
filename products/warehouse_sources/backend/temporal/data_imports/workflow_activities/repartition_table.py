@@ -559,6 +559,19 @@ def _handle_failure(
         }
     )
 
+    if (schema.repartition_swap or {}).get("state") == "ready":
+        # Never park or clear over a staged swap: once the marker is recorded the swap may already have
+        # purged live, which makes temp the only complete copy of the table. Dropping the marker here
+        # (the breaker's reset or the give-up's clear) would strand that temp for a later rebuild's
+        # sweep to delete, and the next sync would bootstrap an empty table over the data. Keep the
+        # markers and keep counting, so every later sync retries the swap from temp: wasted compute is
+        # recoverable, the table is not.
+        props["swap_kept"] = True
+        schema.set_repartition_pending({**pending, "attempts": attempts})
+        capture_repartition_event("warehouse_repartition_failed", props)
+        capture_exception(error)
+        return "failed"
+
     if total_failures >= MAX_REPARTITION_TOTAL_FAILURES:
         # Circuit breaker: the rewrite has failed too many times across targets. Park the table
         # (clearing pending/swap/claim) and back off so it stops re-attempting the always-failing

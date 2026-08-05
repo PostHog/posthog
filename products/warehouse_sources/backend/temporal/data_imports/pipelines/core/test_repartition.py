@@ -315,6 +315,61 @@ class TestSelectRepartitionTarget:
         _target, reason = select_repartition_target(_schema(**schema_kwargs), {"a": 5000}, 1000)
         assert reason == expected_reason
 
+    @parameterized.expand(
+        [
+            ("ceiling_under_true_budget_refuses_escalation", 8000, False),
+            ("ceiling_over_true_budget_escalates", 4000, True),
+        ]
+    )
+    def test_true_budget_gates_the_composite_escalation(self, _name, true_budget, expect_selected):
+        # The OOM trigger passes a halved split budget that any partition trivially beats. Without the
+        # true-budget guard, a ceiling-tier table under the real budget escalates to datetime_md5 on
+        # every false-OOM cycle — the fragmentation spiral in composite form.
+        target, reason = select_repartition_target(
+            _schema(
+                partition_mode="datetime",
+                partition_format="day",
+                partitioning_keys=["segments_date"],
+                primary_key_columns=["ad_id", "segments_date"],
+                incremental_field="segments.date",
+                incremental_field_type="date",
+            ),
+            {"2024-01-01": 5000},
+            2500,
+            true_budget_bytes=true_budget,
+        )
+        if expect_selected:
+            assert target is not None and target.partition_mode == "datetime_md5"
+            assert reason == "selected"
+        else:
+            assert target is None
+            assert reason == "composite_needs_over_budget"
+
+    @parameterized.expand(
+        [
+            ("composite_under_true_budget_refuses_growth", 8000, False),
+            ("composite_over_true_budget_grows", 4000, True),
+        ]
+    )
+    def test_true_budget_gates_composite_growth(self, _name, true_budget, expect_selected):
+        target, reason = select_repartition_target(
+            _schema(
+                partition_mode="datetime_md5",
+                partition_format="day",
+                partition_count=4,
+                partitioning_keys=["segments_date", "ad_id"],
+            ),
+            {"2024-01-01_0": 5000, "2024-01-01_1": 100},
+            2500,
+            true_budget_bytes=true_budget,
+        )
+        if expect_selected:
+            assert target is not None and target.partition_count == 8
+            assert reason == "selected"
+        else:
+            assert target is None
+            assert reason == "composite_needs_over_budget"
+
     def test_md5_count_strictly_grows_even_when_formula_below_current(self):
         # Largest partition is over budget but total/target rounds below the current count: the count
         # must still grow, or the repartition would be a no-op that never relieves the pressure.
@@ -444,6 +499,48 @@ class TestSelectCoarsenTarget:
                 "refuses_without_a_key_to_recompute_from",
                 {"partition_mode": "datetime", "partition_format": "hour"},
                 {f"2024-01-01T{hour:02d}": 10 for hour in range(24)},
+                1000,
+                None,
+            ),
+            # A composite table whose whole month fits again collapses all the way back to plain
+            # datetime at the coarsest fitting tier — the undo of a false-signal escalation.
+            (
+                "composite_collapses_to_coarsest_datetime_tier",
+                {
+                    "partition_mode": "datetime_md5",
+                    "partition_format": "day",
+                    "partition_count": 4,
+                    "partitioning_keys": ["created_at", "id"],
+                },
+                {f"2024-01-{day:02d}_{bucket}": 50 for day in range(1, 5) for bucket in range(4)},
+                1000,
+                {"partition_mode": "datetime", "partition_format": "month"},
+            ),
+            # Whole dates still exceed the target, so the composite stays but with the fewest
+            # sub-buckets (a divisor) whose merged buckets fit.
+            (
+                "composite_shrinks_subbuckets_when_dates_still_too_big",
+                {
+                    "partition_mode": "datetime_md5",
+                    "partition_format": "day",
+                    "partition_count": 16,
+                    "partitioning_keys": ["created_at", "id"],
+                },
+                {f"2024-01-{day:02d}_{bucket}": 40 for day in range(1, 3) for bucket in range(16)},
+                500,
+                {"partition_mode": "datetime_md5", "partition_format": "day", "partition_count": 2},
+            ),
+            # Keys that don't look like `<date>_<bucket>` mean the layout isn't what the mode claims;
+            # both simulations refuse rather than guess.
+            (
+                "composite_with_unrecognizable_keys_refuses",
+                {
+                    "partition_mode": "datetime_md5",
+                    "partition_format": "day",
+                    "partition_count": 4,
+                    "partitioning_keys": ["created_at", "id"],
+                },
+                {f"2024-01-{day:02d}": 100 for day in range(1, 9)},
                 1000,
                 None,
             ),

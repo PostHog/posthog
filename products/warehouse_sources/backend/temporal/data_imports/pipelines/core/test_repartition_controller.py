@@ -293,6 +293,32 @@ def test_is_repartition_backing_off(marker, expected):
     assert ctrl.is_repartition_backing_off(schema) is expected
 
 
+@pytest.mark.parametrize(
+    "config,enabled,expected",
+    [
+        pytest.param({}, True, True, id="flag_on"),
+        pytest.param({}, False, False, id="flag_off"),
+        pytest.param(
+            {"repartition_abandoned": {"retry_after": "2099-01-01T00:00:00+00:00"}}, True, False, id="park_gates"
+        ),
+        pytest.param(
+            {
+                "repartition_abandoned": {"retry_after": "2099-01-01T00:00:00+00:00"},
+                "coarsen_requested": {"requested_by": "danielc"},
+            },
+            False,
+            True,
+            id="nomination_outranks_park_and_flag",
+        ),
+    ],
+)
+def test_needs_pre_extraction_detection_precedence(config, enabled, expected):
+    # The guard order is load-bearing: a nomination must outrank both the park and the rollout flag,
+    # or a parked (or unenrolled) table silently eats operator nominations every sync.
+    schema = ExternalDataSchema(sync_type_config=config)
+    assert repartition_table._needs_pre_extraction_detection(schema, enabled) is expected
+
+
 class TestIsAutoRepartitionEnabled:
     def test_retries_once_on_transient_db_connection_drop(self, team):
         # The Team lookup runs on a long-lived Temporal worker thread; a pooler-dropped connection
@@ -516,6 +542,36 @@ class TestCoarsenTrigger:
         assert pending is not None
         assert pending["trigger_reason"] == "coarsening_requested"
         # Consumed either way, so a table the selector keeps refusing isn't re-measured every sync.
+        assert schema.coarsen_requested is None
+
+    def test_nomination_bypasses_the_circuit_breaker_park(self, team):
+        # A parked table is exactly the kind an operator repairs by nomination. If the park's early
+        # return ran first, the marker would sit unconsumed while every sync re-measures the delta log
+        # until the backoff elapses.
+        schema = self._fragmented_schema(
+            team,
+            repartition_failure_count=ctrl.MAX_REPARTITION_TOTAL_FAILURES,
+            repartition_abandoned={
+                "reason": "max_total_failures",
+                "retry_after": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=5)).isoformat(),
+            },
+            coarsen_requested={"requested_at": "2026-08-03T00:00:00+00:00", "requested_by": "danielc"},
+        )
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(16)])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=False),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        pending = schema.repartition_pending
+        assert pending is not None
+        assert pending["trigger_reason"] == "coarsening_requested"
         assert schema.coarsen_requested is None
 
     def test_nomination_survives_a_failed_staging_write(self, team):
@@ -781,6 +837,36 @@ class TestRepartitionActivity:
         emitted = [c.args[0] for c in capture.call_args_list]
         assert "warehouse_repartition_abandoned" in emitted
         assert "warehouse_repartition_failed" not in emitted
+
+    def test_final_failure_with_a_staged_swap_keeps_the_markers(self, team):
+        # A staged swap means the rewrite finished and live may already be purged, so temp is the only
+        # complete copy of the table. Neither the breaker's park nor the give-up may clear the marker:
+        # a later rebuild's temp sweep would then delete the data and the next sync would bootstrap an
+        # empty table over it. The failure still counts; the swap is retried from temp on later syncs.
+        schema = _make_schema(team, {"repartition_failure_count": ctrl.MAX_REPARTITION_TOTAL_FAILURES - 1})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "oom_history",
+                "attempts": ctrl.MAX_REPARTITION_ATTEMPTS - 1,
+            }
+        )
+        schema.set_repartition_swap(
+            {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned_ab", "live_uri": "s3://bucket/t"}
+        )
+        capture = self._run(self._inputs(team, schema), AsyncMock(side_effect=ValueError("row count mismatch")))
+
+        schema.refresh_from_db()
+        assert schema.repartition_swap is not None
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["attempts"] == ctrl.MAX_REPARTITION_ATTEMPTS
+        assert schema.repartition_abandoned is None
+        assert schema.repartition_failure_count == ctrl.MAX_REPARTITION_TOTAL_FAILURES
+        emitted = [c.args[0] for c in capture.call_args_list]
+        assert "warehouse_repartition_abandoned" not in emitted
+        assert "warehouse_repartition_failed" in emitted
 
     def test_success_clears_failure_count(self, team):
         # A completed rewrite is real progress, so the cumulative failure counter must reset — otherwise a
