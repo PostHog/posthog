@@ -8,7 +8,7 @@ from products.signals.backend.quota import (
     SelfDrivingQuotaGate,
     is_team_signals_quota_limited,
     reserve_self_driving_pr_slot,
-    self_driving_pr_reservation_limit,
+    self_driving_pr_reservation_limit_credits,
     self_driving_quota_gate,
 )
 
@@ -88,18 +88,20 @@ def test_self_driving_quota_gate_fails_open_on_flag_error():
 
 
 @pytest.mark.parametrize(
-    ("usage", "expected_limit_prs"),
+    ("usage", "expected_limit_credits"),
     [
         (None, None),
         ({}, None),
         ({"signals_credits": {}}, None),
         ({"signals_credits": {"limit": None}}, None),
-        # 1500 credits per PR ($15) — a 19,500-credit cap is exactly 13 PRs.
-        ({"signals_credits": {"limit": 19500}}, 13),
+        # Left in credits, not converted to a PR count — see test_reserve_self_driving_pr_slot_
+        # admits_a_non_multiple_credit_limit_fully for why a PR-unit conversion would be wrong.
+        ({"signals_credits": {"limit": 19500}}, 19500),
+        ({"signals_credits": {"limit": 5000}}, 5000),
     ],
 )
-def test_self_driving_pr_reservation_limit(usage, expected_limit_prs):
-    assert self_driving_pr_reservation_limit(_org(usage)) == expected_limit_prs
+def test_self_driving_pr_reservation_limit_credits(usage, expected_limit_credits):
+    assert self_driving_pr_reservation_limit_credits(_org(usage)) == expected_limit_credits
 
 
 def test_reserve_self_driving_pr_slot_requires_atomic_block():
@@ -123,6 +125,7 @@ def test_reserve_self_driving_pr_slot_locks_per_organization():
         patch("products.signals.backend.quota.connection") as mock_connection,
         patch("products.signals.backend.billing.count_self_driving_pr_reservations_in_period", return_value=0),
         patch("products.signals.backend.billing.current_billing_period_bounds"),
+        patch("products.signals.backend.billing.credited_refund_credits_for_org", return_value=0),
     ):
         mock_connection.in_atomic_block = True
         reserve_self_driving_pr_slot(team)
@@ -133,23 +136,36 @@ def test_reserve_self_driving_pr_slot_locks_per_organization():
 
 
 @pytest.mark.parametrize(
-    ("reserved", "limit_prs", "expected_limited"),
+    ("reserved_count", "limit_credits", "credited_refund_credits", "expected_limited"),
     [
-        (0, 1, False),
-        (1, 1, True),
-        (2, 1, True),
+        (0, 1500, 0, False),
+        (1, 1500, 0, True),
+        (2, 1500, 0, True),
+        # A 5,000-credit limit isn't a multiple of the 1,500-credit-per-PR price: comparing in
+        # credits (not floor-dividing to a PR count first) must still admit a 3rd reservation
+        # (4,500 < 5,000) and only block the 4th (6,000 >= 5,000).
+        (3, 5000, 0, False),
+        (4, 5000, 0, True),
+        # A credited refund frees the slot even though it doesn't touch the reserved count itself.
+        (1, 1500, 1500, False),
     ],
 )
-def test_reserve_self_driving_pr_slot_gates_on_live_reservation_count(reserved, limit_prs, expected_limited):
-    org = _org({"signals_credits": {"limit": limit_prs * 1500}})
+def test_reserve_self_driving_pr_slot_gates_on_live_reservation_credits(
+    reserved_count, limit_credits, credited_refund_credits, expected_limited
+):
+    org = _org({"signals_credits": {"limit": limit_credits}})
     team = cast("Team", SimpleNamespace(organization=org, organization_id=org.id))
     with (
         patch("products.signals.backend.quota.connection") as mock_connection,
         patch(
             "products.signals.backend.billing.count_self_driving_pr_reservations_in_period",
-            return_value=reserved,
+            return_value=reserved_count,
         ),
         patch("products.signals.backend.billing.current_billing_period_bounds"),
+        patch(
+            "products.signals.backend.billing.credited_refund_credits_for_org",
+            return_value=credited_refund_credits,
+        ),
         patch("products.signals.backend.quota.posthoganalytics.feature_enabled", return_value=True),
     ):
         mock_connection.in_atomic_block = True

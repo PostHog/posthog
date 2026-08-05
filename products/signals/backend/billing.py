@@ -416,15 +416,34 @@ def count_self_driving_pr_reservations_in_period(organization_id: str | uuid.UUI
     of them had billed. Counting by attempt is deliberately conservative: a run that never opens a
     PR still holds its slot for the rest of the period, trading a little dead capacity for a
     race-free reservation with no separate release bookkeeping to keep in sync.
+
+    Excludes the same two report classes `get_signals_billing_credits_by_team` excludes from billed
+    usage — billing-exempt reports and excluded-path refunds — so PostHog-system work and refunded
+    work never draw down a customer's quota. Credited-path refunds are handled separately, as a
+    credit offset in the caller (`reserve_self_driving_pr_slot`), matching how the cron-driven usage
+    check offsets them (`_signals_credited_refund_offset`) rather than dropping them from the count.
     """
-    return (
+    report_ids = list(
         SignalReportTask.objects.filter(
             relationship=_IMPLEMENTATION,
             team__organization_id=organization_id,
             created_at__gte=period.start,
             created_at__lt=period.end,
         )
-        .values("report_id")
+        .values_list("report_id", flat=True)
         .distinct()
-        .count()
     )
+    if not report_ids:
+        return 0
+
+    refund_excluded = set(
+        SignalReportRefund.objects.unscoped()
+        .filter(report_id__in=report_ids, billing_path=SignalReportRefund.BillingPath.EXCLUDED)
+        .values_list("report_id", flat=True)
+    )
+    billing_exempt = set(
+        # nosemgrep: idor-lookup-without-team (ids come from the org-scoped bridge query above; usage aggregation is deliberately cross-team)
+        SignalReport.objects.filter(id__in=report_ids, billing_exempt_reason__isnull=False).values_list("id", flat=True)
+    )
+    skipped = refund_excluded | billing_exempt
+    return len([report_id for report_id in report_ids if report_id not in skipped])

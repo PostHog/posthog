@@ -110,21 +110,16 @@ def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
     return SelfDrivingQuotaGate(limited=True, enforced=self_driving_quota_enforcement_enabled(team))
 
 
-def self_driving_pr_reservation_limit(organization: "Organization") -> int | None:
-    """The org's self-driving PR cap in PR units, resolved from its billing-synced credits limit
-    (`organization.usage["signals_credits"]["limit"]`) — the same number the cron-driven Redis
-    limiter compares usage against. None means uncapped: no limit configured, or billing hasn't
-    synced usage for this org yet (a fresh org, or self-hosted).
+def self_driving_pr_reservation_limit_credits(organization: "Organization") -> int | None:
+    """The org's self-driving PR cap in signals credits — `organization.usage["signals_credits"]["limit"]`,
+    the same number the cron-driven Redis limiter compares usage against. Deliberately left in
+    credits rather than converted to a PR count: `SIGNALS_CREDITS_PER_REPORT_WITH_PR` (1500) rarely
+    divides a round-dollar limit evenly, and flooring the conversion would cap the org one PR below
+    what the credit limit actually allows. None means uncapped: no limit configured, or billing
+    hasn't synced usage for this org yet (a fresh org, or self-hosted).
     """
-    from products.signals.backend.billing import (  # noqa: PLC0415 — avoid the usage_report import cycle quota.py exists to dodge
-        SIGNALS_CREDITS_PER_REPORT_WITH_PR,
-    )
-
     resource_usage = (organization.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value) or {}
-    limit_credits = resource_usage.get("limit")
-    if limit_credits is None:
-        return None
-    return limit_credits // SIGNALS_CREDITS_PER_REPORT_WITH_PR
+    return resource_usage.get("limit")
 
 
 def reserve_self_driving_pr_slot(team: "Team") -> SelfDrivingQuotaGate:
@@ -148,15 +143,21 @@ def reserve_self_driving_pr_slot(team: "Team") -> SelfDrivingQuotaGate:
     Falls back to the cached boolean gate (`self_driving_quota_gate`) when the org has no numeric
     limit resolved yet, so a fresh org or an instance whose billing usage hasn't synced fails open
     exactly like every other quota gate, rather than dividing by an unresolved limit.
+
+    Credited-path PR refunds offset the reserved total the same way `_signals_credited_refund_offset`
+    offsets the cron-driven usage check — a credited refund frees the customer's slot, even though
+    the money already left billing's own usage number untouched.
     """
     from products.signals.backend.billing import (  # noqa: PLC0415 — avoid the usage_report import cycle quota.py exists to dodge
+        SIGNALS_CREDITS_PER_REPORT_WITH_PR,
         count_self_driving_pr_reservations_in_period,
+        credited_refund_credits_for_org,
         current_billing_period_bounds,
     )
 
     organization = team.organization
-    limit_prs = self_driving_pr_reservation_limit(organization)
-    if limit_prs is None:
+    limit_credits = self_driving_pr_reservation_limit_credits(organization)
+    if limit_credits is None:
         return self_driving_quota_gate(team)
 
     if not connection.in_atomic_block:
@@ -170,8 +171,12 @@ def reserve_self_driving_pr_slot(team: "Team") -> SelfDrivingQuotaGate:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"self-driving-pr-quota:{organization.id}"])
 
     period = current_billing_period_bounds(organization)
-    reserved = count_self_driving_pr_reservations_in_period(organization.id, period=period)
-    if reserved < limit_prs:
+    reserved_credits = (
+        count_self_driving_pr_reservations_in_period(organization.id, period=period)
+        * SIGNALS_CREDITS_PER_REPORT_WITH_PR
+    )
+    reserved_credits -= credited_refund_credits_for_org(organization.id, period.start, period.end)
+    if reserved_credits < limit_credits:
         return SelfDrivingQuotaGate(limited=False, enforced=False)
     return SelfDrivingQuotaGate(limited=True, enforced=self_driving_quota_enforcement_enabled(team))
 

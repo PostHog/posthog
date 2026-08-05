@@ -465,6 +465,32 @@ class TestSelfDrivingPrReservations(BaseTest):
         self._bridge(report, created_at=_at(10), team=other_team)
         self.assertEqual(self._count(), 0)
 
+    def test_billing_exempt_report_not_counted(self) -> None:
+        # PostHog-system work must not draw down a customer's quota, matching how
+        # get_signals_billing_credits_by_team excludes exempt reports from billed usage.
+        report = _make_report(self.team)
+        report.billing_exempt_reason = SignalReport.BillingExemptReason.POSTHOG_SYSTEM
+        report.save(update_fields=["billing_exempt_reason"])
+        self._bridge(report, created_at=_at(10))
+        self.assertEqual(self._count(), 0)
+
+    def test_excluded_refund_not_counted(self) -> None:
+        # An excluded-path refund must free the slot immediately, mirroring how it removes the
+        # report from billed usage entirely.
+        report = _make_report(self.team)
+        self._bridge(report, created_at=_at(10))
+        _make_refund(report, billing_path=SignalReportRefund.BillingPath.EXCLUDED, pr_run_created_at=_at(10))
+        self.assertEqual(self._count(), 0)
+
+    def test_credited_refund_still_counted_here(self) -> None:
+        # Unlike an excluded-path refund, a credited-path refund is not dropped from this count —
+        # reserve_self_driving_pr_slot applies it as a credit offset instead, matching how the
+        # cron-driven usage check offsets it rather than excluding the report outright.
+        report = _make_report(self.team)
+        self._bridge(report, created_at=_at(10))
+        _make_refund(report, billing_path=SignalReportRefund.BillingPath.CREDITED, pr_run_created_at=_at(10))
+        self.assertEqual(self._count(), 1)
+
 
 class TestBillingExemptions(BaseTest):
     def test_mark_report_billing_exempt_sets_reason_before_billable_run(self) -> None:
