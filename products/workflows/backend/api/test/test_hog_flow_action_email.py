@@ -386,8 +386,10 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
             ],
             "edges": [{"from": "trigger_node", "to": "email_1", "type": "continue"}],
         }
-        extra = {"HTTP_X_POSTHOG_CLIENT": "mcp"} if mcp else {}
-        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, **extra)
+        url = f"/api/projects/{self.team.id}/hog_flows"
+        if mcp:
+            return self.client.post(url, flow, HTTP_X_POSTHOG_CLIENT="mcp")
+        return self.client.post(url, flow)
 
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
     def test_template_uuid_materializes_body_at_create_and_step_is_patchable(self, _mock_render):
