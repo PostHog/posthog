@@ -16,7 +16,7 @@ from posthog.temporal.ai.slack_app.attachments import (
     prepare_slack_file_artifacts,
 )
 from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
+from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
 
 logger = structlog.get_logger(__name__)
@@ -31,11 +31,6 @@ _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
-# Default the Slack bot to Opus 5 when neither the user nor the workspace has
-# pinned a model, instead of letting the agent server fall back to its own
-# default. Kept together as a valid (runtime_adapter, model) pair.
-_SLACK_DEFAULT_RUNTIME_ADAPTER = "claude"
-_SLACK_DEFAULT_MODEL = "claude-opus-5"
 _SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
@@ -522,6 +517,7 @@ def create_posthog_code_task_for_repo_activity(
     repository: str | None,
     repo_research_task_id: str | None = None,
     repo_research_run_id: str | None = None,
+    model_override: SlackAppModelOverride | None = None,
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
@@ -637,15 +633,9 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.slack_settings import resolve_ai_preferences
+    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
-    ai_prefs = resolve_ai_preferences(integration, slack_user_id)
-
-    # `resolve_ai_preferences` guarantees runtime_adapter and model are set together,
-    # so falling back on both keeps the pair consistent — an explicit override wins,
-    # otherwise the Slack bot defaults to Opus 5.
-    runtime_adapter = ai_prefs.runtime_adapter or _SLACK_DEFAULT_RUNTIME_ADAPTER
-    model = ai_prefs.model or _SLACK_DEFAULT_MODEL
+    run_prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
@@ -675,9 +665,9 @@ def create_posthog_code_task_for_repo_activity(
             start_workflow=False,
             posthog_mcp_scopes="full",
             initial_permission_mode="bypassPermissions",
-            runtime_adapter=runtime_adapter,
-            model=model,
-            reasoning_effort=ai_prefs.reasoning_effort,
+            runtime_adapter=run_prefs.runtime_adapter,
+            model=run_prefs.model,
+            reasoning_effort=run_prefs.reasoning_effort,
             channel_id=personal_channel_id,
         )
     except Exception as e:

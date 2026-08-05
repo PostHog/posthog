@@ -78,6 +78,21 @@ To test a scanner's lens against a specific session that doesn't have an observa
 with `vision-scanners-scan-session` — it's async (minutes; rasterising the recording + the LLM call are slow)
 and, like all observations, runs at most once per `(scanner, session)`.
 
+### Cite moments, not just sessions
+
+`scanner_result.model_output.reasoning_segments` is the same prose as `reasoning`, pre-split into `text` segments and `chip` segments.
+Each chip carries a `timestamp_ms`: the recording-relative offset of the moment the model is pointing at.
+That's what makes a finding checkable — it turns "the user hit a paywall" into a link that opens on the paywall.
+
+The observation's `_posthogUrl` is its recording; append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to seek there.
+
+```text
+https://us.posthog.com/project/<project_id>/replay/<session_id>?t=1420
+```
+
+Link the one or two moments the finding turns on — a link per chip is noise.
+Timestamps are relative to the recording the observation analysed, so never carry a `timestamp_ms` from one observation onto another session's URL.
+
 ## Step 4 — Act on the findings
 
 Match the action to the user's intent, and **corroborate before you create work**:
