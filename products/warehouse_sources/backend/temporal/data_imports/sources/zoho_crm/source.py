@@ -196,7 +196,12 @@ In the [Zoho API console](https://api-console.zoho.com), create a **Self Client*
     ) -> list[str]:
         # Skip endpoints that discovered nothing (a module the org's edition never enabled, or a
         # transient metadata failure) so a refresh can't blank a catalog we already have.
-        return reconcile_source_schema_metadata(source, [s for s in source_schemas if s.columns], team_id)
+        # Normalize the prune: discovery writes raw Zoho names (`Last_Name`), but a selection made
+        # before this source discovered columns was stored dlt-normalized (`last_name`), and an
+        # exact match would prune the whole selection to `[]` and silently sync id + cursor only.
+        return reconcile_source_schema_metadata(
+            source, [s for s in source_schemas if s.columns], team_id, normalize_enabled_columns=True
+        )
 
     def validate_credentials(
         self,

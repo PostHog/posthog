@@ -175,6 +175,8 @@ def reconcile_source_schema_metadata(
     source: ExternalDataSource,
     source_schemas: list[SourceSchema],
     team_id: int,
+    *,
+    normalize_enabled_columns: bool = False,
 ) -> list[str]:
     """Persist `schema_metadata` per schema row and prune stale `enabled_columns`.
 
@@ -182,6 +184,11 @@ def reconcile_source_schema_metadata(
     `ExternalDataSchema` rows — so non-`SQLSource` sources (e.g. ClickHouse) can
     reuse it to surface column metadata for row filters and the column picker.
     Returns schema names soft-deleted by this hook (currently none).
+
+    `normalize_enabled_columns` folds both sides of the prune through the dlt naming
+    convention — set it for sources whose discovery writes raw vendor names but whose
+    `enabled_columns` may have been stored dlt-normalized before discovery existed
+    (Zoho CRM); see `prune_enabled_columns`.
     """
     schemas_by_name: dict[str, SourceSchema] = {s.name: s for s in source_schemas}
     rows = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
@@ -200,7 +207,9 @@ def reconcile_source_schema_metadata(
         existing_config["schema_metadata"] = new_metadata
 
         available_names = extract_available_column_names(new_metadata)
-        pruned_enabled_columns, removed_columns = prune_enabled_columns(row.enabled_columns, available_names)
+        pruned_enabled_columns, removed_columns = prune_enabled_columns(
+            row.enabled_columns, available_names, normalize=normalize_enabled_columns
+        )
         update_fields = ["sync_type_config", "updated_at"]
         if removed_columns:
             log.info(

@@ -224,6 +224,23 @@ class TestPruneEnabledColumns:
         kept, _ = prune_enabled_columns(["email", "id", "name"], {"id", "email", "name"})
         assert kept == ["email", "id", "name"]
 
+    def test_normalize_false_drops_selection_stored_before_discovery(self) -> None:
+        # A selection stored dlt-normalized (before the source discovered raw names) is pruned to
+        # empty against raw vendor names under exact matching — the bug the normalize flag fixes.
+        kept, removed = prune_enabled_columns(["last_name"], {"Last_Name", "First_Name"})
+        assert kept == []
+        assert removed == ["last_name"]
+
+    def test_normalize_true_matches_across_namespaces_keeping_stored_casing(self) -> None:
+        kept, removed = prune_enabled_columns(["last_name"], {"Last_Name", "First_Name"}, normalize=True)
+        assert kept == ["last_name"]
+        assert removed == []
+
+    def test_normalize_true_still_drops_genuinely_absent_columns(self) -> None:
+        kept, removed = prune_enabled_columns(["last_name", "ghost"], {"Last_Name"}, normalize=True)
+        assert kept == ["last_name"]
+        assert removed == ["ghost"]
+
 
 class TestProjectArrowColumns:
     def test_none_retained_passes_through(self) -> None:

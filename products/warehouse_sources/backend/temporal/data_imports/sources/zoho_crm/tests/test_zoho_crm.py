@@ -558,6 +558,33 @@ class TestGetRows:
 
         assert batches == [[{"id": "u1", "email": "a@b.c"}]]
 
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_selection_matching_no_readable_field_falls_back_to_all_fields(self, make_session: mock.MagicMock) -> None:
+        # A selection that intersects no readable field (namespace drift, or a selection pruned to a
+        # ghost name) must not degrade to an id-only sync. It falls back to the full readable field
+        # set — every discovered field requested, and each row kept whole rather than stripped to id.
+        session = _session(
+            [
+                _response(200, {"fields": [{"api_name": "Last_Name"}, {"api_name": "First_Name"}]}),
+                _records_response([{"id": "1", "Last_Name": "Ada", "First_Name": "Augusta"}]),
+            ]
+        )
+        make_session.return_value = session
+
+        batches = list(
+            get_rows(
+                _client(),
+                "v8",
+                "Leads",
+                FakeResumeManager(),
+                mock.MagicMock(),
+                enabled_columns=["column_that_no_longer_exists"],
+            )
+        )
+
+        assert sorted(_get_params(session, 1)["fields"].split(",")) == ["First_Name", "Last_Name"]
+        assert batches == [[{"id": "1", "Last_Name": "Ada", "First_Name": "Augusta"}]]
+
 
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")

@@ -195,6 +195,9 @@ class TestZohoCRMSource:
         self.source.reconcile_schema_metadata(mock.MagicMock(), [with_columns, without_columns], self.team_id)
 
         assert reconcile.call_args.args[1] == [with_columns]
+        # Zoho stores selections in raw vendor names but older ones are dlt-normalized; the prune has
+        # to fold both sides or it silently empties a pre-discovery selection.
+        assert reconcile.call_args.kwargs["normalize_enabled_columns"] is True
 
     def test_canonical_descriptions_cover_the_published_tables(self) -> None:
         descriptions = self.source.get_canonical_descriptions()

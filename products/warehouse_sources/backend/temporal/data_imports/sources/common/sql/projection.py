@@ -172,14 +172,30 @@ def project_arrow_columns(
 def prune_enabled_columns(
     enabled_columns: list[str] | None,
     available_column_names: set[str],
+    *,
+    normalize: bool = False,
 ) -> tuple[list[str] | None, list[str]]:
-    """Drop `enabled_columns` entries missing from the source. Returns `(kept, removed)`."""
+    """Drop `enabled_columns` entries missing from the source. Returns `(kept, removed)`.
+
+    `normalize=False` (default): exact, case-sensitive membership — for SQL sources whose
+    `enabled_columns` and discovered names share one namespace (and where Postgres can hold
+    `"Foo"` and `"foo"` as distinct columns, so folding would collapse them).
+
+    `normalize=True`: fold both sides through `_normalize_for_match` before comparing, for
+    sources whose discovery writes raw vendor names (Zoho's `Last_Name`) while an
+    `enabled_columns` selection made before discovery existed was stored dlt-normalized
+    (`last_name`). Matching raw there prunes the whole selection to `[]`, which the source
+    then reads as "sync id + cursor only" and silently drops every chosen column. Original
+    casing is preserved in `kept`.
+    """
     if enabled_columns is None:
         return None, []
+    fold = _normalize_for_match if normalize else _identity
+    available = {fold(name) for name in available_column_names}
     kept: list[str] = []
     removed: list[str] = []
     for column in enabled_columns:
-        if column in available_column_names:
+        if fold(column) in available:
             kept.append(column)
         else:
             removed.append(column)

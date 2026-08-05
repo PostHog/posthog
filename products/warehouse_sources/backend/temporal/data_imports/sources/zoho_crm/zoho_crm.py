@@ -1,3 +1,4 @@
+import time
 import dataclasses
 from collections.abc import Iterable, Iterator
 from typing import Any, Optional
@@ -51,6 +52,12 @@ MAX_PAGE = 2000 // PAGE_SIZE
 # several field slices walked in lockstep and merged per page.
 MAX_FIELDS_PER_REQUEST = 50
 REQUEST_TIMEOUT_SECONDS = 60
+# `discover_columns` runs one serial metadata call per module inside a synchronous request
+# (schema refresh / source create), each able to hang up to REQUEST_TIMEOUT_SECONDS. A large
+# org's module list would blow the request's own gateway timeout well before finishing, so
+# discovery stops issuing calls once it has spent this long — the remaining modules just fall
+# back to their synced-table columns in the picker, which is the pre-discovery behavior anyway.
+DISCOVERY_TIME_BUDGET_SECONDS = 45
 # Every Zoho record carries an id, whether or not the fields metadata lists it.
 ID_FIELD = "id"
 
@@ -247,8 +254,14 @@ def discover_columns(
     # Mint up front so a revoked token surfaces once instead of being swallowed per endpoint.
     client.mint_access_token()
 
+    deadline = time.monotonic() + DISCOVERY_TIME_BUDGET_SECONDS
     columns: dict[str, list[tuple[str, str, bool]]] = {}
     for config in endpoints:
+        if time.monotonic() >= deadline:
+            # Out of budget: stop before another 60s-capable call can push the request past its
+            # gateway timeout. Undiscovered modules fall back to synced-table columns in the picker.
+            logger.warning("Zoho CRM column discovery hit its time budget; skipping remaining modules")
+            break
         try:
             fields = readable_fields(client, api_version, config.metadata_module)
         except Exception as e:
@@ -347,13 +360,29 @@ def get_rows(
     base_params.update(config.extra_params or {})
     base_params.update(_sort_params(config, should_use_incremental_field, incremental_field))
 
+    effective_projection = projection
     field_slices: list[list[str]] = [[]]
     if config.is_module:
         names = readable_field_names(client, api_version, config.path)
         if projection is not None:
             # Push the selection into Get Records so a deselected field never leaves Zoho, which is
             # the only way to get past a field whose values break the import.
-            names = [name for name in names if name.casefold() in projection]
+            selected = [name for name in names if name.casefold() in projection]
+            if names and not selected:
+                # A selection that intersects no readable field (namespace drift, a stale name after
+                # a source rename, or every field deselected) would otherwise leave `names` empty,
+                # which `chunk_fields` reads as "no projection" — Zoho then returns every field and
+                # the post-fetch filter strips each row down to id. Fall back to the full field set,
+                # mirroring the empty-projection fallback the SQL projection helpers use, so the table
+                # stays complete rather than silently syncing id only.
+                logger.warning(
+                    "Zoho CRM column selection matched no readable field; syncing all fields",
+                    endpoint=endpoint,
+                    enabled_columns=enabled_columns,
+                )
+                effective_projection = None
+            else:
+                names = selected
         field_slices = chunk_fields(names)
 
     page = 1
@@ -392,11 +421,12 @@ def get_rows(
             next_tokens.append(str(slice_info.get("next_page_token") or ""))
 
         page_rows = [rows[key] for key in order]
-        if projection is not None:
+        if effective_projection is not None:
             # Zoho answers with system fields the metadata API never lists (and the endpoints that
             # take no `fields` param with everything), so the selection is also enforced here.
             page_rows = [
-                {key: value for key, value in row.items() if key.casefold() in projection} for row in page_rows
+                {key: value for key, value in row.items() if key.casefold() in effective_projection}
+                for row in page_rows
             ]
         if page_rows:
             yield page_rows
