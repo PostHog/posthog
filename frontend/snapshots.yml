@@ -5578,14 +5578,18 @@ snapshots:
         hash: v1.k794b7964.7b105d74e4bd6c48e6ffee982e294557b0230d3c43769a252c753745f0d8ec0a.j2wHTrpAU0iVskR8PYJPk9KNhWUYrGDbwyxM0h9015M
     scenes-app-customer-analytics-journeys-nodes-profileflownode--optional-not-completed--light:
         hash: v1.k794b7964.165b884e9e737c00707811f9efa7d348927a432402c544b41495eac9722a1fca.wqLWQTzb1O7RBTeeyTR5l_hUeX0IpJXkgexpAQbuNWs
+    scenes-app-dashboards--dashboard-states--dark:
+        hash: v1.k794b7964.eadbe0e176b4e99b3b49bda17d1733abc1c19bad129432b8652930d06842034f.E7zBlfYt1tEeIZXvo5obAzaL4nZWP4SKaMCyKcwrnuo
+    scenes-app-dashboards--dashboard-states--light:
+        hash: v1.k794b7964.5104fed8ad7b43526968b2d278ee70f2c560588af25f63c9909662b58863d5f8.Kb8I4hyHuSD4g_SxJaH3yZzFFgqrVCImcy0M6jp27Io
     scenes-app-dashboards--list--dark:
         hash: v1.k794b7964.00d0fa213e763d116afb415f4a3fea1e98d5d6e81ca29d30e842cd74cf50d7ac.e1Co2_8OmCVBy1IWy67r9-Uo-nt8tATEi1TPcyiV25Y
     scenes-app-dashboards--list--light:
         hash: v1.k794b7964.8a9ad756d6aff75458241be69cb48a69d8df5a812aafa312256d312f581b5629.TPQoZ3DkpZdldKCS5hx9f5WAaMAHY8TTGoUWjrXA-Zw
     scenes-app-dashboards--new-dashboard-modal--dark:
-        hash: v1.k794b7964.0a812dc0a14bd20dd0b2c88701ee5ef011ced558218f55f787b73d5e6e200557.uUIqLrdSaRIgntHU8Y8ounYiTocCFv55lEntTH7iWUA
+        hash: v1.k794b7964.09aeb9a9e7c4cba1d60a71d04c092dba183b777899317a1adc4132ada91b149d.WsFZ7c7EkU4WZ3LXjE86EgfZomRxQQgxKBjf9pLs6H4
     scenes-app-dashboards--new-dashboard-modal--light:
-        hash: v1.k794b7964.e135fb19127d4e79d117b7fcb5550311c2113f8270e1ccde250d4285416694db.ThjbNZgTwq6Lp_NQZ5c_THcn9YWr7mJ212ZP0m6sxxE
+        hash: v1.k794b7964.efef41777007ace5a224150f359a3a5adb20fef1f359da19ca8c00f6cc7f24dd.E865w7TaWkthreAAOFY1K8iSjFdtE7RTJlhGVkVuDuM
     scenes-app-dashboards--new-select-variables--dark:
         hash: v1.k794b7964.369294c02a688cb4e20bf6c50c1bd4547e948e9edd37da97de3a3f22d2a7370b.UYYFQYqpgQ9LngU4sSowj-D-opolhj2Qtk7hwnqOr5k
     scenes-app-dashboards--new-select-variables--light:
