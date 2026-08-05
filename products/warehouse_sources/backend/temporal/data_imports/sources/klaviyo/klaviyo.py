@@ -262,6 +262,12 @@ def _iter_resource_ids(
         url = next_url
 
 
+# A parent collection the key can't read (403) is gone for our purposes just like one that no
+# longer exists (404) — the caption promises ungranted tables are skipped, not that they fail
+# the sync.
+_SKIPPABLE_FAN_OUT_STATUSES = (403, 404)
+
+
 def _iter_fan_out_parents(
     session: requests.Session,
     headers: dict[str, str],
@@ -275,8 +281,19 @@ def _iter_fan_out_parents(
     formats the parent path with each grandparent id, tagging every parent with that id.
     """
     if fan_out.grandparent is None:
-        for parent_id in _iter_resource_ids(session, headers, logger, fan_out.parent_path, fan_out.parent_page_size):
-            yield {}, parent_id
+        try:
+            for parent_id in _iter_resource_ids(
+                session, headers, logger, fan_out.parent_path, fan_out.parent_page_size
+            ):
+                yield {}, parent_id
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code in _SKIPPABLE_FAN_OUT_STATUSES:
+                logger.warning(
+                    f"Klaviyo: {fan_out.parent_path} not accessible "
+                    f"(status={exc.response.status_code}) while enumerating fan-out parents, skipping"
+                )
+            else:
+                raise
         return
 
     grandparent = fan_out.grandparent
@@ -288,10 +305,14 @@ def _iter_fan_out_parents(
             for parent_id in _iter_resource_ids(session, headers, logger, path, fan_out.parent_page_size):
                 yield {grandparent.parent_id_column: grandparent_id}, parent_id
         except requests.HTTPError as exc:
-            # A grandparent deleted between enumeration and this fetch 404s; its children are gone
-            # with it, so skip rather than failing the whole sync.
-            if exc.response is not None and exc.response.status_code == 404:
-                logger.warning(f"Klaviyo: {path} not found while enumerating fan-out parents, skipping")
+            # A grandparent deleted between enumeration and this fetch 404s (or, for a
+            # plan-gated/scope-restricted child collection, 403s); its children are unreachable
+            # either way, so skip rather than failing the whole sync.
+            if exc.response is not None and exc.response.status_code in _SKIPPABLE_FAN_OUT_STATUSES:
+                logger.warning(
+                    f"Klaviyo: {path} not accessible (status={exc.response.status_code}) "
+                    "while enumerating fan-out parents, skipping"
+                )
             else:
                 raise
 
@@ -381,10 +402,15 @@ def _get_fan_out_rows(
                     break
                 url = next_url
         except requests.HTTPError as exc:
-            # A parent deleted between enumeration and this fetch 404s. Skip it rather than failing
-            # the whole sync — the rows are genuinely gone. Any other HTTP error is re-raised.
-            if exc.response is not None and exc.response.status_code == 404:
-                logger.warning(f"Klaviyo: {child_path} not found while fetching {config.name}, skipping")
+            # A parent deleted between enumeration and this fetch 404s; a parent whose child
+            # collection the key or plan can't reach (e.g. a plan-gated feature) 403s. Either way
+            # skip it rather than failing the whole sync — the caption promises ungranted tables
+            # are skipped, not that they take the sync down.
+            if exc.response is not None and exc.response.status_code in _SKIPPABLE_FAN_OUT_STATUSES:
+                logger.warning(
+                    f"Klaviyo: {child_path} not accessible (status={exc.response.status_code}) "
+                    f"while fetching {config.name}, skipping"
+                )
             else:
                 raise
 
@@ -540,31 +566,40 @@ def get_rows(
     else:
         url = _build_url(f"{KLAVIYO_BASE_URL}{config.path}", params)
 
-    while True:
-        data = _fetch_page(session, url, headers, logger)
+    try:
+        while True:
+            data = _fetch_page(session, url, headers, logger)
 
-        items = data.get("data", [])
-        if not items:
-            break
+            items = data.get("data", [])
+            if not items:
+                break
 
-        # Get next page URL before iterating items
-        links = data.get("links", {})
-        next_url = links.get("next")
+            # Get next page URL before iterating items
+            links = data.get("links", {})
+            next_url = links.get("next")
 
-        for item in items:
-            batcher.batch(_flatten_item(item))
+            for item in items:
+                batcher.batch(_flatten_item(item))
 
-            if batcher.should_yield():
-                py_table = batcher.get_table()
-                yield py_table
+                if batcher.should_yield():
+                    py_table = batcher.get_table()
+                    yield py_table
 
-                if next_url:
-                    resumable_source_manager.save_state(KlaviyoResumeConfig(next_url=next_url))
+                    if next_url:
+                        resumable_source_manager.save_state(KlaviyoResumeConfig(next_url=next_url))
 
-        if not next_url:
-            break
+            if not next_url:
+                break
 
-        url = next_url
+            url = next_url
+    except requests.HTTPError as exc:
+        # This key or plan can't read the table itself (not a fan-out parent/child collection).
+        # Skip it rather than failing the sync, matching the source's promise that ungranted
+        # tables are skipped.
+        if exc.response is not None and exc.response.status_code == 403:
+            logger.warning(f"Klaviyo: {config.path} not accessible (status=403), skipping {config.name}")
+        else:
+            raise
 
     if batcher.should_yield(include_incomplete_chunk=True):
         py_table = batcher.get_table()

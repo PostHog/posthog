@@ -458,8 +458,12 @@ class TestListProfilesFanOut:
         rows = self._collect(manager, monkeypatch, pages)
         assert rows == [{"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"}]
 
-    def test_list_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
-        not_found = requests.HTTPError(response=_response_with_status(404))
+    @parameterized.expand([("not_found", 404), ("forbidden", 403)])
+    def test_list_unreachable_mid_fan_out_is_skipped(self, _name: str, status_code: int) -> None:
+        # A list deleted between enumeration and fetch 404s; a list this key or plan can't read
+        # 403s. Either must be skipped rather than failing the whole sync.
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
+        unreachable = requests.HTTPError(response=_response_with_status(status_code))
         pages = {
             "https://a.klaviyo.com/api/lists?page[size]=10": {
                 "data": [{"id": "L1"}, {"id": "GONE"}, {"id": "L2"}],
@@ -471,7 +475,7 @@ class TestListProfilesFanOut:
                 ],
                 "links": {"next": None},
             },
-            _list_url("GONE"): not_found,
+            _list_url("GONE"): unreachable,
             _list_url("L2"): {
                 "data": [
                     {"type": "profile", "id": "P2", "attributes": {"joined_group_at": "2025-12-01T09:30:00+00:00"}}
@@ -479,7 +483,8 @@ class TestListProfilesFanOut:
                 "links": {"next": None},
             },
         }
-        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
+        with pytest.MonkeyPatch.context() as mp:
+            rows = self._collect(_FakeResumableManager(), mp, pages)
         assert rows == [
             {"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"},
             {"list_id": "L2", "profile_id": "P2", "joined_group_at": "2025-12-01T09:30:00+00:00"},
@@ -540,6 +545,15 @@ class TestGeneralizedFanOut:
         }
         rows = _collect_rows("segment_profiles", monkeypatch, pages)
         assert rows == [{"segment_id": "S1", "profile_id": "P1", "joined_group_at": "2026-01-08T00:00:00+00:00"}]
+
+    def test_forbidden_parent_collection_skips_the_whole_fan_out(self, monkeypatch: Any) -> None:
+        # A key or plan that can't even list the parent collection (e.g. segments) must not fail
+        # the dependent fan-out table (segment_profiles); it should sync zero rows instead.
+        pages = {
+            "https://a.klaviyo.com/api/segments?page[size]=10": requests.HTTPError(response=_response_with_status(403)),
+        }
+        rows = _collect_rows("segment_profiles", monkeypatch, pages)
+        assert rows == []
 
     def test_flow_actions_yield_the_flattened_resource_tagged_with_its_flow(self, monkeypatch: Any) -> None:
         # Non-membership fan-out rows must keep the resource's own fields and gain the parent id;
@@ -635,15 +649,20 @@ class TestGeneralizedFanOut:
             {"type": "flow-message", "id": "M2", "channel": "sms", "flow_action_id": "A2", "flow_id": "F2"},
         ]
 
-    def test_deleted_flow_is_skipped_while_enumerating_two_level_parents(self, monkeypatch: Any) -> None:
-        # A flow deleted between enumeration and the action fetch must not fail the whole sync.
+    @parameterized.expand([("not_found", 404), ("forbidden", 403)])
+    def test_unreachable_flow_is_skipped_while_enumerating_two_level_parents(
+        self, _name: str, status_code: int
+    ) -> None:
+        # A flow deleted between enumeration and the action fetch 404s; a flow whose actions this
+        # key or plan can't read 403s. Either must not fail the whole sync.
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
         pages = {
             "https://a.klaviyo.com/api/flows?page[size]=50": {
                 "data": [{"id": "GONE"}, {"id": "F2"}],
                 "links": {"next": None},
             },
             "https://a.klaviyo.com/api/flows/GONE/flow-actions?page[size]=50": requests.HTTPError(
-                response=_response_with_status(404)
+                response=_response_with_status(status_code)
             ),
             "https://a.klaviyo.com/api/flows/F2/flow-actions?page[size]=50": {
                 "data": [{"id": "A2"}],
@@ -654,7 +673,8 @@ class TestGeneralizedFanOut:
                 "links": {"next": None},
             },
         }
-        rows = _collect_rows("flow_messages", monkeypatch, pages)
+        with pytest.MonkeyPatch.context() as mp:
+            rows = _collect_rows("flow_messages", mp, pages)
         assert rows == [{"type": "flow-message", "id": "M2", "channel": "sms", "flow_action_id": "A2", "flow_id": "F2"}]
 
     @parameterized.expand(
@@ -667,6 +687,27 @@ class TestGeneralizedFanOut:
         # A membership key that isn't unique table-wide seeds duplicates that every later merge
         # multi-matches, which is how these fan-outs OOM.
         assert KLAVIYO_ENDPOINTS[endpoint].primary_keys == expected_keys
+
+
+class TestPlainEndpointForbidden:
+    def test_forbidden_table_is_skipped_instead_of_failing_the_sync(self, monkeypatch: Any) -> None:
+        # object_types, push_tokens, and similar plan-gated tables aren't fan-outs; a 403 on their
+        # single request used to propagate as a raw HTTPError and fail the whole sync, even though
+        # the source's caption promises ungranted tables are skipped.
+        pages = {
+            "https://a.klaviyo.com/api/object-types": requests.HTTPError(response=_response_with_status(403)),
+        }
+        rows = _collect_rows("object_types", monkeypatch, pages)
+        assert rows == []
+
+    def test_non_403_http_error_still_fails_the_sync(self, monkeypatch: Any) -> None:
+        # Only 403 (a permissions/plan denial) is skipped; any other failure on a plain endpoint
+        # must still surface so it isn't silently swallowed.
+        pages = {
+            "https://a.klaviyo.com/api/object-types": requests.HTTPError(response=_response_with_status(500)),
+        }
+        with pytest.raises(requests.HTTPError):
+            _collect_rows("object_types", monkeypatch, pages)
 
 
 class TestValuesReports:

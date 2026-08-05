@@ -130,7 +130,11 @@ The campaign and flow performance tables need a conversion metric. Leave the con
             # credential problem, so stop the sync. Match the stable status text and base host, not
             # the per-request path/query/timestamp.
             "401 Client Error: Unauthorized for url: https://a.klaviyo.com": "Your Klaviyo API key is invalid or has been revoked. Create a new private API key in your Klaviyo account settings, then reconnect.",
-            "403 Client Error: Forbidden for url: https://a.klaviyo.com": "Your Klaviyo API key is missing the read permissions needed to sync this data. Grant the required read scopes in your Klaviyo account settings, then reconnect.",
+            # Klaviyo also returns 403 for plan-gated features (custom objects, push tokens,
+            # reviews) that no scope grant can fix, so this can't name a single cause. Per-table
+            # 403s are skipped rather than reaching this message; it only surfaces when the whole
+            # sync is blocked, e.g. every table is unreachable.
+            "403 Client Error: Forbidden for url: https://a.klaviyo.com": "Klaviyo refused this request. This can mean your API key is missing a read scope, or that this data isn't available on your Klaviyo plan. Check your key's scopes in your Klaviyo account settings, or contact Klaviyo support if it's a plan limitation.",
         }
 
     def get_schemas(
