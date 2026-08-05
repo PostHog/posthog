@@ -62,7 +62,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
     const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
-    const { currentStepProductKey, currentFlowStep } = useValues(onboardingLogic)
+    const { currentStepProductKey, currentFlowStep, flow } = useValues(onboardingLogic)
     const productName = currentStepProductKey
         ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
         : undefined
@@ -70,6 +70,13 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     // the dedup-survivor product would mislead users installing several at once.
     const isSdkInstallStep = currentFlowStep?.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS
     const installTitle = isSdkInstallStep ? 'Install' : productName ? `Install ${productName}` : 'Install your SDK'
+    // With two install steps in the flow (e.g. AI observability + product analytics), say what the
+    // shared SDK step is for — a bare second "Install" reads as a duplicate.
+    const installStepCount = flow.filter((step) => step.stepKey === OnboardingStepKey.INSTALL).length
+    const installSubtitle =
+        isSdkInstallStep && installStepCount > 1 && productName
+            ? `One install covers the rest of your products, including ${productName}.`
+            : undefined
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
@@ -150,6 +157,8 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         selectedSDK,
         header,
         wizardOverrides,
+        installTitle,
+        installSubtitle,
     }
 
     const instructionsModal = selectedSDK && (

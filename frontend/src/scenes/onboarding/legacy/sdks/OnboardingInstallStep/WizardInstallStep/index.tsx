@@ -153,7 +153,8 @@ function WizardInstallShell({
 
     return (
         <OnboardingStep
-            title="Install"
+            title={props.installTitle}
+            subtitle={props.installSubtitle}
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={continueDisabledReason}
             showSkip={showSkip}

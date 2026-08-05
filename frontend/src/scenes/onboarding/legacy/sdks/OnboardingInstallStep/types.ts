@@ -40,4 +40,8 @@ export interface VariantProps {
     selectedSDK: SDK | null
     header?: React.ReactNode
     wizardOverrides?: WizardOverrides
+    /** Step heading, e.g. "Install AI observability"; the deduped posthog-js step stays "Install". */
+    installTitle: string
+    /** Explains the shared SDK step when the flow has several install steps. */
+    installSubtitle?: string
 }
