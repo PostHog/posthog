@@ -588,6 +588,17 @@ impl KafkaSink {
         config: KafkaConfig,
         liveness: Option<lifecycle::Handle>,
     ) -> anyhow::Result<KafkaSink> {
+        // Refuse to boot on incomplete output wiring: a blank topic fails
+        // here, at startup, instead of at first produce. Config-only, so it
+        // runs before the producer is built and the broker is pinged — the
+        // refusal is instant, not one connect attempt later.
+        let registry = OutputRegistry::from(&config);
+        if config.outputs_completeness_check_enabled {
+            registry.check_complete()?;
+        } else {
+            info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
+        }
+
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
         let mut client_config = ClientConfig::new();
@@ -705,15 +716,6 @@ impl KafkaSink {
             info!("connected to Kafka brokers");
         };
 
-        // Refuse to boot on incomplete output wiring: a blank topic fails
-        // here, at startup, instead of at first produce. Config-only — the
-        // broker is never probed.
-        let registry = OutputRegistry::from(&config);
-        if config.outputs_completeness_check_enabled {
-            registry.check_complete()?;
-        } else {
-            warn!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
-        }
         let topics = Arc::new(registry);
         let rd_producer = RdKafkaProducer::new(producer);
 
