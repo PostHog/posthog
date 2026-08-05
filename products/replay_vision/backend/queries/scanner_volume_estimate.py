@@ -33,8 +33,8 @@ _ESTIMATE_SCAN_WINDOW_DAYS = 7
 # Events subqueries additionally SAMPLE users at 10%; matched counts are corrected back up.
 _ESTIMATE_EVENTS_SAMPLE_FACTOR = 0.1
 
-# The earliest-recording probe scans at most this far back; anything older clamps the divisor to the full window.
-_EARLIEST_PROBE_LOOKBACK_DAYS = 3 * ESTIMATE_WINDOW_DAYS
+# The earliest-recording probe only needs to see past the scan window; anything older clamps identically.
+_EARLIEST_PROBE_LOOKBACK_DAYS = _ESTIMATE_SCAN_WINDOW_DAYS + 1
 
 # Persisted per-scanner estimates older than this are recomputed by the sweep.
 ESTIMATE_STALE_AFTER = dt.timedelta(hours=24)
@@ -43,7 +43,7 @@ ESTIMATE_STALE_AFTER = dt.timedelta(hours=24)
 @dataclass(frozen=True)
 class ScannerVolumeEstimate:
     matched_sessions: int
-    # May be smaller than ESTIMATE_WINDOW_DAYS when the team has fewer days of recordings.
+    # May be smaller than the scan window when the team has fewer days of recordings.
     effective_window_days: int
 
 
@@ -66,7 +66,7 @@ def estimate_scanner_session_volume(
     now = dt.datetime.now(dt.UTC)
     window_start = now - dt.timedelta(days=_ESTIMATE_SCAN_WINDOW_DAYS)
     windowed = query.model_copy(deep=True)
-    # Exact timestamp — the relative "-30d" form truncates to start-of-day, counting up to 31 days against a /30 divisor.
+    # Exact timestamp — the relative date form truncates to start-of-day, over-counting a day against the divisor.
     windowed.date_from = window_start.isoformat()
     windowed.date_to = None
 
@@ -96,7 +96,7 @@ def estimate_scanner_session_volume(
             )
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"])),
-        # Bounded so the probe partition-prunes; older data would clamp the divisor to the full window anyway.
+        # Bounded so the probe partition-prunes; older data clamps the divisor to the scan window anyway.
         where=ast.CompareOperation(
             op=ast.CompareOperationOp.GtEq,
             left=ast.Field(chain=["min_first_timestamp"]),

@@ -10,7 +10,13 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from posthog.schema import RecordingsQuery
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+
 from posthog.models import Organization, Team
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.queries import (
@@ -18,6 +24,7 @@ from products.replay_vision.backend.queries import (
     project_monthly_observations,
     refresh_scanner_estimate,
 )
+from products.replay_vision.backend.queries.scanner_volume_estimate import _ESTIMATE_EVENTS_SAMPLE_FACTOR
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
     list_stale_scanner_estimates_activity,
 )
@@ -63,56 +70,25 @@ def _set_estimate(scanner: ReplayScanner, value: int, hours_ago: float) -> None:
 
 
 @pytest.mark.django_db
-def test_estimate_samples_events_subqueries_and_corrects_count() -> None:
-    from posthog.schema import RecordingsQuery
-
-    from posthog.hogql import ast
-
-    from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-
-    from products.replay_vision.backend.queries.scanner_volume_estimate import _ESTIMATE_EVENTS_SAMPLE_FACTOR
-
+@pytest.mark.parametrize(
+    "recordings_query, expect_sampled",
+    [
+        (RecordingsQuery(events=[{"id": "$pageview", "type": "events", "name": "$pageview"}]), True),
+        (RecordingsQuery(), False),
+    ],
+)
+def test_estimate_samples_events_subqueries(recordings_query: RecordingsQuery, expect_sampled: bool) -> None:
     scanner = _make_scanner()
-    query = RecordingsQuery(events=[{"id": "$pageview", "type": "events", "name": "$pageview"}])
     list_query = SessionRecordingListFromQuery(
-        team=scanner.team, query=query, events_sample_factor=_ESTIMATE_EVENTS_SAMPLE_FACTOR
+        team=scanner.team, query=recordings_query, events_sample_factor=_ESTIMATE_EVENTS_SAMPLE_FACTOR
     )
     built = list_query.get_query()
 
-    assert list_query.events_subqueries_sampled
-
-    import dataclasses
-
-    def _collect_samples(node: object, out: list[ast.SampleExpr]) -> None:
-        if isinstance(node, ast.JoinExpr) and node.sample is not None:
-            out.append(node.sample)
-        if isinstance(node, ast.AST):
-            for field in dataclasses.fields(node):
-                _collect_samples(getattr(node, field.name), out)
-        elif isinstance(node, list):
-            for item in node:
-                _collect_samples(item, out)
-
-    samples: list[ast.SampleExpr] = []
-    _collect_samples(built, samples)
-    assert len(samples) >= 1
-    assert samples[0].sample_value.left.value == _ESTIMATE_EVENTS_SAMPLE_FACTOR
-
-
-@pytest.mark.django_db
-def test_estimate_without_event_filters_does_not_sample() -> None:
-    from posthog.schema import RecordingsQuery
-
-    from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-
-    from products.replay_vision.backend.queries.scanner_volume_estimate import _ESTIMATE_EVENTS_SAMPLE_FACTOR
-
-    scanner = _make_scanner()
-    list_query = SessionRecordingListFromQuery(
-        team=scanner.team, query=RecordingsQuery(), events_sample_factor=_ESTIMATE_EVENTS_SAMPLE_FACTOR
-    )
-    list_query.get_query()
-    assert not list_query.events_subqueries_sampled
+    assert list_query.events_subqueries_sampled == expect_sampled
+    sql = prepare_and_print_ast(built, HogQLContext(team_id=scanner.team.pk, enable_select_queries=True), "clickhouse")[
+        0
+    ]
+    assert (f"SAMPLE {_ESTIMATE_EVENTS_SAMPLE_FACTOR}" in sql) == expect_sampled
 
 
 @pytest.mark.parametrize(

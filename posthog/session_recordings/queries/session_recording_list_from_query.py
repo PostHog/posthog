@@ -138,7 +138,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         **_,
     ):
         self._user = user
-        # Storage-level SAMPLE on any events subqueries (estimates only); deterministic by distinct_id, so positive and negative subqueries stay consistent.
+        # Storage-level SAMPLE on any events subqueries; opt-in for estimates.
         self._events_sample_factor = events_sample_factor
         self.events_subqueries_sampled = False
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
@@ -282,18 +282,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
 
-    def _maybe_sample_events_subquery(self, subquery: ast.Expr) -> None:
-        if (
-            self._events_sample_factor is None
-            or not isinstance(subquery, ast.SelectQuery)
-            or subquery.select_from is None
-        ):
-            return
-        subquery.select_from.sample = ast.SampleExpr(
-            sample_value=ast.RatioExpr(left=ast.Constant(value=self._events_sample_factor))
-        )
-        self.events_subqueries_sampled = True
-
     @tracer.start_as_current_span("SessionRecordingListFromQuery._where_predicates")
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = []
@@ -388,11 +376,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         # if in PoE mode then we should be pushing person property queries into here
         events_sub_query_builder = ReplayFiltersEventsSubQuery(
-            self._team, self._query, self._allow_event_property_expansion
+            self._team, self._query, self._allow_event_property_expansion, sample_factor=self._events_sample_factor
         )
         events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
-            self._maybe_sample_events_subquery(events_sub_query)
             optional_exprs.append(
                 ast.CompareOperation(
                     # this hits the distributed events table from the distributed session_replay_events table
@@ -408,8 +395,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # find the small set of sessions that MATCH the positive form, then exclude them.
         # This avoids scanning all event-sessions which can exceed the LIMIT on high-traffic teams.
         negative_blocklist = events_sub_query_builder.get_negative_blocklist_query()
+        self.events_subqueries_sampled |= events_sub_query_builder.emitted_sampled_subquery
         if negative_blocklist:
-            self._maybe_sample_events_subquery(negative_blocklist)
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GlobalNotIn,
@@ -487,7 +474,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             test_account_query.console_log_filters = None
 
             test_account_events_builder = ReplayFiltersEventsSubQuery(
-                self._team, test_account_query, self._allow_event_property_expansion
+                self._team,
+                test_account_query,
+                self._allow_event_property_expansion,
+                sample_factor=self._events_sample_factor,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(
@@ -496,6 +486,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     )
                 )
             test_account_negative_blocklist = test_account_events_builder.get_negative_blocklist_query()
+            self.events_subqueries_sampled |= test_account_events_builder.emitted_sampled_subquery
             if test_account_negative_blocklist:
                 exprs.append(
                     ast.CompareOperation(
