@@ -325,9 +325,10 @@ export function buildSandboxDocument(
     });
 
     const commentHighlightStyle = document.createElement("style");
-    commentHighlightStyle.textContent = "::highlight(posthog-canvas-comment){background:rgba(250,204,21,.32);color:inherit}::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.58);color:inherit}";
+    commentHighlightStyle.textContent = "::highlight(posthog-canvas-comment),::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.32);color:inherit}.ph-canvas-comment-outline{position:fixed;z-index:2147483646;pointer-events:none;box-sizing:border-box;border:2px solid rgba(255,255,255,.9);border-radius:3px}";
     document.head.appendChild(commentHighlightStyle);
     let currentCommentHighlights = [];
+    let commentOutlineNodes = [];
     const commentRangeAt = (start, end) => {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       let offset = 0, startNode, endNode, startOffset = 0, endOffset = 0;
@@ -364,19 +365,37 @@ export function buildSandboxDocument(
     };
     const renderCommentHighlights = (items) => {
       currentCommentHighlights = items || [];
+      for (const node of commentOutlineNodes) node.remove();
+      commentOutlineNodes = [];
       if (!window.Highlight || !window.CSS || !CSS.highlights) return;
       const normal = new Highlight();
       const active = new Highlight();
+      const activeRanges = [];
       const whole = document.createRange();
       whole.selectNodeContents(document.body);
       const text = whole.toString();
       for (const item of currentCommentHighlights) {
         const resolved = resolveCommentAnchor(text, item.anchor);
         const range = resolved && commentRangeAt(resolved.start, resolved.end);
-        if (range) (item.active ? active : normal).add(range);
+        if (range) {
+          (item.active ? active : normal).add(range);
+          if (item.active) activeRanges.push(range);
+        }
       }
       CSS.highlights.set("posthog-canvas-comment", normal);
       CSS.highlights.set("posthog-canvas-comment-active", active);
+      for (const range of activeRanges) {
+        for (const rect of range.getClientRects()) {
+          const node = document.createElement("span");
+          node.className = "ph-canvas-comment-outline";
+          node.style.left = (rect.left - 1) + "px";
+          node.style.top = (rect.top - 1) + "px";
+          node.style.width = (rect.width + 2) + "px";
+          node.style.height = (rect.height + 2) + "px";
+          document.documentElement.appendChild(node);
+          commentOutlineNodes.push(node);
+        }
+      }
     };
     let commentHighlightFrame = 0;
     new MutationObserver(() => {
@@ -386,6 +405,8 @@ export function buildSandboxDocument(
         renderCommentHighlights(currentCommentHighlights);
       });
     }).observe(document.body, { childList: true, characterData: true, subtree: true });
+    addEventListener("scroll", () => renderCommentHighlights(currentCommentHighlights), true);
+    addEventListener("resize", () => renderCommentHighlights(currentCommentHighlights));
 
     // Boot posthog-js with the PUBLIC key the host passed in (never the read
     // token). Enables session replay so the author/viewer can be watched.

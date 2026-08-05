@@ -545,7 +545,7 @@ describe("ArtifactPreview", () => {
       rerender(view());
 
       expect(await screen.findByLabelText("Open comment thread")).toHaveStyle({
-        backgroundColor: "rgba(250, 204, 21, 0.35)",
+        backgroundColor: "rgba(250, 204, 21, 0.32)",
       });
     } finally {
       Reflect.deleteProperty(Range.prototype, "getClientRects");
@@ -620,7 +620,10 @@ describe("ArtifactPreview", () => {
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
       // And the thread reads as the active one on the surface.
       const highlight = await screen.findByLabelText("Open comment thread");
-      expect(highlight.className).toContain("ring-yellow-500");
+      expect(highlight).toHaveStyle({
+        backgroundColor: "rgba(250, 204, 21, 0.32)",
+        outline: "2px solid rgba(255, 255, 255, 0.9)",
+      });
     });
 
     // A thread from another artifact must not drag this one around.
@@ -683,6 +686,7 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("<style>.card{color:red}</style>");
     expect(document).toContain('style="font-size:20px"');
     expect(document).toContain("__POSTHOG_ARTIFACT_COMMENT_BRIDGE__");
+    expect(document).toContain("ph-artifact-comment-outline");
     expect(document).toContain("💬 Comment");
     expect(document).toContain('var CHANNEL="test-channel"');
     expect(document).toContain('d.type==="locate"');

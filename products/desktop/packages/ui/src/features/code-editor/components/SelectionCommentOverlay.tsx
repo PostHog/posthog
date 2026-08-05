@@ -5,7 +5,7 @@ import type { EditorSelection } from "@posthog/ui/features/code-editor/component
 import { CommentAnnotation } from "@posthog/ui/features/code-review/components/CommentAnnotation";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
 import { Tooltip } from "@radix-ui/themes";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 /** Selection state for the "select lines → add to chat" overlay. */
@@ -109,6 +109,21 @@ function SelectionComposerCard({
   const expanded = initiallyExpanded || userExpanded;
   const [draft, setDraft] = useState("");
   const style = { top: anchor.top + 4, left: anchor.left };
+
+  useEffect(() => {
+    const dismissOutside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-selection-comment-overlay]")
+      ) {
+        return;
+      }
+      onDismiss();
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    return () =>
+      document.removeEventListener("pointerdown", dismissOutside, true);
+  }, [onDismiss]);
 
   if (!expanded) {
     return createPortal(

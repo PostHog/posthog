@@ -97,6 +97,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn("port?.postMessage", runtime)
         self.assertIn('event.data?.type==="set-comment-highlights"', runtime)
         self.assertIn('CSS.highlights.set("posthog-canvas-comment"', runtime)
+        self.assertIn("ph-canvas-comment-outline", runtime)
         self.assertNotIn("parent.postMessage({channel,...message}", runtime)
 
     def test_runtime_bounds_host_side_effects(self) -> None:

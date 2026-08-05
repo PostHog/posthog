@@ -240,25 +240,6 @@ export function ArtifactTextAnnotations({
     return () => container.removeEventListener("mouseup", handleMouseUp);
   }, [containerRef, dismiss, rootRef]);
 
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!selection || !root) return;
-    const clearOutside = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node) || root.contains(target)) return;
-      if (
-        target instanceof Element &&
-        target.closest("[data-selection-comment-overlay]")
-      ) {
-        return;
-      }
-      dismiss();
-    };
-    document.addEventListener("pointerdown", clearOutside, true);
-    return () =>
-      document.removeEventListener("pointerdown", clearOutside, true);
-  }, [dismiss, rootRef, selection]);
-
   return (
     <>
       <div className="pointer-events-none absolute inset-0 z-10" aria-hidden>
@@ -269,18 +250,18 @@ export function ArtifactTextAnnotations({
             type="button"
             tabIndex={-1}
             className={`pointer-events-auto absolute rounded-[2px] ${
-              rect.active
-                ? "bg-yellow-400/55 ring-2 ring-yellow-500"
-                : "bg-yellow-300/35 hover:bg-yellow-300/55"
+              rect.active ? "" : "hover:bg-yellow-300/45"
             }`}
             style={{
               left: rect.left,
               top: rect.top,
               width: rect.width,
               height: rect.height,
-              backgroundColor: rect.active
-                ? "rgba(250, 204, 21, 0.58)"
-                : "rgba(250, 204, 21, 0.35)",
+              backgroundColor: "rgba(250, 204, 21, 0.32)",
+              outline: rect.active
+                ? "2px solid rgba(255, 255, 255, 0.9)"
+                : undefined,
+              outlineOffset: rect.active ? 1 : undefined,
             }}
             onClick={() => onActivateThread(rect.id)}
             aria-label="Open comment thread"
