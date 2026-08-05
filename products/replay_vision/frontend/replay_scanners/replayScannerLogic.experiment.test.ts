@@ -46,8 +46,9 @@ describe('replayScannerLogic experiment targeting', () => {
         logic?.unmount()
     })
 
-    it('remove clears the context and strips the managed exposure filter from the query', async () => {
+    it('remove clears the context, the persisted experiment_targeting, and the managed exposure filter', async () => {
         expect(logic.values.scanner.query?.events).toHaveLength(1)
+        expect(logic.values.scanner.experiment_targeting).toMatchObject({ experiment_id: 9 })
 
         await expectLogic(logic, () => logic.actions.removeExperimentTargeting()).toDispatchActions([
             'removeExperimentTargeting',
@@ -55,14 +56,51 @@ describe('replayScannerLogic experiment targeting', () => {
         ])
 
         expect(logic.values.experimentContext).toBeNull()
+        expect(logic.values.scanner.experiment_targeting).toBeNull()
         expect(logic.values.scanner.query?.events).toEqual([])
         expect(logic.values.scanner.query?.properties).toEqual([])
     })
 
-    it('variant changes recompile the exposure filter in the stored query', async () => {
+    it('variant changes recompile the exposure filter and the persisted experiment_targeting', async () => {
         await expectLogic(logic, () => logic.actions.setExperimentVariantKeys(['control']))
         const exposureEvent = logic.values.scanner.query?.events?.[0] as { properties: { value: unknown }[] }
         expect(exposureEvent.properties[0]).toMatchObject({ value: ['control'] })
+        expect(logic.values.scanner.experiment_targeting).toMatchObject({ variant_keys: ['control'] })
+    })
+
+    it('editing a saved scanner with a experiment_targeting rehydrates the targeting card', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/scanners/saved-1/': {
+                    ...newScanner(null),
+                    id: 'saved-1',
+                    name: 'Saved scanner',
+                    experiment_targeting: {
+                        experiment_id: 9,
+                        variant_keys: ['test'],
+                        use_exposure_fallback: false,
+                    },
+                },
+                '/api/projects/:team/vision/scanners/:id/observations/': { results: [] },
+                '/api/projects/:team/vision/scanners/:id/observations/stats/': {
+                    status_counts: { total: 0, succeeded: 0, failed: 0, ineligible: 0, in_flight: 0 },
+                    coverage: { recent_sessions: 0, total_sessions: 0, recent_days: 14 },
+                    available_tags: [],
+                },
+                '/api/projects/:team/experiments/9/': experiment,
+            },
+        })
+        const savedLogic = replayScannerLogic({ id: 'saved-1' })
+        savedLogic.mount()
+        try {
+            await expectLogic(savedLogic).toDispatchActions(['loadScannerSuccess', 'setExperimentContext'])
+            expect(savedLogic.values.experimentContext).toMatchObject({
+                variantKeys: ['test'],
+                experiment: { id: 9 },
+            })
+        } finally {
+            savedLogic.unmount()
+        }
     })
 
     it('query prefill matches the compiled experiment query', () => {

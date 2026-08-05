@@ -19,6 +19,7 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import type { ScannerExperimentTargetingApi } from '../generated/api.schemas'
 import type { ReplayScanner } from './types'
 
 /**
@@ -272,11 +273,21 @@ export function experimentScannerName(baseName: string, experimentName: string):
     return name.slice(0, 255)
 }
 
+/** The persisted projection of the wizard's experiment context, stored on the scanner. */
+export function experimentTargetingFromContext(context: ExperimentScannerContext): ScannerExperimentTargetingApi {
+    return {
+        experiment_id: context.experiment.id as number,
+        variant_keys: context.variantKeys,
+        use_exposure_fallback: context.useExposureFallback,
+    }
+}
+
 /** Applies the experiment context to a fresh (or freshly templated) scanner: targeted query, scoped name. */
 export function prefillScannerForExperiment(scanner: ReplayScanner, context: ExperimentScannerContext): ReplayScanner {
     return {
         ...scanner,
         name: experimentScannerName(scanner.name, context.experiment.name),
         query: buildExperimentScannerQuery(context.experiment, context.variantKeys, context.useExposureFallback),
+        experiment_targeting: experimentTargetingFromContext(context),
     }
 }

@@ -60,6 +60,8 @@ import type {
     ExperimentSessionEventDeltaResponseApi,
     ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
+import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
+import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import type { ExperimentIdType } from '../../../types'
 import type { ExperimentSavedMetric } from '../experimentLogic'
@@ -174,6 +176,8 @@ export interface experimentReplayTabLogicValues {
     bucketSessionIds: string[] | undefined
     effectiveMetricUuids: string[]
     effectiveVariantKey: string | null
+    experimentScanners: ReplayScannerApi[]
+    experimentScannersLoading: boolean
     exposureUnlinkable: boolean
     loadedRecordings: ExperimentReplayRecording[]
     loadedRecordingsById: Map<string, ExperimentReplayRecording>
@@ -255,6 +259,21 @@ export interface experimentReplayTabLogicActions {
     setDefaultTab: (tab: SessionRecordingSidebarTab) => {
         tab: SessionRecordingSidebarTab
     } // playerSidebarLogic
+    loadExperimentScanners: () => any
+    loadExperimentScannersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadExperimentScannersSuccess: (
+        experimentScanners: ReplayScannerApi[],
+        payload?: any
+    ) => {
+        experimentScanners: ReplayScannerApi[]
+        payload?: any
+    }
     loadSeenTogetherFailure: (
         error: string,
         errorObject?: any
@@ -458,6 +477,20 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         scannerCrossSellClicked: true,
     }),
     loaders(({ values, props, actions }) => ({
+        experimentScanners: [
+            [] as ReplayScannerApi[],
+            {
+                loadExperimentScanners: async () => {
+                    if (!values.featureFlags[FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]) {
+                        return []
+                    }
+                    const response = await visionScannersList(String(values.currentProjectId), {
+                        experiment_id: String(props.experiment.id),
+                    })
+                    return (response.results ?? []) as ReplayScannerApi[]
+                },
+            },
+        ],
         sessionBucket: [
             null as ExperimentSessionBucket | null,
             {
@@ -1097,6 +1130,8 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         if (values.sessionBucketRequest) {
             actions.loadSessionBucket()
         }
+
+        actions.loadExperimentScanners()
 
         // The linkability check is shared with the metrics tab, so it can already have settled —
         // loaded, or failed with no reload coming — before this tab is opened, in which case no

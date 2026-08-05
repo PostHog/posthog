@@ -127,6 +127,7 @@ export function newScanner(templateKey?: string | null): ScannerFormValues {
         sampling_rate: 1,
         sampling_mode: 'comprehensive' as const,
         query: { kind: NodeKind.RecordingsQuery },
+        experiment_targeting: null,
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
         emits_signals: false,
