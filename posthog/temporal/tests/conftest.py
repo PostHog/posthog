@@ -1,6 +1,7 @@
 import random
 import signal
 import asyncio
+import collections.abc
 
 import pytest
 
@@ -17,7 +18,7 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
-from posthog.temporal.common.logger import configure_logger
+from posthog.temporal.common.logger import temporary_logger_configuration
 
 
 @pytest.fixture(autouse=True)
@@ -176,9 +177,10 @@ async def temporal_worker(temporal_client, workflows, activities):
 
 
 @pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
-async def configure_logger_auto() -> None:
+async def configure_logger_auto() -> collections.abc.AsyncIterator[None]:
     """Configure logger for running temporal tests."""
-    configure_logger(cache_logger_on_first_use=False)
+    with temporary_logger_configuration(cache_logger_on_first_use=False):
+        yield
 
 
 @pytest_asyncio.fixture

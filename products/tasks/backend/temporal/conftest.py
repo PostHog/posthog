@@ -1,13 +1,14 @@
 import os
 import time
 import random
+import collections.abc
 
 import pytest
 
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
-from posthog.temporal.common.logger import configure_logger
+from posthog.temporal.common.logger import temporary_logger_configuration
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
@@ -195,9 +196,10 @@ def snapshot_context(github_integration, team) -> SnapshotContext:
 
 
 @pytest.fixture(autouse=True)
-def configure_logger_auto() -> None:
+def configure_logger_auto() -> collections.abc.Iterator[None]:
     """Configure logger when running in a Temporal activity environment."""
-    configure_logger(cache_logger_on_first_use=False)
+    with temporary_logger_configuration(cache_logger_on_first_use=False):
+        yield
 
 
 def get_or_create_test_snapshots(github_integration):

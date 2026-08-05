@@ -4,6 +4,7 @@ import random
 import asyncio
 import datetime as dt
 import operator
+import contextlib
 import dataclasses
 from typing import cast
 
@@ -31,7 +32,7 @@ from posthog.clickhouse.log_entries import (
 )
 from posthog.kafka_client.client import _AsyncKafkaProducer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, resolve_log_source, temporary_logger_configuration
 
 pytestmark = pytest.mark.asyncio
 
@@ -159,23 +160,26 @@ async def configure_logger_auto(log_capture, queue, producer):
     we need in these tests.
     """
     loop = asyncio.get_running_loop()
-    with override_settings(TEST=False, DEBUG=False):
-        configure_logger(
-            extra_processors=[log_capture],
-            queue=queue,
-            producer=producer,
-            cache_logger_on_first_use=False,
-            loop=loop,
-            raise_on_producer_error=True,
-        )
+    with contextlib.ExitStack() as stack:
+        with override_settings(TEST=False, DEBUG=False):
+            stack.enter_context(
+                temporary_logger_configuration(
+                    extra_processors=[log_capture],
+                    queue=queue,
+                    producer=producer,
+                    cache_logger_on_first_use=False,
+                    loop=loop,
+                    raise_on_producer_error=True,
+                )
+            )
 
-    yield
+        yield
 
-    for task in BACKGROUND_LOGGER_TASKS.values():
-        # Clean up logger tasks to avoid leaking/warnings.
-        task.cancel()
+        for task in BACKGROUND_LOGGER_TASKS.values():
+            # Clean up logger tasks to avoid leaking/warnings.
+            task.cancel()
 
-    await asyncio.wait(BACKGROUND_LOGGER_TASKS.values())
+        await asyncio.wait(BACKGROUND_LOGGER_TASKS.values())
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -950,3 +954,24 @@ def test_resolve_log_source_cdc_extraction():
 
     assert source == "external_data_jobs"
     assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"
+
+
+def test_temporary_logger_configuration_restores_the_previous_configuration():
+    # `configure_logger` swaps structlog's logger factory process-wide, and the project's
+    # own configuration routes structlog through stdlib logging — which is what `caplog`
+    # and `capture_logs` read. A test fixture that configures the Temporal logger and
+    # never puts the old configuration back leaves every later test in the same process
+    # asserting against logs it can no longer see.
+    original = structlog.get_config()
+    try:
+        sentinel = structlog.stdlib.LoggerFactory()
+        structlog.configure(logger_factory=sentinel)
+        expected = structlog.get_config()
+
+        with temporary_logger_configuration(cache_logger_on_first_use=False):
+            assert structlog.get_config()["logger_factory"] is not sentinel
+
+        assert structlog.get_config() == expected
+    finally:
+        structlog.reset_defaults()
+        structlog.configure(**original)

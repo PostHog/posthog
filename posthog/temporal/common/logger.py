@@ -30,6 +30,7 @@ import json
 import typing
 import asyncio
 import functools
+import contextlib
 import contextvars
 import collections.abc
 
@@ -628,6 +629,28 @@ def configure_logger(
         await asyncio.wait([listen_task])
 
     create_background_task(handle_worker_shutdown(), loop or asyncio.get_running_loop(), name="handle_worker_shutdown")
+
+
+@contextlib.contextmanager
+def temporary_logger_configuration(**kwargs: typing.Any) -> collections.abc.Iterator[None]:
+    """Configure the Temporal logger, restoring the previous configuration on exit.
+
+    `configure_logger` resets structlog and installs Temporal's logger factory for the
+    whole process, which is what a worker wants and what a test suite does not: the
+    project's own configuration routes structlog through stdlib logging, and that
+    routing is what `caplog` and `structlog.testing.capture_logs` read. A test that
+    swaps it out and leaves it swapped strands every later test in the same process
+    with assertions that silently observe no logs at all.
+
+    Accepts the same arguments as `configure_logger`.
+    """
+    previous = structlog.get_config().copy()
+    configure_logger(**kwargs)
+    try:
+        yield
+    finally:
+        structlog.reset_defaults()
+        structlog.configure(**previous)
 
 
 CoroRetType = typing.TypeVar("CoroRetType")
