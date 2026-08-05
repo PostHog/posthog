@@ -716,7 +716,7 @@ async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
     assert!(status.is_success());
 
     let event = body.first_event().as_ref().unwrap();
-    let v2 = automatic_fingerprint(FingerprintVersion::V2, event);
+    let v3 = automatic_fingerprint(FingerprintVersion::V3, event);
 
     assert!(event.properties.get("$exception_fingerprints").is_none());
     assert!(event
@@ -725,12 +725,12 @@ async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
         .is_none());
     assert_eq!(
         event.properties["$exception_fingerprint_version"],
-        json!("v2")
+        json!("v3")
     );
-    assert_eq!(event.properties["$exception_fingerprint"], json!(v2.value));
+    assert_eq!(event.properties["$exception_fingerprint"], json!(v3.value));
     assert_eq!(
         event.properties["$exception_fingerprint_record"],
-        json!(v2.record)
+        json!(v3.record)
     );
 }
 
@@ -857,11 +857,11 @@ async fn newer_version_merges_events_the_old_algorithm_splits(db: PgPool) {
     );
     assert_eq!(
         event_a.properties["$exception_fingerprint_version"],
-        json!("v2")
+        json!("v3")
     );
     assert_eq!(
         event_b.properties["$exception_fingerprint_version"],
-        json!("v2")
+        json!("v3")
     );
 
     // One issue for both events, keyed by the shared newest-version fingerprint.

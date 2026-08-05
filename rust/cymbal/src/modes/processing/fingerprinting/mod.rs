@@ -86,6 +86,11 @@ pub enum FingerprintVersion {
     // line/column, and normalizes volatile path and message tokens. Selected by an offline
     // research loop: pairwise F1 0.40 vs 0.26 for V1 on a held-out LLM-labeled pair dataset.
     V2,
+    // V2 plus recognizing Rollup/Vite's base64url bundle hashes. V2's hash-token detection
+    // excludes `_`/`-` and requires a digit or all-uppercase letters, so it misses hashes that
+    // embed an underscore (`index-v3R2_B1Q.js`) or are mixed-case with no digit at all
+    // (`index-CWTIpFUy.js`) — every redeploy mints a fresh fingerprint for those.
+    V3,
 }
 
 impl FingerprintVersion {
@@ -97,11 +102,14 @@ impl FingerprintVersion {
         // V1, then V1's — an event matching both a V2-era legacy row and an
         // older V1 row stays on the newer issue. The last entry (the new-issue
         // fallback) must never be a legacy version.
+        // V3 has no legacy twin: it ships after wire-order normalization, so no issue was ever
+        // keyed under it in the pre-flip order and there is nothing for a V3Legacy to match.
         &[
             FingerprintVersion::V1Legacy,
             FingerprintVersion::V1,
             FingerprintVersion::V2Legacy,
             FingerprintVersion::V2,
+            FingerprintVersion::V3,
         ]
     }
 
@@ -111,6 +119,7 @@ impl FingerprintVersion {
             FingerprintVersion::V2Legacy => "v2_legacy",
             FingerprintVersion::V1 => "v1",
             FingerprintVersion::V2 => "v2",
+            FingerprintVersion::V3 => "v3",
         }
     }
 
@@ -142,6 +151,7 @@ impl FingerprintVersion {
                 normalize: Normalization {
                     strip_query_strings: true,
                     strip_hashed_chunks: true,
+                    strip_hashed_chunks_wide: false,
                     basename_only: true,
                 },
                 message_normalize: MessageNormalization {
@@ -150,6 +160,18 @@ impl FingerprintVersion {
                     mask_numbers: true,
                     truncate: Some(200),
                 },
+            },
+            // V3 = V2, but with the wider Rollup/Vite hash detection in place of V2's narrower
+            // one. `strip_hashed_chunks` stays pinned for V2 (its regex is locked in by
+            // `versions_match_the_research_implementation`); V3 uses `strip_hashed_chunks_wide`
+            // instead.
+            FingerprintVersion::V3 => FingerprintStrategy {
+                normalize: Normalization {
+                    strip_hashed_chunks: false,
+                    strip_hashed_chunks_wide: true,
+                    ..FingerprintVersion::V2.strategy().normalize
+                },
+                ..FingerprintVersion::V2.strategy()
             },
         }
     }
@@ -186,15 +208,23 @@ pub struct Normalization {
     pub strip_query_strings: bool,
     // "chunk-PGUQKT6S.js" -> "chunk-*.js" — masks content-hashed build artifact names
     pub strip_hashed_chunks: bool,
+    // Same idea as `strip_hashed_chunks`, but recognizes Rollup/Vite's base64url hash alphabet
+    // and mixed-case runs with no digit: "index-v3R2_B1Q.js" -> "index-*.js",
+    // "index-CWTIpFUy.js" -> "index-*.js". V3-only — see `FingerprintVersion::strategy`.
+    pub strip_hashed_chunks_wide: bool,
     // "/var/mobile/.../<device-uuid>/bundle.js" -> "bundle.js"
     pub basename_only: bool,
 }
 
 static HASHED_CHUNK_TOKEN: OnceLock<Regex> = OnceLock::new();
+static BUNDLER_HASH_TOKEN: OnceLock<Regex> = OnceLock::new();
 
 impl Normalization {
     fn is_noop(&self) -> bool {
-        !(self.strip_query_strings || self.strip_hashed_chunks || self.basename_only)
+        !(self.strip_query_strings
+            || self.strip_hashed_chunks
+            || self.strip_hashed_chunks_wide
+            || self.basename_only)
     }
 
     fn apply_source<'a>(&self, value: &'a str) -> Cow<'a, str> {
@@ -227,6 +257,37 @@ impl Normalization {
                     let token = &caps[0];
                     let looks_like_hash = token.chars().any(|c| c.is_ascii_digit())
                         || token.chars().all(|c| c.is_ascii_uppercase());
+                    if looks_like_hash {
+                        "*".to_string()
+                    } else {
+                        token.to_string()
+                    }
+                })
+                .into_owned();
+        }
+        if self.strip_hashed_chunks_wide {
+            // Rollup and Vite hash filenames from a base64url alphabet, so the hash itself can
+            // contain `_` — "index-v3R2_B1Q.js" has an underscore inside the hash, not just as a
+            // delimiter. Widen the token class to include it (the hyphen stays a delimiter: it's
+            // also how "chunk-<hash>" names are joined, and folding it into the token would eat
+            // the "chunk" prefix along with the hash). Vite's hash alphabet can also roll a
+            // mixed-case token with no digit at all ("CWTIpFUy"), which the digit-or-all-uppercase
+            // heuristic below misses — treat a short (<=12 char) run that mixes case with no digit
+            // as a hash too, since real multi-word identifiers that short almost always carry a
+            // digit or stay one case. (The regex crate has no lookahead, so all checks live in the
+            // replacer.)
+            let re = BUNDLER_HASH_TOKEN
+                .get_or_init(|| Regex::new(r"[A-Za-z0-9_]{8,}").expect("valid regex"));
+            out = re
+                .replace_all(&out, |caps: &regex::Captures| {
+                    let token = &caps[0];
+                    let has_digit = token.chars().any(|c| c.is_ascii_digit());
+                    let all_uppercase = token.chars().all(|c| c.is_ascii_uppercase());
+                    let short_mixed_case = !has_digit
+                        && token.chars().any(|c| c.is_ascii_uppercase())
+                        && token.chars().any(|c| c.is_ascii_lowercase())
+                        && token.len() <= 12;
+                    let looks_like_hash = has_digit || all_uppercase || short_mixed_case;
                     if looks_like_hash {
                         "*".to_string()
                     } else {
@@ -745,6 +806,72 @@ mod test {
                 value(FingerprintVersion::V2, with_source(source_a)),
                 value(FingerprintVersion::V2, with_source(source_b)),
                 "V2 should merge {source_a} vs {source_b}"
+            );
+        }
+    }
+
+    #[test]
+    fn v3_masks_rollup_and_vite_bundle_hashes() {
+        let cases = [
+            // Underscore inside the hash itself — V2's token class excludes `_`, so the hash
+            // splits into two sub-8-char pieces and never masks.
+            ("assets/index-v3R2_B1Q.js", "assets/index-K7mN_9pQ.js"),
+            // Mixed-case with no digit at all — V2's heuristic requires a digit or all-uppercase.
+            ("assets/index-CWTIpFUy.js", "assets/index-ZktQrPmL.js"),
+        ];
+        for (source_a, source_b) in cases {
+            let with_source = |source: &str| {
+                vec![exception(
+                    "Error",
+                    "boom",
+                    resolved_stack(vec![frame(
+                        "foo",
+                        Some(source),
+                        Some("foo"),
+                        true,
+                        true,
+                        Some(1),
+                    )]),
+                )]
+            };
+            assert_ne!(
+                value(FingerprintVersion::V2, with_source(source_a)),
+                value(FingerprintVersion::V2, with_source(source_b)),
+                "V2 should still split {source_a} vs {source_b}"
+            );
+            assert_eq!(
+                value(FingerprintVersion::V3, with_source(source_a)),
+                value(FingerprintVersion::V3, with_source(source_b)),
+                "V3 should merge {source_a} vs {source_b}"
+            );
+        }
+    }
+
+    #[test]
+    fn v3_still_merges_v2_style_hashed_chunks() {
+        let cases = [
+            ("chunk-PGUQKT6S.js", "chunk-Z9XW4B2Q.js"),
+            ("/static/chunk-SURMLCAQ.js", "/static/chunk-DJSITZHL.js"),
+        ];
+        for (source_a, source_b) in cases {
+            let with_source = |source: &str| {
+                vec![exception(
+                    "Error",
+                    "boom",
+                    resolved_stack(vec![frame(
+                        "foo",
+                        Some(source),
+                        Some("foo"),
+                        true,
+                        true,
+                        Some(1),
+                    )]),
+                )]
+            };
+            assert_eq!(
+                value(FingerprintVersion::V3, with_source(source_a)),
+                value(FingerprintVersion::V3, with_source(source_b)),
+                "V3 should merge {source_a} vs {source_b}"
             );
         }
     }
