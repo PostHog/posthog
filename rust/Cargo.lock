@@ -9256,7 +9256,6 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
- "serve-metrics",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",

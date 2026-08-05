@@ -28,6 +28,7 @@ pub mod batch_ingestion;
 pub mod config;
 pub mod group_type_resolver;
 pub mod measuring_channel;
+pub mod metrics_buckets;
 pub mod metrics_consts;
 pub mod types;
 pub mod update_cache;
