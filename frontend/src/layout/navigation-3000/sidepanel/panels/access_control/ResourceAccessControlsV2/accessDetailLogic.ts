@@ -104,7 +104,7 @@ export function objectRuleUrl(rule: AccessObjectRule): string | null {
     return OBJECT_RULE_RESOURCE_CONFIG[rule.resource]?.url(rule) ?? null
 }
 
-function endpoint(props: AccessDetailLogicProps, kind: 'objects' | 'properties'): string {
+function subjectRulesEndpoint(props: AccessDetailLogicProps, kind: 'objects' | 'properties'): string {
     const base = `api/projects/${props.projectId}`
     if (props.scopeType === 'default') {
         return `${base}/access_control_default_${kind}`
@@ -342,14 +342,15 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
             [] as AccessObjectRule[],
             {
                 loadObjects: async () =>
-                    (await api.get<{ results: AccessObjectRule[] }>(endpoint(props, 'objects'))).results,
+                    (await api.get<{ results: AccessObjectRule[] }>(subjectRulesEndpoint(props, 'objects'))).results,
             },
         ],
         properties: [
             [] as AccessPropertyRule[],
             {
                 loadProperties: async () =>
-                    (await api.get<{ results: AccessPropertyRule[] }>(endpoint(props, 'properties'))).results,
+                    (await api.get<{ results: AccessPropertyRule[] }>(subjectRulesEndpoint(props, 'properties')))
+                        .results,
             },
         ],
     })),
