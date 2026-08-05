@@ -66,7 +66,7 @@ import {
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
 /** The whole task's threads in one request; slower than a single artifact's own
@@ -422,6 +422,48 @@ export function TaskCommentsList({
     (thread) => thread.resolved === (stateFilter === "resolved"),
   );
 
+  const openThread = useCallback(
+    (thread: TaskCommentThread, requestThreadFocus = true) => {
+      const origin = thread.origin;
+      if (origin.kind === "pr-review" || origin.kind === "pr-conversation") {
+        openPrInReview(task.id, origin.prUrl);
+        if (origin.kind === "pr-review") {
+          // The review pane scrolls by file; a specific comment is as close as it
+          // gets until it grows a per-thread target.
+          useReviewNavigationStore
+            .getState()
+            .requestScrollToFile(task.id, origin.filePath);
+        }
+        return;
+      }
+      const { source, root } = origin;
+      if (source.kind === "canvas") {
+        if (requestThreadFocus) {
+          requestCommentFocus(task.id, source.target, root.id);
+        }
+        if (onCanvasCommentOpen) {
+          onCanvasCommentOpen(
+            readCommentContext(root)?.canvasVersionId ?? null,
+          );
+          return;
+        }
+        canvasArtifactOpenHandler(source.url)?.();
+        return;
+      }
+      // A thread on the task itself has nowhere else to open because it lives here.
+      if (source.kind === "task" || !source.runId) return;
+      openArtifactTab(task.id, {
+        runId: source.runId,
+        artifactId: source.target.itemId,
+        name: source.name,
+      });
+      if (requestThreadFocus) {
+        requestCommentFocus(task.id, source.target, root.id);
+      }
+    },
+    [onCanvasCommentOpen, openArtifactTab, requestCommentFocus, task.id],
+  );
+
   // A thread picked on the artifact itself has to surface here, even when a
   // filter is hiding it. Each request is honoured once, by nonce: resolving the
   // focused thread later must not drag the filters along with it.
@@ -440,6 +482,7 @@ export function TaskCommentsList({
         : ALL_SOURCES,
     );
     setPulseThreadId(focus.threadId);
+    openThread(focused, false);
     requestAnimationFrame(() => {
       document
         .querySelector(
@@ -447,7 +490,7 @@ export function TaskCommentsList({
         )
         ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
-  }, [focus, threads]);
+  }, [focus, openThread, threads]);
   // The pulse fades on its own; owning the timer in its own effect keeps it
   // cleaned up on the next pulse or on unmount, without a stray ref.
   useEffect(() => {
@@ -455,39 +498,6 @@ export function TaskCommentsList({
     const timer = setTimeout(() => setPulseThreadId(null), PULSE_MS);
     return () => clearTimeout(timer);
   }, [pulseThreadId]);
-
-  const openThread = (thread: TaskCommentThread) => {
-    const origin = thread.origin;
-    if (origin.kind === "pr-review" || origin.kind === "pr-conversation") {
-      openPrInReview(task.id, origin.prUrl);
-      if (origin.kind === "pr-review") {
-        // The review pane scrolls by file; a specific comment is as close as it
-        // gets until it grows a per-thread target.
-        useReviewNavigationStore
-          .getState()
-          .requestScrollToFile(task.id, origin.filePath);
-      }
-      return;
-    }
-    const { source, root } = origin;
-    if (source.kind === "canvas") {
-      requestCommentFocus(task.id, source.target, root.id);
-      if (onCanvasCommentOpen) {
-        onCanvasCommentOpen(readCommentContext(root)?.canvasVersionId ?? null);
-        return;
-      }
-      canvasArtifactOpenHandler(source.url)?.();
-      return;
-    }
-    // A thread on the task itself has nowhere else to open — it lives here.
-    if (source.kind === "task" || !source.runId) return;
-    openArtifactTab(task.id, {
-      runId: source.runId,
-      artifactId: source.target.itemId,
-      name: source.name,
-    });
-    requestCommentFocus(task.id, source.target, root.id);
-  };
 
   const loading =
     commentsQuery.isLoading || prConversation.isLoading || prReviews.isLoading;

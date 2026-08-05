@@ -393,6 +393,68 @@ describe("TaskCommentsList", () => {
     });
   });
 
+  it("opens an artifact when activity requests its comment thread", () => {
+    render(<TaskCommentsList task={task} timeline={[]} />);
+
+    act(() => {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(
+          "task-1",
+          { scope: "task_artifact", itemId: "a" },
+          "comment-1",
+        );
+    });
+
+    expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "a",
+      name: "report.md",
+    });
+  });
+
+  it("opens the saved canvas version when activity requests its thread", () => {
+    const onCanvasCommentOpen = vi.fn();
+    mocks.comments = [
+      comment({
+        item_id: "canvas-1",
+        scope: "desktop_canvas",
+        content: "Historical canvas feedback",
+        item_context: {
+          anchor: { kind: "document" },
+          canvasVersionId: "version-2",
+        },
+      }),
+    ];
+
+    render(
+      <TaskCommentsList
+        task={task}
+        timeline={[]}
+        onlySource={{
+          kind: "canvas",
+          name: "Launch canvas",
+          target: { scope: "desktop_canvas", itemId: "canvas-1" },
+          url: null,
+        }}
+        canvasVersionId="version-3"
+        onCanvasCommentOpen={onCanvasCommentOpen}
+      />,
+    );
+
+    act(() => {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(
+          "task-1",
+          { scope: "desktop_canvas", itemId: "canvas-1" },
+          "comment-1",
+        );
+    });
+
+    expect(onCanvasCommentOpen).toHaveBeenCalledWith("version-2");
+  });
+
   // Clicking the same thread twice has to scroll twice, so every request is a
   // new nonce rather than a no-op set.
   it("re-requests focus for a thread already focused", () => {
