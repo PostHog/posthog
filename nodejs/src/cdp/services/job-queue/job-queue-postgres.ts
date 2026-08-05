@@ -212,8 +212,8 @@ export class CyclotronJobQueuePostgres implements JobQueue {
     public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
 
     // No lock-stealing janitor on this backend, so there's nothing to fence against.
-    public async checkpointInvocation(_invocation: CyclotronJobInvocation): Promise<boolean> {
-        return true
+    public checkpointInvocation(_invocation: CyclotronJobInvocation): Promise<boolean> {
+        return Promise.resolve(true)
     }
 
     public async releaseInvocations(invocations: CyclotronJobInvocation[]) {
