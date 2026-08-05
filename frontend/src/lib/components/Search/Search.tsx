@@ -861,7 +861,7 @@ function SearchResults({
             direction="vertical"
             styledScrollbars
             className={cn('flex-1 overflow-y-auto', className)}
-            innerClassName="scroll-pt-12 scroll-pb-8"
+            innerClassName="scroll-pt-12 scroll-pb-8 overscroll-contain"
         >
             {!isAnyLoading && (
                 <Autocomplete.Empty className="px-3 py-8 text-center text-muted empty:p-0">

@@ -1,3 +1,10 @@
+// react-modal adds this class to <body> while any modal is open. Without a scroll lock the page
+// behind the modal remains scrollable, so on touch devices swipe gestures scroll the page instead
+// of the modal's own scroll area.
+body.ReactModal__Body--open {
+    overflow: hidden;
+}
+
 .LemonModal__overlay {
     position: fixed;
     inset: 0;
@@ -40,6 +47,11 @@
 
     // Always give toasts some space at the bottom
     max-height: calc(100vh - 60px - 2rem);
+
+    // On mobile browsers 100vh includes the area behind the collapsible browser toolbar, so a
+    // vh-sized modal can extend below the visible viewport, leaving its bottom unreachable.
+    // dvh tracks the actually-visible viewport; 100vh above stays as the fallback.
+    max-height: calc(100dvh - 60px - 2rem);
     margin: 1rem auto;
     background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border-bold);
@@ -91,6 +103,10 @@
     .LemonModal__content {
         padding: 1rem;
         overflow-y: auto;
+
+        // Reaching the top or bottom of the modal's scroll area must not chain the scroll
+        // gesture to the page behind the modal.
+        overscroll-behavior: contain;
 
         &.LemonModal__content--embedded {
             padding: 0;
