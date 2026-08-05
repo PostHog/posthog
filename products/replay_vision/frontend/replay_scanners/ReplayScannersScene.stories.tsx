@@ -196,6 +196,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/vision/scanners/': scanners,
+                '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/quota/': quota,
             },
         }),
