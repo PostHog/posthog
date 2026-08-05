@@ -8,6 +8,7 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSwitchGroupConfig,
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -112,6 +113,13 @@ The campaign and flow performance tables need a conversion metric. Leave the con
                         placeholder="RESQ6t",
                         secret=False,
                     ),
+                    SourceFieldSwitchGroupConfig(
+                        name="profile_subscriptions",
+                        label="Sync profile subscriptions",
+                        caption="Adds a subscriptions column to the profiles table with each profile's email, SMS, and push consent details. Enabling this requires a full resync of the profiles table to populate existing rows.",
+                        default=False,
+                        fields=[],
+                    ),
                 ],
             ),
         )
@@ -201,4 +209,17 @@ The campaign and flow performance tables need a conversion metric. Leave the con
             else None,
             incremental_field=inputs.incremental_field,
             conversion_metric_id=config.conversion_metric_id,
+            extra_query_params=_resolve_extra_query_params(config, inputs.schema_name),
         )
+
+
+def _resolve_extra_query_params(config: KlaviyoSourceConfig, schema_name: str) -> dict[str, str]:
+    """Opt-in fields Klaviyo excludes unless requested via additional-fields.
+
+    Keyed on the exact schema name so the list_profiles/segment_profiles fan-outs — which
+    restrict profile payloads to joined_group_at via a fields[profile] sparse fieldset —
+    are never expanded.
+    """
+    if schema_name == "profiles" and config.profile_subscriptions is not None and config.profile_subscriptions.enabled:
+        return {"additional-fields[profile]": "subscriptions"}
+    return {}

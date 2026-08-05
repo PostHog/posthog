@@ -168,6 +168,7 @@ def _build_initial_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
+    extra_query_params: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build query params for the initial Klaviyo API request."""
     params: dict[str, Any] = {}
@@ -198,6 +199,9 @@ def _build_initial_params(
         params["sort"] = config.sort
 
     params.update(config.extra_params)
+
+    if extra_query_params:
+        params.update(extra_query_params)
 
     return params
 
@@ -507,6 +511,7 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
     conversion_metric_id: str | None = None,
+    extra_query_params: dict[str, str] | None = None,
 ) -> Iterator[Any]:
     config = KLAVIYO_ENDPOINTS[endpoint]
     headers = _get_headers(api_key, api_version)
@@ -516,7 +521,7 @@ def get_rows(
     session = make_tracked_session()
 
     params = _build_initial_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field, extra_query_params
     )
 
     if config.values_report is not None:
@@ -581,6 +586,7 @@ def klaviyo_source(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
     conversion_metric_id: str | None = None,
+    extra_query_params: dict[str, str] | None = None,
 ) -> SourceResponse:
     endpoint_config = KLAVIYO_ENDPOINTS[endpoint]
 
@@ -596,6 +602,7 @@ def klaviyo_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
             conversion_metric_id=conversion_metric_id,
+            extra_query_params=extra_query_params,
         ),
         primary_keys=endpoint_config.primary_keys,
         # Fan-out runs persist the incremental watermark only at successful job end (desc mode): a
