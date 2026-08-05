@@ -200,6 +200,37 @@ describe('ToolExecutor metrics', () => {
             const extras = trackToolCallExtras('fail-tool')
             expect(extras).toMatchObject({ $mcp_error_type: 'internal' })
             expect(extras).not.toHaveProperty('$mcp_error_message')
+            expect(extras).not.toHaveProperty('$mcp_error_code')
+            expect(extras).not.toHaveProperty('$mcp_error_field')
+        })
+
+        // The code and normalized field path are what make leaf failure modes measurable:
+        // $mcp_error_message is free text, so dashboards can't group on it, and the raw
+        // attr fragments per array index ("actions__0__...", "actions__3__...").
+        it('stamps $mcp_error_code and index-normalized $mcp_error_field for a PostHogValidationError', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new PostHogValidationError({
+                        detail: "Email input must contain a 'from' property",
+                        attr: 'actions__2__inputs__email',
+                        code: 'invalid_input',
+                        extra: undefined,
+                        url: 'https://us.posthog.com/api/environments/2/hog_flows/',
+                        method: 'POST',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_code: 'invalid_input',
+                $mcp_error_field: 'actions__N__inputs__email',
+            })
+            // The detail body echoes caller input, so it must never ride along.
+            expect(JSON.stringify(extras)).not.toContain("'from' property")
         })
 
         it.each([
@@ -447,6 +478,7 @@ describe('ToolExecutor metrics', () => {
             expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
             expect(trackToolCallExtras('exec')).toMatchObject({
                 $mcp_error_type: 'validation',
+                $mcp_error_code: reason,
                 $mcp_error_message: `Exec command rejected: ${reason}`,
             })
         })
