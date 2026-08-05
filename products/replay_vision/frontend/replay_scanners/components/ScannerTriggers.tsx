@@ -131,7 +131,7 @@ function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element 
                 <div className="space-y-1">
                     <LemonLabel>Experiment targeting</LemonLabel>
                     <div className="text-xs text-muted">
-                        This scanner watches sessions exposed to{' '}
+                        This scanner only watches sessions exposed to{' '}
                         <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>.
                     </div>
                 </div>
