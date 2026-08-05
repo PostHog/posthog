@@ -199,7 +199,6 @@ class TestSuggestUtmMappings(APIBaseTest):
     async def test_runs_its_own_query_when_attribution_is_absent(self):
         response = await suggest_utm_mappings(self.team, lookback_days=45)
 
-        self.mock_attribution.assert_awaited_once()
-        assert self.mock_attribution.await_args.kwargs["lookback_days"] == 45
+        self.mock_attribution.assert_awaited_once_with(self.team, lookback_days=45)
         # Still reported off the response, which the mock pins at 30.
         assert response.lookback_days_used == 30
