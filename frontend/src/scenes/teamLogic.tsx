@@ -74,10 +74,10 @@ function withProductIntentsFrom(
 }
 
 /**
- * Same shape as withProductIntentsFrom, generalized: a PATCH response reflects the full team as
- * the server serialized it, but a sibling updateCurrentTeam call can commit in between and its
- * response can carry a stale snapshot of fields this request never touched. Keep the local team
- * and only take the keys this request actually asked to change.
+ * Generalizes withProductIntentsFrom: a PATCH response reflects the full team as the server
+ * serialized it, but a sibling updateCurrentTeam call can commit in between, so its response can
+ * carry a stale snapshot of fields this request never touched. Keep the local team and only take
+ * the keys this request actually asked to change.
  */
 function withPatchedFieldsFrom(
     currentTeam: TeamType | TeamPublicType | null,
