@@ -384,6 +384,9 @@ tools:
                 - internal
                 - created_at
                 - updated_at
+    tasks-model-catalogue-retrieve:
+        operation: tasks_model_catalogue_retrieve
+        enabled: false
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false
