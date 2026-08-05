@@ -104,6 +104,14 @@ SYNC_FREQUENCY_CHOICES = [
 # with any legacy caller still sending them.
 DEPRECATED_FAST_SYNC_FREQUENCIES = {"1min", "5min"}
 
+# What `materialize` enables at when the caller expresses no preference, preserving the
+# behavior from when the action had no request body at all.
+DEFAULT_MATERIALIZE_SYNC_FREQUENCY = "24hour"
+
+# `never` is missing on purpose: materializing is what starts the refreshes, so asking for none
+# has no meaning here. Callers stop them afterwards by setting the cadence to `never`.
+MATERIALIZE_SYNC_FREQUENCY_CHOICES = [choice for choice in SYNC_FREQUENCY_CHOICES if choice[0] != "never"]
+
 
 SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT = (
     "True when this team's DAG owns the materialization cadence through a single schedule, so "
@@ -984,6 +992,21 @@ class SavedQueryResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
 
 
+class SavedQueryMaterializeSerializer(serializers.Serializer):
+    """Body of the `materialize` action: which cadence to enable materialization at."""
+
+    sync_frequency = SyncFrequencyField(
+        choices=MATERIALIZE_SYNC_FREQUENCY_CHOICES,
+        allow_null=False,
+        default=DEFAULT_MATERIALIZE_SYNC_FREQUENCY,
+        help_text=(
+            "How often to refresh the materialized table, defaulting to daily. Rejected with a 400 when it falls "
+            "outside what the query's lineage allows: no more often than its sources deliver new data, and no less "
+            "often than a downstream view or endpoint needs."
+        ),
+    )
+
+
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -1224,6 +1247,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
+    @extend_schema(request=SavedQueryMaterializeSerializer, responses={200: None})
     @action(
         methods=["POST"],
         detail=True,
@@ -1232,7 +1256,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def materialize(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
-        Enable materialization for this saved query with a 24-hour sync frequency.
+        Enable materialization for this saved query, at the requested sync frequency or daily.
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
@@ -1241,7 +1265,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         assert_user_can_read_query(saved_query.query, self.team_id, cast(User, request.user))
 
-        sync_frequency_interval = sync_frequency_to_sync_frequency_interval("24hour")
+        params = SavedQueryMaterializeSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        sync_frequency_interval = sync_frequency_to_sync_frequency_interval(params.validated_data["sync_frequency"])
 
         should_unpause = saved_query.sync_frequency_interval is None
         previous_interval = saved_query.sync_frequency_interval

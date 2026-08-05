@@ -268,7 +268,9 @@ describe('sqlEditorLogic', () => {
                         latest_error: null,
                     },
                 ],
-                '/api/environments/:team_id/warehouse_saved_queries/:id/materialize/': materializeEndpointMock,
+                // The generated client requests the projects path; the environments alias is a
+                // server-side rewrite that msw does not apply, so a mock on it never matches.
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': materializeEndpointMock,
             },
             patch: {
                 '/api/user_home_settings/@me/': [200],
