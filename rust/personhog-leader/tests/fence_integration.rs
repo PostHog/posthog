@@ -693,6 +693,33 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
         "settled rows are outside the mark set"
     );
 
+    // A re-warm converges on the marks rather than accumulating: an entry
+    // a previous warm left behind for a person no longer marked is gone.
+    // (A handoff cancelled after warming, then re-acquired, takes this
+    // path — nothing else would ever clear that entry.)
+    let ghost = fenced_a + 1_000_000;
+    let ghost_partition = partition_for_person(team_id, ghost, NUM_PARTITIONS);
+    fences.insert(
+        key(ghost),
+        personhog_leader::fence::FenceState {
+            op_id: Uuid::now_v7(),
+            op_type: personhog_proto::personhog::types::v1::LifecycleOpType::Delete,
+        },
+    );
+    let reinstalled = rebuild_partition_fences(&pool, &fences, ghost_partition, NUM_PARTITIONS)
+        .await
+        .expect("re-warm runs");
+    assert!(
+        fences.get(&key(ghost)).is_none(),
+        "a re-warm drops entries the marks no longer justify"
+    );
+    if ghost_partition == partition_a {
+        assert_eq!(
+            reinstalled, installed,
+            "re-warming the same partition installs the same set"
+        );
+    }
+
     let dropped = drop_partition_fences(&fences, partition_a, NUM_PARTITIONS);
     assert!(dropped >= 1);
     assert!(

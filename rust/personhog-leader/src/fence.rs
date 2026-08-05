@@ -33,8 +33,10 @@
 //! already done. The next partition movement or restart clears it.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use dashmap::DashMap;
+use metrics::{counter, gauge, histogram};
 use sqlx::postgres::PgPool;
 use sqlx::Row;
 use tonic::Status;
@@ -86,24 +88,37 @@ pub fn fenced_status(state: &FenceState) -> Status {
     status
 }
 
+/// How long the takeover scan may run before the handoff gives up. The
+/// scan gates a partition's return to service, and it reads a set whose
+/// size depends on another service's liveness (marks stay live while
+/// their op does), so it is bounded here rather than trusted to be
+/// small. Expiry fails the handoff — a partition whose fences cannot be
+/// known must not serve writes.
+const SCAN_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// The takeover scan: load every live mark belonging to `partition` and
 /// install it in the fence map, before the partition accepts writes.
 ///
 /// The scan cannot target a partition (the partition is a murmur2 hash
-/// Postgres cannot compute), so it reads the whole live-mark set — an
-/// index-only read of the covering partial mark index, which contains
-/// nothing but live marks and is small by construction (live marks =
-/// op arrival rate × op duration) — and filters in-process with the same
-/// partition function and count request validation uses. Merge targets are
-/// claimed but never fenced, so they are excluded. Returns how many fences
-/// were installed.
+/// Postgres cannot compute), so it reads the whole live-mark set — the
+/// partial mark index contains nothing but live marks — and filters
+/// in-process with the same partition function request validation uses.
+/// The join to `lifecycle_op` for the op type costs a lookup per row, so
+/// this is not an index-only read; it stays cheap because the live-mark
+/// set is small while ops complete. Merge targets are claimed but never
+/// fenced, so they are excluded.
+///
+/// The partition's existing entries are dropped first, so a re-warm
+/// (a handoff cancelled after warming, then re-acquired) converges
+/// instead of accumulating. Returns how many fences were installed.
 pub async fn rebuild_partition_fences(
     pool: &PgPool,
     fences: &FenceMap,
     partition: u32,
     num_partitions: u32,
 ) -> Result<usize, sqlx::Error> {
-    let rows = sqlx::query(
+    let start = std::time::Instant::now();
+    let query = sqlx::query(
         r#"
         SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
         FROM lifecycle_op_person lop
@@ -112,8 +127,22 @@ pub async fn rebuild_partition_fences(
           AND lop.role <> 'target'
         "#,
     )
-    .fetch_all(pool)
-    .await?;
+    .fetch_all(pool);
+
+    let rows = match tokio::time::timeout(SCAN_TIMEOUT, query).await {
+        Ok(result) => result?,
+        Err(_) => {
+            counter!("personhog_leader_fence_scan_timeouts_total").increment(1);
+            return Err(sqlx::Error::PoolTimedOut);
+        }
+    };
+    histogram!("personhog_leader_fence_scan_duration_seconds")
+        .record(start.elapsed().as_secs_f64());
+
+    // Converge rather than accumulate: this partition's fences are
+    // exactly what the marks say, not that plus whatever a previous warm
+    // left behind.
+    drop_partition_fences(fences, partition, num_partitions);
 
     let mut installed = 0usize;
     for row in rows {
@@ -136,6 +165,7 @@ pub async fn rebuild_partition_fences(
         );
         installed += 1;
     }
+    gauge!("personhog_leader_fences_active").set(fences.len() as f64);
     Ok(installed)
 }
 
@@ -149,6 +179,7 @@ pub fn drop_partition_fences(fences: &FenceMap, partition: u32, num_partitions: 
     fences.retain(|key, _| {
         partition_for_person(key.team_id, key.person_id, num_partitions) != partition
     });
+    gauge!("personhog_leader_fences_active").set(fences.len() as f64);
     before - fences.len()
 }
 
