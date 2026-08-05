@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from django.utils import timezone
 
-from posthog.schema import RecordingsQuery
+from posthog.schema import FilterLogicalOperator, RecordingsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -74,11 +74,14 @@ def estimate_scanner_session_volume(
     extra_having = eligibility_predicates()
     if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
         extra_having.append(surfacing)
+    # Sampling is only sound when every match must pass the sampled events leg; under OR, sessions
+    # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the correction.
+    sample_factor = None if windowed.operand == FilterLogicalOperator.OR_ else _ESTIMATE_EVENTS_SAMPLE_FACTOR
     list_query = SessionRecordingListFromQuery(
         team=team,
         query=windowed,
         extra_having_predicates=extra_having,
-        events_sample_factor=_ESTIMATE_EVENTS_SAMPLE_FACTOR,
+        events_sample_factor=sample_factor,
     )
     inner = list_query.get_query()
     # The inner query groups by session_id, so one row is one session; order is irrelevant to a count.

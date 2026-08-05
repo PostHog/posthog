@@ -10,7 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import RecordingsQuery
+from posthog.schema import FilterLogicalOperator, RecordingsQuery
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
@@ -24,7 +24,10 @@ from products.replay_vision.backend.queries import (
     project_monthly_observations,
     refresh_scanner_estimate,
 )
-from products.replay_vision.backend.queries.scanner_volume_estimate import _ESTIMATE_EVENTS_SAMPLE_FACTOR
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
+    _ESTIMATE_EVENTS_SAMPLE_FACTOR,
+    estimate_scanner_session_volume,
+)
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
     list_stale_scanner_estimates_activity,
 )
@@ -75,9 +78,18 @@ def _set_estimate(scanner: ReplayScanner, value: int, hours_ago: float) -> None:
     [
         (RecordingsQuery(events=[{"id": "$pageview", "type": "events", "name": "$pageview"}]), True),
         (RecordingsQuery(), False),
+        # Negative filters build only the exclusion blocklist, which must never sample: it would under-exclude.
+        (
+            RecordingsQuery(
+                properties=[{"type": "event", "key": "$host", "operator": "not_icontains", "value": "localhost"}]
+            ),
+            False,
+        ),
     ],
 )
-def test_estimate_samples_events_subqueries(recordings_query: RecordingsQuery, expect_sampled: bool) -> None:
+def test_estimate_samples_only_positive_events_subqueries(
+    recordings_query: RecordingsQuery, expect_sampled: bool
+) -> None:
     scanner = _make_scanner()
     list_query = SessionRecordingListFromQuery(
         team=scanner.team, query=recordings_query, events_sample_factor=_ESTIMATE_EVENTS_SAMPLE_FACTOR
@@ -88,7 +100,32 @@ def test_estimate_samples_events_subqueries(recordings_query: RecordingsQuery, e
     sql = prepare_and_print_ast(built, HogQLContext(team_id=scanner.team.pk, enable_select_queries=True), "clickhouse")[
         0
     ]
-    assert (f"SAMPLE {_ESTIMATE_EVENTS_SAMPLE_FACTOR}" in sql) == expect_sampled
+    assert (sql.count(f"SAMPLE {_ESTIMATE_EVENTS_SAMPLE_FACTOR}") > 0) == expect_sampled
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "operand, expected_matched",
+    [
+        (FilterLogicalOperator.AND_, 50),  # sampled leg gates every match, so the count is corrected up
+        (FilterLogicalOperator.OR_, 5),  # unsampled branches could match alone, so no sampling and no correction
+    ],
+)
+def test_estimate_corrects_count_only_when_sampling_is_sound(
+    operand: FilterLogicalOperator, expected_matched: int
+) -> None:
+    scanner = _make_scanner()
+    query = RecordingsQuery(
+        events=[{"id": "$pageview", "type": "events", "name": "$pageview"}],
+        properties=[{"type": "person", "key": "email", "operator": "icontains", "value": "@"}],
+        operand=operand,
+    )
+    with patch(
+        "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
+        return_value=MagicMock(results=[[5, None]]),
+    ):
+        estimate = estimate_scanner_session_volume(team=scanner.team, query=query)
+    assert estimate.matched_sessions == expected_matched
 
 
 @pytest.mark.parametrize(

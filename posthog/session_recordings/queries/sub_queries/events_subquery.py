@@ -92,10 +92,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self._sample_factor = sample_factor
         self.emitted_sampled_subquery = False
 
-    def _events_join(self) -> ast.JoinExpr:
+    def _events_join(self, sample: bool = True) -> ast.JoinExpr:
         join = ast.JoinExpr(table=ast.Field(chain=["events"]))
-        if self._sample_factor is not None:
-            # SAMPLE BY cityHash64(distinct_id) is deterministic, so positive and negative subqueries stay per-user consistent.
+        # Only positive session-selectors sample; a sampled exclusion blocklist would under-exclude.
+        if sample and self._sample_factor is not None:
             join.sample = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self._sample_factor)))
             self.emitted_sampled_subquery = True
         return join
@@ -739,7 +739,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
-            select_from=self._events_join(),
+            select_from=self._events_join(sample=False),
             where=self._where_predicates(where_expr),
             group_by=[_event_session_id_field()],
             limit=ast.Constant(value=1000000),
