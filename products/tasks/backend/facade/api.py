@@ -959,31 +959,35 @@ def create_and_run_task(
     An id the creator can't file into (see ``_visible_channel``) is ignored rather than
     raising — feed placement must never break task creation.
     """
-    # create_pr=False sessions (research, repo selection, custom agents) can never open the
-    # billable PR, so the quota gate must not block them.
-    if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
-        # Distinct stage from create_task's `manual_create`: the main caller here is the
-        # auto-start pipeline, whose over-quota hits must not pollute the manual-path
-        # dark-launch bucket.
-        enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
-    channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
-    task = Task.create_and_run(
-        team=team,
-        title=title,
-        description=description,
-        origin_product=origin_product,
-        user_id=user_id,
-        repository=repository,
-        channel=channel,
-        create_pr=create_pr,
-        mode=mode,
-        start_workflow=start_workflow,
-        branch=branch,
-        signal_report_id=signal_report_id,
-        internal=internal,
-        sandbox_environment_id=sandbox_environment_id,
-        **extra,
-    )
+    # The quota check and the task row it gates must land in the same transaction — otherwise
+    # the check's advisory lock (see reserve_self_driving_pr_slot) releases before the row that
+    # actually spends the reservation exists, and concurrent creations race past the cap again.
+    with transaction.atomic():
+        # create_pr=False sessions (research, repo selection, custom agents) can never open the
+        # billable PR, so the quota gate must not block them.
+        if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
+            # Distinct stage from create_task's `manual_create`: the main caller here is the
+            # auto-start pipeline, whose over-quota hits must not pollute the manual-path
+            # dark-launch bucket.
+            enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
+        channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
+        task = Task.create_and_run(
+            team=team,
+            title=title,
+            description=description,
+            origin_product=origin_product,
+            user_id=user_id,
+            repository=repository,
+            channel=channel,
+            create_pr=create_pr,
+            mode=mode,
+            start_workflow=start_workflow,
+            branch=branch,
+            signal_report_id=signal_report_id,
+            internal=internal,
+            sandbox_environment_id=sandbox_environment_id,
+            **extra,
+        )
     latest = task.latest_run
     return contracts.CreatedTaskDTO(
         task_id=task.id,
@@ -2219,15 +2223,20 @@ def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, s
     auto-start gate (products/signals/backend/auto_start.py). Emits `signal_report_quota_paused`
     at ``stage`` whenever the org is limited, so each caller's gate stays measurable during the
     dark launch like every other gate. Raises ``QuotaLimitExceeded`` (402).
+
+    Must be called from inside the transaction that will create the task row — the underlying
+    check (`reserve_self_driving_pr_slot`) holds a per-organization lock for the rest of that
+    transaction so concurrent creations for the same org can't each observe "under quota" and
+    collectively overshoot it.
     """
     from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
 
     from products.signals.backend.quota import (  # noqa: PLC0415 — cross-product read kept off the api import path
         capture_signal_report_quota_paused,
-        self_driving_quota_gate,
+        reserve_self_driving_pr_slot,
     )
 
-    gate = self_driving_quota_gate(team)
+    gate = reserve_self_driving_pr_slot(team)
     if gate.limited:
         capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=gate.enforced)
     if gate.enforced:
@@ -4373,12 +4382,15 @@ def create_task(
     # pass `signal_report_id`. Either way this is the manual "start work from a report" path.
     # Gated regardless of the relationship label: the label is client-selected and manually
     # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
+    # Checked inside the same transaction that creates the row below — the check's advisory lock
+    # (see reserve_self_driving_pr_slot) must still be held when the task row lands, or a
+    # concurrent create from another report/path can race past the cap.
     report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
-    if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT:
-        enforce_self_driving_pr_quota(team, report_id=str(getattr(report_ref, "id", report_ref)))
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
+        if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT:
+            enforce_self_driving_pr_quota(team, report_id=str(getattr(report_ref, "id", report_ref)))
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
             # Record the task↔report association + work-log artefact for the asserted relationship

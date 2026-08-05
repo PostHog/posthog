@@ -401,3 +401,30 @@ def period_billable_credits_for_org(organization_id: str | uuid.UUID, *, period:
         credits
         for _, credits in get_signals_billing_credits_by_team(period.start, period.end, organization_id=organization_id)
     )
+
+
+def count_self_driving_pr_reservations_in_period(organization_id: str | uuid.UUID, *, period: BillingPeriod) -> int:
+    """Self-driving implementation attempts reserved for `organization_id` in `period` — one per
+    "implementation" `SignalReportTask` bridge row written for a report in that window, regardless
+    of whether the attempt has billed yet or ever will.
+
+    This is what `products.signals.backend.quota.reserve_self_driving_pr_slot` spends the org's PR
+    quota against. It must count an attempt the instant its bridge row lands, in the same
+    org-locked transaction that reservation check runs in — counting only confirmed billable PRs
+    (`period_billable_credits_for_org`) would leave every attempt still in flight invisible to the
+    check, so a burst of concurrent creations could each see the same under-quota count before any
+    of them had billed. Counting by attempt is deliberately conservative: a run that never opens a
+    PR still holds its slot for the rest of the period, trading a little dead capacity for a
+    race-free reservation with no separate release bookkeeping to keep in sync.
+    """
+    return (
+        SignalReportTask.objects.filter(
+            relationship=_IMPLEMENTATION,
+            team__organization_id=organization_id,
+            created_at__gte=period.start,
+            created_at__lt=period.end,
+        )
+        .values("report_id")
+        .distinct()
+        .count()
+    )

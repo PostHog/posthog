@@ -7,6 +7,8 @@ Lives in its own module (not `billing.py`) to avoid a circular import: `billing.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from django.db import connection
+
 import structlog
 import posthoganalytics
 from temporalio import activity
@@ -18,6 +20,7 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_tea
 
 if TYPE_CHECKING:
     from posthog.models import Team
+    from posthog.models.organization import Organization
 
 logger = structlog.get_logger(__name__)
 
@@ -103,6 +106,72 @@ def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
     async code.
     """
     if not is_team_signals_quota_limited(team.api_token):
+        return SelfDrivingQuotaGate(limited=False, enforced=False)
+    return SelfDrivingQuotaGate(limited=True, enforced=self_driving_quota_enforcement_enabled(team))
+
+
+def self_driving_pr_reservation_limit(organization: "Organization") -> int | None:
+    """The org's self-driving PR cap in PR units, resolved from its billing-synced credits limit
+    (`organization.usage["signals_credits"]["limit"]`) — the same number the cron-driven Redis
+    limiter compares usage against. None means uncapped: no limit configured, or billing hasn't
+    synced usage for this org yet (a fresh org, or self-hosted).
+    """
+    from products.signals.backend.billing import (  # noqa: PLC0415 — avoid the usage_report import cycle quota.py exists to dodge
+        SIGNALS_CREDITS_PER_REPORT_WITH_PR,
+    )
+
+    resource_usage = (organization.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value) or {}
+    limit_credits = resource_usage.get("limit")
+    if limit_credits is None:
+        return None
+    return limit_credits // SIGNALS_CREDITS_PER_REPORT_WITH_PR
+
+
+def reserve_self_driving_pr_slot(team: "Team") -> SelfDrivingQuotaGate:
+    """Atomically decide whether `team`'s organization has room for one more self-driving
+    PR-opening task, in the same breath as reserving the slot.
+
+    The org-wide PR limit only binds correctly if the check-and-spend is one operation: reading a
+    cached "am I limited" snapshot (whether Redis's cron-refreshed flag, or a webhook-triggered
+    async recompute) leaves a window where two concurrent task creations for the same org — the
+    same report or different ones — both observe "under quota" and both proceed, jointly
+    overshooting the cap. This closes that window with a per-organization Postgres advisory lock
+    (`pg_advisory_xact_lock`, scoped to the current transaction) plus a live reservation count
+    straight from Postgres (`count_self_driving_pr_reservations_in_period`), so a second concurrent
+    caller blocks on the lock until the first has either created its task (and thus counted itself)
+    or rolled back.
+
+    Must therefore be called from inside the transaction that will create the implementation task
+    (and its `SignalReportTask` "implementation" bridge row) — the lock releases the moment that
+    transaction ends, so calling this outside one gives no protection at all.
+
+    Falls back to the cached boolean gate (`self_driving_quota_gate`) when the org has no numeric
+    limit resolved yet, so a fresh org or an instance whose billing usage hasn't synced fails open
+    exactly like every other quota gate, rather than dividing by an unresolved limit.
+    """
+    from products.signals.backend.billing import (  # noqa: PLC0415 — avoid the usage_report import cycle quota.py exists to dodge
+        count_self_driving_pr_reservations_in_period,
+        current_billing_period_bounds,
+    )
+
+    organization = team.organization
+    limit_prs = self_driving_pr_reservation_limit(organization)
+    if limit_prs is None:
+        return self_driving_quota_gate(team)
+
+    if not connection.in_atomic_block:
+        raise RuntimeError(
+            "reserve_self_driving_pr_slot must run inside the transaction that creates the "
+            "implementation task, otherwise its advisory lock releases before the reservation "
+            "that spends it lands"
+        )
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"self-driving-pr-quota:{organization.id}"])
+
+    period = current_billing_period_bounds(organization)
+    reserved = count_self_driving_pr_reservations_in_period(organization.id, period=period)
+    if reserved < limit_prs:
         return SelfDrivingQuotaGate(limited=False, enforced=False)
     return SelfDrivingQuotaGate(limited=True, enforced=self_driving_quota_enforcement_enabled(team))
 

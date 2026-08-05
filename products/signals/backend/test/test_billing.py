@@ -7,13 +7,15 @@ from django.apps import apps
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Organization, Team
+from posthog.models.organization import BillingPeriod
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH
 from products.signals.backend.billing import (
     SIGNALS_CREDITS_PER_REPORT_WITH_PR,
     BillingExemptionError,
     FirstBillablePrRun,
+    count_self_driving_pr_reservations_in_period,
     first_billable_pr_run,
     get_signals_billing_credits_by_team,
     mark_report_billing_exempt,
@@ -400,6 +402,68 @@ class TestSignalsBilling(BaseTest):
 
     def test_no_billable_reports_returns_empty(self) -> None:
         self.assertEqual(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END), [])
+
+
+class TestSelfDrivingPrReservations(BaseTest):
+    """Covers the atomic PR-quota gate's live count (products.signals.backend.quota.reserve_self_driving_pr_slot),
+    which must count an in-flight attempt the moment its bridge row exists — not wait for a billable
+    PR run — or concurrent creations before any PR lands would all read the same under-quota count."""
+
+    def _period(self) -> BillingPeriod:
+        return BillingPeriod(start=PERIOD_START, end=PERIOD_END)
+
+    def _bridge(
+        self,
+        report: SignalReport,
+        *,
+        created_at: datetime,
+        relationship: str = TASK_RUN_TYPE_IMPLEMENTATION,
+        team: Team | None = None,
+    ) -> SignalReportTask:
+        Task = _task_model()
+        owning_team = team or self.team
+        task = Task.objects.create(
+            team=owning_team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        bridge = SignalReportTask.objects.create(team=owning_team, report=report, task=task, relationship=relationship)
+        # created_at is auto_now_add; backdate it via update() (which bypasses that) to test period bounds.
+        SignalReportTask.objects.filter(pk=bridge.pk).update(created_at=created_at)
+        return bridge
+
+    def _count(self) -> int:
+        return count_self_driving_pr_reservations_in_period(self.organization.id, period=self._period())
+
+    def test_counts_in_flight_attempt_with_no_pr_yet(self) -> None:
+        report = _make_report(self.team)
+        self._bridge(report, created_at=_at(10))
+        self.assertEqual(self._count(), 1)
+
+    def test_same_report_retried_counts_once(self) -> None:
+        # A retried implementation (two bridge rows for one report) must still cost one slot.
+        report = _make_report(self.team)
+        self._bridge(report, created_at=_at(10))
+        self._bridge(report, created_at=_at(11))
+        self.assertEqual(self._count(), 1)
+
+    @parameterized.expand([("before_period", datetime(2026, 5, 31, 23, 59, tzinfo=UTC)), ("at_period_end", PERIOD_END)])
+    def test_bridge_outside_period_not_counted(self, _name: str, created_at: datetime) -> None:
+        report = _make_report(self.team)
+        self._bridge(report, created_at=created_at)
+        self.assertEqual(self._count(), 0)
+
+    def test_non_implementation_relationship_not_counted(self) -> None:
+        report = _make_report(self.team)
+        self._bridge(report, created_at=_at(10), relationship=TASK_RUN_TYPE_RESEARCH)
+        self.assertEqual(self._count(), 0)
+
+    def test_other_organization_not_counted(self) -> None:
+        # The reservation must be org-scoped — a leak here would let one org's attempts count
+        # against another org's cap (or vice versa).
+        other_org = Organization.objects.create(name="other-org")
+        other_team = Team.objects.create(organization=other_org, name="other-team")
+        report = _make_report(other_team)
+        self._bridge(report, created_at=_at(10), team=other_team)
+        self.assertEqual(self._count(), 0)
 
 
 class TestBillingExemptions(BaseTest):
