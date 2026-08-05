@@ -1030,6 +1030,9 @@ def _produce_invalidation(team_id: int) -> None:
                 topic=KAFKA_FLAGS_CACHE_INVALIDATION,
                 data=msg.model_dump(mode="json"),
                 key=str(team_id),
+                # The key here is only ever a team id, never customer-controlled data,
+                # so it's safe to attribute a delivery failure to it in logs.
+                log_key_on_delivery_failure=True,
             )
     except Exception as e:
         logger.warning("flags_cache_invalidation_produce_failed", team_id=team_id, error=str(e), exc_info=True)
@@ -1058,15 +1061,15 @@ def _enqueue_invalidation(team_id: int) -> None:
 
     A dropped invalidation does not mean a cache stale until its TTL.
     `verify_and_fix_flags_cache_task` periodically sweeps every team with
-    flags and repairs cache-vs-DB mismatches, so worst-case staleness is
-    roughly one sweep interval plus the grace period for just-updated flags,
-    not the TTL (cadence in `posthog/tasks/scheduled.py`, grace period in
+    flags (including teams whose flags are all soft-deleted, per
+    `get_teams_with_flags_queryset`) and repairs cache-vs-DB mismatches, so
+    worst-case staleness is roughly one sweep interval plus the grace period
+    for just-updated flags, not the TTL (cadence in
+    `posthog/tasks/scheduled.py`, grace period in
     `FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES`; well under an hour at
-    current settings). One narrow exception: a team whose last flag is
-    deleted leaves the sweep's scope (`get_teams_with_flags_queryset`), so a
-    dropped removal invalidation heals only when the TTL-edge refresh reaches
-    it. Celery's `.delay()` is allowed to raise when the flag is off, since
-    it is the sole path in that case and operators want broker failures loud.
+    current settings). Celery's `.delay()` is allowed to raise when the flag
+    is off, since it is the sole path in that case and operators want broker
+    failures loud.
 
     Guarded on FLAGS_REDIS_URL here (not just at each call site) so every caller, including
     ones outside a signal handler, gets the same no-op-when-unconfigured behavior for free.

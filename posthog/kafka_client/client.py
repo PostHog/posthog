@@ -48,13 +48,17 @@ _delivery_failure_last_logged: dict[tuple[str, str], float] = {}
 
 
 def _log_delivery_failure(topic: str, error_name: str, msg: Optional[Message]) -> None:
-    """Log a broker-side delivery failure with the message key, throttled per (topic, error).
+    """Log a broker-side delivery failure, throttled per (topic, error), optionally with the message key.
 
     librdkafka reports delivery failures asynchronously, after its own retries
     are exhausted, so no produce() caller can catch them; without this log they
-    surface only as an unattributed KAFKA_PRODUCER_MESSAGES_COUNTER tick. The
-    key makes the failure attributable on keyed topics (for example the team id
-    on flags_cache_invalidation). Throttled because a broker outage fails every
+    surface only as an unattributed KAFKA_PRODUCER_MESSAGES_COUNTER tick.
+    `msg` is `None` unless the caller opted in via `produce(...,
+    log_key_on_delivery_failure=True)`: several callers key on customer-controlled
+    values (for example a warehouse sync distinct_id or group_key), and those
+    must not end up in logs, so the key is logged only for callers that have
+    confirmed theirs is safe (for example the team id on
+    flags_cache_invalidation). Throttled because a broker outage fails every
     queued message at once and one warning per message would flood the logs;
     the counter still counts each failure. The throttle is lock-free on purpose:
     concurrent callbacks may occasionally double-log, which is harmless.
@@ -306,13 +310,15 @@ class _KafkaProducer:
         b = json.dumps(d).encode("utf-8")
         return b
 
-    def _on_delivery(self, topic: str, result: ProduceResult, err: Optional[KafkaError], msg: Message):
+    def _on_delivery(
+        self, topic: str, result: ProduceResult, err: Optional[KafkaError], msg: Message, log_key_on_failure: bool
+    ):
         """Delivery callback for confluent-kafka."""
         result.set_result(err, msg)
         if err is not None:
             error_name = err.name()
             KAFKA_PRODUCER_MESSAGES_COUNTER.labels(topic=topic, status="failure", error=error_name).inc()
-            _log_delivery_failure(topic, error_name, msg)
+            _log_delivery_failure(topic, error_name, msg if log_key_on_failure else None)
         else:
             delivered_topic = msg.topic() if msg else topic
             KAFKA_PRODUCER_MESSAGES_COUNTER.labels(topic=delivered_topic, status="success", error="").inc()
@@ -324,7 +330,12 @@ class _KafkaProducer:
         key: Any = None,
         value_serializer: Optional[Callable[[Any], Any]] = None,
         headers: Optional[list[tuple[str, str | bytes]]] = None,
+        log_key_on_delivery_failure: bool = False,
     ) -> ProduceResult:
+        """Set `log_key_on_delivery_failure=True` only when `key` is known not to carry
+        customer-controlled data (e.g. an internal id like a team id). It is off by default
+        because several callers key on customer-controlled values (e.g. a distinct_id or
+        group_key), and those must never reach logs."""
         if not value_serializer:
             value_serializer = self.json_serializer
         b = value_serializer(data)
@@ -350,7 +361,7 @@ class _KafkaProducer:
                 value=b,
                 key=key,
                 headers=encoded_headers,
-                on_delivery=lambda err, msg: self._on_delivery(topic, result, err, msg),
+                on_delivery=lambda err, msg: self._on_delivery(topic, result, err, msg, log_key_on_delivery_failure),
             )
             # Poll to trigger any pending delivery callbacks (non-blocking)
             self.producer.poll(0)
