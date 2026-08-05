@@ -4,6 +4,8 @@ import datetime as dt
 from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
+import structlog
+
 from posthog.schema import (
     CachedLogsQueryResponse,
     FilterLogicalOperator,
@@ -31,6 +33,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.personhog_client.errors import PersonLookupTemporarilyUnavailable
 
 from products.logs.backend.column_expressions import canonical_key, column_to_expr
 from products.logs.backend.models import (
@@ -41,6 +44,8 @@ from products.logs.backend.models import (
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+logger = structlog.get_logger(__name__)
 
 
 # Bounds the per-request fan-out of user-supplied HogQL expressions. Per-expression cost is already
@@ -487,10 +492,16 @@ class LogsFilterBuilder:
         # Expand personId server-side: person pages cap how many distinct ids they load
         # (groupArray(101) / list serializer), so a client-built distinct-ids filter would
         # silently drop ids on persons with many of them.
-        with personhog_caller_tag("persons/logs-query"):
-            person = get_person_by_pk_or_uuid(
-                self.team.pk, str(self.query.personId), distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
-            )
+        try:
+            with personhog_caller_tag("persons/logs-query"):
+                person = get_person_by_pk_or_uuid(
+                    self.team.pk, str(self.query.personId), distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
+                )
+        except Exception:
+            # A transient personhog outage here would otherwise bubble up as a bare HTTP 500 and
+            # blank the whole Logs tab. Translate it into a retryable 503 so the UI can recover.
+            logger.warning("logs_query_person_lookup_failed", team_id=self.team.pk, exc_info=True)
+            raise PersonLookupTemporarilyUnavailable()
         distinct_ids = get_distinct_ids_for_subquery(person, self.team)
         if not distinct_ids:
             # Unknown person (or another team's person): match nothing. property_to_expr

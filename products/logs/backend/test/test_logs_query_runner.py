@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest import mock
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1270,6 +1271,17 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
             person_id = str(create_person(team=other_team, distinct_ids=["person-id-test-leak"]).uuid)
 
         self.assertEqual(self._run(person_id), [])
+
+    def test_person_id_lookup_failure_returns_retryable_503_not_500(self):
+        # A transient personhog outage during personId expansion must surface as a retryable
+        # 503, not a bare 500 that blanks the Logs tab.
+        with mock.patch(
+            "products.logs.backend.logs_query_runner.get_person_by_pk_or_uuid",
+            side_effect=Exception("personhog unavailable"),
+        ):
+            with self.assertRaises(Exception) as ctx:
+                self._run(str(uuid4()))
+        self.assertEqual(getattr(ctx.exception, "status_code", None), status.HTTP_503_SERVICE_UNAVAILABLE)
 
     @parameterized.expand(
         [

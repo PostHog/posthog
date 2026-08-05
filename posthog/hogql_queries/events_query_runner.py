@@ -34,6 +34,7 @@ from posthog.models.element import chain_to_elements
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_mapped_by_distinct_id
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.personhog_client.errors import PersonLookupTemporarilyUnavailable
 from posthog.utils import relative_date_parse
 
 from products.actions.backend.models.action import Action, ActionStepJSON
@@ -298,10 +299,18 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         ]
                         where_exprs.append(steps_to_expr(steps, self.team))
                 if self.query.personId:
-                    with self.timings.measure("person_id"), personhog_caller_tag("persons/events-query"):
-                        person: Person | None = get_person_by_pk_or_uuid(
-                            self.team.pk, self.query.personId, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
-                        )
+                    with self.timings.measure("person_id"):
+                        try:
+                            with personhog_caller_tag("persons/events-query"):
+                                person: Person | None = get_person_by_pk_or_uuid(
+                                    self.team.pk, self.query.personId, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
+                                )
+                        except Exception:
+                            # A transient personhog outage here would otherwise bubble up as a bare
+                            # HTTP 500 and blank the whole Events tab. Translate it into a retryable
+                            # 503 so the UI can recover.
+                            logger.warning("events_query_person_lookup_failed", team_id=self.team.pk, exc_info=True)
+                            raise PersonLookupTemporarilyUnavailable()
                         where_exprs.append(
                             ast.CompareOperation(
                                 left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),

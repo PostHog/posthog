@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any, cast
+from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -11,8 +12,10 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest import mock
 
 from parameterized import parameterized
+from rest_framework import status
 
 from posthog.schema import (
     CachedEventsQueryResponse,
@@ -189,6 +192,18 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
         right_expr = cast(ast.Tuple, where_expr.right)
         self.assertEqual(right_expr.exprs, [])
+
+    def test_person_id_lookup_failure_returns_retryable_503_not_500(self):
+        # A transient personhog outage during personId expansion must surface as a retryable
+        # 503, not a bare 500 that blanks the Events tab.
+        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(uuid4()), orderBy=[])
+        with mock.patch(
+            "posthog.hogql_queries.events_query_runner.get_person_by_pk_or_uuid",
+            side_effect=Exception("personhog unavailable"),
+        ):
+            with self.assertRaises(Exception) as ctx:
+                EventsQueryRunner(query=query, team=self.team).to_query()
+        self.assertEqual(getattr(ctx.exception, "status_code", None), status.HTTP_503_SERVICE_UNAVAILABLE)
 
     def test_test_account_filters(self):
         self.team.test_account_filters = [
