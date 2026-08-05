@@ -310,12 +310,14 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: ?open_view={id}
+        enrich_url: ?open_view={params.id}
         title: Materialize saved query
         description: >
             Enable materialization for a saved query. This creates a physical table from the view's query and sets up a
-            24-hour sync schedule to keep it refreshed. Materialized views are faster to query but use storage. Use
-            'view-unmaterialize' to undo. Rate limited.
+            sync schedule to keep it refreshed, daily unless `sync_frequency` asks for another cadence. A cadence is
+            rejected when the view's lineage cannot support it: no more often than its sources deliver new data, and no
+            less often than a downstream view or endpoint needs. Materialized views are faster to query but use storage.
+            Use 'view-unmaterialize' to undo. Rate limited.
     view-run:
         operation: warehouse_saved_queries_run_create
         enabled: true
