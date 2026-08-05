@@ -227,5 +227,16 @@ describe('aiEventsUtils', () => {
             expect(await pollRecentAIEvents(2)).toBe(false)
             expect(listSpy).toHaveBeenCalledTimes(2)
         })
+
+        it('resolves false instead of rejecting when the check fails, and recovers on the next poll', async () => {
+            const listSpy = jest.spyOn(api.eventDefinitions, 'list').mockRejectedValueOnce(new Error('network down'))
+            await expect(pollRecentAIEvents(3)).resolves.toBe(false)
+
+            listSpy.mockResolvedValue({
+                results: [{ id: '1', name: '$ai_generation', last_seen_at: dayjs().subtract(1, 'day').toISOString() }],
+                count: 1,
+            } as any)
+            await expect(pollRecentAIEvents(3)).resolves.toBe(true)
+        })
     })
 })

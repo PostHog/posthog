@@ -51,6 +51,21 @@ export async function hasRecentAIEvents(): Promise<boolean> {
 let seenAiEventsTeamId: number | null = null
 let inFlightAiEventsCheck: Promise<boolean> | null = null
 
+async function runAiEventsCheck(teamId: number): Promise<boolean> {
+    try {
+        const seen = await hasRecentAIEvents()
+        if (seen) {
+            seenAiEventsTeamId = teamId
+        }
+        return seen
+    } catch {
+        // A transient API failure reads as "not seen yet"; the poll retries on its next tick.
+        return false
+    } finally {
+        inFlightAiEventsCheck = null
+    }
+}
+
 /**
  * Shares one in-flight check and caches a hit per team, so the several install-step
  * components polling at once run at most one ClickHouse probe per tick.
@@ -59,17 +74,6 @@ export function pollRecentAIEvents(teamId: number): Promise<boolean> {
     if (seenAiEventsTeamId === teamId) {
         return Promise.resolve(true)
     }
-    if (!inFlightAiEventsCheck) {
-        inFlightAiEventsCheck = hasRecentAIEvents()
-            .then((seen) => {
-                if (seen) {
-                    seenAiEventsTeamId = teamId
-                }
-                return seen
-            })
-            .finally(() => {
-                inFlightAiEventsCheck = null
-            })
-    }
+    inFlightAiEventsCheck ??= runAiEventsCheck(teamId)
     return inFlightAiEventsCheck
 }
