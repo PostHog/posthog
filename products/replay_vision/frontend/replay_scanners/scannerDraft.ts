@@ -16,14 +16,15 @@ export interface ScannerDraft {
     savedAt: number
 }
 
-/** False when storage refused the write, so callers don't promise a draft that isn't there. */
-export function writeScannerDraft(teamId: number, scanner: ReplayScanner): boolean {
-    const draft: StoredScannerDraft = { version: DRAFT_VERSION, teamId, savedAt: Date.now(), scanner }
+/** The stored `savedAt`, or null when storage refused the write. */
+export function writeScannerDraft(teamId: number, scanner: ReplayScanner): number | null {
+    const savedAt = Date.now()
+    const draft: StoredScannerDraft = { version: DRAFT_VERSION, teamId, savedAt, scanner }
     try {
         localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
-        return true
+        return savedAt
     } catch {
-        return false
+        return null
     }
 }
 

@@ -1176,9 +1176,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.setScannerDraftSavedAt(null)
                 return
             }
-            const stored = writeScannerDraft(teamId, values.scanner)
-            cache.draftTouched = stored
-            actions.setScannerDraftSavedAt(stored ? Date.now() : null)
+            const savedAt = writeScannerDraft(teamId, values.scanner)
+            cache.draftTouched = savedAt !== null
+            actions.setScannerDraftSavedAt(savedAt)
         }
         return {
             // kea-forms' exact rejection for failed client-side validation. API failures toast in submit's catch.

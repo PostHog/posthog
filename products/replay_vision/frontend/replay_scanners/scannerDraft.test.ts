@@ -8,6 +8,11 @@ describe('scannerDraft', () => {
         localStorage.clear()
     })
 
+    it('returns the timestamp it stored, so callers and storage agree', () => {
+        const savedAt = writeScannerDraft(1, newScanner(null))
+        expect(readScannerDraft(1)?.savedAt).toBe(savedAt)
+    })
+
     it.each([
         ['returns the draft for the same team', 1, (draft: any) => draft, true],
         ['rejects a draft from another team', 2, (draft: any) => draft, false],
