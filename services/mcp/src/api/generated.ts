@@ -49442,6 +49442,8 @@ export namespace Schemas {
       readonly author_name: string;
       /** True for internal notes not visible to the customer. */
       readonly is_private: boolean;
+      /** Edit count. 0 means never edited. */
+      readonly version: number;
       readonly created_at: string;
     }
 
@@ -57771,6 +57773,19 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+    }
+
+    /**
+     * Payload for updating a private note on a ticket.
+     */
+    export interface PatchedTicketNoteUpdateRequest {
+      /**
+         * Updated note content in markdown.
+         * @maxLength 5000
+         */
+      message?: string;
+      /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
+      rich_content?: unknown;
     }
 
     export interface PatchedTicketView {
