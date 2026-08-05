@@ -1617,7 +1617,10 @@ h3.MarkdownNotebook__text-block--heading {
     overflow: hidden;
     background: var(--markdown-notebook-component-background);
     border: 1px solid var(--markdown-notebook-component-border);
-    border-left: 3px solid var(--markdown-notebook-component-gutter);
+
+    // Thicker than the neutral text-block gutters: this rail carries run status, so it should
+    // register as a result rather than as another block edge.
+    border-left: 5px solid var(--markdown-notebook-component-gutter);
     border-radius: 0.25rem;
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;

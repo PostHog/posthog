@@ -1,11 +1,12 @@
 import json
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
 import deltalake
 import posthoganalytics
+import deltalake.exceptions
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
@@ -13,6 +14,7 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_offset_overflow_compaction_error,
     is_transient_maintenance_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
@@ -45,6 +47,15 @@ if TYPE_CHECKING:
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
+# delta-rs's own default target size for a compaction rewrite bin when none is given (see
+# `delta.targetFileSize`, or 100MB absent that table property). Starting the retry ladder here
+# instead of passing None keeps every attempt's size explicit and halvable.
+DEFAULT_COMPACT_TARGET_SIZE_BYTES = 100 * 1024 * 1024
+# Halving the bin size on a byte-array-offset-overflow panic (see is_offset_overflow_compaction_error)
+# shrinks how many files get concatenated into one Arrow batch. Bounded so a table whose overflow
+# can't be avoided at any reasonable bin size still surfaces to error tracking instead of looping.
+COMPACT_OFFSET_OVERFLOW_RETRIES = 3
+
 
 class DeltaMaintenance:
     """Compaction, vacuuming, and the vacuum-watermark cadence for one schema's Delta table.
@@ -74,9 +85,30 @@ class DeltaMaintenance:
 
     async def _compact(self, table: deltalake.DeltaTable) -> None:
         await self._logger.adebug("Compacting table...")
-        compact_stats = await execute_with_conflict_retry(
-            table, lambda: table.optimize.compact(), "compact_table", self._logger
-        )
+        target_size = DEFAULT_COMPACT_TARGET_SIZE_BYTES
+        attempt = 0
+        while True:
+
+            def _compact_op(size: int = target_size) -> dict[str, Any]:
+                return table.optimize.compact(target_size=size)
+
+            try:
+                compact_stats = await execute_with_conflict_retry(
+                    table,
+                    _compact_op,
+                    "compact_table",
+                    self._logger,
+                )
+                break
+            except deltalake.exceptions.DeltaError as e:
+                if not is_offset_overflow_compaction_error(e) or attempt >= COMPACT_OFFSET_OVERFLOW_RETRIES:
+                    raise
+                attempt += 1
+                target_size //= 2
+                await self._logger.awarning(
+                    f"compact_table: byte array offset overflow, retrying with smaller "
+                    f"target_size={target_size} (attempt {attempt}/{COMPACT_OFFSET_OVERFLOW_RETRIES})"
+                )
         await self._logger.adebug(json.dumps(compact_stats))
 
     async def compact_table(self) -> None:

@@ -4960,6 +4960,8 @@ const api = {
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
                 node_type?: 'hogql' | 'python'
                 output_name?: string
+                connection_id?: string | null
+                send_raw_query?: boolean
             }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
