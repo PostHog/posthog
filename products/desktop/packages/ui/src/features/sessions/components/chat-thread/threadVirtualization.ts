@@ -149,6 +149,44 @@ export function countFlatRows(rows: TurnRow[]): number {
   return count;
 }
 
+/** Whether the windowed body re-pins to the bottom as content arrives. */
+export interface ThreadFollowState {
+  following: boolean;
+  /**
+   * The reader deliberately moved off the end. Cleared only by a return to the true bottom or an
+   * explicit scroll-to-bottom — not by the at-end tolerance below, which would otherwise re-arm
+   * following on the very scroll event the gesture produced and drag the reader back down on the
+   * next streamed chunk.
+   */
+  leftEnd: boolean;
+}
+
+/** A scroll event's geometry, as the windowed body measures it. */
+export interface ThreadScrollSample {
+  /** Inside the at-end tolerance — a little above the bottom still counts, to absorb measure drift. */
+  atEnd: boolean;
+  /** Hard against the bottom, the only geometry that re-arms following once the reader left it. */
+  atExactEnd: boolean;
+  /** The viewport moved upward since the previous sample. */
+  scrolledUp: boolean;
+  /** Far enough below the fold that following is stuck mid-thread rather than measuring. */
+  farFromEnd: boolean;
+}
+
+/** Fold one scroll sample into the follow state. */
+export function nextThreadFollowState(
+  state: ThreadFollowState,
+  sample: ThreadScrollSample,
+): ThreadFollowState {
+  if (sample.atExactEnd) return { following: true, leftEnd: false };
+  if (state.leftEnd) return state;
+  if (sample.atEnd) return { following: true, leftEnd: false };
+  if (sample.scrolledUp || sample.farFromEnd) {
+    return { following: false, leftEnd: false };
+  }
+  return state;
+}
+
 /** A user-message row's measured extent in the scroll space, in row order. */
 export interface StickyAnchorEntry {
   id: string;

@@ -740,7 +740,7 @@ const ThreadRow = memo(function ThreadRow({
 });
 
 /**
- * Keeps the view pinned to the bottom from prompt submit until the user scrolls away.
+ * Keeps the view pinned to the bottom until the user scrolls away, re-arming on each prompt submit.
  *
  * The engine's own follow mode isn't enough on its own:
  * - It only re-engages within `scrollEdgeThreshold` of the exact bottom, so a submit from anywhere
@@ -751,10 +751,20 @@ const ThreadRow = memo(function ThreadRow({
  *   autoscrolling" and silently demote itself to `free-scrolling` mid-reply. While armed, any
  *   commit that leaves content below the fold re-issues `scrollToEnd` to recapture follow.
  *
- * User scroll intent (wheel, touch, pointer, keys — same signals the engine listens to) disarms
- * the pin; the next submit or the scroll-to-bottom button re-engages following.
+ * It arms on mount so a thread the reader is only watching — a cloud task streaming into a command
+ * center panel, with no prompt sent from here — still follows. User scroll intent (wheel, touch,
+ * pointer, keys — the same signals the engine listens to) disarms the pin for good, which is the
+ * half the engine gets wrong: it re-derives follow from scroll position and so overrules the
+ * gesture. The next submit or the scroll-to-bottom button re-engages following.
  */
-function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
+function ThreadAutoFollow({
+  items,
+  armedRef,
+}: {
+  items: ConversationItem[];
+  /** Owned by the body so the scroll-to-bottom button can re-arm the pin too. */
+  armedRef: RefObject<boolean>;
+}) {
   const { scrollToEnd } = useChatMessageScroller();
   const { end } = useChatMessageScrollerScrollable();
   const lastItem = items.at(-1);
@@ -764,7 +774,6 @@ function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
     [items],
   );
   const prevCountRef = useRef(userMessageCount);
-  const armedRef = useRef(false);
   const probeRef = useRef<HTMLSpanElement>(null);
 
   useLayoutEffect(() => {
@@ -774,7 +783,7 @@ function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
     if (lastItem?.type !== "user_message") return;
     armedRef.current = true;
     scrollToEnd({ behavior: "auto" });
-  }, [userMessageCount, lastItem, scrollToEnd]);
+  }, [userMessageCount, lastItem, scrollToEnd, armedRef]);
 
   useEffect(() => {
     const viewport = probeRef.current
@@ -793,14 +802,14 @@ function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
         viewport.removeEventListener(event, disarm);
       }
     };
-  }, []);
+  }, [armedRef]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-check on every streamed change — `end` alone doesn't re-notify while it stays true across commits.
   useEffect(() => {
     if (armedRef.current && end) {
       scrollToEnd({ behavior: "auto" });
     }
-  }, [items, end, scrollToEnd]);
+  }, [items, end, scrollToEnd, armedRef]);
 
   return <span ref={probeRef} className="hidden" aria-hidden="true" />;
 }
@@ -973,6 +982,8 @@ function ThreadScrollBody({
     }));
   }, [rows]);
 
+  const autoFollowArmedRef = useRef(true);
+
   // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
   // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
   // width the query basis for everything inside it — the panel is resizable and splittable, so the
@@ -983,7 +994,7 @@ function ThreadScrollBody({
       onPointerDownCapture={onUserInteract}
     >
       <MessageMinimap items={items} />
-      <ThreadAutoFollow items={items} />
+      <ThreadAutoFollow items={items} armedRef={autoFollowArmedRef} />
       <ThreadScrollStateRecorder stateRef={resumeStateRef} />
       <ChatMessageScrollerViewport>
         <ChatMessageScrollerContent
@@ -1009,7 +1020,12 @@ function ThreadScrollBody({
           )}
         </ChatMessageScrollerContent>
       </ChatMessageScrollerViewport>
-      <ChatMessageScrollerButton />
+      {/* Re-arms the pin as well as scrolling: the button is the reader saying "follow again". */}
+      <ChatMessageScrollerButton
+        onClick={() => {
+          autoFollowArmedRef.current = true;
+        }}
+      />
     </ChatMessageScroller>
   );
 }
@@ -1348,11 +1364,12 @@ function ChatThreadRenderer({
             // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
             autoScroll={!virtualized}
             defaultScrollPosition="end"
-            // Default is 8px: with the thread's bottom padding you're rarely that close, so
-            // auto-follow ("following-bottom") would disengage on any stray trackpad wheel and
-            // never re-engage. Within this band the engine recaptures follow on the next content
-            // change; deliberate upward flicks travel past it and stay free-scrolling.
-            scrollEdgeThreshold={100}
+            // `scrollEdgeThreshold` is left at the engine's tight default on purpose. The engine
+            // re-enters "following-bottom" on *every* scroll event taken within the band, which
+            // overrides the free-scrolling its own wheel handler just set — so a wide band traps a
+            // reader scrolling up out of the bottom, and streamed content yanks them back each
+            // frame. `ThreadAutoFollow` is what keeps the thread pinned across the band's width;
+            // unlike the engine it only lets go on a real gesture.
             scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
           >
             {virtualized ? (

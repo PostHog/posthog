@@ -9,9 +9,11 @@ import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-th
 import {
   computeStickyAnchor,
   type FlatThreadRow,
+  nextThreadFollowState,
   SCROLL_PREVIOUS_ITEM_PEEK,
   type StickyAnchorEntry,
   type StickyAnchorState,
+  type ThreadFollowState,
   type ThreadScrollResume,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
 import {
@@ -20,8 +22,10 @@ import {
 } from "@posthog/ui/features/sessions/constants";
 import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type WheelEvent as ReactWheelEvent,
   type RefObject,
   useCallback,
   useEffect,
@@ -35,13 +39,22 @@ import {
 // tuning these rows share (same item mix, same measure-then-settle churn).
 const ESTIMATED_ROW_SIZE = 80;
 const OVERSCAN = 12;
-/** Matches the Provider's `scrollEdgeThreshold` so "at bottom" agrees between engine and windowing. */
+/**
+ * Tolerance for calling the viewport "at the end". Generous because rows are estimated until they
+ * mount, so a fresh append reads short by more than a few pixels. It is only a measurement
+ * allowance: an upward gesture takes the reader out of following regardless of where they are
+ * inside it (see {@link nextThreadFollowState}).
+ */
 const AT_BOTTOM_THRESHOLD = 100;
+/** Slack for sub-pixel scroll positions when deciding the viewport is hard against the bottom. */
+const AT_EXACT_END_EPSILON = 1;
 // A real upward drift, not a 1-frame measure transient: the DOM bottom sits this far below the
 // viewport. Well above any single append's measure gap.
 const FAR_DRIFT_THRESHOLD = 400;
 /** Top of the virtual coordinate space — stands in for the non-virtualized content's `py-4`. */
 const PADDING_START = 16;
+/** Keys that move the viewport upward, so pressing them reads as leaving the end. */
+const SCROLL_UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
 /** Frames a programmatic scroll keeps re-issuing while rows around the target still measure. */
 const SETTLE_AT_END_ATTEMPTS = 12;
 const SETTLE_TO_INDEX_ATTEMPTS = 8;
@@ -84,15 +97,18 @@ function useReservedFooterHeight(
 /**
  * Programmatic scrolls that survive measurement drift. Rows are estimated until they mount, so a
  * single `scrollToEnd`/`scrollToIndex` lands short; both helpers re-issue across frames until the
- * target offset stops moving. `isAtBottomRef` is the follow flag the rest of the body reads.
+ * target offset stops moving. `followRef` is the follow state the rest of the body reads.
  */
 function useSettleControls(
   virtualizer: ThreadVirtualizer,
   viewportRef: RefObject<HTMLDivElement | null>,
 ) {
-  // Starts true; the mount-position effect below flips it if the handoff state says the reader was
-  // parked above the fold.
-  const isAtBottomRef = useRef(true);
+  // Starts following; the mount-position effect below flips it if the handoff state says the reader
+  // was parked above the fold.
+  const followRef = useRef<ThreadFollowState>({
+    following: true,
+    leftEnd: false,
+  });
   const settleRafRef = useRef<number | null>(null);
 
   const cancelSettle = useCallback(() => {
@@ -104,7 +120,7 @@ function useSettleControls(
 
   const settleAtEnd = useCallback(() => {
     cancelSettle();
-    isAtBottomRef.current = true;
+    followRef.current = { following: true, leftEnd: false };
     let attempts = 0;
     const step = () => {
       virtualizer.scrollToEnd();
@@ -123,7 +139,9 @@ function useSettleControls(
   const settleToIndex = useCallback(
     (index: number) => {
       cancelSettle();
-      isAtBottomRef.current = false;
+      // A jump is the reader choosing a spot in the thread; streamed content must not pull them off
+      // it, even when the target happens to sit inside the at-end tolerance.
+      followRef.current = { following: false, leftEnd: true };
       virtualizer.scrollToIndex(index, { align: "start" });
       let attempts = 0;
       const step = () => {
@@ -149,9 +167,20 @@ function useSettleControls(
     [virtualizer, viewportRef, cancelSettle],
   );
 
+  /**
+   * An upward gesture: leave following until the reader is back against the bottom. Ignored when
+   * there is nothing above to reach — a stray wheel over a thread that fits the viewport would
+   * otherwise kill following with no scroll event left to undo it.
+   */
+  const leaveEnd = useCallback(() => {
+    if (followRef.current.leftEnd) return;
+    if ((viewportRef.current?.scrollTop ?? 0) <= 0) return;
+    followRef.current = { following: false, leftEnd: true };
+  }, [viewportRef]);
+
   useEffect(() => cancelSettle, [cancelSettle]);
 
-  return { isAtBottomRef, settleAtEnd, settleToIndex };
+  return { followRef, leaveEnd, settleAtEnd, settleToIndex };
 }
 
 /**
@@ -226,20 +255,20 @@ function useFollowBottom({
   virtualizer,
   totalSize,
   items,
-  isAtBottomRef,
+  followRef,
   settleAtEnd,
 }: {
   virtualizer: ThreadVirtualizer;
   totalSize: number;
   items: ConversationItem[];
-  isAtBottomRef: RefObject<boolean>;
+  followRef: RefObject<ThreadFollowState>;
   settleAtEnd: () => void;
 }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: totalSize is the trigger, not a body dependency
   useLayoutEffect(() => {
-    if (!isAtBottomRef.current) return;
+    if (!followRef.current.following) return;
     virtualizer.scrollToEnd();
-  }, [totalSize, virtualizer, isAtBottomRef]);
+  }, [totalSize, virtualizer, followRef]);
 
   const lastItem = items.at(-1);
   const userMessageCount = useMemo(
@@ -258,12 +287,12 @@ function useFollowBottom({
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden && isAtBottomRef.current) settleAtEnd();
+      if (!document.hidden && followRef.current.following) settleAtEnd();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [settleAtEnd, isAtBottomRef]);
+  }, [settleAtEnd, followRef]);
 }
 
 /**
@@ -322,7 +351,7 @@ export function VirtualThreadScrollBody({
     getItemKey: (index) => flatRows[index]?.key ?? index,
   });
 
-  const { isAtBottomRef, settleAtEnd, settleToIndex } = useSettleControls(
+  const { followRef, leaveEnd, settleAtEnd, settleToIndex } = useSettleControls(
     virtualizer,
     viewportRef,
   );
@@ -386,28 +415,25 @@ export function VirtualThreadScrollBody({
     const scrolledUp = scrollTop < lastScrollTopRef.current - 1;
     lastScrollTopRef.current = scrollTop;
 
-    const atEnd = virtualizer.isAtEnd(AT_BOTTOM_THRESHOLD);
-    // Genuine far drift (not a 1-frame measure transient): the DOM bottom sits well below the
-    // viewport, so follow can't get silently stuck mid-thread.
-    const farFromEnd = el
-      ? el.scrollHeight - el.clientHeight - scrollTop > FAR_DRIFT_THRESHOLD
-      : false;
-    // Hysteresis: each append measures taller than the estimate, so for one frame isAtEnd reads
-    // false before followOnAppend/anchorTo re-pin. Re-arm at the end; only clear on a real upward
-    // scroll or a genuine drift.
-    if (atEnd) {
-      isAtBottomRef.current = true;
-    } else if (scrolledUp || farFromEnd) {
-      isAtBottomRef.current = false;
-    }
+    const distanceFromEnd = el
+      ? el.scrollHeight - el.clientHeight - scrollTop
+      : 0;
+    followRef.current = nextThreadFollowState(followRef.current, {
+      atEnd: virtualizer.isAtEnd(AT_BOTTOM_THRESHOLD),
+      atExactEnd: distanceFromEnd <= AT_EXACT_END_EPSILON,
+      scrolledUp,
+      // Genuine far drift (not a 1-frame measure transient): the DOM bottom sits well below the
+      // viewport, so follow can't get silently stuck mid-thread.
+      farFromEnd: distanceFromEnd > FAR_DRIFT_THRESHOLD,
+    });
     scheduleStickyRecompute();
-  }, [virtualizer, scheduleStickyRecompute, isAtBottomRef]);
+  }, [virtualizer, scheduleStickyRecompute, followRef]);
 
   useFollowBottom({
     virtualizer,
     totalSize,
     items,
-    isAtBottomRef,
+    followRef,
     settleAtEnd,
   });
 
@@ -424,7 +450,20 @@ export function VirtualThreadScrollBody({
           onJump={jumpToMessage}
           anchorId={stickyState.anchorId}
         />
-        <ChatMessageScrollerViewport ref={viewportRef} onScroll={handleScroll}>
+        <ChatMessageScrollerViewport
+          ref={viewportRef}
+          onScroll={handleScroll}
+          // Reading upward is intent, not geometry. Without these the scroll event the gesture
+          // produces still measures "at the end" for the first AT_BOTTOM_THRESHOLD pixels, so a
+          // slow scroll out of the bottom would be undone by the next streamed chunk.
+          onWheelCapture={(event: ReactWheelEvent) => {
+            if (event.deltaY < 0) leaveEnd();
+          }}
+          onTouchMoveCapture={leaveEnd}
+          onKeyDownCapture={(event: ReactKeyboardEvent) => {
+            if (SCROLL_UP_KEYS.has(event.key)) leaveEnd();
+          }}
+        >
           {/* `block` overrides the content's flex+gap layout — spacing moves into the rows
               (pb-4) and the virtual paddings, so translateY offsets are the whole layout. */}
           <ChatMessageScrollerContent

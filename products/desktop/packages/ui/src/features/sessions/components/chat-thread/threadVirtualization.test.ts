@@ -6,7 +6,9 @@ import {
   computeStickyAnchor,
   countFlatRows,
   flattenTurnRows,
+  nextThreadFollowState,
   type StickyAnchorEntry,
+  type ThreadScrollSample,
   type TurnRow,
 } from "./threadVirtualization";
 
@@ -177,6 +179,59 @@ describe("countFlatRows", () => {
 
   it("is zero for an empty thread", () => {
     expect(countFlatRows([])).toBe(0);
+  });
+});
+
+describe("nextThreadFollowState", () => {
+  const sample = (
+    over: Partial<ThreadScrollSample> = {},
+  ): ThreadScrollSample => ({
+    atEnd: false,
+    atExactEnd: false,
+    scrolledUp: false,
+    farFromEnd: false,
+    ...over,
+  });
+
+  it.each([
+    [
+      "holds following while an append measures short of the end",
+      { following: true, leftEnd: false },
+      sample(),
+      { following: true, leftEnd: false },
+    ],
+    [
+      "drops following once the reader scrolls up past the tolerance",
+      { following: true, leftEnd: false },
+      sample({ scrolledUp: true }),
+      { following: false, leftEnd: false },
+    ],
+    [
+      "drops following when the end has drifted far below the fold",
+      { following: true, leftEnd: false },
+      sample({ farFromEnd: true }),
+      { following: false, leftEnd: false },
+    ],
+    [
+      "re-arms inside the tolerance when the reader never left the end",
+      { following: false, leftEnd: false },
+      sample({ atEnd: true }),
+      { following: true, leftEnd: false },
+    ],
+    [
+      "stays off inside the tolerance after an upward gesture",
+      { following: false, leftEnd: true },
+      sample({ atEnd: true }),
+      { following: false, leftEnd: true },
+    ],
+    [
+      "resumes once the reader is back against the bottom",
+      { following: false, leftEnd: true },
+      sample({ atEnd: true, atExactEnd: true }),
+      { following: true, leftEnd: false },
+    ],
+  ])("%s", (_name, state, event, expected) => {
+    expect(nextThreadFollowState(state, event)).toEqual(expected);
   });
 });
 
