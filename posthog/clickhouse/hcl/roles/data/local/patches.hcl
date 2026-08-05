@@ -122,4 +122,61 @@ database "posthog" {
       query = "SELECT     team_id FROM     `posthog`.`web_pre_aggregated_teams` FINAL WHERE version > 0"
     }
   }
+
+  patch_table "events_recent" {
+    modify_column "properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    modify_column "person_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    modify_column "group0_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    modify_column "group1_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    modify_column "group2_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    modify_column "group3_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    modify_column "group4_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+      after = "person_mode"
+    }
+    modify_column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog_primary_replica"
+      remote_database = "posthog"
+      remote_table    = "sharded_events_recent"
+      sharding_key    = "sipHash64(distinct_id)"
+    }
+  }
+
+  patch_table "sharded_ingestion_warnings" {
+    partition_by = "toYYYYMMDD(timestamp)"
+    modify_column "details" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_ingestion_warnings"
+      replica_name = "{replica}"
+    }
+  }
 }

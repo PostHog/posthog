@@ -28,8 +28,8 @@
 role "ops" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local"] }
   env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-eu"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-eu"] }
 }
 
 # The local LOGS node runs a partial/newer schema than the cloud logs nodes, so it
@@ -63,7 +63,7 @@ role "ai_events" {
 # ingestion_warnings tables. prod goldens are dump-baselined (not live-verifiable here).
 role "aux" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-us"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-eu"] }
 }
 
@@ -76,7 +76,7 @@ role "aux" {
 # has writable_events_recent). prod goldens are dump-baselined (not live-verifiable here).
 role "sessions" {
   env "local-multi"   { layers = ["roles/shared"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/sessions/shared", "roles/sessions/prod-us"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/coshared/events_recent_write", "roles/sessions/shared", "roles/sessions/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/sessions/shared", "roles/sessions/prod-eu"] }
 }
 
@@ -91,8 +91,8 @@ role "sessionsv3" {
 # query_log_archive path. Env-specific — prod-eu carries an extra historical_migration
 # column. Dump-baselined (no local batch-exports node).
 role "batch_exports" {
-  env "prod-us" { layers = ["roles/shared", "roles/batch_exports/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/batch_exports/prod-eu"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-eu"] }
 }
 
 # DATA cluster: the main sharded cluster (events family, persons/groups, sessions,
@@ -102,7 +102,7 @@ role "batch_exports" {
 # columns per env that are added out-of-band and churn constantly, so their goldens
 # live in PostHog/posthog-cloud-infra (clickhouse/hcl/), not the OSS gate.
 role "data" {
-  env "local-multi" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/ai_events_data", "roles/data/local"] }
+  env "local-multi" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/ai_events_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/data/local"] }
 }
 
 # role "endpoints" {

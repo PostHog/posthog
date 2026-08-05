@@ -2,18 +2,9 @@
 # The locate -duplicates guard in check.sh fails on any duplicate NOT listed here.
 # This list only shrinks: as Phase 2 dedups a role into coshared/extend layers,
 # remove its objects. Must reach empty by Phase 4, after which the file is dropped.
-posthog.ai_events
 posthog.channel_definition
 posthog.events
-posthog.events_main
-posthog.events_recent
-posthog.hog_invocation_results_data
-posthog.kafka_hog_invocation_results
 posthog.kafka_logs34_avro_mv
 posthog.kafka_logs_avro_billing_metrics_mv
 posthog.kafka_trace_spans_avro_mv
 posthog.raw_sessions_v3
-posthog.sharded_events_recent
-posthog.sharded_ingestion_warnings
-posthog.sharded_tophog
-posthog.writable_events_recent

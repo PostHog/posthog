@@ -1,7 +1,8 @@
+# Cloud storage form of ai_events: the WarpStream envs store events in the
+# table itself (the local/data stacks read through a Distributed shim onto
+# sharded_ai_events).
 database "posthog" {
-  table "_ai_events_data" {
-    abstract = true
-    extend = "_ai_events_columns"
+  patch_table "ai_events" {
     order_by     = ["team_id", "trace_id", "timestamp"]
     partition_by = "toYYYYMM(drop_date)"
     ttl          = "drop_date"
@@ -58,6 +59,10 @@ database "posthog" {
       expr        = "provider"
       type        = "set(50)"
       granularity = 1
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/ai_events/tables/{shard}/posthog.ai_events"
+      replica_name = "{replica}"
     }
   }
 }

@@ -1,15 +1,6 @@
+# The events_main reader, identical on both prod OPS envs.
 database "posthog" {
-  table "sharded_events_recent" {
-    override = true
-    order_by     = ["team_id", "toStartOfHour(inserted_at)", "event", "cityHash64(distinct_id)", "cityHash64(uuid)"]
-    partition_by = "toStartOfDay(inserted_at)"
-    ttl          = "toDateTime(inserted_at) + toIntervalDay(7)"
-    settings = {
-      index_granularity     = "8192"
-      parts_to_delay_insert = "800"
-      parts_to_throw_insert = "1500"
-      ttl_only_drop_parts   = "1"
-    }
+  table "events_main" {
     column "uuid" {
       type = "UUID"
     }
@@ -83,13 +74,13 @@ database "posthog" {
       type = "UInt64"
     }
     column "inserted_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now64()"
+      type = "DateTime64(6, 'UTC')"
     }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/batch_exports/{shard}/posthog.sharded_events_recent"
-      replica_name   = "{replica}"
-      version_column = "_timestamp"
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_events"
+      sharding_key    = "sipHash64(distinct_id)"
     }
   }
 }

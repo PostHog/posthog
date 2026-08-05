@@ -1,14 +1,15 @@
+# The sharded_events_recent store (the recent-events table batch export workers
+# read), hosted by both prod batch_exports envs and the local data node. Base is
+# the local form; prod-eu patches its replication path, prod-us overrides (it
+# drops the property codecs, which patches cannot express).
 database "posthog" {
   table "sharded_events_recent" {
-    override = true
     order_by     = ["team_id", "toStartOfHour(inserted_at)", "event", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toStartOfDay(inserted_at)"
     ttl          = "toDateTime(inserted_at) + toIntervalDay(7)"
     settings = {
-      index_granularity     = "8192"
-      parts_to_delay_insert = "800"
-      parts_to_throw_insert = "1500"
-      ttl_only_drop_parts   = "1"
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
     }
     column "uuid" {
       type = "UUID"
@@ -17,7 +18,8 @@ database "posthog" {
       type = "String"
     }
     column "properties" {
-      type = "String"
+      type  = "String"
+      codec = "ZSTD(3)"
     }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
@@ -41,22 +43,28 @@ database "posthog" {
       type = "DateTime64(3)"
     }
     column "person_properties" {
-      type = "String"
+      type  = "String"
+      codec = "ZSTD(3)"
     }
     column "group0_properties" {
-      type = "String"
+      type  = "String"
+      codec = "ZSTD(3)"
     }
     column "group1_properties" {
-      type = "String"
+      type  = "String"
+      codec = "ZSTD(3)"
     }
     column "group2_properties" {
-      type = "String"
+      type  = "String"
+      codec = "ZSTD(3)"
     }
     column "group3_properties" {
-      type = "String"
+      type  = "String"
+      codec = "ZSTD(3)"
     }
     column "group4_properties" {
-      type = "String"
+      type  = "String"
+      codec = "ZSTD(3)"
     }
     column "group0_created_at" {
       type = "DateTime64(3)"
@@ -76,6 +84,9 @@ database "posthog" {
     column "person_mode" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
+    column "historical_migration" {
+      type = "Bool"
+    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -87,7 +98,7 @@ database "posthog" {
       default = "now64()"
     }
     engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/batch_exports/{shard}/posthog.sharded_events_recent"
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_events_recent"
       replica_name   = "{replica}"
       version_column = "_timestamp"
     }
