@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -8,6 +8,30 @@ import { CheckList } from 'scenes/onboarding/shared/components/CheckList'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCommandBlock'
 import { WizardInstallOptions } from 'scenes/onboarding/shared/wizard-sync/WizardInstallOptions'
+
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+
+import { SELF_DRIVING_TOOLS, toolSetForGoal } from '../goals'
+import { goalSelectionLogic } from '../goalSelectionLogic'
+
+/** A quiet reminder of what the install feeds: the goal's tool set, as icons and names. */
+function ProductsBeingInstalled(): JSX.Element {
+    const { selectedGoal } = useValues(goalSelectionLogic)
+    const tools = toolSetForGoal(selectedGoal).shown.map((key) => SELF_DRIVING_TOOLS[key])
+    return (
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted">
+            <span>Installing:</span>
+            {tools.map((tool) => (
+                <span key={tool.name} className="flex items-center gap-1">
+                    <span className="flex text-sm group/colorful-product-icons colorful-product-icons-true">
+                        {iconForType(tool.iconType)}
+                    </span>
+                    {tool.name}
+                </span>
+            ))}
+        </div>
+    )
+}
 
 /** What the self-driving run wires up, so the command isn't a leap of faith. */
 const WIZARD_SETS_UP = [
@@ -51,11 +75,14 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
                 onQueued={onContinue}
                 onModeSelected={reportSelfDrivingOnboardingInstallModeSelected}
                 localBlock={
-                    <WizardCommandBlock
-                        hideHog
-                        subcommand="self-driving"
-                        description="Takes about ten minutes. It'll ask you a few things along the way."
-                    />
+                    <div className="flex flex-col gap-2">
+                        <WizardCommandBlock
+                            hideHog
+                            subcommand="self-driving"
+                            description="Takes about ten minutes. It'll ask you a few things along the way."
+                        />
+                        <ProductsBeingInstalled />
+                    </div>
                 }
             />
             <CheckList
