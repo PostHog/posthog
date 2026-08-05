@@ -1,15 +1,3 @@
-import {
-    IconDownload,
-    IconList,
-    IconLlmPromptManagement,
-    IconMCP,
-    IconPlaylist,
-    IconScatter,
-    IconShare,
-    IconSupport,
-    IconToolbar,
-} from '@posthog/icons'
-
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { APIScopeObject } from '~/types'
@@ -31,23 +19,11 @@ const SCOPE_TO_ICON_TYPE: Partial<Record<APIScopeObject, FileSystemIconType>> = 
     warehouse_view: 'data_warehouse',
 }
 
-/** Resources with no project tree icon type to borrow, kept explicit. */
-const SCOPE_ICON_OVERRIDES: Partial<Record<APIScopeObject, JSX.Element>> = {
-    ai_observability_clusters: <IconScatter />,
-    export: <IconDownload />,
-    llm_playground: <IconPlaylist />,
-    llm_skill: <IconLlmPromptManagement />,
-    mcp_analytics: <IconMCP />,
-    sharing_configuration: <IconShare />,
-    tagger: <IconList />,
-    ticket: <IconSupport />,
-    toolbar: <IconToolbar />,
-}
-
 /**
  * Icon for an access-controlled resource, borrowed from the project tree's manifest-driven map so
- * products keep one icon everywhere. iconForType has its own default, so every scope gets an icon.
+ * products keep one icon everywhere. Scopes the manifest doesn't know get iconForType's default,
+ * so every resource shows an icon.
  */
 export function ScopeIcon({ scope }: { scope: APIScopeObject }): JSX.Element {
-    return SCOPE_ICON_OVERRIDES[scope] ?? iconForType(SCOPE_TO_ICON_TYPE[scope] ?? (scope as FileSystemIconType))
+    return iconForType(SCOPE_TO_ICON_TYPE[scope] ?? (scope as FileSystemIconType))
 }
