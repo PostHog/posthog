@@ -253,6 +253,48 @@ export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
     .describe('Payload for recording reviewer feedback on an AI reply.')
 
 /**
+ * Merge this ticket into another ticket.
+ *
+ * Marks this ticket resolved and assigns it to the current user, then adds a
+ * cross-linking note to both this ticket and the target. Each note can be kept
+ * as an internal note or delivered to the customer over the ticket's channel.
+ */
+export const conversationsTicketsMergeCreateBodySourceNoteMax = 5000
+
+export const conversationsTicketsMergeCreateBodySourceIsPrivateDefault = true
+export const conversationsTicketsMergeCreateBodyTargetNoteMax = 5000
+
+export const conversationsTicketsMergeCreateBodyTargetIsPrivateDefault = true
+
+export const ConversationsTicketsMergeCreateBody = /* @__PURE__ */ zod
+    .object({
+        target_ticket_id: zod.uuid().describe('UUID of the ticket to merge this ticket into.'),
+        source_note: zod
+            .string()
+            .max(conversationsTicketsMergeCreateBodySourceNoteMax)
+            .optional()
+            .describe('Optional extra text appended to the note added to this (merged) ticket.'),
+        source_is_private: zod
+            .boolean()
+            .default(conversationsTicketsMergeCreateBodySourceIsPrivateDefault)
+            .describe(
+                "If true, the note added to this ticket is an internal note. If false, it is delivered to the customer over the ticket's channel."
+            ),
+        target_note: zod
+            .string()
+            .max(conversationsTicketsMergeCreateBodyTargetNoteMax)
+            .optional()
+            .describe('Optional extra text appended to the note added to the target ticket.'),
+        target_is_private: zod
+            .boolean()
+            .default(conversationsTicketsMergeCreateBodyTargetIsPrivateDefault)
+            .describe(
+                "If true, the note added to the target ticket is an internal note. If false, it is delivered to the customer over the ticket's channel."
+            ),
+    })
+    .describe('Payload for merging this ticket into another ticket.')
+
+/**
  * Post a reply or internal note to a ticket.
  *
  * With is_private=false, the reply is delivered to the customer via the

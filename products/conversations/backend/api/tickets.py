@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
@@ -212,6 +213,49 @@ class BulkUpdateStatusResponseSerializer(serializers.Serializer):
     )
 
 
+class TicketMergeRequestSerializer(serializers.Serializer):
+    """Payload for merging this ticket into another ticket."""
+
+    target_ticket_id = serializers.UUIDField(
+        help_text="UUID of the ticket to merge this ticket into.",
+    )
+    source_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=5000,
+        help_text="Optional extra text appended to the note added to this (merged) ticket.",
+    )
+    source_is_private = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "If true, the note added to this ticket is an internal note. "
+            "If false, it is delivered to the customer over the ticket's channel."
+        ),
+    )
+    target_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=5000,
+        help_text="Optional extra text appended to the note added to the target ticket.",
+    )
+    target_is_private = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "If true, the note added to the target ticket is an internal note. "
+            "If false, it is delivered to the customer over the ticket's channel."
+        ),
+    )
+
+
+class TicketMergeResponseSerializer(serializers.Serializer):
+    """Result of merging a ticket into another ticket."""
+
+    id = serializers.UUIDField(help_text="UUID of the merged (source) ticket.")
+    ticket_status = serializers.CharField(help_text="New status of the merged ticket (resolved).")
+    target_ticket_id = serializers.UUIDField(help_text="UUID of the ticket this ticket was merged into.")
+    target_ticket_number = serializers.IntegerField(help_text="Human-readable number of the target ticket.")
+
+
 class TicketPagination(pagination.LimitOffsetPagination):
     default_limit = 100
     max_limit = 1000
@@ -243,6 +287,17 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
+    merged_into_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="UUID of the ticket this ticket was merged into. Null if this ticket has not been merged.",
+    )
+    merged_into_ticket_number = serializers.IntegerField(
+        source="merged_into.ticket_number",
+        read_only=True,
+        allow_null=True,
+        help_text="Human-readable number of the ticket this ticket was merged into. Null if not merged.",
+    )
 
     class Meta:
         model = Ticket
@@ -285,7 +340,9 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "organization_id_source",
             "person",
             "tags",
-            "user_access_level",
+            "merged_at",
+            "merged_into_id",
+            "merged_into_ticket_number",
         ]
         read_only_fields = [
             "id",
@@ -317,8 +374,12 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "person",
             "ai_triage",
             "identity_verified",
+            "merged_at",
         ]
         extra_kwargs = {
+            "merged_at": {
+                "help_text": "When this ticket was merged into another ticket. Null if it has not been merged."
+            },
             "identity_verified": {
                 "help_text": (
                     "Trust signal indicating whether the ticket's claimed identity was attested by the server "
@@ -382,7 +443,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
-        queryset = queryset.select_related("assignment", "assignment__user", "assignment__role", "email_config")
+        queryset = queryset.select_related(
+            "assignment", "assignment__user", "assignment__role", "email_config", "merged_into"
+        )
 
         filters: dict[str, Any] = {}
         view_short_id = self.request.query_params.get("view")
@@ -1144,6 +1207,151 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         return Response(
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
             status=drf_status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=TicketMergeRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TicketMergeResponseSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            404: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def merge(self, request, *args, **kwargs):
+        """Merge this ticket into another ticket.
+
+        Marks this ticket resolved and assigns it to the current user, then adds a
+        cross-linking note to both this ticket and the target. Each note can be kept
+        as an internal note or delivered to the customer over the ticket's channel.
+        """
+        source = self.get_object()
+
+        if not self.team.conversations_enabled:
+            return Response({"detail": "Support is not enabled."}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        serializer = TicketMergeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        if source.merged_into_id is not None:
+            return Response(
+                {"detail": "This ticket has already been merged."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        target_ticket_id = data["target_ticket_id"]
+        if str(target_ticket_id) == str(source.id):
+            return Response(
+                {"detail": "A ticket can't be merged into itself."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        target = self.get_queryset().filter(id=target_ticket_id).first()
+        if target is None:
+            return Response({"detail": "Target ticket not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+        old_status = source.status
+        source_url = f"{settings.SITE_URL}/project/{self.team_id}/support/tickets/{source.ticket_number}"
+        target_url = f"{settings.SITE_URL}/project/{self.team_id}/support/tickets/{target.ticket_number}"
+
+        source_message = f"Merged into [#{target.ticket_number}]({target_url})."
+        if data.get("source_note"):
+            source_message = f"{source_message}\n\n{data['source_note']}"
+
+        target_message = f"[#{source.ticket_number}]({source_url}) was merged into this ticket."
+        if data.get("target_note"):
+            target_message = f"{target_message}\n\n{data['target_note']}"
+
+        with transaction.atomic():
+            source.merged_into = target
+            source.merged_at = timezone.now()
+            if source.status != Status.RESOLVED:
+                source.status = Status.RESOLVED
+                source.save(update_fields=["status", "merged_into", "merged_at", "updated_at"])
+            else:
+                source.save(update_fields=["merged_into", "merged_at", "updated_at"])
+
+            assign_ticket(
+                source,
+                {"type": "user", "id": request.user.id},
+                self.organization,
+                request.user,
+                self.team_id,
+                is_impersonated(request),
+            )
+
+            Comment.objects.create(
+                team=self.team,
+                created_by=request.user,
+                scope="conversations_ticket",
+                item_id=str(source.id),
+                content=source_message,
+                item_context={"author_type": "support", "is_private": data["source_is_private"]},
+            )
+            Comment.objects.create(
+                team=self.team,
+                created_by=request.user,
+                scope="conversations_ticket",
+                item_id=str(target.id),
+                content=target_message,
+                item_context={"author_type": "support", "is_private": data["target_is_private"]},
+            )
+
+        source.refresh_from_db()
+
+        if old_status != source.status and (old_status == "resolved" or source.status == "resolved"):
+            invalidate_unread_count_cache(self.team_id)
+
+        if old_status != source.status:
+            self._emit_status_change_side_effects(request, source, old_status, source.status)
+
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+                item_id=str(source.id),
+                scope="Ticket",
+                activity="merged",
+                detail=Detail(
+                    name=f"Ticket #{source.ticket_number}",
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="merged_into",
+                            before=None,
+                            after=target.ticket_number,
+                            action="created",
+                        )
+                    ],
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(source.id)})
+
+        try:
+            report_user_action(
+                request.user,
+                "support ticket merged",
+                {"channel_source": source.channel_source, "target_ticket_id": str(target.id)},
+                team=self.team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(source.id)})
+
+        return Response(
+            TicketMergeResponseSerializer(
+                {
+                    "id": source.id,
+                    "ticket_status": source.status,
+                    "target_ticket_id": target.id,
+                    "target_ticket_number": target.ticket_number,
+                }
+            ).data
         )
 
     @extend_schema(

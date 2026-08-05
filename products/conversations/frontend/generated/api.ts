@@ -33,6 +33,8 @@ import type {
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
+    TicketMergeRequestApi,
+    TicketMergeResponseApi,
     TicketMessageApi,
     TicketReplyRequestApi,
     TicketViewApi,
@@ -411,6 +413,31 @@ export const conversationsTicketsAiFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aiFeedbackRequestApi),
+    })
+}
+
+export const getConversationsTicketsMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/merge/`
+}
+
+/**
+ * Merge this ticket into another ticket.
+ *
+ * Marks this ticket resolved and assigns it to the current user, then adds a
+ * cross-linking note to both this ticket and the target. Each note can be kept
+ * as an internal note or delivered to the customer over the ticket's channel.
+ */
+export const conversationsTicketsMergeCreate = async (
+    projectId: string,
+    id: string,
+    ticketMergeRequestApi: TicketMergeRequestApi,
+    options?: RequestInit
+): Promise<TicketMergeResponseApi> => {
+    return apiMutator<TicketMergeResponseApi>(getConversationsTicketsMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketMergeRequestApi),
     })
 }
 
