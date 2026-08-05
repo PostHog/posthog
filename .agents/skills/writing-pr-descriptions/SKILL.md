@@ -28,7 +28,13 @@ Spend it on what a person experiences, not on the code that produces it.
 
 You just spent an hour inside the mechanism, so the mechanism comes out first. Push it down.
 
-- Line 1 of Problem says what breaks, or what nobody can do, and for whom. Name the surface they were on.
+- Line 1 of Problem says what is different for a person, and who that person is. Name the surface they were on. Three shapes cover almost every PR:
+  - A fix: what breaks, and for whom.
+  - A feature or an improvement: what someone could not do, and now can.
+  - A refactor, a chore or an enabling change: who is blocked today, what it costs them, or what class of failure it removes.
+
+  A feature lead reads like this: "The SQL editor lets users join tables, but there is no way to attach a computed field to a table." It names what a person cannot do before it names anything in the code.
+
 - If line 1 opens with a symbol, a file path, a class, or a setting, you led with the mechanism. Rewrite it.
 - Size the problem in one clause where you know it: how many teams, how often, since when.
 - The mechanism follows, in the order a reviewer has to check it.
@@ -39,7 +45,7 @@ Most of the time you already wrote the effect and put it third. Move it up rathe
 
 Line 1 can be a bullet or a standalone sentence, whichever reads faster. One sentence, never a paragraph. What matters is that the effect is the first thing on the page, so a lead sentence followed by supporting bullets is fine and keeps a body from reading like every other body.
 
-A PR with no user-visible effect still has a reader who is blocked: the next agent, the on-call, the team that cannot ship until this lands. Lead with them.
+When nothing user-visible changes, someone is still waiting: the next agent, the on-call, the team that cannot ship until this lands. Name them.
 
 ### Worked example
 
@@ -210,7 +216,7 @@ Run both checks over the body you just wrote, before `gh pr create` or `gh pr ed
 
 Read only the title, the first line of Problem, and the first bullet of Changes. Cover the rest.
 
-1. Do you know what breaks, and for whom?
+1. Do you know what is different now, and for whom?
 2. Do you know what this PR does about it?
 3. Did you get there without a symbol, a file path, or a class name?
 
