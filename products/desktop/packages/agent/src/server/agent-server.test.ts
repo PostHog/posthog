@@ -228,6 +228,10 @@ interface TestableServer {
     run: TaskRun | null,
   ): Promise<void>;
   detectedPrUrl: string | null;
+  slackArtifactDelivery: {
+    livingArtifactsEnabled: boolean;
+    canvasFileArtifactsEnabled: boolean;
+  } | null;
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -4011,6 +4015,57 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("buildCloudSystemPrompt", () => {
+    it.each([
+      {
+        name: "canvas and file adapters available",
+        delivery: {
+          livingArtifactsEnabled: true,
+          canvasFileArtifactsEnabled: true,
+        },
+        expected: "`slack_canvas`, `slack_message`, `slack_file`",
+        notExpected: "You do not have canvas or file delivery",
+      },
+      {
+        name: "canvas and file adapters unavailable",
+        delivery: {
+          livingArtifactsEnabled: true,
+          canvasFileArtifactsEnabled: false,
+        },
+        expected: "You do not have canvas or file delivery in this workspace",
+        notExpected: "`slack_canvas`, `slack_message`, `slack_file`",
+      },
+      {
+        name: "artifact delivery off entirely",
+        delivery: {
+          livingArtifactsEnabled: false,
+          canvasFileArtifactsEnabled: false,
+        },
+        expected: "You do not have artifact delivery in this workspace",
+        notExpected: "create a living artifact before claiming delivery",
+      },
+    ])(
+      "offers only the Slack delivery routes the workspace has: $name",
+      ({ delivery, expected, notExpected }) => {
+        const s = createServer() as unknown as TestableServer;
+        s.slackArtifactDelivery = delivery;
+
+        const prompt = s.buildCloudSystemPrompt();
+
+        expect(prompt).toContain("## Delivering to Slack");
+        expect(prompt).toContain(expected);
+        expect(prompt).not.toContain(notExpected);
+      },
+    );
+
+    it("says nothing about Slack delivery when the backend did not resolve it", () => {
+      const s = createServer() as unknown as TestableServer;
+      s.slackArtifactDelivery = null;
+
+      expect(s.buildCloudSystemPrompt()).not.toContain(
+        "## Delivering to Slack",
+      );
+    });
+
     it("describes every repository in a shared multi-repository workspace", () => {
       const s = createServer({
         repositoryPath: undefined,

@@ -347,6 +347,53 @@ function getTaskRunStateString(
   return typeof value === "string" ? value : null;
 }
 
+function getTaskRunStateBoolean(
+  taskRun: TaskRun | null,
+  key: string,
+): boolean | null {
+  const state = taskRun?.state;
+
+  if (!state || typeof state !== "object") {
+    return null;
+  }
+
+  const value = (state as Record<string, unknown>)[key];
+  return typeof value === "boolean" ? value : null;
+}
+
+interface SlackArtifactDelivery {
+  /** The workspace's artifact gate. When false the run can only answer in prose. */
+  livingArtifactsEnabled: boolean;
+  /** Canvas and file adapters, which need both their own flag and the Slack scopes they write with. */
+  canvasFileArtifactsEnabled: boolean;
+}
+
+/**
+ * What a Slack run may deliver, as resolved by the backend when the task started.
+ *
+ * Absent keys mean the backend has not told us — a non-Slack run, or a Slack run created
+ * before this shipped, where the constraints still ride in on the task description. Emit
+ * nothing rather than guessing, so the agent is never told it has a delivery route the
+ * adapters would reject, nor told it has none while it actually does.
+ */
+function readSlackArtifactDelivery(
+  taskRun: TaskRun | null,
+): SlackArtifactDelivery | null {
+  const livingArtifactsEnabled = getTaskRunStateBoolean(
+    taskRun,
+    "slack_living_artifacts_enabled",
+  );
+  if (livingArtifactsEnabled === null) {
+    return null;
+  }
+  return {
+    livingArtifactsEnabled,
+    canvasFileArtifactsEnabled:
+      getTaskRunStateBoolean(taskRun, "slack_canvas_file_artifacts_enabled") ===
+      true,
+  };
+}
+
 // Prompt block we hand the agent when the user attached files but we could not
 // load any of them into the session (missing from the run manifest, no storage
 // path, etc.). Without this the caller falls back to the bare task description —
@@ -380,6 +427,11 @@ export class AgentServer {
   private suppressAdapterTurnComplete = false;
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
+  // How this Slack run may deliver artifacts, resolved from the workspace's
+  // feature flags and Slack scopes when the task starts. Null for runs that
+  // did not come from Slack, and for Slack runs created before the backend
+  // started sending it.
+  private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -1612,6 +1664,10 @@ export class AgentServer {
       preTaskRun,
       "slack_thread_url",
     );
+
+    // Unconditional for the same reason as detectedPrUrl: a re-init on this
+    // instance must not keep the previous run's delivery capability.
+    this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -3545,6 +3601,50 @@ export class AgentServer {
     );
   }
 
+  /**
+   * How this run may hand a deliverable to the Slack thread it is answering in.
+   *
+   * The offer has to match what delivery will actually accept: naming an adapter the
+   * workspace cannot use gets the request rejected server-side after the agent has already
+   * promised the user a canvas or a spreadsheet. The backend resolves that capability from
+   * the workspace's feature flags and Slack scopes when the task starts and hands it to us
+   * on the run state, so the wording lives here and the gating stays there.
+   */
+  private buildSlackDeliveryInstructions(): string {
+    const delivery = this.slackArtifactDelivery;
+    if (!delivery) {
+      return "";
+    }
+
+    if (!delivery.livingArtifactsEnabled) {
+      return `
+## Delivering to Slack
+- You do not have artifact delivery in this workspace: you cannot create or share artifacts (files, canvases, documents) from this run, so do not attempt to. Deliver results as plain text in your reply.
+- Do not attach, upload, link to, or expose run artifacts or local working files, including /tmp/workspace paths.`;
+    }
+
+    const livingArtifactsEndpoint = `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/`;
+    const sharedPreamble = `
+## Delivering to Slack
+- Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
+- Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.`;
+    const internalArtifactsRule = `
+- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, checkpoints, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
+
+    if (!delivery.canvasFileArtifactsEnabled) {
+      return `${sharedPreamble}
+- You do not have canvas or file delivery in this workspace: do not use the \`slack_canvas\` or \`slack_file\` adapters, and do not promise a canvas, uploaded spreadsheet, or downloadable file.
+- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${livingArtifactsEndpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\` using adapter \`slack_message\`. To update a prior deliverable, GET the returned artifact id or POST new \`content\` to \`${livingArtifactsEndpoint}<artifact_id>/edit/\`.${internalArtifactsRule}
+- If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead.`;
+    }
+
+    return `${sharedPreamble}
+- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${livingArtifactsEndpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\`; choose adapter \`slack_canvas\`, \`slack_message\`, \`slack_file\`, or \`document_connector\`. Use \`adapter=slack_file\` with \`content_base64\` for binary deliverables such as .xlsx/.pdf/.docx, or \`source_artifact_id\` / \`source_storage_path\` for a file you already uploaded as a \`type=output\` run artifact.${internalArtifactsRule}
+- To update a prior deliverable, GET the returned artifact id or POST new \`content\`, \`content_base64\`, or source artifact fields to \`${livingArtifactsEndpoint}<artifact_id>/edit/\`.
+- Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending file artifacts to your final answer automatically, so mention the artifact by name only if useful.
+- If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
+  }
+
   private buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -3645,6 +3745,8 @@ Optimize for the fewest shell round trips.
 ## Delivering non-code files (artifacts)
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
+    const slackDeliveryInstructions = this.buildSlackDeliveryInstructions();
+
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
     const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
@@ -3679,7 +3781,7 @@ Do the requested work, but stop with local changes ready for review.
 Important:
 - Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${slackDeliveryInstructions}
 `;
       }
 
@@ -3700,7 +3802,7 @@ After completing the requested changes:
 Important:
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 - Do NOT push fixes for review comments without replying to and resolving each related thread.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${slackDeliveryInstructions}
 `;
     }
 
@@ -3754,7 +3856,7 @@ ${repositoryInstructions}${publishInstructions}
 
 Important:
 - Prefer using MCP tools to answer questions with real data over giving generic advice.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${slackDeliveryInstructions}
 `;
     }
 
@@ -3774,7 +3876,7 @@ ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
 - Always create the PR as a draft.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${slackDeliveryInstructions}
 `;
     }
 
@@ -3804,7 +3906,7 @@ ${prFooter}
 
 Important:
 - Always create the PR as a draft. Do not ask for confirmation.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${slackDeliveryInstructions}
 `;
   }
 
