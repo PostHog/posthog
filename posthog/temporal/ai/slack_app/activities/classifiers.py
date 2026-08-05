@@ -33,6 +33,15 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # falls back to saved preferences.
 MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-5.6-luna"
 MODEL_OVERRIDE_MAX_TOKENS = 2048
+# The gateway client defaults to a 600s read and two retries of its own, which is the
+# right shape for a generation call and the wrong one here: this classifier gates task
+# creation, and its answer is optional — any failure falls back to saved preferences. Left
+# unbounded it never gets to fall back, because the activity's own 600s deadline expires
+# first and fails the mention outright. Bounding the retries matters as much as the
+# deadline: the activity is sync, so a thread Temporal has stopped waiting on keeps
+# blocking until the client itself returns. Measured mean is ~1.7s per call.
+MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
+MODEL_OVERRIDE_MAX_RETRIES = 1
 
 
 def classify_task_needs_repo(
@@ -393,7 +402,9 @@ def classify_slack_app_model_override(
     )
 
     try:
-        client = get_llm_client("slack_app_routing")
+        client = get_llm_client("slack_app_routing").with_options(
+            timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
+        )
         response = client.chat.completions.create(
             model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
