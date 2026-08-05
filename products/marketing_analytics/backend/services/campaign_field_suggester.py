@@ -174,13 +174,27 @@ def _utm_values_by_source(
     row rather than the platform's, so counting it here would claim spend is attributed when
     it isn't. Such a platform reports a 0 rate, which is the truth — the fix it needs is a
     source mapping, which the plan suggests separately.
+
+    Both halves of the key are folded the same way `_candidate_value` folds the campaign side.
+    `get_utm_campaign_catalogue` happens to lowercase already, but that is the caller's habit
+    rather than this function's contract, and the campaign side is folded unconditionally — so a
+    caller passing raw platform values would have every MixedCase name read as unmatched. That
+    reads as "campaign_name matches 0% of spend" for an integration tagged perfectly, which is
+    exactly the false switch this module exists to avoid.
     """
+    aliased = {raw for raws in mappings.campaign_aliases.values() for raw in raws}
+
     values: dict[str, set[str]] = {}
     for (utm_campaign, utm_source), _ in utm_events.items():
-        if not utm_campaign:
+        value = utm_campaign.lower().strip()
+        # A value a manual `campaign_name_mappings` entry already rewrites resolves to its
+        # campaign whichever field is preferred — `build_campaign_lookup` keys aliases off the
+        # campaign name, not the match field. Counting it credits whichever side it happens to
+        # spell like, so it inflates one rate over a hit both sides already get.
+        if not value or value in aliased:
             continue
         primary = resolve_source(utm_source.lower().strip(), mappings)
-        values.setdefault(primary, set()).add(utm_campaign)
+        values.setdefault(primary, set()).add(value)
     return values
 
 

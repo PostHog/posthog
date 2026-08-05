@@ -400,3 +400,35 @@ class TestReporting:
         assert len(suggestions) == 1
         assert suggestions[0].current.spend_rate == 0.0
         assert suggestions[0].suggested_match_field == "campaign_id"
+
+    def test_an_alias_spelled_like_the_campaign_name_is_still_excluded(self):
+        # The test above passes whether or not aliases are excluded: `alias_0` never equals
+        # `camp_0`, so the name rate reads 0 either way. Aliasing each campaign to its own name
+        # is what makes the exclusion observable — counted, the name side reads a perfect 1.0
+        # and no switch is ever suggested; excluded, the id side wins as it should.
+        campaigns = _named_campaigns(10)
+        mappings = TeamMappings(
+            source_to_integration={},
+            campaign_aliases={c.campaign_name: {c.campaign_name} for c in campaigns},
+            field_preferences={},
+        )
+        utm_events = _utm(*[c.campaign_name for c in campaigns], *[c.campaign_id for c in campaigns])
+
+        suggestions = suggest_campaign_field_preferences(campaigns, utm_events, mappings)
+
+        assert len(suggestions) == 1
+        assert suggestions[0].current.spend_rate == 0.0
+        assert suggestions[0].suggested_match_field == "campaign_id"
+
+    def test_a_mixed_case_utm_value_matches_the_campaign_it_names(self):
+        # Ad platforms keep campaign names in the account's own casing and tracking templates
+        # emit them verbatim, so a perfectly tagged Google account can arrive entirely MixedCase.
+        # The campaign side is lowercased unconditionally, so folding only one side reported an
+        # integration matching 100% of its spend by name as matching 0% — and recommended
+        # switching it to campaign_id, which here covers half.
+        campaigns = [_campaign(f"Camp_{i}", str(1000 + i)) for i in range(10)]
+        utm_events = _utm(*[f"Camp_{i}" for i in range(10)], *[str(1000 + i) for i in range(5)])
+
+        suggestions = suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS)
+
+        assert suggestions == []
