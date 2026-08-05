@@ -17,9 +17,7 @@ use crate::symbolication::symbol_store::saving::truncate_ref;
 pub const MAX_RELEASE_METADATA_BYTES: usize = 8 * 1024;
 pub const MAX_RELEASE_TEXT_CHARS: usize = 255;
 
-// Never serialized into the clickhouse-bound event JSON as-is; `to_info` produces the
-// `$exception_release` payload that is.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseRecord {
     pub id: Uuid,
     pub team_id: i32,
