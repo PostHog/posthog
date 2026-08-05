@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconGear, IconHome, IconInfo, IconPeople, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
@@ -292,22 +291,14 @@ function ToolsSection({
     entry: AccessControlSettingsEntry
     subjectNoun: string
 }): JSX.Element {
-    const { resourceKeys, availableResourceLevels, defaults, canEdit } = useValues(accessControlsLogic({ projectId }))
-    const { updateResourceAccessControls } = useActions(accessControlsLogic({ projectId }))
+    const { availableResourceLevels, defaults, canEdit, showAllTools, toolsCollapse } = useValues(
+        accessControlsLogic({ projectId })
+    )
+    const { updateResourceAccessControls, setShowAllTools } = useActions(accessControlsLogic({ projectId }))
     const { user } = useValues(userLogic)
 
     const subjectId = getEntryId(entry)
-    const [showAllTools, setShowAllTools] = useState(false)
-
-    // Tools with a rule of their own sort first, then the rest alphabetically. Show at least 3 rows
-    // (all ruled ones, padded with no-override tools) and collapse the remainder behind a toggle.
-    const hasRule = (key: APIScopeObject): boolean => entry.resources[key]?.access_level != null
-    const ruledCount = resourceKeys.filter((r) => hasRule(r.key)).length
-    const orderedResources = [...resourceKeys].sort((a, b) => Number(hasRule(b.key)) - Number(hasRule(a.key)))
-    const visibleCount = Math.max(ruledCount, 3)
-    const collapsedCount = orderedResources.length - visibleCount
-    const canCollapse = collapsedCount > 3
-    const visibleResources = showAllTools || !canCollapse ? orderedResources : orderedResources.slice(0, visibleCount)
+    const { visibleResources, collapsedCount, canCollapse } = toolsCollapse
 
     // Persist immediately on every change — no explicit save button
     const onResourceChange = (resource: APIScopeObject, level: AccessControlLevel | null): void => {
