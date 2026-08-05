@@ -99,6 +99,14 @@ def toDateTime(input):
     }
 
 
+def date_string_to_seconds(input: str) -> Optional[float]:
+    """Epoch seconds for a date-like string, parsed the same way `toDateTime` would, else None."""
+    try:
+        return datetime.datetime.fromisoformat(input).timestamp()
+    except ValueError:
+        return None
+
+
 # From ClickHouse to Python
 token_translations = {
     "a": "%a",
