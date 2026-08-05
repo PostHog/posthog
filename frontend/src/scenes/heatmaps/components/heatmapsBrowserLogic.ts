@@ -28,7 +28,6 @@ import { PostHogAppToolbarEvent, calculateViewportRange } from 'lib/components/I
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { inStorybookTestRunner } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
 import {
     ReplayIframeData,
@@ -46,8 +45,13 @@ import type { KeyedAppUrl } from '../../../lib/components/AuthorizedUrlList/auth
 import type { HrefMatchType } from '../../../lib/components/heatmaps/heatmapDataLogic'
 import type { HeatmapFilters } from '../../../lib/components/heatmaps/types'
 
+// Exported so a story can pass a huge value (never fires) or 0 (fires immediately) to get
+// deterministic snapshot coverage of the load-failure banner instead of racing the real timer.
+export const IFRAME_LOAD_BANNER_TIMEOUT_MS = 7500
+
 export type HeatmapsBrowserLogicProps = {
     iframeRef: RefObject<HTMLIFrameElement | null>
+    loadBannerTimeoutMs?: number
 }
 
 export interface IFrameBanner {
@@ -752,12 +756,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            // The slow-load banner races the snapshot capture on busy CI runners, making
-            // iframe-story screenshots nondeterministic.
-            if (inStorybookTestRunner()) {
-                return
-            }
-
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     // this timer also runs on scenes that never mount an iframe
@@ -774,7 +772,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                             'The live preview did not load, or is very slow. If this page is public, use a ' +
                             'screenshot instead. If it needs a login, pick a session recording below.',
                     })
-                }, 7500)
+                }, props.loadBannerTimeoutMs ?? IFRAME_LOAD_BANNER_TIMEOUT_MS)
                 return () => clearTimeout(timerId)
             }, 'errorTimeout')
         },

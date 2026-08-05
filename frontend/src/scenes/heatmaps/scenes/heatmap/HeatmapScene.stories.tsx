@@ -1,9 +1,24 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { Meta, StoryObj, type Decorator } from '@storybook/react'
+import { delay, HttpResponse } from 'msw'
 
 import { App } from 'scenes/App'
+import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+// heatmapsBrowserLogic is unkeyed and singleton, so building it here (before the scene renders)
+// seeds loadBannerTimeoutMs on the shared props object. The scene's own build later only
+// supplies iframeRef, which merges in rather than replacing what's already there.
+const withLoadBannerTimeout =
+    (timeoutMs: number): Decorator =>
+    (Story) => {
+        heatmapsBrowserLogic({ iframeRef: { current: null }, loadBannerTimeoutMs: timeoutMs })
+        return <Story />
+    }
+
+// Large enough that the load-failure banner's timer can never race the snapshot capture.
+const NEVER_BANNER_TIMEOUT_MS = 10 * 60 * 1000
 
 const generatingSaved = {
     id: 100,
@@ -83,6 +98,7 @@ export const IframeExample: Story = {
         },
     },
     decorators: [
+        withLoadBannerTimeout(NEVER_BANNER_TIMEOUT_MS),
         mswDecorator({
             get: {
                 '/api/projects/:team_id/saved/hm_iframe/': () => [200, makeIframeSaved()],
@@ -105,6 +121,40 @@ export const IframeExample: Story = {
                         previous: null,
                     },
                 ],
+            },
+        }),
+    ],
+}
+
+const makeIframeLoadFailedSaved = (): Record<string, unknown> => ({
+    ...makeIframeSaved(),
+    id: 102,
+    short_id: 'hm_iframe_fail',
+    name: 'Iframe load failed',
+    url: `${window.location.origin}/mock-page-hangs.html`,
+    data_url: `${window.location.origin}/mock-page-hangs.html`,
+})
+
+export const IframeLoadFailed: Story = {
+    parameters: {
+        pageUrl: urls.heatmap('hm_iframe_fail'),
+        testOptions: {
+            waitForSelector: '.LemonBanner--error',
+            waitForLoadersToDisappear: true,
+        },
+    },
+    decorators: [
+        withLoadBannerTimeout(0),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/saved/hm_iframe_fail/': () => [200, makeIframeLoadFailedSaved()],
+                '/api/projects/:team_id/heatmaps/': () => [200, { results: [], count: 0, next: null, previous: null }],
+                // Never resolves, so the iframe's onload never fires and can't race the timer
+                // into clearing the banner it just set.
+                '/mock-page-hangs.html': async () => {
+                    await delay('infinite')
+                    return new HttpResponse(null, { status: 200 })
+                },
             },
         }),
     ],

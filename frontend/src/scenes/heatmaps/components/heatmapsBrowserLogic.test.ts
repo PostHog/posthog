@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { initKeaTests } from '~/test/init'
 
 import {
+    IFRAME_LOAD_BANNER_TIMEOUT_MS,
     PagePreflight,
     heatmapsBrowserLogic,
     normalizeHeatmapDataUrl,
@@ -139,6 +140,39 @@ describe('heatmapsBrowserLogic', () => {
             logic.actions.setDisplayUrl('https://other.example.com/p')
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.iframeBanner).toBeNull()
+        })
+    })
+
+    describe('load banner timeout', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            document.body.innerHTML = '<iframe id="heatmap-iframe"></iframe>'
+        })
+
+        afterEach(() => {
+            document.body.innerHTML = ''
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        // Locks in that a story (or any other caller) can override the banner's timer instead of
+        // always waiting out the hardcoded default.
+        it.each([
+            ['the default', undefined, IFRAME_LOAD_BANNER_TIMEOUT_MS],
+            ['an override', 100, 100],
+        ] as const)('arms %s timeout', (_name, loadBannerTimeoutMs, timeoutMs) => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null }, loadBannerTimeoutMs })
+            logic.mount()
+
+            jest.useFakeTimers()
+            logic.actions.startTrackingLoading()
+
+            jest.advanceTimersByTime(timeoutMs - 1)
+            expect(logic.values.loadTimeoutBanner).toBeNull()
+
+            jest.advanceTimersByTime(1)
+            expect(logic.values.loadTimeoutBanner?.level).toBe('error')
         })
     })
 })
