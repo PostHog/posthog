@@ -8,10 +8,9 @@ import pytest
 import pyarrow as pa
 
 from products.batch_exports.backend.service import BackfillDetails
+from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
 from products.batch_exports.backend.temporal.spmc import (
-    InvalidFilterError,
     RecordBatchQueue,
-    compose_filters_clause,
     slice_record_batch,
     use_distributed_events_recent_table,
 )

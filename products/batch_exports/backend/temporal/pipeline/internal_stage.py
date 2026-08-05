@@ -48,10 +48,10 @@ from products.batch_exports.backend.service import (
     afetch_last_run_records_completed,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
+from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel, resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
-    compose_filters_clause,
     generate_query_ranges,
     is_5_min_batch_export,
     use_distributed_events_recent_table,

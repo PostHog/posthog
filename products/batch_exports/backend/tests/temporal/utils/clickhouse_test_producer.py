@@ -19,10 +19,10 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.service import BackfillDetails, BatchExportField
+from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
-    compose_filters_clause,
     generate_query_ranges,
     is_5_min_batch_export,
     slice_record_batch,
