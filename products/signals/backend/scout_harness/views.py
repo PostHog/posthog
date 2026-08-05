@@ -1049,8 +1049,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             400: OpenApiResponse(
                 description=(
                     "No structured_output_schema configured for this scout, the channel is off (dry-run "
-                    "scout, or the signals_scout source disabled), a record failed schema validation "
-                    "(nothing written), or a batch/size cap was exceeded."
+                    "scout, org AI-processing consent missing, or the signals_scout source disabled), a "
+                    "record failed schema validation (nothing written), or a batch/size cap was exceeded."
                 )
             ),
             404: OpenApiResponse(description="Run not found for this project."),

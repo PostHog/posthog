@@ -223,7 +223,7 @@ def record_structured_output_sync(
     _assert_team_owns_run(team, run)
     schema = _resolve_schema(team, run)
     _validate_records(records, schema)
-    _reserve_capacity(run=run, count=len(records))
+    _reserve_capacity(team=team, run=run, count=len(records))
     forwards = _build_forwards(run=run, records=records)
     _forward_structured_output_events(team=team, run=run, forwards=forwards)
     _capture_recorded(team=team, run=run, recorded_count=len(records))
@@ -246,7 +246,7 @@ async def record_structured_output(
     _assert_team_owns_run(team, run)
     schema = await database_sync_to_async(_resolve_schema, thread_sensitive=False)(team, run)
     _validate_records(records, schema)
-    await database_sync_to_async(_reserve_capacity, thread_sensitive=False)(run=run, count=len(records))
+    await database_sync_to_async(_reserve_capacity, thread_sensitive=False)(team=team, run=run, count=len(records))
     forwards = _build_forwards(run=run, records=records)
     # One blocking batch HTTP POST; `to_thread` keeps it off the event loop without
     # occupying the DB-thread pool for the HTTP leg.
@@ -344,7 +344,7 @@ def _validate_records(records: list[StructuredOutputRecord], schema: dict[str, A
         )
 
 
-def _reserve_capacity(*, run: SignalScoutRun, count: int) -> None:
+def _reserve_capacity(*, team: Team, run: SignalScoutRun, count: int) -> None:
     """Reserve `count` records against the per-run ceiling and re-check the channel gates,
     in one transaction on the locked run row. Uses the unscoped manager because ownership
     was already validated by the caller.
@@ -354,10 +354,12 @@ def _reserve_capacity(*, run: SignalScoutRun, count: int) -> None:
     committing between them would let events fire after the channel was switched off. The
     lock serializes a concurrent clear against the reservation — whichever commits first
     wins cleanly. The gates that make forwarding permissible at all are checked under the
-    same lock: a dry-run scout (`emit=False`) has no row store to fall back on anymore, so
-    the call fails loudly rather than silently dropping the batch, and a project that
-    disabled the signals_scout source has opted out of scout output entirely (the same
-    inactive-skip rule as the emit/report channels).
+    same lock, mirroring `emit._preflight_emit_gates`: a dry-run scout (`emit=False`) has
+    no row store to fall back on anymore, so the call fails loudly rather than silently
+    dropping the batch; an organization that has not approved AI data processing must not
+    receive AI-generated records into its project; and a project that disabled the
+    signals_scout source has opted out of scout output entirely (the same inactive-skip
+    rule as the emit/report channels).
 
     The counter lives on `run.metadata` (`STRUCTURED_OUTPUT_COUNT_KEY`) and is bumped
     before the forward: it's a flood breaker counting accepted batches, so a forward that
@@ -381,6 +383,12 @@ def _reserve_capacity(*, run: SignalScoutRun, count: int) -> None:
                 "This scout is in dry-run (emit off), so structured-output records — which land as "
                 "events in the project — cannot be recorded. Enable emit on the scout's config "
                 "(scout-config-update) to turn the channel on."
+            )
+        if not team.organization.is_ai_data_processing_approved:
+            raise InvalidStructuredOutputError(
+                "This organization has not approved AI data processing, so structured-output records "
+                "cannot be recorded. An org admin must turn on the 'Enable PostHog features that use "
+                "third-party AI services' toggle in Organization settings → AI service providers."
             )
         if not SignalSourceConfig.is_source_enabled(run.team_id, SOURCE_PRODUCT, SOURCE_TYPE):
             raise InvalidStructuredOutputError(
@@ -428,6 +436,7 @@ def _capture_recorded(*, team: Team, run: SignalScoutRun, recorded_count: int) -
 class _StructuredOutputForward:
     distinct_id: str
     event_uuid: str
+    timestamp: str
     properties: dict[str, Any]
 
 
@@ -435,9 +444,15 @@ def _build_forwards(*, run: SignalScoutRun, records: list[StructuredOutputRecord
     """One customer-facing event per record, into the team's own project. Scalar top-level
     payload keys are flattened to `output_<key>` properties so trends can break down on
     them directly (nested access works too; the flat copy is the ergonomic path), and the
-    full record rides under `output`. Pure assembly — the channel gates (dry-run, source
-    disabled) were already enforced under lock in `_reserve_capacity`, which keeps this
-    callable from the event loop in the async path."""
+    full record rides under `output`. Pure assembly — the channel gates (dry-run, AI
+    consent, source disabled) were already enforced under lock in `_reserve_capacity`,
+    which keeps this callable from the event loop in the async path.
+
+    The event timestamp is the run's `created_at`, not now(): the events table dedupes on
+    a sorting key that includes `toDate(timestamp)`, so a retried batch stamped at capture
+    time would stop collapsing if the retry crossed UTC midnight. A stable timestamp makes
+    the deterministic uuid's retry story exact instead of same-day."""
+    stable_timestamp = run.created_at.isoformat()
     forwards: list[_StructuredOutputForward] = []
     base = {
         "skill_name": run.skill_name,
@@ -468,6 +483,7 @@ def _build_forwards(*, run: SignalScoutRun, records: list[StructuredOutputRecord
                         ),
                     )
                 ),
+                timestamp=stable_timestamp,
                 properties={**base, "subject": record.subject, "output": record.payload, **flattened},
             )
         )
@@ -496,6 +512,7 @@ def _forward_structured_output_events(
                     "distinct_id": forward.distinct_id,
                     "properties": forward.properties,
                     "event_uuid": forward.event_uuid,
+                    "timestamp": forward.timestamp,
                 }
                 for forward in forwards
             ],

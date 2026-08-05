@@ -765,6 +765,9 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         assert events[0]["properties"]["run_id"] == str(run.id)
         assert len({event["event_uuid"] for event in events}) == 3
         assert body["record_ids"] == [event["event_uuid"] for event in events]
+        # A stable timestamp (the run's created_at) keeps the dedupe sorting key — which
+        # includes toDate(timestamp) — identical across retries, even past UTC midnight.
+        assert {event["timestamp"] for event in events} == {run.created_at.isoformat()}
         # The per-run cap counter is the only Postgres trace, on the run row itself.
         run.refresh_from_db()
         assert (run.metadata or {}).get("structured_output_count") == 3
@@ -855,6 +858,24 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "dry-run" in str(response.json())
+        mock_capture.assert_not_called()
+
+    def test_record_output_fails_closed_without_ai_processing_consent(self) -> None:
+        # Mirrors the emit channel's org-level gate: an org that has not approved AI data
+        # processing must not receive AI-generated records into its project.
+        run = self._make_run_with_schema()
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
+            response = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "AI data processing" in str(response.json())
         mock_capture.assert_not_called()
 
     def test_record_output_delivery_failure_is_retryable_with_stable_event_ids(self) -> None:
