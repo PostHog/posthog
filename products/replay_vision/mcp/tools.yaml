@@ -351,6 +351,9 @@ tools:
             with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via
             `vision-scanners-update` instead.
         feature_flag: replay-vision
+    vision-scanners-draft-create:
+        operation: vision_scanners_draft_create
+        enabled: false
     vision-scanners-estimate-create:
         operation: vision_scanners_estimate_create
         enabled: true
