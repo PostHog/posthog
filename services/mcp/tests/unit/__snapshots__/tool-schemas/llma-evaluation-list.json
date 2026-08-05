@@ -5,6 +5,10 @@
             "description": "Filter evaluations by directory UUID.",
             "type": "string"
         },
+        "directory_id__isnull": {
+            "description": "Filter evaluations by whether they are at the top level.",
+            "type": "boolean"
+        },
         "enabled": {
             "description": "Filter by enabled status",
             "type": "boolean"
