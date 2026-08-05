@@ -35,6 +35,8 @@ import {
     SignalsScoutNotesDestroyParams,
     SignalsScoutNotesListQueryParams,
     SignalsScoutProjectProfileGetQueryParams,
+    SignalsScoutRecordOutputBody,
+    SignalsScoutRecordOutputParams,
     SignalsScoutRunsEmissionReportsParams,
     SignalsScoutRunsEmissionsParams,
     SignalsScoutRunsListQueryParams,
@@ -536,6 +538,9 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.structured_output_schema !== undefined) {
+            body['structured_output_schema'] = params.structured_output_schema
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -619,6 +624,9 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         }
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
+        }
+        if (params.structured_output_schema !== undefined) {
+            body['structured_output_schema'] = params.structured_output_schema
         }
         if (params.network_access !== undefined) {
             body['network_access'] = params.network_access
@@ -969,6 +977,28 @@ const scoutProjectProfileGet = (): ToolBase<typeof ScoutProjectProfileGetSchema,
     },
 })
 
+const ScoutRecordOutputSchema = SignalsScoutRecordOutputParams.omit({ project_id: true }).extend(
+    SignalsScoutRecordOutputBody.shape
+)
+
+const scoutRecordOutput = (): ToolBase<typeof ScoutRecordOutputSchema, Schemas.RecordStructuredOutputResponse> => ({
+    name: 'scout-record-output',
+    schema: ScoutRecordOutputSchema,
+    handler: async (context: Context, params: z.infer<typeof ScoutRecordOutputSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.records !== undefined) {
+            body['records'] = params.records
+        }
+        const result = await context.api.request<Schemas.RecordStructuredOutputResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/record-output/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutRunNowSchema = SignalsScoutConfigRunParams.omit({ project_id: true })
 
 const scoutRunNow = (): ToolBase<typeof ScoutRunNowSchema, unknown> => ({
@@ -1185,6 +1215,9 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.structured_output_schema !== undefined) {
+            body['structured_output_schema'] = params.structured_output_schema
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -1277,6 +1310,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
+        }
+        if (params.structured_output_schema !== undefined) {
+            body['structured_output_schema'] = params.structured_output_schema
         }
         if (params.network_access !== undefined) {
             body['network_access'] = params.network_access
@@ -1701,6 +1737,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-notes-delete': scoutNotesDelete,
     'scout-notes-list': scoutNotesList,
     'scout-project-profile-get': scoutProjectProfileGet,
+    'scout-record-output': scoutRecordOutput,
     'scout-run-now': scoutRunNow,
     'scout-runs-emission-reports': scoutRunsEmissionReports,
     'scout-runs-emissions-list': scoutRunsEmissionsList,

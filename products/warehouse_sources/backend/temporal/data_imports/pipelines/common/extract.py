@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
+    MissingPrimaryKeysException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_object_store_error,
@@ -33,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import enrich_death_event_properties
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -144,24 +146,26 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
                 heartbeat_timeout_seconds=heartbeat_timeout.total_seconds(),
             )
 
-            posthoganalytics.capture(
-                "dwh_pod_heartbeat_timeout",
-                distinct_id=None,
-                properties={
-                    "team_id": inputs.team_id,
-                    "schema_id": str(inputs.schema_id),
-                    "source_id": str(inputs.source_id),
-                    "run_id": inputs.run_id,
-                    "host": last_heartbeat_host,
-                    "gap_between_beats": gap_between_beats,
-                    "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
-                    "task_queue": info.task_queue,
-                    "workflow_id": info.workflow_id,
-                    "workflow_run_id": info.workflow_run_id,
-                    "workflow_type": info.workflow_type,
-                    "attempt": info.attempt,
-                },
-            )
+            properties = {
+                "team_id": inputs.team_id,
+                "schema_id": str(inputs.schema_id),
+                "source_id": str(inputs.source_id),
+                "run_id": inputs.run_id,
+                "host": last_heartbeat_host,
+                "gap_between_beats": gap_between_beats,
+                "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
+                "task_queue": info.task_queue,
+                "workflow_id": info.workflow_id,
+                "workflow_run_id": info.workflow_run_id,
+                "workflow_type": info.workflow_type,
+                "attempt": info.attempt,
+            }
+            # What the dead attempt said it was doing, and what its pod neighbours said, at the moment
+            # of death — the per-activity context this event otherwise cannot carry. Adds nothing when
+            # no reports exist.
+            enrich_death_event_properties(properties, run_id=str(inputs.run_id), host=last_heartbeat_host)
+
+            posthoganalytics.capture("dwh_pod_heartbeat_timeout", distinct_id=None, properties=properties)
 
             # Durable per-occurrence OOM record for the repartition trigger to read. Best-effort:
             # a write failure here must never disrupt the sync.
@@ -301,6 +305,8 @@ async def persist_primary_keys(
 def validate_incremental_sync(
     is_incremental: bool,
     resource: SourceResponse,
+    *,
+    is_first_sync: bool = True,
 ) -> None:
     # Check for duplicate primary keys
     if is_incremental and resource.has_duplicate_primary_keys:
@@ -308,6 +314,13 @@ def validate_incremental_sync(
             f"The primary keys for this table are not unique. We can't sync incrementally until the table "
             f"has a unique primary key. Primary keys being used are: {resource.primary_keys}"
         )
+
+    # The Delta merge needs a key to match rows on, so a keyless incremental table fails once a
+    # table already exists. Raise before extraction rather than letting the writer hit it mid-load:
+    # on pipeline v3 the write happens in the load consumer, which can only fail the job, so the
+    # schema is never paused and the same doomed run repeats on every schedule.
+    if is_incremental and not is_first_sync and not resource.primary_keys:
+        raise MissingPrimaryKeysException()
 
 
 async def setup_row_tracking_with_billing_check(
