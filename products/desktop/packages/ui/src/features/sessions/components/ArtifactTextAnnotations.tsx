@@ -197,7 +197,10 @@ export function ArtifactTextAnnotations({
   ]);
 
   const recalculateRef = useRef(recalculate);
-  recalculateRef.current = recalculate;
+
+  useEffect(() => {
+    recalculateRef.current = recalculate;
+  }, [recalculate]);
 
   useEffect(() => recalculate(), [recalculate]);
 
