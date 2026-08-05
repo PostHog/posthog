@@ -87,8 +87,10 @@ def validate_credentials(organization: str, agent_email: str, api_token: str) ->
             f"{base_url}/agents",
             timeout=15,
         )
-    except Exception as e:
-        return False, f"Could not connect to Gladly at {host}. Check your organization subdomain. {e}"
+    except Exception:
+        # The tracked session already logs the URL and exception class, so the message
+        # stays readable instead of surfacing urllib3 retry and TLS internals.
+        return False, f"Could not connect to Gladly at {host}. Check your organization subdomain."
 
     if response.status_code == 200:
         return True, None
