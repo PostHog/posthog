@@ -64,6 +64,13 @@ fails every concurrently-running PR. A failure appearing on many unrelated branc
 window is the signature of a master-merge break, not of those PRs' code. Tell the asker explicitly
 when their PR is not at fault — that is usually the single most valuable sentence in the answer.
 
+**A branch named `trunk-merge/pr-<n>/<uuid>` is the exception to row 1.** It is a Trunk merge queue
+branch, holding master plus every PR ahead of `<n>` in the queue; a hundred commits from other people
+is normal. It reads as "1 branch, so PR `<n>`'s own problem" while being close to the opposite — the
+PR it is named after contributes the topmost commits, and the rest is other people's code. Attribute
+it as you would a trunk break, and re-check any `pr_only` verdict carrying this branch shape before
+repeating it. These branches are a fifth of recent job rows, not an edge case.
+
 ## Trunk break → culprit
 
 Run the boundary query (query 2): master-only job history for the failing job, ordered by
@@ -99,6 +106,11 @@ threshold aren't recorded, so there is no honest denominator.
 - **Fingerprints are pytest-only (v1).** Jest / playwright / cargo failures appear in the raw
   failure logs but are not in `ci_failures`. For those, fall back to grouped triage via the
   `engineering-analytics-master-failures` / `engineering-analytics-ci-failure-logs` MCP tools.
+- **A job that failed before its tests ran is invisible to every test-level surface.** No `FAILED`
+  line means no fingerprint, no span, nothing for the flaky-tests tool to read — the failure is real
+  but the test-level answer is silence, not "fine". Setup, docker, and runner failures are only
+  visible as job conclusions (query 7), which is also the one surface here that yields an honest
+  rate, since it records greens.
 - **Freshness differs per source.** Logs stream in near-real-time; the warehouse jobs/runs tables
   arrive via webhook sync and can lag. During a live incident, start from `ci_failures` and check
   the warehouse's `max(created_at)` before trusting a boundary (query 5). A boundary computed
@@ -125,6 +137,7 @@ threshold aren't recorded, so there is no honest denominator.
 | "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)  |
 | "Who broke master / when did X start?" | The two views, workflow above                                          |
 | "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                        |
+| "Is this setup/infra failure common?"  | Job conclusions, query 7 (no test rows exist for it)                   |
 | "What's failing on master right now?"  | `engineering-analytics-master-failures` MCP tool (grouped triage feed) |
 | "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                        |
 | "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                |

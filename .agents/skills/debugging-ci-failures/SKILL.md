@@ -118,6 +118,18 @@ Determine the target in this order:
    `gh pr view --json number,headRefName,statusCheckRollup`.
 3. If neither works, ask the user for a PR URL or run ID. Do not guess.
 
+**A PR kicked from the merge queue is the exception: its own checks are the
+wrong target.** Trunk tests each queued PR on a `trunk-merge/pr-<n>/<uuid>`
+branch holding master plus every PR ahead of it in the queue. So:
+
+- The failing run is on that branch, never on the PR's head SHA. Take it from
+  the `Trunk Merge Queue` check run (`/merging-prs` step 4), not `gh pr checks`.
+- The PR's own checks can be green with the failing job **skipped**. Path
+  filters see only that PR's diff; the queue branch's diff is much wider. A
+  docs-only PR can be kicked by a job its own CI never ran.
+- The branch names one PR but carries many. A failure on it is not evidence
+  against that PR until you find the change that caused it.
+
 Inspect read-only:
 
 ```bash
@@ -133,6 +145,12 @@ enough surrounding output:
 ```bash
 gh run view <run-id> --log --job <job-id>
 ```
+
+Given a run id, the `engineering-analytics-run-failure-logs` MCP tool returns
+every failed job's error region with original line numbers, already thinned.
+One call instead of a jobs listing plus a log download, and it works when the
+job died before any test ran. It is bounded by Logs retention, so fall back to
+`gh` for older runs.
 
 Extract these before classifying:
 
@@ -160,23 +178,46 @@ history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 
 ## Classification
 
-| Signal in the log                                                        | Class               | First action                                                       |
-| ------------------------------------------------------------------------ | ------------------- | ------------------------------------------------------------------ |
-| `AssertionError`, test diff, `FAILED test_...` in a committed test file  | code regression     | reproduce with `hogli test <path>::<test>`                         |
-| Test failed here, passed on `master` or on rerun in the same PR          | flaky test          | confirm against `master` history; to fix, use `fixing-flaky-tests` |
-| `ruff`, `oxlint`, `stylelint`, `markdownlint`, `prettier` errors         | lint                | `hogli lint:python:fix` or `hogli format` on touched files         |
-| `mypy`, `pyright`, `tsc`, `typescript:check` errors                      | typecheck           | run the same checker locally, not the full suite                   |
-| Chromatic / Storybook / Playwright visual diff, snapshot mismatch        | snapshot / visual   | surface the diff URL; do NOT auto-accept snapshots                 |
-| `manage.py migrate` error, `migrations:check` failure, missing migration | migration / schema  | `hogli migrations:check` locally                                   |
-| OpenAPI schema diff, generated API types out of sync                     | codegen drift       | `hogli build:openapi`                                              |
-| `Cannot connect`, `ECONNREFUSED`, OOM, runner killed, setup step timeout | infra / runner      | treat as transient; report, do not fix                             |
-| `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles       |
-| `hogli lint:skills`, `hogli build:skills` failure                        | skills build        | run the same `hogli` command locally                               |
-| SDK compat check, `ci-survey-sdk-check`, cross-version failure           | SDK compatibility   | check SDK version matrix for the affected package                  |
+| Signal in the log                                                                                  | Class               | First action                                                       |
+| -------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------ |
+| `AssertionError`, test diff, `FAILED test_...` in a committed test file                            | code regression     | reproduce with `hogli test <path>::<test>`                         |
+| Test failed here, passed on `master` or on rerun in the same PR                                    | flaky test          | confirm against `master` history; to fix, use `fixing-flaky-tests` |
+| `ruff`, `oxlint`, `stylelint`, `markdownlint`, `prettier` errors                                   | lint                | `hogli lint:python:fix` or `hogli format` on touched files         |
+| `mypy`, `pyright`, `tsc`, `typescript:check` errors                                                | typecheck           | run the same checker locally, not the full suite                   |
+| Chromatic / Storybook / Playwright visual diff, snapshot mismatch                                  | snapshot / visual   | surface the diff URL; do NOT auto-accept snapshots                 |
+| `manage.py migrate` error, `migrations:check` failure, missing migration                           | migration / schema  | `hogli migrations:check` locally                                   |
+| OpenAPI schema diff, generated API types out of sync                                               | codegen drift       | `hogli build:openapi`                                              |
+| `Cannot connect`, `ECONNREFUSED`, `address already in use`, OOM, runner killed, setup step timeout | infra / runner      | get the base rate before calling it transient (below)              |
+| `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures                           | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles       |
+| `hogli lint:skills`, `hogli build:skills` failure                                                  | skills build        | run the same `hogli` command locally                               |
+| SDK compat check, `ci-survey-sdk-check`, cross-version failure                                     | SDK compatibility   | check SDK version matrix for the affected package                  |
 
 If multiple signals match, choose the most specific class. For example, prefer
 codegen drift over lint, migration over typecheck, and snapshot / visual over a
 generic Playwright test failure.
+
+## Base rate for infra and setup failures
+
+"Transient" is a claim about how often the job fails, so do not assert it from
+one run. A job that dies before its tests run leaves no test-level evidence
+anywhere — no `FAILED` line, so nothing in the failure logs, the digest, or the
+flaky-tests tool. Job conclusions are the only substrate that sees it.
+
+Unlike the span-derived test reads, this one can give you a real rate: the
+warehouse records every job attempt, greens included, so the denominator is
+honest. Query 7 in
+`products/engineering_analytics/skills/investigating-ci-failures/references/investigation-queries.md`
+is copy-ready; that skill also owns the wider investigation and is worth reading
+directly, as it is a product skill and not invocable from this repo.
+
+Read the result as:
+
+- **Low percentage, recent hours mostly green** — transient. Report and move on;
+  for a queued PR, re-enqueueing is the next step, not a code change.
+- **Recent hours entirely red** — an outage, not a flake. Say so, and stop
+  telling people to retry.
+- **Steady over days** — a standing defect somebody owns. Worth a ticket even
+  though each occurrence looks like noise.
 
 ## Local reproduction
 
