@@ -351,11 +351,6 @@ export const manifest: ProductManifest = {
         aiObservabilityCluster: (runId: string, clusterId: number | string): string =>
             `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     },
-    // Keep in sync with the detection logic in aiObservabilitySharedLogic (hasRecentAIEvents).
-    setupProbe: {
-        productKey: ProductKey.AI_OBSERVABILITY,
-        hasDataEvents: ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'],
-    },
     fileSystemTypes: {},
     treeItemsNew: [],
     treeItemsProducts: [
