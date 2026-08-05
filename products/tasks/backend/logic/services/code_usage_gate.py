@@ -12,7 +12,6 @@ from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.access import has_tasks_access
 from products.tasks.backend.metrics import observe_code_usage_gate_check
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
@@ -137,21 +136,6 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     return payload
 
 
-def code_access_required_response(user) -> Response | None:
-    if has_tasks_access(user):
-        return None
-    return Response(
-        TaskRunErrorResponseSerializer(
-            {
-                "type": "permission_denied",
-                "code": "code_access_required",
-                "error": "PostHog Desktop access is required to run tasks in the cloud.",
-            }
-        ).data,
-        status=status.HTTP_403_FORBIDDEN,
-    )
-
-
 def usage_limit_response(user, team_id: int) -> Response | None:
     """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 
@@ -172,13 +156,3 @@ def usage_limit_response(user, team_id: int) -> Response | None:
         TaskRunErrorResponseSerializer(rate_limit_error_payload(usage)).data,
         status=status.HTTP_429_TOO_MANY_REQUESTS,
     )
-
-
-def cloud_usage_limit_response(user, team_id: int) -> Response | None:
-    """Desktop waitlist access first (fails closed), then the usage backstop.
-
-    For background paths that dispatch a cloud run on a user's behalf — a scheduled Loop fire —
-    where the creator's Desktop access has to still hold at fire time. Request paths that only
-    need the cost backstop call ``usage_limit_response`` directly.
-    """
-    return code_access_required_response(user) or usage_limit_response(user, team_id)

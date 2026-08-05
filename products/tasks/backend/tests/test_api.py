@@ -41,9 +41,8 @@ from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskAr
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
-    cloud_usage_limit_response,
-    code_access_required_response,
     get_posthog_code_usage,
+    usage_limit_response,
 )
 from products.tasks.backend.logic.services.connection_token import (
     create_sandbox_event_ingest_token,
@@ -4490,7 +4489,8 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_sync_schedule.assert_called_once_with(automation)
 
     @patch("products.tasks.backend.automation_service.sync_automation_schedule")
-    def test_create_automation_requires_code_access(self, mock_sync_schedule):
+    def test_create_automation_without_code_access(self, mock_sync_schedule):
+        # `tasks` gates the Desktop client's UI, not the API.
         self.set_tasks_feature_flag(False)
 
         response = self.client.post(
@@ -4505,10 +4505,9 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertFalse(TaskAutomation.objects.exists())
-        mock_sync_schedule.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(TaskAutomation.objects.exists())
+        mock_sync_schedule.assert_called_once()
 
     def test_list_automations(self):
         automation = self.create_automation()
@@ -4623,7 +4622,7 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_sync_schedule.assert_called_once_with(automation)
 
     @patch("products.tasks.backend.automation_service.sync_automation_schedule")
-    def test_enable_automation_requires_code_access(self, mock_sync_schedule):
+    def test_enable_automation_without_code_access(self, mock_sync_schedule):
         automation = self.create_automation()
         automation.enabled = False
         automation.save(update_fields=["enabled", "updated_at"])
@@ -4635,11 +4634,10 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         automation.refresh_from_db()
-        self.assertFalse(automation.enabled)
-        mock_sync_schedule.assert_not_called()
+        self.assertTrue(automation.enabled)
+        mock_sync_schedule.assert_called_once()
 
     @patch("products.tasks.backend.facade.api._sync_automation_schedule")
     def test_update_automation_rolls_back_automation_when_task_update_fails(self, mock_sync_schedule):
@@ -4680,15 +4678,14 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_run_task_automation.assert_called_once_with(str(automation.id))
 
     @patch("products.tasks.backend.automation_service.run_task_automation")
-    def test_run_requires_code_access(self, mock_run_task_automation):
+    def test_run_without_code_access(self, mock_run_task_automation):
         self.set_tasks_feature_flag(False)
         automation = self.create_automation()
 
         response = self.client.post(f"/api/projects/@current/task_automations/{automation.id}/run/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        mock_run_task_automation.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_run_task_automation.assert_called_once_with(str(automation.id))
 
 
 _PR_URL = "https://github.com/posthog/posthog-js/pull/1"
@@ -10605,7 +10602,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
-    def test_warm_without_code_access_returns_403_before_provisioning(self, _mock_warm_enabled, mock_warm):
+    def test_warm_without_code_access_still_provisions(self, _mock_warm_enabled, mock_warm):
         self.set_tasks_feature_flag(False)
 
         response = self.client.post(
@@ -10614,9 +10611,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        mock_warm.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
@@ -10853,26 +10848,19 @@ class TestGetPosthogCodeUsage(TestCase):
         mock_token.assert_not_called()
 
 
-class TestCloudUsageGateResponse(SimpleTestCase):
+class TestUsageLimitResponse(SimpleTestCase):
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access")
-    def test_missing_code_access_returns_403_before_usage_check(self, mock_access, mock_usage):
-        mock_access.return_value = False
+    def test_over_limit_response_is_structured(self, mock_usage):
+        mock_usage.return_value = CodeUsageStatus(
+            is_rate_limited=True, limit_type="burst", reset_at="2026-06-09T00:00:00Z", is_pro=False
+        )
 
-        response = cloud_usage_limit_response(MagicMock(), 1)
-
-        assert response is not None
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["code"], "code_access_required")
-        mock_usage.assert_not_called()
-
-    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access", return_value=False)
-    def test_code_access_required_response_is_structured(self, _mock_access):
-        response = code_access_required_response(MagicMock())
+        response = usage_limit_response(MagicMock(), 1)
 
         assert response is not None
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["code"], "code_access_required")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.data["code"], "usage_limit_exceeded")
+        self.assertEqual(response.data["limit_type"], "burst")
 
 
 def _make_custom_image(*, team: Team, user: User, **kwargs) -> SandboxCustomImage:
