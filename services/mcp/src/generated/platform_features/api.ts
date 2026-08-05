@@ -364,6 +364,10 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
         ),
     search: zod.string().min(1).optional().describe('Full-text search within comment content.'),
     source_comment: zod.string().min(1).optional().describe('Filter replies to a specific parent comment.'),
+    task_id: zod
+        .string()
+        .optional()
+        .describe('Owning task for task, task_artifact, and desktop_canvas comment scopes.'),
 })
 
 export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({

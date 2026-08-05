@@ -488,6 +488,7 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
                 scope: params.scope,
                 search: params.search,
                 source_comment: params.source_comment,
+                task_id: params.task_id,
             },
         })
         return result
