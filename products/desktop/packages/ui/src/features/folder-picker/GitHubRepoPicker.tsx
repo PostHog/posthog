@@ -22,12 +22,31 @@ import { defaultFilter } from "cmdk";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 
 const COMBOBOX_INITIAL_LIMIT = 50;
+const LOAD_MORE_INDICATOR_DELAY_MS = 200;
+const LOAD_MORE_SENTINEL = "\0loading-more";
+
+function useDelayedVisibility(visible: boolean, delay: number): boolean {
+  const [delayedVisible, setDelayedVisible] = useState(false);
+
+  useEffect(() => {
+    if (!visible) {
+      setDelayedVisible(false);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setDelayedVisible(true), delay);
+    return () => window.clearTimeout(timeout);
+  }, [delay, visible]);
+
+  return delayedVisible;
+}
 
 interface GitHubRepoPickerProps {
   value: string | null;
   onChange: (repo: string | null) => void;
   repositories: string[];
   isLoading: boolean;
+  isLoadingMore?: boolean;
   placeholder?: string;
   size?: "1" | "2";
   disabled?: boolean;
@@ -50,6 +69,7 @@ export function GitHubRepoPicker({
   onChange,
   repositories,
   isLoading,
+  isLoadingMore = false,
   placeholder = "Select repository...",
   size = "1",
   disabled = false,
@@ -95,6 +115,13 @@ export function GitHubRepoPicker({
     );
   }, [repositories, trimmedSearchQuery]);
   const hasMore = controlledHasMore ?? filteredRepositoryCount > visibleLimit;
+  const showLoadingMore = useDelayedVisibility(
+    isLoadingMore,
+    LOAD_MORE_INDICATOR_DELAY_MS,
+  );
+  const items = showLoadingMore
+    ? [...repositories, LOAD_MORE_SENTINEL]
+    : repositories;
 
   useEffect(() => {
     if (onlyRepo && value !== onlyRepo) {
@@ -175,8 +202,9 @@ export function GitHubRepoPicker({
 
   return (
     <Combobox
-      items={repositories}
-      limit={visibleLimit}
+      items={items}
+      filter={remoteMode ? null : undefined}
+      limit={remoteMode ? undefined : visibleLimit}
       value={value}
       onValueChange={(v) => {
         onChange(v ? (v as string) : null);
@@ -280,11 +308,23 @@ export function GitHubRepoPicker({
             }
           }}
         >
-          {(repo: string) => (
-            <ComboboxItem key={repo} value={repo}>
-              {repo}
-            </ComboboxItem>
-          )}
+          {(repo: string) =>
+            repo === LOAD_MORE_SENTINEL ? (
+              <output
+                key={repo}
+                className="flex h-9 items-center justify-center gap-2 px-3"
+              >
+                <Spinner className="size-3.5" />
+                <Text size="xs" variant="muted">
+                  Loading more
+                </Text>
+              </output>
+            ) : (
+              <ComboboxItem key={repo} value={repo}>
+                {repo}
+              </ComboboxItem>
+            )
+          }
         </ComboboxList>
       </ComboboxContent>
     </Combobox>

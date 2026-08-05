@@ -1,9 +1,11 @@
-import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GitHubRepoPicker } from "./GitHubRepoPicker";
 
 describe("GitHubRepoPicker", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("loads the next page once when the results reach the scroll end", () => {
     const onLoadMore = vi.fn();
     const { container } = render(
@@ -39,5 +41,61 @@ describe("GitHubRepoPicker", () => {
     fireEvent.scroll(list);
 
     expect(onLoadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the current page in place while the next page loads", () => {
+    vi.useFakeTimers();
+    const firstPage = Array.from(
+      { length: 50 },
+      (_, index) => `posthog/repository-${index}`,
+    );
+    const props = {
+      value: null,
+      onChange: vi.fn(),
+      isLoading: false,
+      open: true,
+      onOpenChange: vi.fn(),
+      searchQuery: "",
+      onSearchQueryChange: vi.fn(),
+      hasMore: true,
+      onLoadMore: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <GitHubRepoPicker {...props} repositories={firstPage} isLoadingMore />,
+    );
+    const list = container.ownerDocument.querySelector(
+      "[data-slot='combobox-list']",
+    );
+    if (!(list instanceof HTMLElement)) {
+      throw new Error("Expected the repository results list to render");
+    }
+    list.scrollTop = 240;
+
+    expect(screen.getByText("posthog/repository-0")).toBeInTheDocument();
+    expect(screen.queryByText("Loading more")).not.toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(200));
+
+    expect(screen.getByText("Loading more")).toBeInTheDocument();
+    expect(list.scrollTop).toBe(240);
+
+    rerender(
+      <GitHubRepoPicker
+        {...props}
+        repositories={[
+          ...firstPage,
+          ...Array.from(
+            { length: 50 },
+            (_, index) => `posthog/repository-${index + 50}`,
+          ),
+        ]}
+        isLoadingMore={false}
+      />,
+    );
+
+    expect(screen.getByText("posthog/repository-0")).toBeInTheDocument();
+    expect(screen.getByText("posthog/repository-99")).toBeInTheDocument();
+    expect(screen.queryByText("Loading more")).not.toBeInTheDocument();
+    expect(list.scrollTop).toBe(240);
   });
 });

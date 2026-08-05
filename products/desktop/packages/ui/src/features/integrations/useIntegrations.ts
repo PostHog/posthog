@@ -143,6 +143,25 @@ function useAllUserGithubRepositories(
 
 const REPOSITORIES_PAGE_SIZE = 50;
 
+function useRepositoryPickerLimit(resetKey: string) {
+  const [request, setRequest] = useState({
+    key: resetKey,
+    limit: REPOSITORIES_PAGE_SIZE,
+  });
+  const requestedLimit =
+    request.key === resetKey ? request.limit : REPOSITORIES_PAGE_SIZE;
+  const loadMore = useCallback(() => {
+    setRequest((current) => ({
+      key: resetKey,
+      limit:
+        (current.key === resetKey ? current.limit : REPOSITORIES_PAGE_SIZE) +
+        REPOSITORIES_PAGE_SIZE,
+    }));
+  }, [resetKey]);
+
+  return { requestedLimit, loadMore };
+}
+
 export function useGithubRepositories(
   search?: string,
   enabled: boolean = true,
@@ -160,13 +179,10 @@ export function useGithubRepositories(
     [githubIntegrations, integrationId],
   );
   const deferredSearch = useDeferredValue(search?.trim() ?? "");
-  const [requestedLimit, setRequestedLimit] = useState(REPOSITORIES_PAGE_SIZE);
+  const paginationKey = `${matchingGithubIntegrations.map((integration) => integration.id).join(",")}:${deferredSearch}`;
+  const { requestedLimit, loadMore } = useRepositoryPickerLimit(paginationKey);
   const queryEnabled =
     enabled && !!client && matchingGithubIntegrations.length > 0;
-
-  useEffect(() => {
-    setRequestedLimit(REPOSITORIES_PAGE_SIZE);
-  }, []);
 
   const { repositoryMap, isPending, isRefreshing, hasMore } = useQueries({
     queries: matchingGithubIntegrations.map((integration) => ({
@@ -195,9 +211,8 @@ export function useGithubRepositories(
     combine: combineRepositoryPicker<number>,
   });
 
-  const loadMore = useCallback(() => {
-    setRequestedLimit((currentLimit) => currentLimit + REPOSITORIES_PAGE_SIZE);
-  }, []);
+  const isFetchingMore =
+    requestedLimit > REPOSITORIES_PAGE_SIZE && isRefreshing;
 
   const getIntegrationIdForRepository = useCallback(
     (repoKey: string) => getIntegrationIdForRepo(repositoryMap, repoKey),
@@ -207,7 +222,8 @@ export function useGithubRepositories(
   return {
     repositories: Object.keys(repositoryMap),
     getIntegrationIdForRepo: getIntegrationIdForRepository,
-    isPending: queryEnabled ? isPending : false,
+    isPending: queryEnabled ? isPending && !isFetchingMore : false,
+    isFetchingMore: queryEnabled ? isFetchingMore : false,
     isRefreshing: queryEnabled ? isRefreshing : false,
     hasMore,
     loadMore,
@@ -221,12 +237,9 @@ export function useUserGithubRepositories(
   const client = useOptionalAuthenticatedClient();
   const { data: githubIntegrations = [] } = useUserGithubIntegrations();
   const deferredSearch = useDeferredValue(search?.trim() ?? "");
-  const [requestedLimit, setRequestedLimit] = useState(REPOSITORIES_PAGE_SIZE);
+  const paginationKey = `${githubIntegrations.map((integration) => integration.installation_id).join(",")}:${deferredSearch}`;
+  const { requestedLimit, loadMore } = useRepositoryPickerLimit(paginationKey);
   const queryEnabled = enabled && !!client && githubIntegrations.length > 0;
-
-  useEffect(() => {
-    setRequestedLimit(REPOSITORIES_PAGE_SIZE);
-  }, []);
 
   const { repositoryMap, isPending, isRefreshing, hasMore } = useQueries({
     queries: githubIntegrations.map((integration) => ({
@@ -255,18 +268,19 @@ export function useUserGithubRepositories(
       },
       enabled: queryEnabled,
       staleTime: 5 * 60 * 1000,
+      placeholderData: (prev: unknown) => prev,
       meta: AUTH_SCOPED_QUERY_META,
     })),
     combine: combineRepositoryPicker<UserRepositoryIntegrationRef>,
   });
 
-  const loadMore = useCallback(() => {
-    setRequestedLimit((currentLimit) => currentLimit + REPOSITORIES_PAGE_SIZE);
-  }, []);
+  const isFetchingMore =
+    requestedLimit > REPOSITORIES_PAGE_SIZE && isRefreshing;
 
   return {
     repositories: Object.keys(repositoryMap),
-    isPending: queryEnabled ? isPending : false,
+    isPending: queryEnabled ? isPending && !isFetchingMore : false,
+    isFetchingMore: queryEnabled ? isFetchingMore : false,
     isRefreshing: queryEnabled ? isRefreshing : false,
     hasMore,
     loadMore,

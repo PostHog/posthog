@@ -55,6 +55,7 @@ function AddRepositoryPopover({
     repositories,
     getIntegrationIdForRepo,
     isPending,
+    isFetchingMore,
     hasMore,
     loadMore,
   } = useGithubRepositories(query, true, integrationId);
@@ -67,6 +68,7 @@ function AddRepositoryPopover({
       value={null}
       repositories={available}
       isLoading={isPending}
+      isLoadingMore={isFetchingMore}
       placeholder={label}
       open={open}
       onOpenChange={(next) => {
