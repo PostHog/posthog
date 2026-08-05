@@ -4,8 +4,6 @@
 # remove its objects. Must reach empty by Phase 4, after which the file is dropped.
 posthog.ai_events
 posthog.channel_definition
-posthog.channel_definition_dict
-posthog.cohortpeople
 posthog.events
 posthog.events_main
 posthog.events_recent
@@ -14,16 +12,8 @@ posthog.kafka_hog_invocation_results
 posthog.kafka_logs34_avro_mv
 posthog.kafka_logs_avro_billing_metrics_mv
 posthog.kafka_trace_spans_avro_mv
-posthog.person
-posthog.person_distinct_id2
-posthog.person_distinct_id_overrides
-posthog.person_static_cohort
-posthog.raw_sessions
 posthog.raw_sessions_v3
-posthog.sessions
 posthog.sharded_events_recent
 posthog.sharded_ingestion_warnings
 posthog.sharded_tophog
-posthog.web_pre_aggregated_teams
-posthog.web_pre_aggregated_teams_dict
 posthog.writable_events_recent

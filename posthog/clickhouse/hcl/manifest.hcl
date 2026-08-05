@@ -50,10 +50,10 @@ role "logs" {
 # env-uniform person / person_distinct_id2 Distributed shims (0240). dev currently
 # has only the top-level shared objects (per the latest dump).
 role "ai_events" {
-  env "local-multi"   { layers = ["roles/shared", "roles/ai_events/shared", "roles/ai_events/local"] }
+  env "local-multi"   { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local"] }
   env "dev"     { layers = ["roles/shared"] }
-  env "prod-us" { layers = ["roles/shared", "roles/ai_events/shared", "roles/ai_events/prod"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/ai_events/shared", "roles/ai_events/prod"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
 }
 
 # AUX satellite: auxiliary tables (error tracking, hog invocations, message assets,
@@ -76,8 +76,8 @@ role "aux" {
 # has writable_events_recent). prod goldens are dump-baselined (not live-verifiable here).
 role "sessions" {
   env "local-multi"   { layers = ["roles/shared"] }
-  env "prod-us" { layers = ["roles/shared", "roles/sessions/shared", "roles/sessions/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/sessions/shared", "roles/sessions/prod-eu"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/sessions/shared", "roles/sessions/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/sessions/shared", "roles/sessions/prod-eu"] }
 }
 
 # SESSIONSV3 satellite: US-only node hosting the v3 session tables (events replica,
@@ -102,7 +102,7 @@ role "batch_exports" {
 # columns per env that are added out-of-band and churn constantly, so their goldens
 # live in PostHog/posthog-cloud-infra (clickhouse/hcl/), not the OSS gate.
 role "data" {
-  env "local-multi" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/data/local"] }
+  env "local-multi" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/ai_events_data", "roles/data/local"] }
 }
 
 # role "endpoints" {
