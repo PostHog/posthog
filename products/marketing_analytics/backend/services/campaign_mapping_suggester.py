@@ -69,8 +69,13 @@ UNSCOPED_SCORE_CUTOFF = 93.0
 BATCH_SCORE = 95.0
 BATCH_MARGIN = 15.0
 
-# How many candidates to rank per orphan. 3 is enough to measure the margin.
+# How many candidates to keep per orphan. 3 is enough to measure the margin.
 TOP_N_CANDIDATES = 3
+
+# Extra candidates to rank before the period filter runs, so a quarterly family can't fill
+# every slot and hide a real match underneath it. A campaign named per quarter yields at most
+# four siblings, so four times the window clears the worst realistic case.
+CANDIDATE_HEADROOM = 4
 
 # Tokens that mean "same campaign family, different period/instance". A pair whose
 # only differences are these is a sibling, not a typo.
@@ -160,7 +165,9 @@ def suggest_campaign_name_mappings(
     # Campaigns whose match value already shows up in the catalogue are linked and
     # working. Mapping an orphan onto one would pile a second campaign's traffic onto
     # a row that's already attributing correctly, so they're not valid targets.
-    seen_utm_campaigns = {utm_campaign for utm_campaign, _ in utm_events if utm_campaign}
+    # Lowercased because the lookup below compares a lowercased candidate: leaving the
+    # original casing here let any campaign tagged with capitals slip past the guard.
+    seen_utm_campaigns = {utm_campaign.lower() for utm_campaign, _ in utm_events if utm_campaign}
 
     orphans = _orphans(utm_events, already_matched | already_mapped)
     considered = [o for o in orphans if o.event_count >= min_event_count][:max_unmatched_values]
@@ -319,15 +326,19 @@ def _classify(
         if value not in by_value or campaign.spend > by_value[value].spend:
             by_value[value] = campaign
 
+    # Ranked with headroom, then truncated *after* the period filter. Taking the top N first
+    # would let a quarterly family — which scores ~96 across every sibling — fill all N slots
+    # and bury a genuine typo match below them, reporting the orphan as unresolvable.
     ranked = fuzzy_rank(
         orphan.raw_utm_campaign,
         list(by_value),
         score_cutoff=cutoff,
-        limit=TOP_N_CANDIDATES,
+        limit=TOP_N_CANDIDATES * CANDIDATE_HEADROOM,
     )
     # Drop period-siblings before measuring the margin: otherwise `brand_q2` sitting
     # at 96 next to `brand_q1` at 96 reads as "ambiguous" when it's simply not a match.
     ranked = [(value, score) for value, score in ranked if not differs_only_by_period(orphan.raw_utm_campaign, value)]
+    ranked = ranked[:TOP_N_CANDIDATES]
 
     if not ranked:
         result.unresolved.append(

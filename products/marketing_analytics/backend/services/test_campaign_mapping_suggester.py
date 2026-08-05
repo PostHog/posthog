@@ -104,6 +104,38 @@ class TestProposals:
         assert len(result.proposals) == 1
         assert result.proposals[0].clean_name == "promo_1234x"
 
+    def test_a_campaign_already_receiving_traffic_is_never_a_target(self):
+        # Mapping an orphan onto a campaign that already attributes correctly piles two
+        # campaigns' spend onto one row. The guard compared a lowercased candidate against
+        # a set built with original casing, so any campaign whose utm_campaign carries
+        # capitals slipped through it.
+        campaigns = [_campaign("Spring_Sale_2024", spend=8200.0)]
+        utm_events = _events(
+            ("Spring_Sale_2024", "google", 900),  # already linked, mixed case
+            ("sprng_sale_2024", "google", 500),  # the orphan that must not land on it
+        )
+
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+
+        assert result.proposals == []
+
+    def test_a_quarterly_family_does_not_bury_a_real_match(self):
+        # The period filter runs after ranking, so taking the top 3 first let the q2/q3/q4
+        # siblings — 93.33 each, then all discarded — fill every slot and bury the campaign
+        # that actually owns this traffic at 92.86. The orphan came back "unresolvable" while
+        # its target sat one rank below. Here the platform campaign carries the typo, not the URL.
+        campaigns = [
+            _campaign("winter_promo_q2", campaign_id="2"),
+            _campaign("winter_promo_q3", campaign_id="3"),
+            _campaign("winter_promo_q4", campaign_id="4"),
+            _campaign("wintr_prom_q1", campaign_id="1", spend=9000.0),
+        ]
+        utm_events = _events(("winter_promo_q1", "google", 700))
+
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+
+        assert [p.clean_name for p in result.proposals] == ["wintr_prom_q1"]
+
     def test_purely_numeric_id_near_miss_is_refused(self):
         # `1234` vs `12345` is indistinguishable from one real id next to another
         # real id. Fuzzy-matching numeric ids is how you attribute one campaign's
