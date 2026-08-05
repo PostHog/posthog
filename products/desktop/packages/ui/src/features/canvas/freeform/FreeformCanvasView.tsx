@@ -314,7 +314,7 @@ export function FreeformCanvasView({
   const commentVersionLabel = useCallback(
     (versionId: string) => {
       const index = versions.findIndex((version) => version.id === versionId);
-      return index === -1 ? "Saved version" : `v${versions.length - index}`;
+      return index === -1 ? null : `V${versions.length - index}`;
     },
     [versions],
   );

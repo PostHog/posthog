@@ -257,7 +257,7 @@ describe("TaskCommentsList", () => {
           url: null,
         }}
         canvasVersionId="version-2"
-        commentVersionLabel={() => "v2"}
+        commentVersionLabel={() => "V2"}
         onCanvasCommentOpen={onCanvasCommentOpen}
       />,
     );
@@ -267,7 +267,9 @@ describe("TaskCommentsList", () => {
     ]);
     expect(screen.getByText("Canvas feedback")).toBeInTheDocument();
     expect(screen.getByText("“important copy”")).toBeInTheDocument();
-    expect(screen.getByText(/Selected text · v2/)).toBeInTheDocument();
+    expect(screen.getByText("V2 ·")).toBeInTheDocument();
+    expect(screen.queryByText("Selected text")).not.toBeInTheDocument();
+    expect(screen.queryByText("Whole canvas")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Filter by source")).not.toBeInTheDocument();
     expect(screen.queryByText("Launch canvas")).not.toBeInTheDocument();
     expect(mocks.createdFor.at(-1)).toEqual({

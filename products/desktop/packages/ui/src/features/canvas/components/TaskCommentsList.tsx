@@ -121,24 +121,20 @@ function CanvasCommentReference({
   versionLabel,
 }: {
   root: ResourceComment;
-  versionLabel?: (versionId: string) => string;
+  versionLabel?: (versionId: string) => string | null;
 }) {
   const context = readCommentContext(root);
   const version = context?.canvasVersionId
     ? versionLabel?.(context.canvasVersionId)
     : null;
   const anchor = context?.anchor;
+  if (anchor?.kind !== "text") return null;
   return (
     <span className="mb-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
-      <span className="shrink-0">
-        {anchor?.kind === "text" ? "Selected text" : "Whole canvas"}
-        {version ? ` · ${version}` : ""}
+      {version && <span className="shrink-0">{version} ·</span>}
+      <span className="min-w-0 truncate" title={anchor.quote}>
+        “{anchor.quote}”
       </span>
-      {anchor?.kind === "text" && (
-        <span className="min-w-0 truncate" title={anchor.quote}>
-          “{anchor.quote}”
-        </span>
-      )}
     </span>
   );
 }
@@ -170,7 +166,7 @@ function ResourceThreadRow({
   resolution?: HighlightResolution;
   onOpen: () => void;
   showSource?: boolean;
-  commentVersionLabel?: (versionId: string) => string;
+  commentVersionLabel?: (versionId: string) => string | null;
 }) {
   const createComment = useCreateComment(source.target, taskId);
   const setResolved = useSetCommentResolved(source.target);
@@ -287,7 +283,7 @@ export function TaskCommentsList({
    * the task timeline to rediscover it. */
   onlySource?: CommentSource;
   canvasVersionId?: string | null;
-  commentVersionLabel?: (versionId: string) => string;
+  commentVersionLabel?: (versionId: string) => string | null;
   onCanvasCommentOpen?: (versionId: string | null) => void;
 }) {
   const { runs } = useTaskRuns(task.id);

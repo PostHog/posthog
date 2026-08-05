@@ -49,7 +49,7 @@ export function CanvasSidePanel({
   channelName: string;
   name: string;
   displayedVersionId: string | null;
-  commentVersionLabel: (versionId: string) => string;
+  commentVersionLabel: (versionId: string) => string | null;
   onCommentOpen: (versionId: string | null) => void;
   templateId?: string;
   /** Whether the canvas already has published source (a follow-up edit rather
@@ -170,7 +170,7 @@ function CanvasCommentsLoader({
   dashboardId: string;
   name: string;
   displayedVersionId: string | null;
-  commentVersionLabel: (versionId: string) => string;
+  commentVersionLabel: (versionId: string) => string | null;
   onCommentOpen: (versionId: string | null) => void;
 }) {
   const { data: task } = useQuery(taskDetailQuery(taskId));
@@ -207,7 +207,7 @@ function CanvasTaskComments({
   dashboardId: string;
   name: string;
   displayedVersionId: string | null;
-  commentVersionLabel: (versionId: string) => string;
+  commentVersionLabel: (versionId: string) => string | null;
   onCommentOpen: (versionId: string | null) => void;
 }) {
   const { timeline } = useThreadConversation(task, {
