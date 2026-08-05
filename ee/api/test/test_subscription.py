@@ -41,7 +41,7 @@ from products.product_analytics.backend.models.insight import Insight
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
-from ee.tasks.subscriptions.subscription_utils import MAX_DASHBOARD_INSIGHTS
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
 
 class TestSubscriptionTemporal(APILicensedTest):
@@ -544,7 +544,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     def test_dashboard_subscription_enforces_maximum_insights(self):
         insights = []
-        for _ in range(MAX_DASHBOARD_INSIGHTS + 1):
+        for _ in range(MAX_INSIGHTS + 1):
             insight = Insight.objects.create(
                 filters=Filter(data=self.insight_filter_dict).to_dict(),
                 team=self.team,
@@ -564,7 +564,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         }
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
-            {**payload, "dashboard_export_insights": [i.id for i in insights[:MAX_DASHBOARD_INSIGHTS]]},
+            {**payload, "dashboard_export_insights": [i.id for i in insights[:MAX_INSIGHTS]]},
         )
         assert response.status_code == status.HTTP_201_CREATED
 
@@ -577,7 +577,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
-        assert f"Cannot select more than {MAX_DASHBOARD_INSIGHTS} insights" in response.json()["detail"]
+        assert f"Cannot select more than {MAX_INSIGHTS} insights" in response.json()["detail"]
 
     def test_cannot_create_dashboard_subscription_with_insights_from_other_dashboard(self):
         # Create an insight that belongs to a different dashboard

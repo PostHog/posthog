@@ -6,7 +6,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { DashboardTile } from '~/types'
 
-import { MAX_DASHBOARD_INSIGHTS, insightSelectorLogic } from './insightSelectorLogic'
+import { MAX_INSIGHTS, insightSelectorLogic } from './insightSelectorLogic'
 
 interface InsightSelectorProps {
     tiles: DashboardTile[]
@@ -42,7 +42,7 @@ export function InsightSelector({
     useEffect(() => {
         // Auto-select the first N insights for new subscriptions (when nothing is selected yet)
         if (insightTiles.length > 0 && validSelectedIds.length === 0 && !userHasInteracted) {
-            const defaultSelection = insightTiles.slice(0, MAX_DASHBOARD_INSIGHTS).map((tile) => tile.insight!.id)
+            const defaultSelection = insightTiles.slice(0, MAX_INSIGHTS).map((tile) => tile.insight!.id)
             onChange(defaultSelection)
             onDefaultsApplied?.(defaultSelection)
         }
@@ -54,7 +54,7 @@ export function InsightSelector({
     }
 
     const selectedCount = validSelectedIds.length
-    const atMaxLimit = selectedCount >= MAX_DASHBOARD_INSIGHTS
+    const atMaxLimit = selectedCount >= MAX_INSIGHTS
 
     const toggleInsight = (insightId: number): void => {
         setUserHasInteracted()
@@ -70,7 +70,7 @@ export function InsightSelector({
         <div className="border rounded p-2 space-y-2">
             <div className="flex justify-between items-center text-sm">
                 <span className="font-medium">
-                    {selectedCount} of {MAX_DASHBOARD_INSIGHTS} insights selected
+                    {selectedCount} of {MAX_INSIGHTS} insights selected
                 </span>
                 {selectedCount === 0 && <span className="text-warning">Select at least one insight</span>}
             </div>
@@ -107,7 +107,7 @@ export function InsightSelector({
             </div>
             {atMaxLimit && (
                 <div className="text-xs text-secondary">
-                    Maximum {MAX_DASHBOARD_INSIGHTS} insights. Deselect one to add another.
+                    Maximum {MAX_INSIGHTS} insights. Deselect one to add another.
                 </div>
             )}
         </div>
