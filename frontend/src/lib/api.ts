@@ -3803,13 +3803,13 @@ const api = {
         async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
             return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
         },
-        async listClickhouse(params: GroupListParams): Promise<GroupsQueryResponse> {
+        async listClickhouse(params: GroupListParams, options?: ApiMethodOptions): Promise<GroupsQueryResponse> {
             const groupsQuery: GroupsQuery = {
                 kind: NodeKind.GroupsQuery,
                 ...params,
             }
 
-            return await new ApiRequest().query().create({ data: { query: groupsQuery } })
+            return await new ApiRequest().query().create({ ...options, data: { query: groupsQuery } })
         },
         async create(data: CreateGroupParams): Promise<Group> {
             return await new ApiRequest().groups().create({ data })

@@ -14,6 +14,7 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
@@ -576,22 +577,46 @@ describe('infiniteListLogic', () => {
             })
         })
 
-        it('gives up on a request that never responds', async () => {
-            useMocks({
-                get: {
-                    '/api/projects/:team/event_definitions': () => new Promise(() => {}),
+        // Group names go out over the query endpoint instead of the list endpoint, so they need
+        // the abort signal wired separately - without it the watchdog fires against a controller
+        // nobody is listening to and the list keeps spinning.
+        const hangingListCases: { label: string; listGroupType: TaxonomicFilterGroupType; mocks: Mocks }[] = [
+            {
+                label: 'a list endpoint',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                mocks: {
+                    get: { '/api/projects/:team/event_definitions': () => new Promise(() => {}) },
                 },
-            })
+            },
+            {
+                label: 'a group name query',
+                listGroupType: `${TaxonomicFilterGroupType.GroupNamesPrefix}_0` as TaxonomicFilterGroupType,
+                mocks: {
+                    get: {
+                        '/api/projects/:team/groups_types': [
+                            { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
+                        ],
+                    },
+                    post: { '/api/environments/:team_id/query/': () => new Promise(() => {}) },
+                },
+            },
+        ]
+
+        it.each(hangingListCases)('gives up on $label that never responds', async ({ listGroupType, mocks }) => {
+            useMocks(mocks)
             initKeaTests()
             jest.useFakeTimers()
             try {
                 const hangingLogic = infiniteListLogic({
                     taxonomicFilterLogicKey: 'hangingList',
-                    listGroupType: TaxonomicFilterGroupType.Events,
-                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    listGroupType,
+                    taxonomicGroupTypes: [listGroupType],
                     showNumericalPropsOnly: false,
                 })
                 hangingLogic.mount()
+                // Let the group type list arrive, so a group name list resolves its group index
+                // and takes the query path rather than falling back to the list endpoint.
+                await jest.advanceTimersByTimeAsync(1)
                 hangingLogic.actions.setSearchQuery('user_signed_up')
 
                 // Past the debounce, so the request is in flight rather than still queued.
@@ -600,6 +625,37 @@ describe('infiniteListLogic', () => {
 
                 await jest.advanceTimersByTimeAsync(30000)
                 expect(hangingLogic.values.showErrorState).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('leaves a search that legitimately found nothing alone once the request timeout elapses', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [200, { results: [], count: 0 }],
+                },
+            })
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const emptyLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'emptyList',
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                })
+                emptyLogic.mount()
+                emptyLogic.actions.setSearchQuery('definitely_not_a_real_event')
+
+                await jest.advanceTimersByTimeAsync(600)
+                expect(emptyLogic.values.showEmptyState).toBe(true)
+
+                // Well past the watchdog: it bounds a request in flight, and this one already
+                // answered. "No results" must not decay into "couldn't load results".
+                await jest.advanceTimersByTimeAsync(31000)
+                expect(emptyLogic.values.showErrorState).toBe(false)
+                expect(emptyLogic.values.showEmptyState).toBe(true)
             } finally {
                 jest.useRealTimers()
             }

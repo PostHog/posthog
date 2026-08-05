@@ -922,17 +922,23 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     let response: any
                     let expandedCountResponse: any = null
 
+                    const runAbortController = cache.abortController
+                    const requestOptions = { signal: runAbortController?.signal }
+
                     try {
                         // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
                         const isGroupNamesFilter = values.listGroupType.startsWith(
                             TaxonomicFilterGroupType.GroupNamesPrefix
                         )
                         if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
-                            const groupsResponse = await api.groups.listClickhouse({
-                                group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
-                                search: searchQuery || '',
-                                limit,
-                            })
+                            const groupsResponse = await api.groups.listClickhouse(
+                                {
+                                    group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
+                                    search: searchQuery || '',
+                                    limit,
+                                },
+                                requestOptions
+                            )
 
                             const transformedGroups = mapGroupQueryResponse(groupsResponse)
                             response = {
@@ -945,7 +951,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             }
                         } else {
                             // Use the original REST API for non-groups endpoints
-                            const requestOptions = { signal: cache.abortController?.signal }
                             const [apiResponse, expandedApiResponse] = await Promise.all([
                                 // get the list of results
                                 fetchCachedListResponse(
@@ -974,18 +979,37 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         // outcome now, or the request timeout fired, which already recorded the
                         // failure itself. Neither case belongs to this query.
                         const aborted = error?.name === 'AbortError'
+                        if (aborted) {
+                            // A superseded run must not settle the loader. kea-loaders keeps one
+                            // loading flag per loader, so failing here would clear the flag the
+                            // newer run just set, and the SuggestedFilters reveal barrier opens on
+                            // `!anyGroupLoading` — it would drop its skeletons and reveal partial
+                            // results while that run is still in flight. This throws for a
+                            // superseded run and does nothing for the watchdog's own abort, which
+                            // does need to settle as a failure.
+                            breakpoint()
+                        }
                         if (!isBreakpoint(error) && !aborted) {
                             // Carry the query that was in flight when this run errored so the
                             // reducer can attribute the failure to the right query string.
                             actions.remoteItemsFetchFailedForQuery(searchQuery)
                         }
                         throw error
+                    } finally {
+                        // Disarm the watchdog now this run has settled. It only bounds a request
+                        // that is still in flight, and left armed it would fire against a finished
+                        // one and turn a legitimately empty result into an error 30s later. A newer
+                        // run owns the shared disposable, so leave that one alone or we abort its
+                        // request instead.
+                        if (cache.abortController === runAbortController) {
+                            cache.disposables.dispose('abortController')
+                            cache.abortController = null
+                        }
                     }
                     breakpoint()
 
                     const queryChanged = values.remoteItems.searchQuery !== searchQuery
                     const existingResults = values.remoteItems.results
-                    cache.abortController = null
 
                     return {
                         results: appendAtIndex(
