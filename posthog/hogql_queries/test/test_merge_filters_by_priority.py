@@ -26,12 +26,19 @@ class TestMergeFiltersByPriority(SimpleTestCase):
     def test_returns_single_layer_when_other_absent(self, _name, dashboard, tile, expected):
         assert merge_filters_by_priority(dashboard, tile) == expected
 
-    def test_tile_scalar_fields_win_over_dashboard(self):
+    @parameterized.expand(
+        [
+            ("tile forces test accounts on", False, True),
+            # False is a meaningful override (force off), so it must beat a dashboard True too.
+            ("tile forces test accounts off", True, False),
+        ]
+    )
+    def test_tile_scalar_fields_win_over_dashboard(self, _name, dashboard_fta, tile_fta):
         merged = merge_filters_by_priority(
-            {"interval": "day", "filterTestAccounts": False},
-            {"interval": "week", "filterTestAccounts": True},
+            {"interval": "day", "filterTestAccounts": dashboard_fta},
+            {"interval": "week", "filterTestAccounts": tile_fta},
         )
-        assert merged == {"interval": "week", "filterTestAccounts": True}
+        assert merged == {"interval": "week", "filterTestAccounts": tile_fta}
 
     def test_dashboard_scalar_kept_when_tile_leaves_it_unset(self):
         merged = merge_filters_by_priority(
