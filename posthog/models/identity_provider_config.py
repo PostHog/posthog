@@ -56,7 +56,7 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     saml_relay_state = models.CharField(max_length=36, blank=True, null=True)
 
     # ---- SCIM attributes ----
-    scim_slug = models.CharField(max_length=36, blank=True, null=True)
+    scim_slug = models.CharField(max_length=36, blank=True, null=True, unique=True)
     scim_enabled = models.BooleanField(default=False)
     scim_bearer_token = models.CharField(
         max_length=255, blank=True, null=True, help_text="Hashed bearer token for SCIM authentication"

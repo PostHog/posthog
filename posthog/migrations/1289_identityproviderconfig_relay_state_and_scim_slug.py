@@ -17,6 +17,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="identityproviderconfig",
             name="scim_slug",
-            field=models.CharField(blank=True, max_length=36, null=True),
+            field=models.CharField(blank=True, max_length=36, null=True, unique=True),
         ),
     ]
