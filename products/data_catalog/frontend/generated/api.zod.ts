@@ -12,6 +12,8 @@ import * as zod from 'zod'
 /**
  * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
  */
+export const dataCatalogCertificationsCreateBodyProposedStatusDefault = `certified`
+
 export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
     .object({
         table_id: zod.uuid().optional().describe('Warehouse table id to certify (XOR the other targets).'),
@@ -19,6 +21,13 @@ export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
         table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
         view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
         notes: zod.string().optional().describe('Why this mark exists.'),
+        proposed_status: zod
+            .enum(['certified', 'deprecated'])
+            .describe('\* `certified` - certified\n\* `deprecated` - deprecated')
+            .default(dataCatalogCertificationsCreateBodyProposedStatusDefault)
+            .describe(
+                "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n\* `certified` - certified\n\* `deprecated` - deprecated"
+            ),
     })
     .describe('Input for proposing a certification: address the target by id or (convenience) by name.')
 

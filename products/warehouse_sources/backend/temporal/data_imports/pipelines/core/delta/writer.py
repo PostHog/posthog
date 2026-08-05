@@ -27,9 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 
 def _write_deltalake(
@@ -118,14 +116,14 @@ def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
 class DeltaWriter:
     """The core write/merge path for one schema's Delta table, plus commit-metadata idempotency.
 
-    Stateless over a `DeltaTableHelper`, which holds the cached table handle and the first-sync
+    Stateless over a `DeltaTableRef`, which holds the cached table handle and the first-sync
     flag — construct one at the call site. Tagging commits with `commit_metadata` and reading the
     tags back (`has_batch_been_committed`) live together because they are two halves of one
     contract: only the terminal commit of a multi-commit write may carry the tag, or a redelivery
     after a mid-write crash would treat the batch as done and lose data.
     """
 
-    def __init__(self, table: "DeltaTableHelper") -> None:
+    def __init__(self, table: "DeltaTableRef") -> None:
         self._table = table
         self._logger = table.logger
 
@@ -192,6 +190,9 @@ class DeltaWriter:
         try:
             import deltalite
 
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
+                get_governor,
+            )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
                 DELTALITE_WRITE_DURATION_SECONDS,
                 DELTALITE_WRITE_TOTAL,
@@ -200,19 +201,32 @@ class DeltaWriter:
             uri = await self._table.get_table_uri()
             storage_options = self._table.get_storage_options()
             partition_key = PARTITION_KEY if use_partitioning else None
+            n_partitions = (
+                pc.count_distinct(data[PARTITION_KEY]).as_py()
+                if use_partitioning and PARTITION_KEY in data.column_names
+                else None
+            )
 
-            def _upsert() -> Any:
-                table = deltalite.DeltaLiteTable.open(uri, storage_options)
-                return table.upsert(
-                    data,
-                    list(normalized_primary_keys),
-                    partition_key,
-                    commit_metadata=commit_metadata,
-                )
+            # Capacity planning: size this upsert's knobs to a fixed per-upsert slice of pod memory,
+            # so all MAX_CONCURRENT_ACTIVITIES upserts on this process are guaranteed to fit. deltalite
+            # always writes — the governor never falls back to the delta-rs MERGE for capacity, because
+            # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs at
+            # mpp=1 (governor logs a capacity_exceeded ops signal).
+            async with get_governor().admit(source_bytes=data.nbytes, n_partitions=n_partitions) as adm:
 
-            started = time.perf_counter()
-            stats = await asyncio.to_thread(_upsert)
-            duration_s = time.perf_counter() - started
+                def _upsert(upsert_kwargs: dict[str, int] = adm.upsert_kwargs) -> Any:
+                    table = deltalite.DeltaLiteTable.open(uri, storage_options)
+                    return table.upsert(
+                        data,
+                        list(normalized_primary_keys),
+                        partition_key,
+                        commit_metadata=commit_metadata,
+                        **upsert_kwargs,
+                    )
+
+                started = time.perf_counter()
+                stats = await asyncio.to_thread(_upsert)
+                duration_s = time.perf_counter() - started
         except Exception as e:  # noqa: BLE001 - pre-commit failure: nothing committed, fall back to MERGE
             await self._logger.awarning(
                 f"deltalite write failed; falling back to delta-rs MERGE (sync unaffected): {e}"
@@ -238,6 +252,12 @@ class DeltaWriter:
             await self._logger.ainfo(
                 "deltalite write: committed",
                 duration_ms=round(duration_s * 1000),
+                governor_mode=adm.mode,
+                governor_predicted_peak_mb=adm.predicted_peak_mb,
+                governor_observed_delta_mb=adm.observed_delta_mb,
+                governor_budget_mb=adm.budget_mb,
+                governor_capacity_exceeded=adm.capacity_exceeded,
+                governor_mpp=adm.planned_mpp,
                 **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()

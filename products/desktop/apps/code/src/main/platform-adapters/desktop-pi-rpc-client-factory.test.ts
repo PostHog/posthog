@@ -27,12 +27,15 @@ describe("DesktopPiRpcClientFactory", () => {
     createPiRpcClient.mockReturnValue(client);
     const factory = new DesktopPiRpcClientFactory(auth, authProxy);
 
-    await expect(factory.create({ cwd: "/workspace" })).resolves.toBe(client);
+    await expect(
+      factory.create({ cwd: "/workspace", projectTrusted: true }),
+    ).resolves.toBe(client);
     expect(authProxy.start).toHaveBeenCalledWith(
       getLlmGatewayUrl(getCloudUrlFromRegion("eu")),
     );
     expect(createPiRpcClient).toHaveBeenCalledWith({
       cwd: "/workspace",
+      projectTrusted: true,
       providerOptions: {
         region: "eu",
         baseUrl: "http://127.0.0.1:1234",

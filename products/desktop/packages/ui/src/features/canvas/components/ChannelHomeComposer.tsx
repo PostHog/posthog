@@ -1,21 +1,31 @@
+import type {
+  PiModelSelection,
+  PiThinkingLevel,
+} from "@posthog/core/pi-runtime/piSessionController";
 import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useRef,
   useState,
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { track } from "../../../shell/analytics";
+import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
+import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { useUserRepositoryIntegration } from "../../integrations/useIntegrations";
 import { PromptInput } from "../../message-editor/components/PromptInput";
 import { contentToPlainText } from "../../message-editor/content";
 import { useDraftStore } from "../../message-editor/draftStore";
 import type { EditorHandle } from "../../message-editor/types";
+import { PiModelSelector } from "../../pi-sessions/PiSessionControls";
+import { usePiModelCatalog } from "../../pi-sessions/usePiModelCatalog";
+import type { AgentHarness } from "../../sessions/components/HarnessSubmenu";
 import { ReasoningLevelSelector } from "../../sessions/components/ReasoningLevelSelector";
 import { getCurrentModeFromConfigOptions } from "../../sessions/sessionStore";
 import {
@@ -106,6 +116,10 @@ export const ChannelHomeComposer = forwardRef<
   const {
     lastUsedAdapter,
     setLastUsedAdapter,
+    lastUsedAgentRuntime,
+    setLastUsedAgentRuntime,
+    lastUsedPiModel,
+    setLastUsedPiModel,
     lastUsedWorkspaceMode,
     setLastUsedWorkspaceMode,
     setLastUsedLocalWorkspaceMode,
@@ -117,10 +131,33 @@ export const ChannelHomeComposer = forwardRef<
   } = useSettingsStore();
 
   const adapter = lastUsedAdapter;
+  const [runtime, setRuntime] = useState<AgentRuntime>("acp");
+  const didResolveRuntimeRef = useRef(false);
+  const [selectedPiModelId, setSelectedPiModelId] = useState<string | null>(
+    null,
+  );
+  const [selectedPiThinkingLevel, setSelectedPiThinkingLevel] =
+    useState<PiThinkingLevel | null>(null);
+  const piHarnessEnabled = useFeatureFlag("pi-harness");
+  const flagsLoaded = useFeatureFlagsLoaded();
+  const { data: piModelCatalog = [], isPending: isPiConfigLoading } =
+    usePiModelCatalog(runtime === "pi");
+
   const setAdapter = useCallback(
     (next: AgentAdapter) => setLastUsedAdapter(next),
     [setLastUsedAdapter],
   );
+
+  useEffect(() => {
+    if (didResolveRuntimeRef.current || !flagsLoaded) {
+      return;
+    }
+
+    didResolveRuntimeRef.current = true;
+    setRuntime(
+      piHarnessEnabled && lastUsedAgentRuntime === "pi" ? "pi" : "acp",
+    );
+  }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled]);
 
   const cloudModeEnabled = useCloudModeEnabled();
   const { hasGithubIntegration } = useUserRepositoryIntegration();
@@ -184,6 +221,25 @@ export const ChannelHomeComposer = forwardRef<
     fastModeOption?.type === "select"
       ? fastModeOption.currentValue === "on"
       : undefined;
+  const currentPiModel =
+    piModelCatalog.find((model) => model.id === selectedPiModelId) ??
+    piModelCatalog.find((model) => model.id === lastUsedPiModel) ??
+    piModelCatalog.find((model) => model.isDefault) ??
+    piModelCatalog[0];
+  const piThinkingLevels = currentPiModel?.thinkingLevels ?? [];
+  const currentPiThinkingLevel = piThinkingLevels.includes(
+    selectedPiThinkingLevel ?? "high",
+  )
+    ? (selectedPiThinkingLevel ?? "high")
+    : piThinkingLevels[0];
+  const supportsPiThinking = piThinkingLevels.some((level) => level !== "off");
+  const taskModel = runtime === "pi" ? currentPiModel?.id : currentModel;
+  const taskReasoningLevel =
+    runtime === "pi"
+      ? supportsPiThinking
+        ? currentPiThinkingLevel
+        : undefined
+      : currentReasoningLevel;
 
   const queryClient = useQueryClient();
 
@@ -278,11 +334,12 @@ export const ChannelHomeComposer = forwardRef<
         : undefined,
     editorIsEmpty,
     adapter,
-    executionMode: currentExecutionMode,
-    model: currentModel,
-    reasoningLevel: currentReasoningLevel,
-    contextWindow: currentContextWindow,
-    fastMode: currentFastMode,
+    runtime,
+    executionMode: runtime === "pi" ? undefined : currentExecutionMode,
+    model: taskModel,
+    reasoningLevel: taskReasoningLevel,
+    contextWindow: runtime === "pi" ? undefined : currentContextWindow,
+    fastMode: runtime === "pi" ? undefined : currentFastMode,
     allowNoRepo: true,
     channelContext,
     channelName,
@@ -344,6 +401,39 @@ export const ChannelHomeComposer = forwardRef<
     },
     [thoughtOption, setConfigOption, setLastUsedReasoningEffort],
   );
+  const handleRuntimeChange = useCallback(
+    (nextRuntime: AgentRuntime) => {
+      didResolveRuntimeRef.current = true;
+      setRuntime(nextRuntime);
+      setLastUsedAgentRuntime(nextRuntime);
+      if (nextRuntime === "pi") {
+        setCanvasArmed(false);
+      }
+    },
+    [setLastUsedAgentRuntime],
+  );
+  const handleHarnessChange = useCallback(
+    (harness: AgentHarness) => {
+      if (harness === "pi") {
+        handleRuntimeChange("pi");
+        return;
+      }
+
+      handleRuntimeChange("acp");
+      setAdapter(harness);
+    },
+    [handleRuntimeChange, setAdapter],
+  );
+  const handlePiModelChange = useCallback(
+    (model: PiModelSelection) => {
+      setSelectedPiModelId(model.id);
+      setLastUsedPiModel(model.id);
+    },
+    [setLastUsedPiModel],
+  );
+  const handlePiThinkingLevelChange = useCallback((level: PiThinkingLevel) => {
+    setSelectedPiThinkingLevel(level);
+  }, []);
 
   useImperativeHandle(
     ref,
@@ -362,7 +452,6 @@ export const ChannelHomeComposer = forwardRef<
     [sessionId, modeOption, setConfigOption],
   );
 
-  const hints = ["@ to add files", "/ for skills"].join(", ");
   const isBusy = isCreatingTask || isStartingCanvas;
   const submitComposer = canvasArmed ? handleCanvasSubmit : submit;
 
@@ -394,7 +483,7 @@ export const ChannelHomeComposer = forwardRef<
         placeholder={
           canvasArmed
             ? "Describe the canvas to build — the agent generates and publishes it"
-            : `What do you want to ship? ${hints}`
+            : `What do you want to ship?`
         }
         editorHeight="large"
         disabled={isBusy}
@@ -404,17 +493,40 @@ export const ChannelHomeComposer = forwardRef<
         submitDisabledExternal={
           canvasArmed
             ? editorIsEmpty || isBusy || !isOnline
-            : !canSubmit || isBusy || !isOnline || isLoading
+            : !canSubmit ||
+              isBusy ||
+              !isOnline ||
+              (runtime === "pi" ? isPiConfigLoading : isLoading) ||
+              (runtime === "pi" && !currentPiModel)
         }
-        modeOption={modeOption}
-        onModeChange={handleModeChange}
+        modeOption={runtime === "pi" ? undefined : modeOption}
+        onModeChange={runtime === "pi" ? undefined : handleModeChange}
         allowBypassPermissions={allowBypassPermissions}
-        canvas={{ active: canvasArmed, onToggle: toggleCanvasMode }}
+        canvas={
+          runtime === "pi"
+            ? undefined
+            : { active: canvasArmed, onToggle: toggleCanvasMode }
+        }
         enableCommands
         enableBashMode={false}
-        modelSelector={null}
+        modelSelector={
+          runtime === "pi" ? (
+            <PiModelSelector
+              models={piModelCatalog}
+              currentModel={currentPiModel}
+              thinkingLevel={
+                supportsPiThinking ? currentPiThinkingLevel : undefined
+              }
+              thinkingLevels={piThinkingLevels}
+              disabled={isBusy || isPiConfigLoading}
+              onChange={handlePiModelChange}
+              onThinkingLevelChange={handlePiThinkingLevelChange}
+              onHarnessChange={handleHarnessChange}
+            />
+          ) : null
+        }
         reasoningSelector={
-          !isLoading && (
+          runtime === "pi" || isLoading ? null : (
             <ReasoningLevelSelector
               thoughtOption={thoughtOption}
               modelOption={modelOption}
@@ -424,6 +536,10 @@ export const ChannelHomeComposer = forwardRef<
               onChange={handleThoughtChange}
               onModelChange={handleModelChange}
               onAdapterChange={setAdapter}
+              onHarnessChange={
+                piHarnessEnabled ? handleHarnessChange : undefined
+              }
+              includePiHarness={piHarnessEnabled}
               onConfigOptionChange={setConfigOption}
               disabled={isBusy}
             />
