@@ -4049,7 +4049,6 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).not.toContain("Create a draft pull request");
       expect(prompt).toContain("Generated-By: PostHog Code");
       expect(prompt).toContain("Task-Id: test-task-id");
-      expect(prompt).toContain("Follow `next` until it is null");
     });
 
     it("returns default prompt when no prUrl", () => {
@@ -4061,7 +4060,6 @@ describe("AgentServer HTTP Mode", () => {
       );
       expect(prompt).toContain("Generated-By: PostHog Code");
       expect(prompt).toContain("Task-Id: test-task-id");
-      expect(prompt).toContain("Follow `next` until it is null");
       expect(prompt).not.toContain("gh pr create --draft");
       // If the user does explicitly ask for a PR in this review-first mode,
       // the agent must still use the PostHog Code footer, not Claude Code's default.
@@ -4103,11 +4101,6 @@ describe("AgentServer HTTP Mode", () => {
           "Closes #<n>",
           "Generated-By: PostHog Code",
           "Task-Id: test-task-id",
-          "tasks-artifacts-list",
-          "tasks-comments-list",
-          "tasks-comments-retrieve",
-          "Follow `next` until it is null",
-          "filter comments by artifact",
         ],
         shouldNotContain: ["gh repo clone"],
       },
@@ -4140,7 +4133,6 @@ describe("AgentServer HTTP Mode", () => {
         for (const text of shouldNotContain) {
           expect(prompt).not.toContain(text);
         }
-        expect(prompt).toContain("Follow `next` until it is null");
       },
     );
 
@@ -4153,7 +4145,6 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).toContain("gh pr create --draft");
       expect(prompt).toContain("Generated-By: PostHog Code");
       expect(prompt).toContain("Task-Id: test-task-id");
-      expect(prompt).toContain("Follow `next` until it is null");
       // Slack-origin PRs are attributed to PostHog, not the PostHog Code app.
       expect(prompt).toContain(
         "Created with [PostHog](https://posthog.com?ref=pr)",
