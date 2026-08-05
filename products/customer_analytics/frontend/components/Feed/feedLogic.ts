@@ -198,6 +198,8 @@ export const feedLogic = kea<feedLogicType>([
             { setMyReportsOnly: (_, { myReportsOnly }) => myReportsOnly, clearFilters: () => false },
         ],
         searchQuery: ['', { setSearchQuery: (_, { searchQuery }) => searchQuery, clearFilters: () => '' }],
+        // Sort deliberately survives `clearFilters` (as it does in the inbox): it reorders reports
+        // rather than hiding them, so resetting it would never reveal a report the filters hid.
         sortField: [DEFAULT_SORT_FIELD as InboxSortField, { setSort: (_, { field }) => field }],
         sortDirection: [DEFAULT_SORT_DIRECTION as InboxSortDirection, { setSort: (_, { direction }) => direction }],
         priorityFilter: [
@@ -239,6 +241,8 @@ export const feedLogic = kea<feedLogicType>([
                     ]),
                 ].sort((a, b) => a.localeCompare(b)),
         ],
+        // Whether any list-narrowing filter is active. Sort is excluded for the same reason
+        // `clearFilters` leaves it alone — it never hides a report, so it can't make the list empty.
         hasActiveFilters: [
             (s) => [s.searchQuery, s.statusFilter, s.priorityFilter, s.scoutFilter, s.myReportsOnly],
             (

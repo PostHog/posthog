@@ -94,7 +94,7 @@ describe('feedLogic', () => {
         ])
     })
 
-    it('clears every filter at once', async () => {
+    it('clears every filter at once, but keeps the chosen sort', async () => {
         logic = feedLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
@@ -105,6 +105,7 @@ describe('feedLogic', () => {
             logic.actions.togglePriority('P0')
             logic.actions.toggleScout('signals-scout-customer-analytics')
             logic.actions.setMyReportsOnly(true)
+            logic.actions.setSort('created_at', 'desc')
         }).toFinishAllListeners()
         expect(logic.values.hasActiveFilters).toBe(true)
 
@@ -116,5 +117,7 @@ describe('feedLogic', () => {
         expect(lastParams?.get('priority')).toBeNull()
         expect(lastParams?.get('scout')).toBeNull()
         expect(lastParams?.get('suggested_reviewers')).toBeNull()
+        // Sort reorders rather than hides, so clearing filters must not reset it.
+        expect(lastParams?.get('ordering')).toBe('-created_at,status,-updated_at')
     })
 })
