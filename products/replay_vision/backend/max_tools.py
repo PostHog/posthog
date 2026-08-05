@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import async_generate_embedding
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
@@ -569,5 +570,11 @@ class SearchReplayVisionObservationsTool(MaxTool):
             LIMIT {{limit}}
         """
         tag_queries(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH)
-        result = execute_hogql_query(query=hogql_query, team=self._team, user=self._user, placeholders=placeholders)
+        result = execute_hogql_query(
+            query=hogql_query,
+            team=self._team,
+            user=self._user,
+            placeholders=placeholders,
+            ch_user=ClickHouseUser.REPLAY_VISION,
+        )
         return [row[0] for row in (result.results or [])]

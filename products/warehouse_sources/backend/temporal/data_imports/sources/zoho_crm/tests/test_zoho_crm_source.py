@@ -95,6 +95,8 @@ class TestZohoCRMSource:
         [
             "Zoho CRM token refresh failed: invalid_client",
             "400 Client Error: Bad Request for url: https://accounts.zoho.eu/oauth/v2/token",
+            # Blank reason phrase variant (e.g. an HTTP/2 response, which has none).
+            "400 Client Error:  for url: https://accounts.zoho.eu/oauth/v2/token",
             "401 Client Error: Unauthorized for url: https://www.zohoapis.com/crm/v8/Leads",
             "403 Client Error: Forbidden for url: https://www.zohoapis.com/crm/v8/Deals",
         ],

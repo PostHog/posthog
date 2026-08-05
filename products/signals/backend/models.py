@@ -304,6 +304,14 @@ class SignalReport(UUIDModel):
                 self.run_count += 1
                 updated_fields.update(["last_run_at", "signals_at_run", "run_count"])
 
+            # A summary run paused mid-workflow by the self-driving credits quota gate returns to
+            # CANDIDATE, so the report re-promotes on the next matching signal instead of sticking
+            # in IN_PROGRESS (which no promotion rule ever picks up). No side effects: promoted_at
+            # is still accurate, and run_count / signals_at_run keep the values the aborted run
+            # advanced them to (run_count feeds Temporal workflow IDs and must never roll back).
+            case (S.IN_PROGRESS, S.CANDIDATE):
+                pass
+
             case (S.IN_PROGRESS, S.READY):
                 if title is None or summary is None:
                     raise ValueError("title and summary are required for in_progress -> ready")
@@ -1261,6 +1269,15 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # config columns. A Slack destination is active only when both its integration and channel
     # are present; the UI may persist the integration first while the user chooses a channel.
     output_destinations = models.JSONField(default=dict, db_default={})
+    # Optional JSON Schema (draft 2020-12, object-rooted) describing one structured record this
+    # scout produces via `scout-record-output`. Null = the channel is off: the record endpoint
+    # fails closed and the run prompt renders no structured-output section. Records land solely
+    # as `$scout_structured_output` events in the project, so the channel also requires `emit`
+    # (a dry-run scout has nowhere to record to). Serializer-validated (must compile as a
+    # schema, bounded size) — this field is only written through the config API. The schema
+    # describes ONE record; cardinality is the scout's call (one record per run, one per judged
+    # entity, ...), so no separate mode enum is stored.
+    structured_output_schema = models.JSONField(null=True, blank=True)
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -1744,14 +1761,20 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
       `discussion_notes.py`. The question otherwise lives only on the ephemeral discussion task, which
       is in no scout's run context, so this note is its sole carrier and the full gate applies —
       `llm_skill:write` and `signal_scout:write` included.
+    - `REPORT_FEEDBACK` — rating a report useful/not useful with a note, see `feedback_notes.py`. Like
+      a discussion the note is the only path the text takes to a scout (the rating otherwise lands only
+      on a product-analytics event), so the full gate applies too. Forwarded only for a report with a
+      resolvable authoring scout, since the feedback is a verdict on that scout's own report.
     `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
-    on one report, and a discussion as a question to weigh rather than fleet-level steering.
+    on one report, a discussion as a question to weigh, and feedback as a reader's rating — rather than
+    fleet-level steering.
     """
 
     class Origin(models.TextChoices):
         HUMAN = "human", "Left directly"
         REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
+        REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

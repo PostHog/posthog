@@ -220,6 +220,7 @@ export const FEATURE_FLAGS = {
     REPLAY_PLAYER_PERSON_SESSIONS_TAB: 'replay-player-person-sessions-tab', // owner: @ksvat #team-replay
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
     REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
+    SELF_DRIVING_QUOTA_ENFORCEMENT: 'self-driving-quota-enforcement', // owner: #team-self-driving, gates self-driving PR-limit enforcement (also checked server-side)
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
@@ -244,6 +245,7 @@ export const FEATURE_FLAGS = {
     TRACK_REACT_FRAMERATE: 'track-react-framerate', // owner: @pauldambra #team-replay
     WEB_ANALYTICS_API: 'web-analytics-api', // owner: #team-web-analytics
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: #team-web-analytics
+    WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS: 'web-analytics-path-cleaning-suggestions', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_REFERRER_URL_DRILLDOWN: 'web-analytics-referrer-url-drilldown', // owner: @jabahamondes #team-web-analytics
 
     // Temporary feature flags, still WIP, should be removed eventually
@@ -255,7 +257,6 @@ export const FEATURE_FLAGS = {
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
     ALERTS_INVESTIGATION_AGENT: 'alerts-investigation-agent', // owner: @andrewm4894, anomaly alerts — investigation agent on firing
     ALERTS_REAL_TIME_INTERVAL: 'alerts-real-time-interval', // owner: #team-analytics-platform, gates real-time (2-minute) insight alert interval
-    ALERTS_REDESIGNED_EDIT_MODAL: 'alerts-redesigned-edit-modal', // owner: #team-analytics-platform, gates the redesigned alert edit/create modal (wizard for new, sections for edit)
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
@@ -268,7 +269,7 @@ export const FEATURE_FLAGS = {
     CDP_VERCEL_LOG_DRAIN: 'cdp-vercel-log-drain', // owner: #team-workflows-cdp
     CLEARABLE_NOTIFICATIONS: 'clearable-notifications', // owner: @jordanm-posthog #team-web-analytics
     COHORT_INLINE_CALCULATION: 'inline-cohort-calculation', // owner: #team-analytics-platform, inlines fast dynamic cohort queries instead of using precomputed cohortpeople table
-    COHORTS_TAXONOMIC_BASIC_LIST: 'cohorts-taxonomic-basic-list', // owner: @adamleith, picker sends ?basic=true to the cohorts list endpoint (trimmed payload: no filters/query/groups)
+    COHORTS_TAXONOMIC_BASIC_LIST: 'cohorts-taxonomic-basic-list', // owner: @adamleith, picker sends ?basic=true to the cohorts list endpoint (trimmed payload: no query/groups/last_error_message/experiment_set; filters is kept)
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
@@ -297,7 +298,6 @@ export const FEATURE_FLAGS = {
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
     DWH_SOURCE_METRICS: 'dwh-source-metrics', // owner: #team-warehouse-sources
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
-    ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
     ENDPOINTS_AI_MATERIALIZATION_FIX: 'endpoints-ai-materialization-fix', // owner: @sakce #team-data-modeling, gates the AI materialization rewrite (UI button + API action + MCP tools)
     ENGINEERING_ANALYTICS: 'engineering-analytics', // owner: #team-devex
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
@@ -309,13 +309,13 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
-    EXPERIMENT_CLEANUP_E2E_DUMMY: 'experiment-cleanup-e2e-dummy', // owner: @jurajmajerik #team-experiments multivariate=control,test, throwaway dogfood flag validating the flag-cleanup PR flow end to end
     EXPERIMENT_FLAG_CLEANUP_PR: 'experiment-flag-cleanup-pr', // owner: @jurajmajerik #team-experiments
     EXPERIMENT_RECORDINGS_TAB: 'experiment-recordings-tab', // owner: @mp-hog #team-experiments
     EXPERIMENT_SESSION_REPLAYS_SKILL: 'experiment-session-replays-skill', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_EXCLUDED_VARIANTS: 'experiments-excluded-variants', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST: 'experiments-freeze-exposure-aa-test', // owner: @mp-hog #team-experiments multivariate=control,test, dogfood A/A used to validate the freeze-exposure lifecycle action
+    EXPERIMENTS_LIST_AA_TEST: 'experiments-list-aa-test', // owner: @andehen #team-experiments multivariate=control,test, dogfood A/A exposed on the experiments list page
     EXPERIMENTS_METRICS_RECALCULATION: 'experiments-metrics-recalculation', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SYNC_QUERIES: 'experiments-sync-queries', // owner: @andehen #team-experiments
@@ -354,6 +354,7 @@ export const FEATURE_FLAGS = {
     LLM_PROMPT_LABELS: 'prompt-labels', // owner: @jurajmajerik #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
+    LOGS_ANOMALIES: 'logs-anomalies', // owner: @jonmcwest #team-logs
     LOGS_COLUMN_CONFIGURATION: 'logs-column-configuration', // owner: #team-logs
     LOGS_GROUP_BY: 'logs-group-by', // owner: #team-logs
     LOGS_IN_ERROR_TRACKING: 'logs-in-error-tracking', // owner: @jonmcwest #team-logs
@@ -382,6 +383,7 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_MCP: 'marketing-analytics-mcp', // owner: @jabahamondes #team-web-analytics — gates MCP tool exposure (read-only marketing-analytics tools)
     MARKETING_ANALYTICS_MULTI_TOUCH_ATTRIBUTION: 'marketing-analytics-multi-touch-attribution', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_NEW_DASHBOARD: 'new-marketing-analytics-dashboard', // owner: @jabahamondes #team-web-analytics — gates the WIP redesigned dashboard tab
+    MARKETING_ANALYTICS_SETUP: 'marketing-analytics-setup', // owner: @jabahamondes #team-web-analytics — gates the Setup tab and its setup_plan / apply_setup_ops endpoints
     MARKETING_ANALYTICS_UTM_AUDIT: 'marketing-analytics-utm-audit', // owner: @jabahamondes  #team-web-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
@@ -429,11 +431,9 @@ export const FEATURE_FLAGS = {
     POSTHOG_CONNECT: 'posthog-connect', // owner: @Gilbert09, gates the "connect another PostHog project" personal integration
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
-    PRODUCT_ANALYTICS_HIDE_WEEKENDS: 'product-analytics-hide-weekends', // owner: @kliment-slice #team-irl-events
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS: 'product-analytics-quarter-year-intervals', // owner: @sampennington #team-product-analytics, gates quarter/year interval selection on insights
-    PRODUCT_ANALYTICS_QUILL_DATE_FILTER: 'product-analytics-quill-date-filter', // owner: @sampennington #team-product-analytics, swaps the insight date filter for the chip-based quill date filter (lemon-skinned)
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_DWH: 'retention-dwh', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-self-driving
@@ -485,6 +485,7 @@ export const FEATURE_FLAGS = {
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
+    SQL_EDITOR_BI_MODE: 'sql-editor-bi-mode', // owner: @mariusandra #team-data-tools
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
     SQL_INSIGHT_DATE_FILTER_NOTICE: 'sql-insight-date-filter-notice', // owner: #team-product-analytics, gates the notice on SQL insights affected by the date filter resolution fix
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform

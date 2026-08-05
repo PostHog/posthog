@@ -20,8 +20,7 @@ import { SignalSourceProduct } from '../../types'
 
 interface SourceProductMeta {
     Icon: typeof IconBolt
-    /** CSS color value applied to the icon. */
-    color: string
+    colorClass: string
     label: string
 }
 
@@ -37,77 +36,77 @@ interface SourceProductMeta {
 export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProductMeta>> = {
     [SignalSourceProduct.SessionReplay]: {
         Icon: IconRewindPlay,
-        color: 'var(--warning)',
+        colorClass: 'text-warning',
         label: 'Session replay',
     },
     [SignalSourceProduct.ReplayVision]: {
         Icon: IconEye,
-        color: 'var(--warning)',
+        colorClass: 'text-warning',
         label: 'Replay vision',
     },
     [SignalSourceProduct.ErrorTracking]: {
         Icon: IconBug,
-        color: 'var(--danger)',
+        colorClass: 'text-danger',
         label: 'Error tracking',
     },
     [SignalSourceProduct.LlmAnalytics]: {
         Icon: IconBrain,
-        color: 'var(--purple)',
+        colorClass: 'text-accent',
         label: 'AI observability',
     },
     [SignalSourceProduct.Github]: {
         Icon: IconGithub,
-        color: 'var(--text-secondary)',
+        colorClass: 'text-secondary',
         label: 'GitHub',
     },
     [SignalSourceProduct.Linear]: {
         Icon: IconStack,
-        color: 'var(--blue)',
+        colorClass: 'text-accent',
         label: 'Linear',
     },
     [SignalSourceProduct.Zendesk]: {
         Icon: IconReceipt,
-        color: 'var(--success)',
+        colorClass: 'text-success',
         label: 'Zendesk',
     },
     [SignalSourceProduct.Conversations]: {
         Icon: IconSupport,
-        color: 'var(--blue)',
+        colorClass: 'text-accent',
         label: 'Support',
     },
     [SignalSourceProduct.Pganalyze]: {
         Icon: IconDatabase,
-        color: 'var(--text-primary)',
+        colorClass: 'text-primary',
         label: 'pganalyze',
     },
     [SignalSourceProduct.SignalsScout]: {
         Icon: IconCompass,
-        color: 'var(--purple)',
+        colorClass: 'text-accent',
         label: 'Scout',
     },
     [SignalSourceProduct.Endpoints]: {
         Icon: IconBolt,
-        color: 'var(--warning)',
+        colorClass: 'text-warning',
         label: 'Endpoints',
     },
     [SignalSourceProduct.Logs]: {
         Icon: IconList,
-        color: 'var(--text-secondary)',
+        colorClass: 'text-secondary',
         label: 'Logs',
     },
     [SignalSourceProduct.HealthChecks]: {
         Icon: IconHeartPlus,
-        color: 'var(--danger)',
+        colorClass: 'text-danger',
         label: 'Health checks',
     },
     [SignalSourceProduct.EngineeringAnalytics]: {
         Icon: IconGear,
-        color: 'var(--warning)',
+        colorClass: 'text-warning',
         label: 'Engineering analytics',
     },
     [SignalSourceProduct.Analytics]: {
         Icon: IconGraph,
-        color: 'var(--blue)',
+        colorClass: 'text-accent',
         label: 'Product analytics',
     },
 }
@@ -158,14 +157,8 @@ export function SourceProductIconRow({
             {entries.map((entry) => {
                 const Icon = entry.meta.Icon
                 return (
-                    <span
-                        key={entry.key}
-                        className="inline-flex shrink-0 items-center"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ color: entry.meta.color }}
-                        aria-hidden
-                    >
-                        <Icon className="text-xs" />
+                    <span key={entry.key} className="inline-flex shrink-0 items-center" aria-hidden>
+                        <Icon className={`text-xs ${entry.meta.colorClass}`} />
                     </span>
                 )
             })}
