@@ -28,6 +28,7 @@ import { PostHogAppToolbarEvent, calculateViewportRange } from 'lib/components/I
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
 import {
     ReplayIframeData,
@@ -750,6 +751,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
+
+            // The slow-load banner races the snapshot capture on busy CI runners, making
+            // iframe-story screenshots nondeterministic.
+            if (inStorybookTestRunner()) {
+                return
+            }
 
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
