@@ -167,6 +167,21 @@ describe("withGithubTriggerEvents", () => {
     expect(next.filters?.actions).toEqual(["closed"]);
   });
 
+  it("keeps an action it does not model", () => {
+    // `locked` is a real pull_request action GITHUB_EVENT_ACTIONS omits, so it renders no chip.
+    // Dropping it on an unrelated event toggle would silently widen the trigger to every action.
+    const config: LoopSchemas.LoopGithubTriggerConfig = {
+      github_integration_id: 7,
+      repository: "posthog/posthog",
+      events: ["pull_request"],
+      filters: { actions: ["locked"] },
+    };
+
+    const next = withGithubTriggerEvents(config, ["pull_request", "issues"]);
+
+    expect(next.filters?.actions).toEqual(["locked"]);
+  });
+
   it("drops the filter key entirely when nothing survives", () => {
     const config: LoopSchemas.LoopGithubTriggerConfig = {
       github_integration_id: 7,

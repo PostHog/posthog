@@ -124,15 +124,25 @@ export function githubTriggerActionOptions(
     );
 }
 
+/** Every action GITHUB_EVENT_ACTIONS models. GitHub keeps adding actions, and the API accepts any
+ * string, so a trigger can hold one we don't list — we can't tell which events send it. */
+const MODELLED_GITHUB_ACTIONS = new Set(
+  Object.values(GITHUB_EVENT_ACTIONS).flat(),
+);
+
 /** Sets the trigger's events, dropping any selected action the new set can't all send. Leaving
- * a stale action behind would silently stop the newly ticked event from ever firing. */
+ * a stale action behind would silently stop the newly ticked event from ever firing.
+ *
+ * Actions we don't model are kept: dropping one would widen the trigger to every action of the
+ * event, and since the user was never shown a control for it they'd get no say in that. */
 export function withGithubTriggerEvents(
   config: LoopSchemas.LoopGithubTriggerConfig,
   events: LoopSchemas.LoopGithubTriggerEventEnum[],
 ): LoopSchemas.LoopGithubTriggerConfig {
   const offerable = githubTriggerActionOptions(events);
-  const actions = (config.filters?.actions ?? []).filter((action) =>
-    offerable.includes(action),
+  const actions = (config.filters?.actions ?? []).filter(
+    (action) =>
+      offerable.includes(action) || !MODELLED_GITHUB_ACTIONS.has(action),
   );
   return withGithubTriggerFilters({ ...config, events }, { actions });
 }

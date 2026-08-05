@@ -652,7 +652,15 @@ function GithubTriggerFields({
     onChange(withGithubTriggerEvents(config, events));
   };
 
-  const actionOptions = githubTriggerActionOptions(config.events);
+  const offerableActions = githubTriggerActionOptions(config.events);
+  // A trigger set up through the API can hold an action we don't model, which would otherwise
+  // render no chip: invisible, unremovable, and quietly narrowing the trigger.
+  const actionOptions = [
+    ...offerableActions,
+    ...(config.filters?.actions ?? []).filter(
+      (action) => !offerableActions.includes(action),
+    ),
+  ];
   const conditions = config.filters?.payload ?? [];
 
   const setConditions = (
