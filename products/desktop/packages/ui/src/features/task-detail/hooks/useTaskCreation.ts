@@ -70,6 +70,7 @@ interface UseTaskCreationOptions {
   sessionId: string;
   selectedDirectory: string;
   selectedRepository?: string | null;
+  repositories?: string[];
   githubIntegrationId?: number;
   githubUserIntegrationId?: string;
   workspaceMode: WorkspaceMode;
@@ -174,6 +175,7 @@ export function useTaskCreation({
   sessionId,
   selectedDirectory,
   selectedRepository,
+  repositories,
   githubIntegrationId,
   githubUserIntegrationId,
   workspaceMode,
@@ -364,10 +366,11 @@ export function useTaskCreation({
           adapter,
         );
         const input = prepareTaskInput(serializedContent, filePaths, {
-          // In channels chat-box mode no repo is attached up front, even if a
-          // directory/repo is lingering in the persisted picker state.
-          selectedDirectory: allowNoRepo ? undefined : selectedDirectory,
+          // Repo-optional surfaces may still supply an explicit task folder or
+          // repository selection; otherwise creation falls back to scratch.
+          selectedDirectory: selectedDirectory || undefined,
           selectedRepository: allowNoRepo ? null : selectedRepository,
+          repositories,
           githubIntegrationId,
           githubUserIntegrationId,
           workspaceMode,
@@ -547,6 +550,7 @@ export function useTaskCreation({
       sessionId,
       selectedDirectory,
       selectedRepository,
+      repositories,
       githubIntegrationId,
       githubUserIntegrationId,
       workspaceMode,
