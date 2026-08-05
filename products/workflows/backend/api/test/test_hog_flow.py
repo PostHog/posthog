@@ -406,18 +406,31 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("webhook", "template-source-webhook", "{request.body.event}", "{request.body.distinct_id}"),
-            ("manual", "template-source-webhook", "$workflow_triggered", "{request.body.user_id}"),
+            (
+                "webhook",
+                "template-source-webhook",
+                "{request.body.event}",
+                "{request.body.distinct_id}",
+                ["$workflow_triggered", "request.query"],
+            ),
+            (
+                "manual",
+                "template-source-webhook",
+                "$workflow_triggered",
+                "{request.body.user_id}",
+                ["{request.body.event}", "request.query"],
+            ),
             (
                 "tracking_pixel",
                 "template-source-webhook-pixel",
                 "{request.query.ph_event}",
                 "{request.query.ph_distinct_id}",
+                ["request.body"],
             ),
         ]
     )
     def test_unknown_trigger_template_id_names_the_source_template(
-        self, trigger_type, expected_literal, expected_event, expected_distinct_id
+        self, trigger_type, expected_literal, expected_event, expected_distinct_id, forbidden_fragments
     ):
         # webhook/manual/tracking_pixel triggers are each backed by a fixed built-in source template that
         # isn't in the destination catalog agents search, so a wrong/guessed template_id left them looping
@@ -447,6 +460,10 @@ class TestHogFlowAPI(APIBaseTest):
         assert "destination template catalog" in detail, detail
         assert expected_event in detail, detail
         assert expected_distinct_id in detail, detail
+        # Another trigger type's mapping leaking in is the actual regression: it saves fine and only
+        # fails once triggered, so the positive assertions alone would still pass a shared example.
+        for fragment in forbidden_fragments:
+            assert fragment not in detail, (fragment, detail)
 
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
