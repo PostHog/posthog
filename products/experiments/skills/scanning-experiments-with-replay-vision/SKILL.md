@@ -5,7 +5,7 @@ description: "Provisions a Replay Vision scanner scoped to one experiment's expo
 
 # Scanning experiments with Replay Vision
 
-The job: *"I'm running an experiment. Watch the recordings and tell me what's actually happening in each arm."*
+The job: _"I'm running an experiment. Watch the recordings and tell me what's actually happening in each arm."_
 
 A Replay Vision scanner is a standing LLM probe over session recordings (see [[creating-replay-vision-scanners]] for the general mechanics). Scoping one to an experiment fixes the classic ways scanners go wrong, all at once: the query is **derived** from the experiment's exposure criteria instead of hand-authored, the prompt is **templated** from the hypothesis and variants instead of vague, the population is **bounded** by enrollment, and the experiment's end date gives the scanner a natural end. This skill covers what is experiment-specific; the generic create/size mechanics stay in the parent skill.
 
@@ -26,9 +26,9 @@ Guards before doing anything else:
 
 This is the part that must be right. The exposure criteria define the population; mirror the semantics the experiment surfaces use (`getViewRecordingFiltersForVariant` and friends in `frontend/src/scenes/experiments/utils.ts`) rather than inventing a filter shape.
 
-**One scanner for the whole experiment, not one per arm.** Pass every variant key and split by arm at readout. One scanner halves the spend, keeps a single prompt version across arms (see Limits on version skew), and `sampling_rate` is applied randomly *after* the query matches, so sampling doesn't bias one arm. Only build per-arm scanners when the user explicitly wants different sampling per arm.
+**One scanner for the whole experiment, not one per arm.** Pass every variant key and split by arm at readout. Spend is the same either way — credits are per observation, and per-arm scanners would just partition the same sessions (double-scanning any session that fired both variants) — but one scanner keeps a single prompt version across arms (see Limits on version skew) and one readout, and its random `sampling_rate` is applied _after_ the query matches, so the sample itself doesn't bias an arm (the eligibility gates are another story — see Step 4). Only build per-arm scanners when the user explicitly wants different sampling per arm.
 
-Set `filter_test_accounts` from the experiment's own `exposure_criteria.filterTestAccounts` (default `true` when absent).
+Set `filter_test_accounts` from the experiment's own `exposure_criteria.filterTestAccounts`, defaulting to **`false` when absent** — that is what every experiment surface does (`get_test_accounts_filter` backend-side, `?? false` in the replay tab). Upgrading it to `true` on your own scans a narrower population than the experiment analyzes.
 
 ### Case A — default exposure (the common case)
 
@@ -54,6 +54,10 @@ Set `filter_test_accounts` from the experiment's own `exposure_criteria.filterTe
 
 **Never match on the event alone.** The variant property must be IN the experiment's variant keys — `$feature_flag_called` also fires for users who evaluated the flag but were never enrolled (e.g. a `false` response on a partial rollout), and those would silently pollute the population.
 
+**Keep the config's `properties`.** An exposure config can name the default event _and_ carry its own property filters (e.g. exposures only on a specific page). The analysis applies them (`_build_property_filters` in `products/experiments/backend/hogql_queries/exposure_query_logic.py`); the experiment page's own recordings link currently drops them. Mirror the analysis and append them to the filter above — otherwise the scanner watches a wider population than the experiment measures, and pays for it.
+
+**Check Case A's coverage before trusting it — the SDK dedupes this event.** `posthog-js` persists which flag/value pairs it has already reported and by default never re-emits `$feature_flag_called` for the same identity, across page loads _and_ sessions (`advanced_feature_flags_dedup_per_session: true` relaxes that to once per session; server SDKs dedupe per process lifetime — see the empty-experiment reference in [[diagnosing-experiment-results]]). So the event filter skews toward each person's _first-touch_ sessions and can miss returning users entirely — exactly wrong for novelty effects and "did anyone notice" questions — and the linkability check passes cleanly in that situation. Compare `uniqExact(properties.$session_id)` on the exposure event vs. on events where `properties['$feature/<flag_key>']` is in the variant keys, same window: gaps of an order of magnitude are common. When coverage of ongoing behavior matters more than the enrollment moment, offer Case B as a **deliberate choice**, not a fallback.
+
 ### The session-linkability check
 
 Every event filter in a recordings query becomes a subquery requiring a non-empty `$session_id`. An exposure event captured server-side never carries one, so it silently zeroes the entire result set. Check before building, via `execute-sql`:
@@ -72,16 +76,14 @@ WHERE event = '<exposure event>'
 - `with_session_id = 0` with `total > 0`: the event is captured server-side. Case B below (default exposure) or refuse (custom exposure).
 - Otherwise: build the event-based query above.
 
-### Case B — the default exposure event is server-side
+### Case B — the flag-value property
 
-Substitute the flag-value property that `posthog-js` stamps on every client-side event after flags load:
+Two reasons to land here: the default exposure event is captured server-side (it can never match a session), or Case A's deduped event under-covers ongoing sessions and the user chooses coverage over enrollment semantics. Substitute the flag-value property that `posthog-js` stamps on every client-side event after flags load:
 
 ```json
 {
   "kind": "RecordingsQuery",
-  "properties": [
-    { "key": "$feature/<flag_key>", "type": "event", "operator": "exact", "value": ["control", "test"] }
-  ],
+  "properties": [{ "key": "$feature/<flag_key>", "type": "event", "operator": "exact", "value": ["control", "test"] }],
   "filter_test_accounts": true
 }
 ```
@@ -126,28 +128,30 @@ Starter templates:
 
 1. **"Did anyone notice?"** — `classifier`, tags `reached-and-interacted`, `reached-not-interacted`, `never-reached`. When an experiment lands flat, the numbers can't distinguish "the change did nothing" from "nobody encountered the change"; this can. Needs the user to describe the changed surface. Often the right first scanner.
 2. **Post-exposure friction** — `classifier`, tags `confusion`, `hesitation`, `error-or-dead-end`, `smooth`, `never-reached`. The general "why is the test arm losing" probe.
-3. **Funnel drop-off explainer** — `classifier` or `monitor`. Honest caveat: "entered the funnel but didn't complete it" is a per-session aggregate and **not expressible as a `RecordingsQuery`**, so this template cannot narrow the population today — it can only pose the drop-off question in the prompt over every exposed session, which is weaker and costs more. Say so before promising it.
+3. **Funnel drop-off explainer** — `classifier` or `monitor`. Honest caveat: a standing `RecordingsQuery` cannot express "entered the funnel but didn't complete it" — event filters assert presence, never absence — so a _standing_ scanner can only pose the drop-off question in the prompt over every exposed session, which is weaker and costs more. What does work today: derive drop-off session ids with `execute-sql` (exposure and entry event present, completion event absent, non-empty `$session_id`) and `vision-scanners-scan-session` a sample of them. Say which of the two you're offering.
 4. **Per-arm behavior summary** — `summarizer`. Exploration only: summaries do not aggregate into a delta.
 
 ## Step 4: Size it against the experiment, not the month
 
 Run the standard gut-check from [[creating-replay-vision-scanners]]: `vision-scanners-estimate-create` with the derived `query`, then `vision-quota-retrieve`, comparing **credits against credits** (`remaining` is `null` when the org is uncapped — then reason about absolute spend instead). Experiment-specific corrections on top:
 
-- **The estimate's window is the wrong window.** It always measures a fixed 30-day lookback, whatever the experiment's dates. Reason from `matched_sessions_in_window` and `window_days` — a sessions-per-day rate — rather than quoting `estimated_credits_per_month` as the experiment's cost.
-- **The experiment gives a better bound than a monthly projection.** Total spend ≈ (exposed sessions/day × days remaining × `sampling_rate`) × `credits_per_observation` — a finite number. Use the experiment's expected remaining run time (`parameters.recommended_running_time` minus days elapsed, when set).
-- **`sampling_rate` is the lever, not a compromise.** A qualitative read does not need every session: on a high-traffic experiment even 0.5–2% sampling yields plenty of observations. Sampling is random and applied after the query matches, so it does not bias either arm. Floor: non-zero rates below 0.0001 are rejected; `0` means paused. `sampling_mode` (`focused`/`balanced`/`comprehensive`) additionally pre-filters by session quality before the random sample.
+- **The estimate's window is the wrong window.** It always measures a fixed 30-day lookback — `window_days` shrinks only when the team's recording history is shorter, never to the experiment's age. For an experiment younger than the window, `matched_sessions_in_window / window_days` dilutes the true rate across days the experiment wasn't running (a 3-day-old experiment is understated ~10×), and `estimated_credits_per_month` inherits the dilution. Compute sessions/day as `matched_sessions_in_window / min(window_days, days since start_date)`, and don't quote the monthly figure as the experiment's cost.
+- **The experiment gives a better bound than a monthly projection.** Total spend ≈ (exposed sessions/day × days remaining × `sampling_rate`) × `credits_per_observation` — a finite number. Use the experiment's expected remaining run time (`running_time_calculation.recommended_running_time` minus days elapsed, when set — that's its canonical home; it no longer lives in `parameters`).
+- **`sampling_rate` is the lever, not a compromise.** A qualitative read does not need every session: on a high-traffic experiment even 0.5–2% sampling yields plenty of observations. The random sample is applied after the query matches, so it does not bias either arm. Floor: non-zero rates below 0.0001 are rejected; `0` means paused.
+- **Two other gates are not arm-neutral.** The sweep (and the estimate) drop sessions under 15s total, under 10s of activity, or over 1h of activity, and a `focused`/`balanced` `sampling_mode` additionally keeps only roughly the top 25%/65% of sessions by surfacing score. Bounced and idle sessions are exactly what a `never-reached` tag is meant to count, so when one arm changes bounce behavior these filters clip the arms differently. Keep `sampling_mode: comprehensive` (the default) for experiment scanners, and read tag shares knowing sub-15s bounces never enter at all.
+- **Healthy exposures next to `matched_sessions_in_window ≈ 0` means sessions aren't being recorded** — replay disabled or sampled down, or traffic from an SDK that doesn't record. The linkability check can't catch this (it proves events carry session ids, not that recordings exist). Surface it and stop rather than creating a scanner that will sit idle.
 
 Show the user the numbers before creating, per the parent skill.
 
 ## Step 5: Create disabled, preview, then hand over
 
-Create with `vision-scanners-create` and **`enabled: false`** — no schedule, no quota consumption, and on-demand triggers still work. Name it so it's findable, e.g. `Experiment scan: <experiment name> · <template>` (names are unique per team).
+Create with `vision-scanners-create` and **`enabled: false`** — no schedule, no sweep spend, and on-demand triggers still work. Preview scans are not free, though: each one spends credits like any observation (the quota check runs unconditionally) and is rejected outright when the org is exhausted. Name it so it's findable, e.g. `Experiment scan: <experiment name> · <template>` (names are unique per team).
 
 Then **preview the prompt before anyone enables it**:
 
 1. Pull 2–3 recent exposed session ids (the linkability-check query, grouped by `properties.$session_id`, ideally covering both arms).
 2. `vision-scanners-scan-session` each one — async, several minutes per session.
-3. Read the results with `vision-scanners-observations-list`. If the tags aren't comparable across arms or the model tags friction on sessions that never reached the surface, fix the prompt/tags **now** — after the scanner starts observing, config edits bump `scanner_version` and fork the series (see Limits).
+3. Read the results with `vision-scanners-observations-list`. If the tags aren't comparable across arms or the model tags friction on sessions that never reached the surface, fix the prompt/tags **now** — after the scanner starts observing, config edits bump `scanner_version` and fork the series (see Limits). Each iteration needs **fresh session ids**: one observation per (scanner, session) applies to previews too, so already-scanned sessions are burned for this scanner.
 
 Then link the user to the scanner (`/project/<project_id>/replay-vision/<scanner_id>`) and let **them** enable it — enabling starts real spend, so that click stays human. Two closing reminders for the user:
 
@@ -192,11 +196,13 @@ JOIN (
       AND notEmpty(properties.$session_id)
       AND timestamp >= '<experiment start_date>'
     GROUP BY session_id
-    HAVING uniq(properties.$feature_flag_response) = 1  -- drop sessions that saw multiple variants, mirroring the experiment's default handling
+    HAVING uniq(properties.$feature_flag_response) = 1  -- a session that fired more than one variant can't be attributed to an arm
 ) AS sess USING (session_id)
 GROUP BY variant, tag
 ORDER BY variant, observations DESC
 ```
+
+That `HAVING` is session-scoped attribution — deliberately narrower than the analysis, which handles multi-variant exposure per **person** via `exposure_criteria.multiple_variant_handling` (default `exclude` routes those persons to a `$multiple` group that is dropped from results; `first_seen` keeps them under their first variant). A person the analysis excluded can still contribute single-variant sessions here, so the tally's population won't exactly match the experiment's.
 
 For Case B/C populations, derive `variant` from `any(properties['$feature/<flag_key>'])` over the session's events instead, and label the result "the flag was active in this session". General HogQL guidance: [[querying-posthog-data]].
 
