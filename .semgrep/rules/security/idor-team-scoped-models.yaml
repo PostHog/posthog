@@ -219,6 +219,8 @@ rules:
                               |ManagedWarehouseBackfillPartition
                               |ManagedWarehouseSourceJob
                               |MarketingAnalyticsGoalMapping
+                              |Meeting
+                              |MeetingParticipant
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageSuppression
@@ -559,6 +561,8 @@ rules:
                         |ManagedWarehouseBackfillPartition
                         |ManagedWarehouseSourceJob
                         |MarketingAnalyticsGoalMapping
+                        |Meeting
+                        |MeetingParticipant
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageSuppression
