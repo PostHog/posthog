@@ -244,12 +244,11 @@ class TaskMentionDTO:
 
 @dataclass(frozen=True)
 class TaskActivityDTO:
-    """One task the requesting user is involved in, for the task-centric activity feed.
+    """One entry in the requesting user's task-centric activity feed.
 
-    Unlike ``TaskMentionDTO`` (one row per mention message), this is one row per task,
-    surfacing the most recent relevant activity. ``activity_kind`` classifies the winning
-    signal so the client can pick row copy. Source fields describe the thread message or
-    resource comment tied to ``activity_at`` and stay empty for task creation.
+    Lifecycle signals collapse to one row per task, while explicit resource-comment
+    mentions remain separate entries. Source fields describe the message or comment tied
+    to ``activity_at`` and stay empty for task creation.
     """
 
     id: UUID

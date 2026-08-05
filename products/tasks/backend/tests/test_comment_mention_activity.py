@@ -6,7 +6,7 @@ from posthog.models import Comment, Organization, OrganizationMembership, Team, 
 
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.models import Channel, Task, TaskActivity, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskCommentMentionActivity, TaskRun
 
 
 class CommentMentionTestCase(TestCase):
@@ -60,9 +60,8 @@ class TestCommentMentionActivity(CommentMentionTestCase):
 
         self._record_mentions(comment, [self.author.id])
 
-        row = TaskActivity.objects.get(team=self.team, user=self.author)
+        row = TaskCommentMentionActivity.objects.get(team=self.team, user=self.author)
         assert row.task_id == self.task.id
-        assert row.kind == TaskActivity.Kind.MENTION
         assert row.comment_id == comment.id
         assert row.read_at is None
 
@@ -72,7 +71,7 @@ class TestCommentMentionActivity(CommentMentionTestCase):
 
         self._record_mentions(comment, [self.author.id])
 
-        assert TaskActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
+        assert TaskCommentMentionActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
 
     def test_canvas_comment_uses_its_generation_task(self):
         canvas = Canvas.objects.create(
@@ -86,7 +85,7 @@ class TestCommentMentionActivity(CommentMentionTestCase):
 
         self._record_mentions(comment, [self.author.id])
 
-        assert TaskActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
+        assert TaskCommentMentionActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
 
     def test_feed_renders_the_comment_author_and_text(self):
         comment = self._comment()
@@ -94,13 +93,27 @@ class TestCommentMentionActivity(CommentMentionTestCase):
 
         page = tasks_facade.list_task_activity(self.team.id, self.author.id)
 
-        assert len(page.results) == 1
-        assert page.results[0].snippet == "this needs a guard"
-        assert page.results[0].latest_author is not None
-        assert page.results[0].latest_author.id == self.peer.id
-        assert page.results[0].latest_comment_id == comment.id
-        assert page.results[0].latest_comment_scope == "task_artifact"
-        assert page.results[0].latest_comment_item_id == "artifact-1"
+        activity = next(row for row in page.results if row.latest_comment_id == comment.id)
+        assert activity.snippet == "this needs a guard"
+        assert activity.latest_author is not None
+        assert activity.latest_author.id == self.peer.id
+        assert activity.latest_comment_scope == "task_artifact"
+        assert activity.latest_comment_item_id == "artifact-1"
+
+    def test_distinct_comments_on_one_task_remain_distinct_activity_entries(self):
+        first = self._comment(content="first request")
+        second = self._comment(content="second request")
+
+        self._record_mentions(first, [self.author.id])
+        self._record_mentions(second, [self.author.id])
+
+        mentions = [
+            row
+            for row in tasks_facade.list_task_activity(self.team.id, self.author.id).results
+            if row.latest_comment_id
+        ]
+        assert [row.latest_comment_id for row in mentions] == [second.id, first.id]
+        assert [row.snippet for row in mentions] == ["second request", "first request"]
 
     def test_reply_mention_links_activity_to_the_root_thread(self):
         root = self._comment(content="root")
@@ -118,14 +131,14 @@ class TestCommentMentionActivity(CommentMentionTestCase):
 
         self._record_mentions(comment, [self.author.id])
 
-        assert not TaskActivity.objects.filter(team=self.team, user=self.author).exists()
+        assert not TaskCommentMentionActivity.objects.filter(team=self.team, user=self.author).exists()
 
     def test_author_is_not_notified_of_their_own_mention(self):
         comment = self._comment(created_by=self.author)
 
         self._record_mentions(comment, [self.author.id])
 
-        assert not TaskActivity.objects.filter(team=self.team, user=self.author).exists()
+        assert not TaskCommentMentionActivity.objects.filter(team=self.team, user=self.author).exists()
 
     def test_personal_channel_mentions_do_not_create_activity(self):
         self.channel.channel_type = Channel.ChannelType.PERSONAL
@@ -134,7 +147,7 @@ class TestCommentMentionActivity(CommentMentionTestCase):
 
         self._record_mentions(comment, [self.author.id])
 
-        assert not TaskActivity.objects.filter(team=self.team, user=self.author).exists()
+        assert not TaskCommentMentionActivity.objects.filter(team=self.team, user=self.author).exists()
 
     # The task id rides in on the request for resource-scoped comments, so a caller must not
     # be able to point a mention at a task in another team or one that does not exist.
@@ -150,11 +163,11 @@ class TestCommentMentionActivity(CommentMentionTestCase):
 
         self._record_mentions(comment, [self.author.id])
 
-        assert not TaskActivity.objects.filter(team=self.team).exists()
+        assert not TaskCommentMentionActivity.objects.filter(team=self.team).exists()
 
     def test_comment_from_another_product_is_ignored(self):
         comment = self._comment(scope="Insight", item_id="42")
 
         self._record_mentions(comment, [self.author.id])
 
-        assert not TaskActivity.objects.filter(team=self.team).exists()
+        assert not TaskCommentMentionActivity.objects.filter(team=self.team).exists()

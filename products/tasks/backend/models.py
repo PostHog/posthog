@@ -1172,6 +1172,74 @@ class TaskActivity(TeamScopedRootMixin):
             )
 
 
+class TaskCommentMentionActivity(TeamScopedRootMixin):
+    """One durable Activity entry per comment that mentions a user.
+
+    TaskActivity intentionally collapses lifecycle noise per task. Explicit
+    comment mentions do not: each can carry a separate request and deep link.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    comment = models.ForeignKey(
+        "posthog.Comment",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    activity_at = models.DateTimeField()
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_comment_mention_activity"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "comment"],
+                name="task_comment_mention_activity_unique",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "activity_at", "id"], name="task_comment_mention_feed_idx"),
+            models.Index(
+                fields=["team", "user"],
+                condition=models.Q(read_at__isnull=True),
+                name="task_comment_mention_unread_idx",
+            ),
+        ]
+
+    @classmethod
+    def record(
+        cls,
+        *,
+        team_id: int,
+        user_id: int,
+        task_id: uuid.UUID | str,
+        comment_id: uuid.UUID,
+        activity_at: datetime,
+    ) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {cls._meta.db_table}
+                       (id, team_id, user_id, task_id, comment_id, activity_at, read_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NULL)
+                ON CONFLICT (team_id, user_id, comment_id) DO UPDATE
+                   SET task_id = EXCLUDED.task_id,
+                       activity_at = EXCLUDED.activity_at,
+                       read_at = CASE
+                           WHEN {cls._meta.db_table}.activity_at = EXCLUDED.activity_at
+                           THEN {cls._meta.db_table}.read_at
+                           ELSE NULL
+                       END
+                 WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                """,
+                [uuid7(), team_id, user_id, task_id, comment_id, activity_at],
+            )
+
+
 class TaskPin(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)

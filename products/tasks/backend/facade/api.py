@@ -77,6 +77,7 @@ from products.tasks.backend.models import (
     TaskArtifact,
     TaskAutomation,
     TaskClientProvenance,
+    TaskCommentMentionActivity,
     TaskPin,
     TaskRun,
     TaskSession,
@@ -6158,14 +6159,12 @@ def record_comment_mention_activity(
         ):
             return
         for user_id in recipients:
-            TaskActivity.record(
+            TaskCommentMentionActivity.record(
                 team_id=team_id,
                 user_id=user_id,
                 task_id=task_id,
-                kind=TaskActivity.Kind.MENTION,
                 activity_at=created_at,
                 comment_id=comment_id,
-                actor_id=author_id,
             )
     except Exception:
         # Best-effort, like the sibling mention fan-outs: a feed row is never worth
@@ -6282,11 +6281,19 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=visible_tasks)
 
 
+def _comment_mention_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentMentionActivity]:
+    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    return TaskCommentMentionActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=visible_tasks)
+
+
 def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     """Unread tasks across the requester's whole feed. Backs the sidebar badge."""
     if user_id is None:
         return 0
-    return _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
+    return (
+        _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
+        + _comment_mention_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
+    )
 
 
 def list_task_activity(
@@ -6297,21 +6304,31 @@ def list_task_activity(
     before: datetime | None = None,
     before_id: UUID | None = None,
 ) -> contracts.TaskActivityPageDTO:
-    """The requester's feed: one row per task they are involved in, newest activity first.
+    """The requester's task activity and individual comment mentions, newest first.
 
     ``unread_count`` counts every unread row the requester can see, not just the ones in
     this page, so the sidebar badge stays honest past ``limit``.
     """
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
-    qs = _task_activity_qs(team_id, user_id)
+    task_qs = _task_activity_qs(team_id, user_id)
+    mention_qs = _comment_mention_activity_qs(team_id, user_id)
     if before is not None and before_id is not None:
-        qs = qs.filter(Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id))
-    rows = list(
-        qs.select_related("task__channel", "message__author", "comment__created_by").order_by("-activity_at", "-id")[
-            : limit + 1
-        ]
-    )
+        cursor = Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id)
+        task_qs = task_qs.filter(cursor)
+        mention_qs = mention_qs.filter(cursor)
+    task_rows = task_qs.select_related("task__channel", "message__author", "comment__created_by").order_by(
+        "-activity_at", "-id"
+    )[: limit + 1]
+    mention_rows = mention_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
+        : limit + 1
+    ]
+    activity_rows: list[TaskActivity | TaskCommentMentionActivity] = [*task_rows, *mention_rows]
+    rows: list[TaskActivity | TaskCommentMentionActivity] = sorted(
+        activity_rows,
+        key=lambda row: (row.activity_at, row.id),
+        reverse=True,
+    )[: limit + 1]
     has_more = len(rows) > limit
     rows = rows[:limit]
     next_row = rows[-1] if has_more else None
@@ -6325,10 +6342,14 @@ def list_task_activity(
                 channel_id=row.task.channel_id,
                 channel_name=row.task.channel.name if row.task.channel else None,
                 activity_at=row.activity_at,
-                activity_kind=row.kind,
-                snippet=_activity_snippet(row),
-                latest_author=_user_basic_info(_activity_author(row)),
-                latest_message_id=row.message_id,
+                activity_kind=(TaskActivity.Kind.MENTION if isinstance(row, TaskCommentMentionActivity) else row.kind),
+                snippet=(row.comment.content or "" if row.comment else "")
+                if isinstance(row, TaskCommentMentionActivity)
+                else _activity_snippet(row),
+                latest_author=_user_basic_info(
+                    row.comment.created_by if isinstance(row, TaskCommentMentionActivity) else _activity_author(row)
+                ),
+                latest_message_id=None if isinstance(row, TaskCommentMentionActivity) else row.message_id,
                 latest_comment_id=(row.comment.source_comment_id or row.comment_id) if row.comment else None,
                 latest_comment_scope=row.comment.scope if row.comment else None,
                 latest_comment_item_id=row.comment.item_id if row.comment else None,
@@ -6336,7 +6357,7 @@ def list_task_activity(
             )
             for row in rows
         ],
-        unread_count=_task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count(),
+        unread_count=count_unread_task_activity(team_id, user_id),
         next_before=next_row.activity_at if next_row else None,
         next_before_id=next_row.id if next_row else None,
     )
@@ -6349,11 +6370,17 @@ def mark_task_activity_read(team_id: int, user_id: int | None, activities: Seque
     activity_versions = Q()
     for task_id, seen_before in activities:
         activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
-    return (
+    task_rows = (
         TaskActivity.objects.filter(team_id=team_id, user_id=user_id, read_at__isnull=True)
         .filter(activity_versions)
         .update(read_at=django_timezone.now())
     )
+    mention_rows = (
+        TaskCommentMentionActivity.objects.filter(team_id=team_id, user_id=user_id, read_at__isnull=True)
+        .filter(activity_versions)
+        .update(read_at=django_timezone.now())
+    )
+    return task_rows + mention_rows
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:

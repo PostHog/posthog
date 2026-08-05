@@ -115,7 +115,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
-        task_activity_model = apps.get_model("tasks", "TaskActivity")
+        task_activity_model = apps.get_model("tasks", "TaskCommentMentionActivity")
         assert task_activity_model.objects.filter(
             team=self.team,
             user=mentioned,
@@ -147,7 +147,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         send_notifications.assert_not_called()
-        task_activity_model = apps.get_model("tasks", "TaskActivity")
+        task_activity_model = apps.get_model("tasks", "TaskCommentMentionActivity")
         assert not task_activity_model.objects.filter(team=self.team, user=mentioned, task=task).exists()
 
     @mock.patch("posthog.api.comments._record_task_comment_activity")
