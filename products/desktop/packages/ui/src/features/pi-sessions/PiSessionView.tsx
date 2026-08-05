@@ -1,13 +1,23 @@
 import {
   contentToXml,
   isContentEmpty,
+  textToContent,
   xmlToContent,
 } from "@posthog/core/message-editor/content";
-import { PI_SESSION_CONTROLLER } from "@posthog/core/pi-runtime/identifiers";
+import {
+  PI_EXTENSION_CONTROLLER,
+  PI_SESSION_CONTROLLER,
+} from "@posthog/core/pi-runtime/identifiers";
+import type { PiExtensionController } from "@posthog/core/pi-runtime/piExtensionController";
+import {
+  createEmptyPiExtensionTaskState,
+  type PiExtensionTaskState,
+} from "@posthog/core/pi-runtime/piExtensionStore";
 import {
   PiOperationError,
   type PiSessionController,
 } from "@posthog/core/pi-runtime/piSessionController";
+import type { PiControllerSessionState } from "@posthog/core/pi-runtime/piSessionStore";
 import { toPiContextUsage } from "@posthog/core/pi-runtime/piSessionUsage";
 import { useService } from "@posthog/di/react";
 import {
@@ -30,7 +40,6 @@ import {
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import { ChatThread } from "@posthog/ui/features/sessions/components/chat-thread/ChatThread";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
-import { focusComposerOnPaneClick } from "@posthog/ui/features/sessions/components/focusComposerOnPaneClick";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useMessagingModeStore } from "@posthog/ui/features/sessions/messagingModeStore";
@@ -40,8 +49,17 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 import { logger } from "@posthog/ui/shell/logger";
 import { Box, Flex } from "@radix-ui/themes";
-import { type ReactElement, useCallback, useEffect, useRef } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useStore } from "zustand";
+import { PiExtensionDialog } from "./PiExtensionDialog";
+import { PiExtensionStatuses, PiExtensionWidgets } from "./PiExtensionSurfaces";
+import { PiProjectTrustBanner } from "./PiProjectTrustBanner";
 import { PiQueuedMessagesDock } from "./PiQueuedMessagesDock";
 import { PiMessagingModeSelector } from "./PiSessionControls";
 import { PiSessionModelControls } from "./PiSessionModelControls";
@@ -58,6 +76,385 @@ interface PiSessionViewProps {
   isCloud: boolean;
 }
 
+type DraftActions = ReturnType<typeof useDraftStore.getState>["actions"];
+type PendingConfig = ReturnType<typeof getPiPendingConfig>;
+type ClearPendingConfig = ReturnType<
+  typeof usePiPendingConfigStore.getState
+>["clearConfig"];
+type MessagingMode = Parameters<PiSessionController["getSubmitAction"]>[2];
+type PiSubmitAction = ReturnType<PiSessionController["getSubmitAction"]>;
+type PiQueueSnapshot = Awaited<ReturnType<PiSessionController["clearQueue"]>>;
+type SetMessagingMode = ReturnType<
+  typeof useMessagingModeStore.getState
+>["setMode"];
+
+function usePiSessionConnection(
+  taskId: string,
+  taskRunId: string | undefined,
+): void {
+  const controller = useService<PiSessionController>(PI_SESSION_CONTROLLER);
+  useEffect(() => {
+    void controller.ensureConnected(taskId, taskRunId).catch(() => {});
+    return () => controller.disconnect(taskId);
+  }, [controller, taskId, taskRunId]);
+}
+
+function usePiExtensionConnection(
+  taskId: string,
+  taskRunId: string | undefined,
+  isCloud: boolean,
+  connectionState: PiControllerSessionState["connectionState"] | undefined,
+): void {
+  const controller = useService<PiExtensionController>(PI_EXTENSION_CONTROLLER);
+  useEffect(() => {
+    if (isCloud || connectionState !== "connected") {
+      return;
+    }
+    void controller.connect(taskId, taskRunId).catch(() => {});
+    return () => controller.disconnect(taskId);
+  }, [connectionState, controller, isCloud, taskId, taskRunId]);
+}
+
+function usePiDraftContext(
+  taskId: string,
+  repoPath: string | undefined,
+  isCompacting: boolean,
+  isStreaming: boolean,
+  isBashRunning: boolean,
+): void {
+  useEffect(() => {
+    useDraftStore.getState().actions.setContext(taskId, {
+      taskId,
+      repoPath,
+      disabled: isCompacting,
+      isLoading: isStreaming || isBashRunning,
+    });
+  }, [isBashRunning, isCompacting, isStreaming, repoPath, taskId]);
+}
+
+function usePiCommands(
+  taskId: string,
+  commands: PiControllerSessionState["commands"] | undefined,
+): void {
+  useEffect(() => {
+    if (!commands) {
+      return;
+    }
+
+    const piCommands = commands.flatMap((command) =>
+      command.name === "compact"
+        ? []
+        : [
+            {
+              name: command.name,
+              description: command.description ?? "",
+            },
+          ],
+    );
+
+    useDraftStore.getState().actions.setCommands(taskId, [
+      {
+        name: "compact",
+        description: "Compact the current Pi session context",
+        input: { hint: "optional instructions" },
+      },
+      ...piCommands,
+    ]);
+  }, [commands, taskId]);
+}
+
+function usePiExtensionNotification(
+  taskId: string,
+  notification: PiExtensionTaskState["notifications"][number] | undefined,
+): void {
+  const controller = useService<PiExtensionController>(PI_EXTENSION_CONTROLLER);
+  useEffect(() => {
+    if (!notification) {
+      return;
+    }
+    toast[notification.notifyType]("Pi extension", {
+      description: notification.message,
+    });
+    controller.acknowledgeNotification(taskId, notification.id);
+  }, [controller, notification, taskId]);
+}
+
+function usePiExtensionEditorText(
+  taskId: string,
+  editorText: PiExtensionTaskState["editorText"],
+): void {
+  const controller = useService<PiExtensionController>(PI_EXTENSION_CONTROLLER);
+  useEffect(() => {
+    if (!editorText) {
+      return;
+    }
+    const draftActions = useDraftStore.getState().actions;
+    draftActions.setPendingContent(taskId, textToContent(editorText.text));
+    draftActions.requestFocus(taskId);
+    controller.acknowledgeEditorText(taskId, editorText.id);
+  }, [controller, editorText, taskId]);
+}
+
+function usePiExtensionTitle(title: PiExtensionTaskState["title"]): void {
+  useEffect(() => {
+    if (title === undefined) {
+      return;
+    }
+    const previousTitle = document.title;
+    document.title = title;
+    return () => {
+      document.title = previousTitle;
+    };
+  }, [title]);
+}
+
+function usePiRecoveryPrompt(
+  taskId: string,
+  failure: PiControllerSessionState["error"],
+): void {
+  useEffect(() => {
+    if (
+      failure?.scope !== "operation" ||
+      !failure.recoveryPrompt ||
+      !isContentEmpty(useDraftStore.getState().drafts[taskId] ?? null)
+    ) {
+      return;
+    }
+    const draftActions = useDraftStore.getState().actions;
+    draftActions.setPendingContent(
+      taskId,
+      xmlToContent(failure.recoveryPrompt),
+    );
+    draftActions.requestFocus(taskId);
+  }, [failure, taskId]);
+}
+
+function usePiFailureNotice(failure: PiControllerSessionState["error"]): void {
+  useEffect(() => {
+    if (!failure || failure.scope !== "operation") {
+      return;
+    }
+    if (failure.kind === "usage_limit") {
+      useUsageLimitStore
+        .getState()
+        .show(failure.limitCause ? { cause: failure.limitCause } : undefined);
+    } else {
+      toast.error(failure.title, { description: failure.message });
+    }
+  }, [failure]);
+}
+
+function usePiFailureAcknowledgement(
+  taskId: string,
+  failure: PiControllerSessionState["error"],
+): void {
+  const controller = useService<PiSessionController>(PI_SESSION_CONTROLLER);
+  useEffect(() => {
+    if (failure?.scope === "operation") {
+      controller.acknowledgeOperationFailure(taskId, failure.id);
+    }
+  }, [controller, failure, taskId]);
+}
+
+function handleControllerError(error: unknown, fallback: string): void {
+  log.error(fallback, error);
+  if (!(error instanceof PiOperationError)) {
+    toast.error(fallback);
+  }
+}
+
+function applyPiSubmitResult(
+  action: PiSubmitAction,
+  pendingConfig: PendingConfig,
+  clearPendingConfig: ClearPendingConfig,
+  taskId: string,
+  taskRunId: string | undefined,
+): void {
+  if (action === "prompt" && pendingConfig && taskRunId) {
+    clearPendingConfig(taskId, taskRunId);
+  }
+  if (action === "compact") {
+    toast.success("Pi context compacted");
+  }
+}
+
+function applyQueueToDraft(
+  queue: PiQueueSnapshot,
+  draftActions: DraftActions,
+  taskId: string,
+): void {
+  const queuedText = [...queue.steering, ...queue.followUp].join("\n\n");
+  if (!queuedText) {
+    return;
+  }
+  const draft = draftActions.getDraft(taskId);
+  const draftText =
+    typeof draft === "string" ? draft : draft ? contentToXml(draft) : "";
+  const content = [queuedText, draftText]
+    .filter((value) => value.trim())
+    .join("\n\n");
+  draftActions.setPendingContent(taskId, xmlToContent(content));
+  draftActions.requestFocus(taskId);
+}
+
+function usePiSubmit(
+  controller: PiSessionController,
+  taskId: string,
+  pendingConfig: PendingConfig,
+  messagingMode: MessagingMode,
+  isStreaming: boolean,
+  onSuccess: (action: PiSubmitAction) => void,
+) {
+  return useCallback(
+    (text: string) => {
+      const message = text.trim();
+      if (!message) {
+        return;
+      }
+
+      const action = controller.getSubmitAction(
+        message,
+        isStreaming,
+        messagingMode,
+      );
+      void controller
+        .submit(taskId, message, isStreaming, messagingMode, pendingConfig)
+        .then(() => onSuccess(action))
+        .catch((error) => {
+          handleControllerError(
+            error,
+            action === "compact"
+              ? "Failed to compact Pi context"
+              : "Failed to send message to Pi",
+          );
+        });
+    },
+    [controller, isStreaming, messagingMode, onSuccess, pendingConfig, taskId],
+  );
+}
+
+function usePiMessagingModeToggle(
+  setMessagingMode: SetMessagingMode,
+  taskId: string,
+  messagingMode: MessagingMode,
+) {
+  return useCallback(() => {
+    setMessagingMode(taskId, messagingMode === "steer" ? "queue" : "steer");
+  }, [messagingMode, setMessagingMode, taskId]);
+}
+
+function usePiBash(
+  controller: PiSessionController,
+  taskId: string,
+): (command: string) => void {
+  return useCallback(
+    (command: string) => {
+      void controller
+        .bash(taskId, command)
+        .catch((error) =>
+          handleControllerError(error, "Failed to run Pi bash command"),
+        );
+    },
+    [controller, taskId],
+  );
+}
+
+function usePiCancel(
+  controller: PiSessionController,
+  taskId: string,
+  isBashRunning: boolean,
+): () => void {
+  return useCallback(() => {
+    const cancellation = isBashRunning
+      ? controller.abortBash(taskId)
+      : controller.abort(taskId);
+    void cancellation.catch((error) =>
+      handleControllerError(
+        error,
+        isBashRunning ? "Failed to stop bash" : "Failed to stop Pi",
+      ),
+    );
+  }, [controller, isBashRunning, taskId]);
+}
+
+function usePiRetry(
+  controller: PiSessionController,
+  taskId: string,
+): () => void {
+  return useCallback(() => {
+    void controller
+      .retry(taskId)
+      .catch((error) =>
+        handleControllerError(error, "Failed to reconnect to Pi"),
+      );
+  }, [controller, taskId]);
+}
+
+function usePiRestart(
+  controller: PiSessionController,
+  taskId: string,
+): () => void {
+  return useCallback(() => {
+    void controller
+      .restart(taskId)
+      .catch((error) => handleControllerError(error, "Failed to restart Pi"));
+  }, [controller, taskId]);
+}
+
+function usePiProjectTrustChange(
+  controller: PiSessionController,
+  taskId: string,
+) {
+  const [pending, setPending] = useState(false);
+  const change = useCallback(
+    async (trusted: boolean) => {
+      setPending(true);
+      try {
+        await controller.setProjectTrusted(taskId, trusted);
+        toast.success(
+          trusted
+            ? "Repository trusted and Pi restarted"
+            : "Repository trust revoked and Pi restarted",
+        );
+      } catch (error) {
+        handleControllerError(error, "Failed to change repository trust");
+      } finally {
+        setPending(false);
+      }
+    },
+    [controller, taskId],
+  );
+  return { change, pending };
+}
+
+function usePiEditQueue(
+  controller: PiSessionController,
+  taskId: string,
+  onQueue: (queue: PiQueueSnapshot) => void,
+): () => void {
+  return useCallback(() => {
+    void controller
+      .clearQueue(taskId)
+      .then(onQueue)
+      .catch((error) =>
+        handleControllerError(error, "Failed to edit queued Pi message"),
+      );
+  }, [controller, onQueue, taskId]);
+}
+
+function usePiRemoveQueue(
+  controller: PiSessionController,
+  taskId: string,
+): () => void {
+  return useCallback(() => {
+    void controller
+      .clearQueue(taskId)
+      .catch((error) =>
+        handleControllerError(error, "Failed to discard queued Pi message"),
+      );
+  }, [controller, taskId]);
+}
+
 export function PiSessionView({
   taskId,
   taskRunId,
@@ -66,9 +463,16 @@ export function PiSessionView({
   const piSessionController = useService<PiSessionController>(
     PI_SESSION_CONTROLLER,
   );
+  const piExtensionController = useService<PiExtensionController>(
+    PI_EXTENSION_CONTROLLER,
+  );
   const session = useStore(
     piSessionController.store,
     (state) => state.sessions[taskId],
+  );
+  const extensionState = useStore(
+    piExtensionController.store,
+    (state) => state.tasks[taskId],
   );
   const draftActions = useDraftStore((state) => state.actions);
   const pendingConfig = usePiPendingConfigStore((state) =>
@@ -84,221 +488,75 @@ export function PiSessionView({
   );
   const setMessagingMode = useMessagingModeStore((state) => state.setMode);
   const { isOnline } = useConnectivity();
-  const showUsageLimit = useUsageLimitStore((state) => state.show);
   const promptRecallRef = useRef<PromptRecallHandler | null>(null);
   const handlePromptRecall = useCallback<PromptRecallHandler>(
     (direction) => promptRecallRef.current?.(direction) ?? null,
     [],
   );
 
-  useEffect(() => {
-    void piSessionController.ensureConnected(taskId, taskRunId).catch(() => {});
-    return () => piSessionController.disconnect(taskId);
-  }, [piSessionController, taskId, taskRunId]);
+  usePiSessionConnection(taskId, taskRunId);
+  usePiExtensionConnection(
+    taskId,
+    taskRunId,
+    isCloud,
+    session?.connectionState,
+  );
 
   const status = session?.status;
   const isStreaming = status?.isStreaming ?? false;
   const isCompacting = status?.isCompacting ?? false;
   const isBashRunning = session?.isBashRunning ?? false;
 
-  useEffect(() => {
-    draftActions.setContext(taskId, {
-      taskId,
-      repoPath,
-      disabled: isCompacting,
-      isLoading: isStreaming || isBashRunning,
-    });
-  }, [
-    draftActions,
-    isBashRunning,
-    isCompacting,
-    isStreaming,
-    repoPath,
+  usePiDraftContext(taskId, repoPath, isCompacting, isStreaming, isBashRunning);
+  usePiCommands(taskId, session?.commands);
+
+  const handleSubmitSuccess = useCallback(
+    (action: PiSubmitAction) =>
+      applyPiSubmitResult(
+        action,
+        pendingConfig,
+        clearPendingConfig,
+        taskId,
+        taskRunId,
+      ),
+    [clearPendingConfig, pendingConfig, taskId, taskRunId],
+  );
+  const sendPrompt = usePiSubmit(
+    piSessionController,
     taskId,
-  ]);
-
-  useEffect(() => {
-    if (!session?.commands) {
-      return;
-    }
-
-    const piCommands = session.commands
-      .filter((command) => command.name !== "compact")
-      .map((command) => ({
-        name: command.name,
-        description: command.description ?? "",
-      }));
-
-    draftActions.setCommands(taskId, [
-      {
-        name: "compact",
-        description: "Compact the current Pi session context",
-        input: { hint: "optional instructions" },
-      },
-      ...piCommands,
-    ]);
-  }, [draftActions, session?.commands, taskId]);
-
-  const handleControllerError = useCallback(
-    (error: unknown, fallback: string) => {
-      log.error(fallback, error);
-      if (error instanceof PiOperationError) {
-        return;
-      }
-      toast.error(fallback);
-    },
-    [],
+    pendingConfig,
+    messagingMode,
+    isStreaming,
+    handleSubmitSuccess,
   );
-
-  const sendPrompt = useCallback(
-    (text: string) => {
-      const message = text.trim();
-      if (!message) {
-        return;
-      }
-
-      const action = piSessionController.getSubmitAction(
-        message,
-        isStreaming,
-        messagingMode,
-      );
-      void piSessionController
-        .submit(taskId, message, isStreaming, messagingMode, pendingConfig)
-        .then(() => {
-          if (action === "prompt" && pendingConfig && taskRunId) {
-            clearPendingConfig(taskId, taskRunId);
-          }
-          if (action === "compact") {
-            toast.success("Pi context compacted");
-          }
-        })
-        .catch((error) => {
-          const failureMessage =
-            action === "compact"
-              ? "Failed to compact Pi context"
-              : "Failed to send message to Pi";
-          handleControllerError(error, failureMessage);
-        });
-    },
-    [
-      handleControllerError,
-      clearPendingConfig,
-      isStreaming,
-      messagingMode,
-      pendingConfig,
-      piSessionController,
-      taskId,
-      taskRunId,
-    ],
+  const toggleMessagingMode = usePiMessagingModeToggle(
+    setMessagingMode,
+    taskId,
+    messagingMode,
   );
-
-  const toggleMessagingMode = useCallback(() => {
-    const nextMode = messagingMode === "steer" ? "queue" : "steer";
-    setMessagingMode(taskId, nextMode);
-  }, [messagingMode, setMessagingMode, taskId]);
-
-  const runBashCommand = (command: string) => {
-    void piSessionController
-      .bash(taskId, command)
-      .catch((error) =>
-        handleControllerError(error, "Failed to run Pi bash command"),
-      );
-  };
-
-  const cancelPrompt = () => {
-    if (isBashRunning) {
-      void piSessionController
-        .abortBash(taskId)
-        .catch((error) => handleControllerError(error, "Failed to stop bash"));
-      return;
-    }
-
-    void piSessionController
-      .abort(taskId)
-      .catch((error) => handleControllerError(error, "Failed to stop Pi"));
-  };
-
-  const retry = useCallback(() => {
-    void piSessionController
-      .retry(taskId)
-      .catch((error) =>
-        handleControllerError(error, "Failed to reconnect to Pi"),
-      );
-  }, [handleControllerError, piSessionController, taskId]);
-
-  const handleThreadClick = useCallback(
-    (event: React.MouseEvent) => {
-      focusComposerOnPaneClick(event, () => draftActions.requestFocus(taskId));
-    },
+  const runBashCommand = usePiBash(piSessionController, taskId);
+  const cancelPrompt = usePiCancel(piSessionController, taskId, isBashRunning);
+  const retry = usePiRetry(piSessionController, taskId);
+  const restart = usePiRestart(piSessionController, taskId);
+  const { change: changeProjectTrust, pending: projectTrustPending } =
+    usePiProjectTrustChange(piSessionController, taskId);
+  const handleQueueForEditing = useCallback(
+    (queue: PiQueueSnapshot) => applyQueueToDraft(queue, draftActions, taskId),
     [draftActions, taskId],
   );
-
-  const restart = useCallback(() => {
-    void piSessionController
-      .restart(taskId)
-      .catch((error) => handleControllerError(error, "Failed to restart Pi"));
-  }, [handleControllerError, piSessionController, taskId]);
-
-  const editQueuedMessage = useCallback(() => {
-    void piSessionController
-      .clearQueue(taskId)
-      .then((queue) => {
-        const queuedText = [...queue.steering, ...queue.followUp].join("\n\n");
-        if (!queuedText) {
-          return;
-        }
-        const draft = draftActions.getDraft(taskId);
-        const draftText =
-          typeof draft === "string" ? draft : draft ? contentToXml(draft) : "";
-        const content = [queuedText, draftText]
-          .filter((value) => value.trim())
-          .join("\n\n");
-        draftActions.setPendingContent(taskId, xmlToContent(content));
-        draftActions.requestFocus(taskId);
-      })
-      .catch((error) =>
-        handleControllerError(error, "Failed to edit queued Pi message"),
-      );
-  }, [draftActions, handleControllerError, piSessionController, taskId]);
-
-  const removeQueuedMessage = useCallback(() => {
-    void piSessionController
-      .clearQueue(taskId)
-      .catch((error) =>
-        handleControllerError(error, "Failed to discard queued Pi message"),
-      );
-  }, [handleControllerError, piSessionController, taskId]);
-
-  useEffect(() => {
-    const failure = session?.error;
-    if (!failure || failure.scope !== "operation") {
-      return;
-    }
-    if (
-      failure.recoveryPrompt &&
-      isContentEmpty(useDraftStore.getState().drafts[taskId] ?? null)
-    ) {
-      draftActions.setPendingContent(
-        taskId,
-        xmlToContent(failure.recoveryPrompt),
-      );
-      draftActions.requestFocus(taskId);
-    }
-    if (failure.kind === "usage_limit") {
-      showUsageLimit(
-        failure.limitCause ? { cause: failure.limitCause } : undefined,
-      );
-    } else {
-      toast.error(failure.title, { description: failure.message });
-    }
-    piSessionController.acknowledgeOperationFailure(taskId, failure.id);
-  }, [
-    draftActions,
+  const editQueuedMessage = usePiEditQueue(
     piSessionController,
-    session?.error,
-    showUsageLimit,
     taskId,
-  ]);
+    handleQueueForEditing,
+  );
+  const removeQueuedMessage = usePiRemoveQueue(piSessionController, taskId);
+
+  usePiExtensionNotification(taskId, extensionState?.notifications[0]);
+  usePiExtensionEditorText(taskId, extensionState?.editorText);
+  usePiExtensionTitle(extensionState?.title);
+  usePiRecoveryPrompt(taskId, session?.error);
+  usePiFailureNotice(session?.error);
+  usePiFailureAcknowledgement(taskId, session?.error);
 
   if (!session) {
     return <TaskDetailSkeleton />;
@@ -375,8 +633,24 @@ export function PiSessionView({
     );
   }
 
+  const currentExtensionState =
+    extensionState ?? createEmptyPiExtensionTaskState();
+  const extensionDialog = currentExtensionState.dialogs[0];
+
   return (
     <Flex direction="column" height="100%">
+      {extensionDialog && (
+        <PiExtensionDialog
+          key={extensionDialog.id}
+          request={extensionDialog}
+          onRespond={(response) =>
+            piExtensionController.respondToExtensionUI(taskId, response)
+          }
+          onCancel={() =>
+            piExtensionController.cancelExtensionUI(taskId, extensionDialog.id)
+          }
+        />
+      )}
       {isAuthRestoring && (
         <CloudConnectionBanner message="Restoring authentication..." />
       )}
@@ -388,7 +662,7 @@ export function PiSessionView({
           onRestart={restart}
         />
       )}
-      <Box className="min-h-0 flex-1" onClick={handleThreadClick}>
+      <Box className="min-h-0 flex-1">
         <ChatThread
           events={session.events}
           isPromptPending={isStreaming}
@@ -406,6 +680,26 @@ export function PiSessionView({
           onEdit={editQueuedMessage}
           onRemove={removeQueuedMessage}
         />
+        {!isCloud && (
+          <>
+            <PiExtensionStatuses statuses={currentExtensionState.statuses} />
+            <PiExtensionWidgets
+              widgets={currentExtensionState.widgets}
+              placement="aboveEditor"
+            />
+            {session.projectTrust?.hasProjectResources && (
+              <PiProjectTrustBanner
+                trusted={session.projectTrust.trusted}
+                disabled={
+                  controlsPending || session.connectionState !== "connected"
+                }
+                pending={projectTrustPending}
+                onTrust={() => changeProjectTrust(true)}
+                onRevoke={() => changeProjectTrust(false)}
+              />
+            )}
+          </>
+        )}
         <PromptInput
           sessionId={taskId}
           toolbarEndSlot={<ContextUsageIndicator usage={contextUsage} />}
@@ -450,6 +744,12 @@ export function PiSessionView({
           onBashCommand={runBashCommand}
           onCancel={cancelPrompt}
         />
+        {!isCloud && (
+          <PiExtensionWidgets
+            widgets={currentExtensionState.widgets}
+            placement="belowEditor"
+          />
+        )}
       </Box>
     </Flex>
   );

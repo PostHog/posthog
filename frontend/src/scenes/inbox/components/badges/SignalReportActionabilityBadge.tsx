@@ -13,7 +13,7 @@ const ACTIONABILITY_STYLE: Record<
         type: 'success',
         label: 'Actionable',
         tooltip:
-            "The report can be solved with code. If there isn't a pull request yet, it fell below your auto-PR priority threshold – you can still start one from this report.",
+            "The report can be solved with code. If there isn't a pull request yet, it fell below your auto-PR priority threshold. You can still start one from this report.",
         textColor: 'var(--success)',
     },
     requires_human_input: {
@@ -27,7 +27,7 @@ const ACTIONABILITY_STYLE: Record<
         type: 'muted',
         label: 'Not actionable',
         tooltip:
-            'No useful code change can be derived – the report is too vague, lacks supporting evidence, or describes expected behavior.',
+            'No useful code change can be derived because the report is too vague, lacks supporting evidence, or describes expected behavior.',
         textColor: 'var(--color-text-secondary)',
     },
 }
