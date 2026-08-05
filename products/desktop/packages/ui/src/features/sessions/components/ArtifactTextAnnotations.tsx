@@ -107,6 +107,12 @@ export function ArtifactTextAnnotations({
   );
   const [rects, setRects] = useState<HighlightRect[]>([]);
 
+  const dismiss = useCallback(() => {
+    setSelection(null);
+    setPendingAnchor(null);
+    window.getSelection()?.removeAllRanges();
+  }, []);
+
   const rootComments = useMemo(
     () => comments.filter((comment) => !comment.source_comment),
     [comments],
@@ -201,6 +207,7 @@ export function ArtifactTextAnnotations({
         domSelection.isCollapsed ||
         domSelection.rangeCount === 0
       ) {
+        dismiss();
         return;
       }
       const range = domSelection.getRangeAt(0);
@@ -231,13 +238,26 @@ export function ArtifactTextAnnotations({
     };
     container.addEventListener("mouseup", handleMouseUp);
     return () => container.removeEventListener("mouseup", handleMouseUp);
-  }, [containerRef, rootRef]);
+  }, [containerRef, dismiss, rootRef]);
 
-  const dismiss = useCallback(() => {
-    setSelection(null);
-    setPendingAnchor(null);
-    window.getSelection()?.removeAllRanges();
-  }, []);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!selection || !root) return;
+    const clearOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || root.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest("[data-selection-comment-overlay]")
+      ) {
+        return;
+      }
+      dismiss();
+    };
+    document.addEventListener("pointerdown", clearOutside, true);
+    return () =>
+      document.removeEventListener("pointerdown", clearOutside, true);
+  }, [dismiss, rootRef, selection]);
 
   return (
     <>
@@ -258,6 +278,9 @@ export function ArtifactTextAnnotations({
               top: rect.top,
               width: rect.width,
               height: rect.height,
+              backgroundColor: rect.active
+                ? "rgba(250, 204, 21, 0.58)"
+                : "rgba(250, 204, 21, 0.35)",
             }}
             onClick={() => onActivateThread(rect.id)}
             aria-label="Open comment thread"

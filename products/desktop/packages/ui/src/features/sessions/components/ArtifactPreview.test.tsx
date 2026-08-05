@@ -436,6 +436,38 @@ describe("ArtifactPreview", () => {
     );
   });
 
+  it("dismisses the Markdown comment action when clicking away", async () => {
+    useQuery.mockReturnValue({
+      data: "# Report",
+      isLoading: false,
+      isError: false,
+    });
+    render(
+      <TooltipProvider>
+        <ArtifactPreview
+          taskId="task-1"
+          runId="run-1"
+          artifactId="artifact-1"
+          name="report.md"
+        />
+      </TooltipProvider>,
+    );
+    const heading = screen.getByRole("heading", { name: "Report" });
+    const range = document.createRange();
+    range.selectNodeContents(heading);
+    range.getBoundingClientRect = () => ({ bottom: 20, right: 120 }) as DOMRect;
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    fireEvent.mouseUp(heading);
+    expect(
+      await screen.findByRole("button", { name: "Add comment" }),
+    ).toBeTruthy();
+
+    fireEvent.pointerDown(document.body);
+
+    expect(screen.queryByRole("button", { name: "Add comment" })).toBeNull();
+  });
+
   it("does not render resolved comment highlights", () => {
     const root: ResourceComment = {
       id: "comment-1",
@@ -512,7 +544,9 @@ describe("ArtifactPreview", () => {
       artifactComments.data = [textComment()];
       rerender(view());
 
-      expect(await screen.findByLabelText("Open comment thread")).toBeTruthy();
+      expect(await screen.findByLabelText("Open comment thread")).toHaveStyle({
+        backgroundColor: "rgba(250, 204, 21, 0.35)",
+      });
     } finally {
       Reflect.deleteProperty(Range.prototype, "getClientRects");
     }

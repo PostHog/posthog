@@ -118,6 +118,7 @@ function SelectionComposerCard({
           variant="primary"
           size={showActionText ? "sm" : "icon-sm"}
           aria-label={actionLabel}
+          data-selection-comment-overlay=""
           className="fixed z-50 shadow-sm"
           style={style}
           onClick={() => setUserExpanded(true)}
@@ -138,6 +139,7 @@ function SelectionComposerCard({
 
   return createPortal(
     <div
+      data-selection-comment-overlay=""
       className="fixed z-50 w-[420px] max-w-[80vw] rounded-md border border-gray-5 bg-gray-2 shadow-lg"
       style={style}
     >
