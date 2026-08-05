@@ -26,6 +26,46 @@ vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
 import { SelectionCommentOverlay } from "./SelectionCommentOverlay";
 
 describe("SelectionCommentOverlay", () => {
+  it("prevents duplicate comment creation while submitting", async () => {
+    let resolveSubmit: (() => void) | undefined;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSubmit = resolve;
+        }),
+    );
+    render(
+      <SelectionCommentOverlay
+        selection={{
+          text: "selected",
+          fromLine: 1,
+          toLine: 1,
+          anchor: { top: 20, left: 20 },
+        }}
+        open
+        filePath="report.md"
+        onSubmit={onSubmit}
+        onDismiss={vi.fn()}
+        initiallyExpanded
+        members={[]}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Comment draft"), {
+      target: { value: "One comment" },
+    });
+    const submit = screen.getByLabelText("Comment");
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    resolveSubmit?.();
+    await waitFor(() =>
+      expect(submit).toHaveAttribute("aria-disabled", "false"),
+    );
+  });
+
   it("keeps the draft open when comment creation fails", async () => {
     const onDismiss = vi.fn();
     const onSubmit = vi.fn().mockRejectedValue(new Error("offline"));

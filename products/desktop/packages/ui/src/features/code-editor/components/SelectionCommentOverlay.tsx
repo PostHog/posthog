@@ -108,6 +108,7 @@ function SelectionComposerCard({
   const [userExpanded, setUserExpanded] = useState(false);
   const expanded = initiallyExpanded || userExpanded;
   const [draft, setDraft] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const overlayWidth = expanded ? Math.min(420, window.innerWidth * 0.8) : 120;
   const overlayHeight = expanded ? 180 : 36;
   const style = {
@@ -175,13 +176,20 @@ function SelectionComposerCard({
             value={draft}
             onValueChange={setDraft}
             onSubmit={async (content, mentions) => {
-              await onSubmit(fromLine, toLine, content, mentions);
-              onDismiss();
+              if (submitting) return;
+              setSubmitting(true);
+              try {
+                await onSubmit(fromLine, toLine, content, mentions);
+                onDismiss();
+              } finally {
+                setSubmitting(false);
+              }
             }}
             onCancel={onDismiss}
             members={members}
             placeholder={placeholder ?? "Add a comment…"}
             rows={2}
+            disabled={submitting}
             autoFocus
           />
         </div>
