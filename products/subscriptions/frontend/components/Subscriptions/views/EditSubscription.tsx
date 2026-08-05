@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconChevronLeft, IconSend } from '@posthog/icons'
+import { IconChevronLeft } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
@@ -351,18 +351,10 @@ function EditSubscriptionForm({
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const {
-        subscription,
-        subscriptionLoading,
-        isSubscriptionSubmitting,
-        subscriptionChanged,
-        subscriptionErrors,
-        lastDelivery,
-        summaryQuota,
-        testDeliveryLoading,
-    } = useValues(logic)
+    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
+        useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -669,42 +661,13 @@ function EditSubscriptionForm({
                                             <LemonField name="byweekday">
                                                 {({ value, onChange }) => {
                                                     const selectedDays = value ?? []
-                                                    let countLabel = `on ${selectedDays.length} days`
-                                                    if (selectedDays.length === 0) {
-                                                        countLabel = 'Select at least one day'
-                                                    } else if (selectedDays.length === weekdayOptions.length) {
-                                                        countLabel = 'on Monday to Sunday'
-                                                    } else if (
-                                                        selectedDays.length === WEEKDAYS.size &&
-                                                        selectedDays.every((day: string) => WEEKDAYS.has(day))
-                                                    ) {
-                                                        countLabel = 'on weekdays'
-                                                    } else if (
-                                                        selectedDays.length === 2 &&
-                                                        selectedDays.includes('saturday') &&
-                                                        selectedDays.includes('sunday')
-                                                    ) {
-                                                        countLabel = 'on weekends'
-                                                    } else if (selectedDays.length === 1) {
-                                                        const dayLabel =
-                                                            weekdayOptions
-                                                                .find(({ value }) => value === selectedDays[0])
-                                                                ?.label?.toString() ?? selectedDays[0]
-                                                        countLabel = `on ${dayLabel}`
-                                                    }
-
                                                     return (
                                                         <LemonInputSelect
                                                             mode="multiple"
-                                                            displayMode="count"
-                                                            countLabel={countLabel}
-                                                            showDropdownIcon
                                                             bulkActions="select-and-clear-all"
                                                             options={weekdayInputOptions}
                                                             value={selectedDays}
                                                             onChange={onChange}
-                                                            status={subscriptionErrors.frequency ? 'danger' : undefined}
-                                                            className="LemonInputSelect--raised"
                                                         />
                                                     )
                                                 }}
@@ -790,42 +753,6 @@ function EditSubscriptionForm({
                                         timestampStyle="absolute"
                                     />{' '}
                                     {currentTimezone}
-                                </div>
-                            )}
-                            {id !== 'new' && (
-                                <div className="flex items-center justify-between gap-2 mt-1">
-                                    <div className="text-sm text-secondary">
-                                        {lastDelivery ? (
-                                            <>
-                                                Last run:{' '}
-                                                <TZLabel
-                                                    time={lastDelivery.finished_at ?? lastDelivery.created_at}
-                                                    formatDate="ddd, MMM D"
-                                                    formatTime="h:mm A"
-                                                    timestampStyle="absolute"
-                                                />{' '}
-                                                {currentTimezone}
-                                            </>
-                                        ) : (
-                                            <>No deliveries yet</>
-                                        )}
-                                        {' · '}
-                                        <Link to={urls.subscription(id)}>View history</Link>
-                                    </div>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconSend />}
-                                        onClick={sendTestDelivery}
-                                        loading={testDeliveryLoading}
-                                        disabledReason={
-                                            subscription.enabled === false
-                                                ? 'Re-enable this subscription before sending a test delivery'
-                                                : undefined
-                                        }
-                                    >
-                                        Send test delivery
-                                    </LemonButton>
                                 </div>
                             )}
                         </div>
