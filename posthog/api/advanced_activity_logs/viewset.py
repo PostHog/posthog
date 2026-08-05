@@ -11,7 +11,7 @@ from django.db.models import Q, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
+from rest_framework.pagination import BasePagination, Cursor, CursorPagination, PageNumberPagination
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -142,10 +142,46 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
+class TailFollowingCursorPagination(CursorPagination):
+    """Cursor pagination that can keep a forward cursor alive after the stream is exhausted.
+
+    Stock DRF returns `next: null` on the final page, which leaves a polling client nothing to
+    resume from: a saved "last page" URL just replays that page, so the client has to fall back
+    to a date filter plus deduplication. With `follow=true` the link stays valid, so a caller can
+    store one cursor and re-poll it as new entries arrive - the pattern Okta's System Log API
+    documents.
+
+    Opt-in rather than implied by ascending order, because a live cursor changes the termination
+    condition: a follower stops when `results` is empty, not when `next` is null. Leaving that on
+    by default would make the obvious `while next: ...` loop run forever.
+
+    Known gap: the cursor encodes `created_at` and filters strictly past it, so an entry written
+    later but sharing the last-seen timestamp is not returned. That is inherent to a
+    timestamp-positioned cursor and matches DRF's behavior mid-stream.
+    """
+
+    follow = False
+
+    def get_next_link(self) -> Optional[str]:
+        link = super().get_next_link()
+        if link is not None or not self.follow:
+            return link
+        if self.ordering and str(self.ordering[0]).startswith("-"):
+            # Descending walks into history and has a real end; there is no tail to follow.
+            return None
+        if not self.page:
+            # Nothing new since the caller's position, so hand the same cursor back.
+            return self.encode_cursor(self.cursor) if self.cursor else None
+        position = self._get_position_from_instance(self.page[-1], self.ordering)
+        # DRF's stub types Cursor.position as int, but at runtime it holds the string that
+        # _get_position_from_instance returns.
+        return self.encode_cursor(Cursor(offset=0, reverse=False, position=position))  # type: ignore[arg-type]
+
+
 class ActivityLogPagination(BasePagination):
     def __init__(self):
         self.page_number_pagination = PageNumberPagination()
-        self.cursor_pagination = CursorPagination()
+        self.cursor_pagination = TailFollowingCursorPagination()
         self.page_number_pagination.page_size = 100
         self.page_number_pagination.page_size_query_param = "page_size"
         self.page_number_pagination.max_page_size = 1000
@@ -163,6 +199,7 @@ class ActivityLogPagination(BasePagination):
             return self.page_number_pagination.paginate_queryset(queryset, request, view)
         else:
             self.cursor_pagination.ordering = activity_log_ordering(request)
+            self.cursor_pagination.follow = request.query_params.get("follow") == "true"
             return self.cursor_pagination.paginate_queryset(queryset, request, view)
 
     def get_paginated_response(self, data):
@@ -392,6 +429,15 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         help_text=(
             "Sort by when the entry was created. Defaults to newest first. Use created_at for oldest "
             "first when polling for new entries, so a saved cursor picks up where the last request stopped."
+        ),
+    )
+    follow = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Keep the next link valid after the last entry, so the same cursor can be re-polled as "
+            "new entries arrive. Only applies with oldest-first ordering. When following, stop on an "
+            "empty results list rather than on a null next link."
         ),
     )
     schema = serializers.ChoiceField(

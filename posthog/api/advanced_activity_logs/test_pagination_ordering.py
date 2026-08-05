@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
@@ -38,6 +39,46 @@ class TestActivityLogCursorOrdering(APIBaseTest):
 
         assert response.status_code == 400
         assert response.json()["attr"] == "page_size"
+
+    def test_follow_keeps_the_cursor_usable_and_picks_up_new_entries(self):
+        self._create_logs(3)
+        base = f"/api/projects/{self.team.id}/advanced_activity_logs/?ordering=created_at&page_size=10&follow=true"
+
+        exhausted = self.client.get(base).json()
+        assert len(exhausted["results"]) == 3
+        tail = exhausted["next"]
+        assert tail is not None, "following stream must hand back a resumable cursor"
+
+        # Re-polling the tail returns nothing but keeps a usable cursor, as a poller expects.
+        idle = self.client.get(tail).json()
+        assert idle["results"] == []
+        assert idle["next"] is not None
+
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            scope="FeatureFlag",
+            activity="updated",
+            item_id="brand-new",
+            created_at=timezone.now() + timedelta(hours=1),
+        )
+
+        assert [row["item_id"] for row in self.client.get(tail).json()["results"]] == ["brand-new"]
+
+    @parameterized.expand(
+        [
+            ("descending_default", ""),
+            ("ascending_default", "&ordering=created_at"),
+            ("descending_even_when_following", "&follow=true"),
+        ]
+    )
+    def test_streams_that_should_terminate_end_with_a_null_next(self, _name: str, extra: str):
+        self._create_logs(3)
+
+        body = self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/?page_size=10{extra}").json()
+
+        assert len(body["results"]) == 3
+        assert body["next"] is None
 
     def test_ordering_always_carries_a_unique_tiebreak(self):
         factory = APIRequestFactory()
