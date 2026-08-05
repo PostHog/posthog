@@ -1600,6 +1600,7 @@ export interface sourceWizardLogicActions {
             | 'SFTP'
             | 'SharePoint'
             | 'Sharetribe'
+            | 'Shipmail'
             | 'Shippo'
             | 'ShipStation'
             | 'Shopify'
