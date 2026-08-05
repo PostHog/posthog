@@ -51,12 +51,6 @@ export interface MessageInputProps {
     sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist; when non-empty, asks for confirmation first */
     unsavedTicketChanges?: string[]
-    /** Number of tickets merged into this one; when > 0 and the reply is public, offers to blast the reply to their sources too */
-    mergedTicketCount?: number
-    /** Whether the reply should also be sent to every merged ticket's source */
-    broadcastToMerged?: boolean
-    /** Called when the broadcast-to-merged checkbox changes */
-    onBroadcastToMergedChange?: (broadcast: boolean) => void
 }
 
 export function MessageInput({
@@ -79,9 +73,6 @@ export function MessageInput({
     sendConfirmationMessage,
     sendAndSetStatusOptions,
     unsavedTicketChanges,
-    mergedTicketCount = 0,
-    broadcastToMerged = false,
-    onBroadcastToMergedChange,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -213,37 +204,24 @@ export function MessageInput({
                 }
             />
             <div className="flex justify-between items-center mt-2">
-                <div className="flex items-center gap-3">
-                    {showPrivateOption ? (
-                        <Tooltip title="Private notes are only visible to your team, not to the customer.">
-                            <span>
-                                <LemonCheckbox
-                                    checked={isPrivate}
-                                    onChange={setIsPrivate}
-                                    label={
-                                        <span className="inline-flex items-center gap-1">
-                                            <IconLock className="text-sm" />
-                                            Attach as private note
-                                        </span>
-                                    }
-                                />
-                            </span>
-                        </Tooltip>
-                    ) : (
-                        <div />
-                    )}
-                    {mergedTicketCount > 0 && !isPrivate && onBroadcastToMergedChange && (
-                        <Tooltip title="Also deliver this reply to every merged ticket's source (email, Slack, etc.).">
-                            <span>
-                                <LemonCheckbox
-                                    checked={broadcastToMerged}
-                                    onChange={onBroadcastToMergedChange}
-                                    label={`Also send to ${mergedTicketCount} merged ticket${mergedTicketCount === 1 ? '' : 's'}`}
-                                />
-                            </span>
-                        </Tooltip>
-                    )}
-                </div>
+                {showPrivateOption ? (
+                    <Tooltip title="Private notes are only visible to your team, not to the customer.">
+                        <span>
+                            <LemonCheckbox
+                                checked={isPrivate}
+                                onChange={setIsPrivate}
+                                label={
+                                    <span className="inline-flex items-center gap-1">
+                                        <IconLock className="text-sm" />
+                                        Attach as private note
+                                    </span>
+                                }
+                            />
+                        </span>
+                    </Tooltip>
+                ) : (
+                    <div />
+                )}
                 <div className="flex items-center gap-2">
                     {onDraftModeChange && (
                         <Tooltip

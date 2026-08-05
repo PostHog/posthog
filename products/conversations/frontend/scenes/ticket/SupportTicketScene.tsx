@@ -33,6 +33,7 @@ import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
+import { MergedTicketInfoCard } from './MergedTicketInfoCard'
 import { MergedTicketsBar } from './MergedTicketsBar'
 import { TicketActions } from './MergeTicketModal'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -91,7 +92,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         chatMessages,
         showSourcePills,
         mergedTickets,
-        broadcastToMerged,
+        mergedConversations,
+        visibleMergedTicketIds,
+        ticketColorById,
         messagesLoading,
         messageSending,
         hasMoreMessages,
@@ -138,7 +141,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadTicket,
         loadMessages,
         loadTickets,
-        setBroadcastToMerged,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -251,9 +253,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         threadExtras={reportTimelineExtras(linkedReports)}
                         messages={chatMessages}
                         showSourcePills={showSourcePills}
-                        mergedTicketCount={mergedTickets.length}
-                        broadcastToMerged={broadcastToMerged}
-                        onBroadcastToMergedChange={setBroadcastToMerged}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}
                         hasMoreMessages={hasMoreMessages}
@@ -585,6 +584,17 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </AccessControlAction>
                         </div>
                     </LemonCard>
+
+                    {/* Info for each merged ticket currently shown in the conversation */}
+                    {mergedConversations
+                        .filter(({ ticket: mergedTicket }) => visibleMergedTicketIds.includes(mergedTicket.id))
+                        .map(({ ticket: mergedTicket }) => (
+                            <MergedTicketInfoCard
+                                key={mergedTicket.id}
+                                ticket={mergedTicket}
+                                color={ticketColorById[mergedTicket.id]}
+                            />
+                        ))}
 
                     {/* Related Groups Panel */}
                     {(person?.uuid || ticket?.organization_id) && (
