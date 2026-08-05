@@ -7,7 +7,7 @@ from django.conf import settings
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.clickhouse.client.escape import substitute_params
@@ -180,6 +180,11 @@ class S3Table(FunctionCallTable):
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
+
+    def to_printed_postgres(self, context):
+        # Without this, the printer falls back to the ClickHouse s3() table function,
+        # which Postgres/DuckDB reject at runtime with a cryptic catalog error.
+        raise QueryError(f"Table '{self.name}' is backed by S3 and is not available in this SQL dialect.")
 
     def to_printed_clickhouse(self, context):
         return build_function_call(

@@ -75,7 +75,9 @@ class TestCompileHogQLToDuckLakeSQL:
 
 class TestDuckLakeModelRedirect:
     @staticmethod
-    def _create_materialized_model(team, name: str = "vitally_org"):
+    def _create_materialized_model(
+        team, name: str = "vitally_org", query_sql: str = "SELECT org_id FROM vitally_source"
+    ):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
@@ -91,7 +93,7 @@ class TestDuckLakeModelRedirect:
         return DataWarehouseSavedQuery.objects.create(
             team=team,
             name=name,
-            query={"query": "SELECT org_id FROM vitally_source"},
+            query={"query": query_sql},
             columns={"org_id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
             table=source_table,
             is_materialized=True,
@@ -134,7 +136,7 @@ class TestDuckLakeModelRedirect:
 
         org = Organization.objects.create(name="ducklake-unshadowed")
         team = Team.objects.create(organization=org)
-        self._create_materialized_model(team)
+        self._create_materialized_model(team, query_sql="SELECT event AS org_id FROM events")
 
         query = HogQLQuery(query="SELECT org_id FROM vitally_org")
         postgres_sql, _values, _hogql = compile_hogql_to_ducklake_sql(team.pk, query)
@@ -143,7 +145,7 @@ class TestDuckLakeModelRedirect:
         # Binding it anyway would fail at runtime with "Table ... does not exist";
         # the model's definition must be inlined as a subquery instead.
         assert f"shadow_{team.pk}_models" not in postgres_sql
-        assert "vitally_source" in postgres_sql
+        assert "FROM events" in postgres_sql
 
     def test_model_binding_matches_writer_name_sanitization(self):
         from posthog.models import Organization, Team
@@ -235,6 +237,34 @@ class TestDuckLakeModelRedirect:
         assert "s3(" not in postgres_sql.lower()
         assert duckgres_data_imports_schema(team.pk) in postgres_sql
         assert duckgres_data_imports_table_name(schema) in postgres_sql
+
+
+class TestDuckLakeUnsupportedTables:
+    def test_self_managed_s3_table_raises_typed_error(self):
+        from posthog.hogql.errors import QueryError
+
+        from posthog.models import Organization, Team
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        org = Organization.objects.create(name="ducklake-self-managed-s3")
+        team = Team.objects.create(organization=org)
+        credential = DataWarehouseCredential.objects.create(team=team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            name="self_managed_parquet",
+            team=team,
+            columns={"org_id": "String"},
+            credential=credential,
+            url_pattern="https://bucket.s3.amazonaws.com/data/*.parquet",
+            format="Parquet",
+        )
+
+        # A self-managed S3 table is never copied into DuckLake; previously the compile
+        # emitted a ClickHouse s3() call that duckgres rejected with a cryptic
+        # "Table Function with name s3 does not exist" at runtime.
+        query = HogQLQuery(query="SELECT org_id FROM self_managed_parquet")
+        with pytest.raises(QueryError, match="self_managed_parquet"):
+            compile_hogql_to_ducklake_sql(team.pk, query)
 
 
 class TestDuckgresShadowCompilation:
