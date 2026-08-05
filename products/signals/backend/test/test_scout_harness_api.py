@@ -829,6 +829,39 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 1
         mock_capture.assert_not_called()
 
+    def test_record_output_validates_against_dispatch_time_schema_snapshot(self) -> None:
+        # The prompt renders the dispatch-time schema, so a mid-run config edit must not
+        # reject records matching what the run was shown — but clearing the schema entirely
+        # stays a kill switch.
+        run = self._make_run_with_schema()
+        SignalScoutRun.objects.filter(pk=run.pk).update(
+            metadata={"structured_output_schema": _STRUCTURED_OUTPUT_SCHEMA}
+        )
+        assert run.scout_config is not None
+        run.scout_config.structured_output_schema = {
+            "type": "object",
+            "properties": {"grade": {"type": "integer"}},
+            "required": ["grade"],
+            "additionalProperties": False,
+        }
+        run.scout_config.save()
+        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_internal"):
+            response = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "matches the shown schema"}}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        run.scout_config.structured_output_schema = None
+        run.scout_config.save()
+        cleared = self.client.post(
+            self._record_url(str(run.id)),
+            data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+            format="json",
+        )
+        assert cleared.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_record_output_enforces_per_run_cap(self) -> None:
         run = self._make_run_with_schema()
         records = [{"payload": {"verdict": "good", "reason": f"r{i}"}} for i in range(3)]
@@ -896,6 +929,21 @@ class TestStructuredOutputSchemaValidation(SimpleTestCase):
             ("non_object_root", {"type": "array", "items": {"type": "string"}}, False),
             ("empty_object", {}, False),
             ("not_a_valid_json_schema", {"type": "object", "properties": {"x": {"type": 42}}}, False),
+            # A remote reference would have the worker fetch an arbitrary URL at record time (SSRF).
+            (
+                "remote_ref_rejected",
+                {"type": "object", "properties": {"x": {"$ref": "https://169.254.169.254/schema.json"}}},
+                False,
+            ),
+            (
+                "local_ref_allowed",
+                {
+                    "type": "object",
+                    "$defs": {"verdict": {"enum": ["good", "bad"]}},
+                    "properties": {"verdict": {"$ref": "#/$defs/verdict"}},
+                },
+                True,
+            ),
         ]
     )
     def test_config_schema_validation(self, _name: str, schema: dict | None, valid: bool) -> None:
@@ -931,6 +979,52 @@ class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.structured_output_schema is None
+
+    @parameterized.expand(
+        [
+            # The schema is rendered verbatim into a privileged run prompt, so setting it is
+            # skill-authoring-level steering: a config-only key must not open the channel.
+            ("config_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("with_skill_authoring_scope", ["signal_scout:write", "llm_skill:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_setting_schema_requires_skill_authoring_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"structured_output_schema": _STRUCTURED_OUTPUT_SCHEMA},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+        assert response.status_code == expected, response.json()
+
+    def test_clearing_schema_needs_only_config_scope(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-judge", structured_output_schema=_STRUCTURED_OUTPUT_SCHEMA
+        )
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="k", user=self.user, secure_value=hash_key_value(raw), scopes=["signal_scout:write"]
+        )
+        self.client.logout()
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"structured_output_schema": None},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
         config.refresh_from_db()
         assert config.structured_output_schema is None
 

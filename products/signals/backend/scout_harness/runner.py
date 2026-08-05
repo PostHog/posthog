@@ -783,6 +783,13 @@ def _create_run_row(
     # minted. Both can change between runs, so this is a fourth composition fork rather than a
     # property of the build.
     metadata["github_guidance"] = github_guidance
+    # Dispatch-time snapshot of the structured-output contract. The prompt renders this exact
+    # schema, so the record endpoint validates against the snapshot rather than the live config
+    # value — a mid-run schema edit must not reject records that match what the run was shown.
+    # Clearing the config's schema entirely still fails the channel closed mid-run (the kill
+    # switch); see `tools/structured_output._resolve_schema`.
+    if config.structured_output_schema:
+        metadata["structured_output_schema"] = config.structured_output_schema
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,

@@ -38,6 +38,8 @@ from django.db import transaction
 
 import posthoganalytics
 from jsonschema import Draft202012Validator
+from referencing import Registry
+from referencing.exceptions import NoSuchResource
 
 from posthog.api.capture import capture_internal
 from posthog.event_usage import groups
@@ -66,6 +68,22 @@ MAX_SCHEMA_BYTES = 20_000
 # a PostHog-generated event kept out of the customer's own custom-event namespace).
 CUSTOMER_STRUCTURED_OUTPUT_EVENT = "$scout_structured_output"
 _STRUCTURED_OUTPUT_EVENT_SOURCE = "signals_scout_structured_output"
+
+
+def _refuse_retrieval(uri: str) -> Any:
+    """Registry retrieval callback that always fails. The schema is user-controlled, so
+    resolving a non-local reference must never turn into the worker fetching an arbitrary
+    (possibly internal) URL — an SSRF vector. Local `#/...` refs resolve in-document and
+    never reach this; anything else fails closed here as defense-in-depth behind the
+    write-time local-refs-only rule."""
+    raise NoSuchResource(ref=uri)  # type: ignore[call-arg]
+
+
+# Explicit no-network resolution for every validator this module builds.
+_NO_RETRIEVAL_REGISTRY: Registry = Registry(retrieve=_refuse_retrieval)
+
+# Keys whose value is a reference the validator would try to resolve.
+_REFERENCE_KEYS = ("$ref", "$dynamicRef", "$recursiveRef")
 
 
 class InvalidStructuredOutputError(ValueError):
@@ -110,11 +128,32 @@ def validate_structured_output_schema(schema: Any) -> dict[str, Any]:
     encoded = json.dumps(schema)
     if len(encoded.encode("utf-8")) > MAX_SCHEMA_BYTES:
         raise StructuredOutputSchemaError(f"structured_output_schema exceeds {MAX_SCHEMA_BYTES} bytes serialized")
+    _assert_local_references_only(schema)
     try:
         Draft202012Validator.check_schema(schema)
     except Exception as exc:
         raise StructuredOutputSchemaError(f"structured_output_schema is not a valid JSON Schema: {exc}") from exc
     return schema
+
+
+def _assert_local_references_only(node: Any) -> None:
+    """Reject any non-fragment `$ref` / `$dynamicRef` / `$recursiveRef`, recursively.
+
+    The schema is user-controlled config, and a remote reference would ask the validator to
+    fetch an arbitrary URL from the Django worker at record time (SSRF). Only in-document
+    `#...` references are supported; the validation-time registry (`_NO_RETRIEVAL_REGISTRY`)
+    is the fail-closed backstop for schemas that predate this rule."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in _REFERENCE_KEYS and isinstance(value, str) and not value.startswith("#"):
+                raise StructuredOutputSchemaError(
+                    f"structured_output_schema must not use remote references ({key}: {value!r}); "
+                    "only in-document '#/...' references are supported"
+                )
+            _assert_local_references_only(value)
+    elif isinstance(node, list):
+        for item in node:
+            _assert_local_references_only(item)
 
 
 def record_structured_output_sync(
@@ -184,21 +223,27 @@ def _assert_team_owns_run(team: Team, run: SignalScoutRun) -> None:
 
 
 def _resolve_schema(team: Team, run: SignalScoutRun) -> dict[str, Any]:
-    """The schema governing this run's records, re-read live from the run's dispatch-time
-    config (by pk, mirroring `emit._preflight_emit_gates`): a deleted config or a null
-    schema fails closed — the channel is opt-in via the schema's presence, and a schema
-    removed mid-run must stop further writes."""
-    config_id = (
-        SignalScoutRun.all_teams.filter(pk=run.pk, team_id=team.id).values_list("scout_config_id", flat=True).first()
-    )
+    """The schema governing this run's records.
+
+    Two reads, each load-bearing. The run's dispatch-time config is re-read live (by pk,
+    mirroring `emit._preflight_emit_gates`): a deleted config or a null schema fails closed —
+    the channel is opt-in via the schema's presence, and a schema *cleared* mid-run is the
+    kill switch that must stop further writes. But the schema records validate against is
+    the dispatch-time snapshot the runner stamped on the run row (when present): the prompt
+    rendered that exact schema, so a mid-run schema *edit* must not reject records that
+    match what the run was shown, nor silently persist records under a contract the scout
+    never saw. Runs predating the stamp fall back to the live value."""
+    row = SignalScoutRun.all_teams.filter(pk=run.pk, team_id=team.id).values_list("scout_config_id", "metadata").first()
+    config_id, metadata = row if row else (None, None)
     config = SignalScoutConfig.all_teams.filter(pk=config_id).first() if config_id else None
-    schema = config.structured_output_schema if config else None
-    if not schema:
+    live_schema = config.structured_output_schema if config else None
+    if not live_schema:
         raise InvalidStructuredOutputError(
             "This scout has no structured_output_schema configured, so structured output cannot be "
             "recorded. Set a schema on the scout's config (scout-config-update) to enable this channel."
         )
-    return schema
+    snapshot = (metadata or {}).get("structured_output_schema")
+    return snapshot if isinstance(snapshot, dict) and snapshot else live_schema
 
 
 def _validate_records(records: list[StructuredOutputRecord], schema: dict[str, Any]) -> None:
@@ -209,7 +254,7 @@ def _validate_records(records: list[StructuredOutputRecord], schema: dict[str, A
             f"records has {len(records)} entries, max is {MAX_RECORDS_PER_CALL} per call"
         )
     try:
-        validator = Draft202012Validator(schema)
+        validator = Draft202012Validator(schema, registry=_NO_RETRIEVAL_REGISTRY)
     except Exception as exc:
         # The serializer validates schemas at write time, so this only fires for rows that
         # predate the guard or were written outside the API. The agent can't fix it; the
@@ -227,7 +272,15 @@ def _validate_records(records: list[StructuredOutputRecord], schema: dict[str, A
         if len(encoded.encode("utf-8")) > MAX_RECORD_BYTES:
             problems.append(f"records[{index}].payload exceeds {MAX_RECORD_BYTES} bytes serialized")
             continue
-        error = next(iter(validator.iter_errors(record.payload)), None)
+        try:
+            error = next(iter(validator.iter_errors(record.payload)), None)
+        except Exception as exc:
+            # A reference the no-retrieval registry refused (or any other resolution failure)
+            # is a config problem, not a record problem — fail the call closed with the reason.
+            raise InvalidStructuredOutputError(
+                f"The configured structured_output_schema could not be evaluated ({exc}). "
+                "Ask the scout's owner to fix it via scout-config-update."
+            ) from exc
         if error is not None:
             path = "".join(f"[{part!r}]" for part in error.absolute_path)
             problems.append(f"records[{index}].payload{path}: {error.message}")

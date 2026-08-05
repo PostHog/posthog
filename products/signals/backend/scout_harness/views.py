@@ -1972,6 +1972,35 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     lookup_field = "id"
     pagination_class = None
 
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # Setting a `structured_output_schema` injects text a privileged agent reads verbatim in
+        # its run prompt (schema `description` fields are free prose), so it is skill-authoring-level
+        # steering: keys need `llm_skill:write` on top of the config write — the same two-leg gate as
+        # scout notes. Only the *setting* write escalates; reads, other config edits, and clearing
+        # the schema (privilege-reducing) stay on the base config scopes.
+        if getattr(view, "action", None) in ("create", "partial_update") and self._sets_structured_output_schema(
+            request
+        ):
+            return ["signal_scout:write", "llm_skill:write"]
+        return None
+
+    @staticmethod
+    def _sets_structured_output_schema(request: Request) -> bool:
+        data = request.data
+        return isinstance(data, dict) and data.get("structured_output_schema") is not None
+
+    def _assert_can_author_structured_output_schema(self) -> None:
+        # RBAC leg of the schema-write gate, mirroring the scout-notes steering gate: session
+        # callers (and key holders) must clear the same `llm_skill` editor bar that editing a
+        # scout's skill body requires, bound to the canonical team whose scouts read the prompt.
+        canonical_team = self.team.parent_team or self.team
+        access = UserAccessControl(user=cast(User, self.request.user), team=canonical_team)
+        if not access.check_access_level_for_resource("llm_skill", "editor"):
+            raise exceptions.PermissionDenied(
+                "Setting structured_output_schema requires editor access to skills, since the schema "
+                "is read verbatim by the scout agent."
+            )
+
     @extend_schema(
         responses={
             200: OpenApiResponse(
@@ -2033,6 +2062,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
+        if self._sets_structured_output_schema(request):
+            self._assert_can_author_structured_output_schema()
         serializer = SignalScoutConfigCreateSerializer(
             data=request.data,
             context={**self.get_serializer_context(), "project_id": self.team.project_id},
@@ -2081,6 +2112,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
+        if self._sets_structured_output_schema(request):
+            self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
         config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
         if config is None:

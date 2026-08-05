@@ -2025,7 +2025,9 @@ _STRUCTURED_OUTPUT_SCHEMA_HELP = (
     "the run prompt renders the schema and every submitted record is validated against it, persisted "
     "as a queryable row, and mirrored into the project as a `$scout_structured_output` event. "
     "Cardinality is the scout's call (one record per run, one per judged entity, ...). "
-    "Null = channel off."
+    "Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` "
+    "scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs "
+    "only the config write. Records validate against the schema in force when the run was dispatched."
 )
 
 
