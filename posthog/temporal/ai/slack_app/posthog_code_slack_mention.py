@@ -9,9 +9,11 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.ai.slack_app import (
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
     PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppModelOverrideInput,
     block_posthog_code_task_if_no_personal_github_activity,
     cascade_posthog_code_repository_activity,
     classify_posthog_code_task_needs_repo_activity,
+    classify_slack_app_model_override_activity,
     classify_untagged_followup_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_task_for_repo_activity,
@@ -30,8 +32,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 
-# Temporal patch ID — an arbitrary string recorded in workflow history.
+# Temporal patch IDs — arbitrary strings recorded in workflow history.
 _PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS = "slack-file-only-followup-bypass-v1"
+_PATCH_ID_MODEL_CLASSIFIER = "slack-app-model-classifier-v1"
 
 
 @workflow.defn(name="posthog-code-slack-mention-processing")
@@ -305,6 +308,22 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                         return
                 elif await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
                     return
+            # Read a per-task model choice ("use fable for this one") out of the
+            # mention. Runs here, past every gate that can still abandon the
+            # mention, so the reply announcing the model only ever describes a task
+            # that gets created. The feature flag is checked inside the activity —
+            # branching the workflow on a flag would be non-deterministic on replay.
+            model_override = None
+            if workflow.patched(_PATCH_ID_MODEL_CLASSIFIER):
+                model_override = await _execute_posthog_code_activity(
+                    classify_slack_app_model_override_activity,
+                    SlackAppModelOverrideInput(
+                        integration_id=inputs.integration_id,
+                        slack_team_id=inputs.slack_team_id,
+                        event_text=event.get("text", ""),
+                    ),
+                )
+
             await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,
                 inputs,
@@ -317,6 +336,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 repository,
                 repo_research_task_id,
                 repo_research_run_id,
+                model_override,
             )
         except Exception as exc:
             workflow.logger.exception(

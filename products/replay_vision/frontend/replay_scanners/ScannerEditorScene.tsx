@@ -360,49 +360,60 @@ function EditorFooter({
     const stepIndex = visibleSteps.indexOf(step)
     const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
     const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
-    // A broken duration filter (scans nothing) blocks the save — surface it as a disabled reason so the
-    // button explains itself instead of silently doing nothing. RBAC takes priority: it's the more
-    // fundamental blocker, and this must match the backend's create/update requirement exactly — a
-    // disabled-looking button that the backend would still accept (or vice versa) is a real bug here.
-    const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationValidationError
+    // A broken duration filter blocks the save, but only from the triggers step onward: gating an
+    // earlier step's button on it blocks the wizard with a reason nothing on screen explains. RBAC
+    // takes priority and must match the backend's create/update requirement exactly.
+    const ownsDurationFilter = step === 'triggers' || step === 'self_driving'
+    const durationError = ownsDurationFilter ? durationValidationError : null
+    const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
 
     return (
-        <div className="flex items-center justify-between">
-            {/* First form step of a new scanner goes back to the template picker; a mid-flow step goes to the
-                previous visible step; editing's first step (configure, no template) has no back. */}
-            {isNew && step === 'configure' ? (
-                <LemonButton type="tertiary" to={urls.replayVisionTemplates()} data-attr="vision-editor-back">
-                    Back to templates
-                </LemonButton>
-            ) : prevStep ? (
-                <LemonButton type="tertiary" to={scannerStepUrl(prevStep, scannerId)} data-attr="vision-editor-back">
-                    Back
-                </LemonButton>
+        <div className="flex flex-col gap-2">
+            {/* On self-driving the duration field isn't on screen, so a tooltip alone isn't enough. */}
+            {step === 'self_driving' && durationError ? (
+                <div className="text-danger text-sm">{durationError}</div>
             ) : null}
-            {nextStep ? (
-                <LemonButton
-                    type="primary"
-                    loading={isSubmitting}
-                    disabledReason={saveDisabledReason}
-                    onClick={onAdvance}
-                    className="ml-auto"
-                    data-attr="vision-editor-next"
-                >
-                    Next: {STEP_LABELS[nextStep]}
-                </LemonButton>
-            ) : (
-                <LemonButton
-                    type="primary"
-                    loading={isSubmitting}
-                    disabledReason={saveDisabledReason}
-                    onClick={onSave}
-                    className="ml-auto"
-                    data-attr="vision-editor-save"
-                    data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
-                >
-                    {isNew ? 'Create scanner' : 'Save changes'}
-                </LemonButton>
-            )}
+            <div className="flex items-center justify-between">
+                {/* First form step of a new scanner goes back to the template picker; a mid-flow step goes to the
+                previous visible step; editing's first step (configure, no template) has no back. */}
+                {isNew && step === 'configure' ? (
+                    <LemonButton type="tertiary" to={urls.replayVisionTemplates()} data-attr="vision-editor-back">
+                        Back to templates
+                    </LemonButton>
+                ) : prevStep ? (
+                    <LemonButton
+                        type="tertiary"
+                        to={scannerStepUrl(prevStep, scannerId)}
+                        data-attr="vision-editor-back"
+                    >
+                        Back
+                    </LemonButton>
+                ) : null}
+                {nextStep ? (
+                    <LemonButton
+                        type="primary"
+                        loading={isSubmitting}
+                        disabledReason={saveDisabledReason}
+                        onClick={onAdvance}
+                        className="ml-auto"
+                        data-attr="vision-editor-next"
+                    >
+                        Next: {STEP_LABELS[nextStep]}
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        type="primary"
+                        loading={isSubmitting}
+                        disabledReason={saveDisabledReason}
+                        onClick={onSave}
+                        className="ml-auto"
+                        data-attr="vision-editor-save"
+                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                    >
+                        {isNew ? 'Create scanner' : 'Save changes'}
+                    </LemonButton>
+                )}
+            </div>
         </div>
     )
 }

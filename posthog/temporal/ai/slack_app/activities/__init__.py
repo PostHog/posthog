@@ -3,6 +3,8 @@ from posthog.temporal.ai.slack_app.activities.classifiers import (
     CLASSIFIER_THREAD_HISTORY_MESSAGES,
     classify_message_is_agent_directed,
     classify_posthog_code_task_needs_repo_activity,
+    classify_slack_app_model_override,
+    classify_slack_app_model_override_activity,
     classify_task_needs_repo,
     classify_untagged_followup_activity,
 )
@@ -51,6 +53,8 @@ __all__ = [
     "cascade_posthog_code_repository_activity",
     "classify_message_is_agent_directed",
     "classify_posthog_code_task_needs_repo_activity",
+    "classify_slack_app_model_override",
+    "classify_slack_app_model_override_activity",
     "classify_task_needs_repo",
     "classify_untagged_followup_activity",
     "collect_posthog_code_thread_messages_activity",
