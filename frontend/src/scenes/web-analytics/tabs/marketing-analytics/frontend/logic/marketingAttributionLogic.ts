@@ -40,18 +40,33 @@ export const BREAKDOWN_LABELS: Record<MarketingAnalyticsAttributionBreakdown, st
 }
 
 /**
- * How the row that "Exclude unattributed traffic" removes is actually labelled, per breakdown. Most
- * breakdowns leave the value empty and render as "(none)", but a few substitute a real-looking name —
- * so naming the wrong one in the tooltip would promise the user a row that never disappears.
+ * How the row that "Exclude unattributed traffic" removes is labelled — only where that label is
+ * knowable from here. Most breakdowns leave the value empty and render as "(none)"; channel and
+ * referring domain substitute a fixed sentinel instead.
+ *
+ * Source is deliberately absent. Its empty value is displayed via the organic source bucket, but that
+ * happens *before* source normalization, so a team that lists "organic" among an ad platform's custom
+ * UTM sources sees those touchpoints reported under the platform's name instead. The label therefore
+ * depends on team config the frontend doesn't have, and guessing it is what the previous copy did.
  */
 const UNATTRIBUTED_ROW_LABELS: Partial<Record<MarketingAnalyticsAttributionBreakdown, string>> = {
     [MarketingAnalyticsAttributionBreakdown.Channel]: '"Unknown"',
-    [MarketingAnalyticsAttributionBreakdown.Source]: '"organic"',
     [MarketingAnalyticsAttributionBreakdown.ReferringDomain]: '"$direct"',
+    [MarketingAnalyticsAttributionBreakdown.Campaign]: '"(none)"',
+    [MarketingAnalyticsAttributionBreakdown.Medium]: '"(none)"',
+    [MarketingAnalyticsAttributionBreakdown.Content]: '"(none)"',
+    [MarketingAnalyticsAttributionBreakdown.Term]: '"(none)"',
+    [MarketingAnalyticsAttributionBreakdown.LandingPage]: '"(none)"',
 }
 
-export const unattributedRowLabel = (breakdownBy: MarketingAnalyticsAttributionBreakdown): string =>
-    UNATTRIBUTED_ROW_LABELS[breakdownBy] ?? '"(none)"'
+/** Names the row that disappears when it's knowable, and stays quiet about it when it isn't. */
+export const unattributedTooltip = (breakdownBy: MarketingAnalyticsAttributionBreakdown): string => {
+    const label = UNATTRIBUTED_ROW_LABELS[breakdownBy]
+    const rowClause = label ? ` — the ones shown as ${label} —` : ''
+    return `Sessions with no ${BREAKDOWN_LABELS[
+        breakdownBy
+    ].toLowerCase()}${rowClause} stop counting as touchpoints, and their credit is shared across the remaining ones.`
+}
 
 export const MODEL_LABELS: Record<AttributionMode, string> = {
     [AttributionMode.FirstTouch]: 'First touch',
