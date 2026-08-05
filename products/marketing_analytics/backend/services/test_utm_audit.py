@@ -255,6 +255,25 @@ class TestCrossReferenceIssueKinds:
             SuggestedAction.ADD_CAMPAIGN_NAME_MAPPING,
         ]
 
+    def test_candidate_stays_on_the_platform_the_suggester_named(self):
+        # A campaign name is only unique within a platform. Both of these are unlinked, so both
+        # get NOT_LINKED, and the typo'd traffic is tagged google — so google's row is explained
+        # and meta's is not. Keying the candidate on the name alone told the user that meta's
+        # unlinked campaign was explained by traffic attributed to google's.
+        campaigns = [
+            Campaign("brand", "1", "google", 9000.0, 100, 5000),
+            Campaign("brand", "2", "meta", 4000.0, 100, 5000),
+        ]
+        utm_events = {("brnd", "google"): 900}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        google = next(r for r in results if r.source_name == "google")
+        meta = next(r for r in results if r.source_name == "meta")
+        assert google.issues[0].mapping_candidate == "brnd"
+        assert meta.issues[0].mapping_candidate == ""
+        assert SuggestedAction.ADD_CAMPAIGN_NAME_MAPPING not in meta.issues[0].suggested_actions
+
     def test_not_linked_offers_nothing_when_the_match_is_ambiguous(self):
         # A near-tie is exactly what the suggester refuses to guess at, so the audit must not
         # launder that refusal into a confident-looking suggestion.

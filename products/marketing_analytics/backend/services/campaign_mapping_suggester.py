@@ -322,11 +322,21 @@ def _classify(
     )
 
     by_value: dict[str, Campaign] = {}
+    # Which platforms carry each match value. Always a single entry on the scoped path, where the
+    # candidates come from one source's group; it earns its keep unscoped, where the pool spans
+    # every integration and the "highest spend wins" tiebreak below would otherwise choose the
+    # platform on its own. See the guard on `top_value`.
+    natives_by_value: dict[str, set[str]] = {}
     for campaign in candidates:
         value = get_match_value_raw(campaign, mappings)
         if not value or value.lower() in seen:
             # Empty, or already receiving traffic under its own name — not an orphan.
             continue
+        native_key = native_for_primary_source(campaign.source_name)
+        if native_key is None:
+            # No integration to write a mapping against, so it can't be a target.
+            continue
+        natives_by_value.setdefault(value, set()).add(native_key.value)
         # Keep the highest-spend campaign when several share a match value.
         if value not in by_value or campaign.spend > by_value[value].spend:
             by_value[value] = campaign
@@ -385,6 +395,30 @@ def _classify(
                     f"{' and '.join(value for value, _ in ranked[:2])} "
                     f"({ranked[0][1]:.0f}% vs {ranked[1][1]:.0f}%). Picking one could attribute this "
                     "campaign's traffic to the wrong ad spend, so it needs a human."
+                ),
+            )
+        )
+        return
+
+    # A name several platforms run — "brand", "retargeting" — is ambiguous in a way the score
+    # cannot show: every candidate is spelled identically, so the margin is 100 and the top
+    # candidate looks unrivalled. Without this the winner is `by_value`'s spend tiebreak, which
+    # means the platform the mapping is written against flips with next month's budget while the
+    # evidence stays the same. Unreachable on the scoped path — the utm_source named the platform
+    # there, which is precisely the signal that is missing here.
+    contenders = natives_by_value.get(top_value, set())
+    if len(contenders) > 1:
+        result.ambiguous.append(
+            AmbiguousCampaign(
+                raw_utm_campaign=orphan.raw_utm_campaign,
+                event_count=orphan.event_count,
+                observed_utm_source=orphan.dominant_utm_source,
+                candidates=ranked,
+                reason=(
+                    f"'{top_value}' is a campaign on {' and '.join(sorted(contenders))}, and "
+                    f"utm_source='{orphan.dominant_utm_source}' doesn't say which one this traffic "
+                    "belongs to. Mapping it to the wrong platform would move real spend, so it "
+                    "needs a human."
                 ),
             )
         )

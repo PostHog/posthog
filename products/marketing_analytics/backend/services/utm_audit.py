@@ -18,6 +18,7 @@ from posthog.sync import database_sync_to_async
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.services.campaign_mapping_suggester import suggest_campaign_name_mappings
+from products.marketing_analytics.backend.services.native_integrations import native_for_primary_source
 from products.marketing_analytics.backend.services.types import (
     AlternativeSource,
     Campaign,
@@ -432,12 +433,17 @@ def _mapping_candidates(
     campaigns: list[Campaign],
     utm_events: dict[tuple[str, str], int],
     mappings: TeamMappings,
-) -> dict[str, str]:
-    """Target match value -> the orphaned `utm_campaign` the suggester would map onto it.
+) -> dict[tuple[str, str], str]:
+    """(integration, target match value) -> the orphaned `utm_campaign` the suggester maps onto it.
 
     Keyed by match value rather than campaign name because that is what a proposal names and what
     `_compute_campaign_stats` already resolved per campaign — matching on the display name would
     silently miss every integration that joins on id.
+
+    The integration is half the key because a campaign name is only unique within a platform.
+    Keying on the value alone attached one platform's candidate to every platform running a
+    campaign of that name, so a shared "brand" told the user that Meta's unlinked campaign was
+    explained by traffic the suggester had attributed to Google's.
 
     Only confident proposals: `ambiguous` and `unresolved` are excluded by construction, since the
     suggester puts a near-tie there precisely because picking one could misattribute spend. A
@@ -454,10 +460,10 @@ def _mapping_candidates(
 
     # Highest event count wins when several orphans point at one campaign: it is the one whose
     # traffic the user is most likely to recognise, and the mapping is offered one at a time.
-    best: dict[str, str] = {}
-    best_count: dict[str, int] = {}
+    best: dict[tuple[str, str], str] = {}
+    best_count: dict[tuple[str, str], int] = {}
     for proposal in proposals:
-        key = proposal.clean_name.lower().strip()
+        key = (proposal.integration, proposal.clean_name.lower().strip())
         if proposal.event_count > best_count.get(key, -1):
             best[key] = proposal.raw_utm_campaign
             best_count[key] = proposal.event_count
@@ -510,8 +516,13 @@ def _cross_reference(
         if issue is not None and issue.kind == UtmIssueKind.NOT_LINKED:
             # Same key the proposals were bucketed under: `get_match_value` is the lowercased form
             # of the `clean_name` a proposal carries, so name-matching and id-matching integrations
-            # both look up correctly.
-            candidate = mapping_candidates.get(get_match_value(stats.campaign, mappings))
+            # both look up correctly, and the integration keeps a shared name from crossing over.
+            native = native_for_primary_source(stats.campaign.source_name)
+            candidate = (
+                mapping_candidates.get((native.value, get_match_value(stats.campaign, mappings)))
+                if native is not None
+                else None
+            )
             if candidate:
                 issue.mapping_candidate = candidate
                 # Appended, not prepended: fixing the URL is still the cure, the mapping is a
