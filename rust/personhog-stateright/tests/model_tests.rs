@@ -10,6 +10,11 @@
 //! | Current, double zombie       | VIOLATED (residual) | VIOLATED (residual)  |
 //! | EpochFenced, double zombie   | holds               | holds                |
 //!
+//! Every row above is about *write* safety. Stale strong reads from a
+//! zombie pod are a separate, still-open residual that fencing does not
+//! address; only the configurations without a zombie window uphold
+//! `strong_reads_complete`.
+//!
 //! The single-zombie row is a result the checker sharpened beyond what
 //! the manual review claimed: a zombie *pod* alone cannot lose an acked
 //! write, because the identity freeze quorum has every registered router
@@ -22,7 +27,7 @@
 
 use std::time::Instant;
 
-use personhog_stateright::model::{HandoffModel, Variant};
+use personhog_stateright::model::{HandoffModel, Variant, WarmOrder};
 use stateright::{Checker, Model};
 
 /// Every checker explores in parallel: stateright defaults to a single
@@ -44,6 +49,7 @@ fn base() -> HandoffModel {
         late_routers: 0,
         partitions: 1,
         variant: Variant::Current,
+        warm_order: WarmOrder::FenceFirst,
         writes: 2,
         reads: 1,
         crashes: 0,
@@ -128,9 +134,16 @@ fn current_protocol_double_zombie_loses_acked_writes() {
     );
 }
 
-/// Epoch fencing closes the residual: warming bumps the broker's
-/// producer epoch, so the zombie's produce is rejected before any ack.
-/// All safety properties hold again, zombie window and all.
+/// Epoch fencing closes the *write* half of the residual: warming bumps
+/// the broker's producer epoch, so the zombie's produce is rejected
+/// before any ack. Acked-write loss, split acceptance, and drain-ack
+/// finality all hold again, zombie window and all.
+///
+/// `strong_reads_complete` is deliberately not asserted here: it still
+/// fails, because a zombie pod serves reads from its stale cache and
+/// nothing on the read path rejects them. Closing that needs a
+/// lease-validity check on read admission — see the residual ledger in
+/// `personhog-coordination/README.md`.
 #[test]
 fn epoch_fenced_double_zombie_is_safe() {
     let checker = model(Variant::EpochFenced, 2, 1)
@@ -150,6 +163,58 @@ fn epoch_fenced_double_zombie_is_safe() {
         checker.discovery("drained_ack_is_final").is_none(),
         "a drained ack must remain final under fencing"
     );
+}
+
+/// The rejected warm ordering — changelog read before fence acquisition
+/// — loses acked writes: a still-unfenced zombie commits a write after
+/// the new owner's cutoff is captured but before the epoch bump exists
+/// to reject it. This is the machine-checked reason `warm_partition`
+/// acquires the fence before the warm read; the FenceFirst tests above
+/// prove the shipped ordering closes the gap under the same budget.
+#[test]
+fn epoch_fenced_read_first_ordering_loses_acked_writes() {
+    let checker = HandoffModel {
+        warm_order: WarmOrder::ReadFirst,
+        ..model(Variant::EpochFenced, 2, 1)
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join();
+    assert!(
+        checker.discovery("no_lost_acked_write").is_some(),
+        "read-before-fence must produce an acked-write-loss counterexample"
+    );
+}
+
+/// A cancelled handoff whose target already acquired the fence leaves
+/// the resuming old owner's producer epoch-stale; `resume_partition`
+/// re-acquires before re-admitting writes, or the partition wedges with
+/// every write rejected as fenced. The stability property requires
+/// `write_capable` (not merely warmed + unfenced), so a model without
+/// the resume re-acquisition fails liveness here. The pod churn
+/// (expire, rejoin, expire mid-warm) is what manufactures a registered
+/// old owner whose handoff target dies after the fence bump — two
+/// partitions because a move handoff from a registered old owner only
+/// arises from imbalance, and the minimum router/workload budgets keep
+/// the churn-heavy space tractable (no zombie half is needed here).
+#[test]
+fn epoch_fenced_resume_after_cancelled_handoff_stays_live() {
+    HandoffModel {
+        routers: 1,
+        partitions: 2,
+        variant: Variant::EpochFenced,
+        writes: 1,
+        reads: 0,
+        crashes: 2,
+        rejoins: 1,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
 }
 
 /// Two partitions bring the cross-partition coordinator logic into
@@ -671,6 +736,34 @@ fn rejoin_two_partitions_without_cancellation() {
         rejoins: 1,
         writes: 1,
         reads: 0,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// Fencing under handoff cancellation: every safety and liveness
+/// property must hold when the cancellation budget and the fencing
+/// variant are combined, a pairing no other verdict test covers.
+///
+/// This is breadth, not a pin: it passes with or without the resume's
+/// epoch re-acquisition, because the interleaving that strands a
+/// resuming owner on a stale epoch needs the cancelled target to have
+/// warmed first, which this configuration does not force.
+/// `epoch_fenced_resume_after_cancelled_handoff_stays_live` is the
+/// red-checked pin for that fix.
+#[test]
+fn epoch_fenced_under_cancellation_is_safe_and_live() {
+    HandoffModel {
+        routers: 1,
+        partitions: 2,
+        variant: Variant::EpochFenced,
+        writes: 1,
+        reads: 0,
+        cancels: 1,
         ..base()
     }
     .checker()
