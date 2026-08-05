@@ -477,6 +477,41 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "is_emoji": True,
         }
 
+    @parameterized.expand(
+        [
+            ("resolved", True),
+            ("open", True),
+            ("unexpected", False),
+        ]
+    )
+    def test_reply_thread_state_survives_root_context_merge(self, thread_state: str, kept: bool) -> None:
+        task = self._task_artifact_target()
+        root = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Root",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
+        ).json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Resolved this thread",
+                "item_context": {"threadState": thread_state},
+                "source_comment": root["id"],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        item_context = response.json()["item_context"]
+        if kept:
+            assert item_context["threadState"] == thread_state
+        else:
+            assert "threadState" not in item_context
+
     @mock.patch("posthog.api.comments.send_mention_notifications")
     def test_personal_channel_comments_ignore_mentions(self, send_notifications: mock.Mock) -> None:
         task = self._task_artifact_target()

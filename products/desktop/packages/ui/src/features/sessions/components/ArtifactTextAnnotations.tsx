@@ -62,6 +62,32 @@ function rangeFromOffsets(
   return range;
 }
 
+// Range.getClientRects() reports both an inline element's border box and its
+// inner text nodes when the element is fully selected (e.g. <strong> inside a
+// highlighted line), so translucent highlight rects stack and look doubled.
+// Keep only rects not contained by another rect.
+function dedupeClientRects(rects: Iterable<DOMRect>): DOMRect[] {
+  const EPSILON = 0.5;
+  const contains = (outer: DOMRect, inner: DOMRect) =>
+    outer.left <= inner.left + EPSILON &&
+    outer.right >= inner.right - EPSILON &&
+    outer.top <= inner.top + EPSILON &&
+    outer.bottom >= inner.bottom - EPSILON;
+  const list = Array.from(rects).filter(
+    (rect) => rect.width > 0 && rect.height > 0,
+  );
+  return list.filter(
+    (rect, index) =>
+      !list.some(
+        (other, otherIndex) =>
+          otherIndex !== index &&
+          contains(other, rect) &&
+          // Of two identical rects, keep the first.
+          (otherIndex < index || !contains(rect, other)),
+      ),
+  );
+}
+
 function selectionOffsets(root: HTMLElement, range: Range) {
   const before = document.createRange();
   before.selectNodeContents(root);
@@ -149,7 +175,7 @@ export function ArtifactTextAnnotations({
       resolutions.set(comment.id, resolved.status);
       const range = rangeFromOffsets(root, resolved.start, resolved.end);
       if (!range) continue;
-      for (const box of range.getClientRects()) {
+      for (const box of dedupeClientRects(range.getClientRects())) {
         nextRects.push({
           id: comment.id,
           left: box.left - containerBox.left + container.scrollLeft,
@@ -191,8 +217,13 @@ export function ArtifactTextAnnotations({
     };
   }, [containerRef, rootRef]);
 
+  const handledLocateNonce = useRef<number | null>(null);
   useEffect(() => {
-    if (!locateRequest) return;
+    // Comment-list updates re-run this effect; without the nonce guard a new
+    // comment replays the previous locate request and yanks the scroll away.
+    if (!locateRequest || handledLocateNonce.current === locateRequest.nonce) {
+      return;
+    }
     const root = rootRef.current;
     const comment = rootComments.find(({ id }) => id === locateRequest.id);
     const context = comment ? readCommentContext(comment) : null;
@@ -202,6 +233,7 @@ export function ArtifactTextAnnotations({
       context.anchor,
     );
     if (!resolved) return;
+    handledLocateNonce.current = locateRequest.nonce;
     const range = rangeFromOffsets(root, resolved.start, resolved.end);
     const target = range?.startContainer.parentElement;
     target?.scrollIntoView({ behavior: "smooth", block: "center" });

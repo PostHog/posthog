@@ -256,9 +256,16 @@ class CommentSerializer(serializers.ModelSerializer):
             data["scope"] = root.scope
             data["item_id"] = root.item_id
             reply_context = data.get("item_context") or {}
+            # Replies inherit the root's context (anchor, taskId) so filters keep
+            # working, but a reply's own signal keys must survive the merge.
             data["item_context"] = {
                 **(root.item_context or {}),
                 **({"is_emoji": reply_context["is_emoji"]} if "is_emoji" in reply_context else {}),
+                **(
+                    {"threadState": reply_context["threadState"]}
+                    if reply_context.get("threadState") in ("resolved", "open")
+                    else {}
+                ),
             }
             source_comment = root
             scope = root.scope
