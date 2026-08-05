@@ -99,6 +99,7 @@ export function SQLEditor({
     const ref = useRef(null)
     const navigatorRef = useRef(null)
     const queryPaneRef = useRef(null)
+    const biEditorRef = useRef(null)
     const sidebarRef = useRef(null)
     const databaseTreeRef = useRef(null)
     const [hasShownDatabaseTree, setHasShownDatabaseTree] = useState(defaultShowDatabaseTree)
@@ -123,6 +124,13 @@ export function SQLEditor({
             sidebarRef,
             databaseTreeRef,
             queryPaneDefaultHeight,
+            biEditorResizerProps: {
+                containerRef: biEditorRef,
+                logicKey: 'bi-editor-pane',
+                placement: 'bottom' as const,
+                persistent: true,
+                persistPrefix: 'v1',
+            },
             sourceNavigatorResizerProps: {
                 containerRef: navigatorRef,
                 logicKey: resizerKey('source-navigator'),
