@@ -671,8 +671,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 // Auto-detect match type for replay data URLs too
                 const isPattern = isUrlPattern(replayIframeData.url)
                 actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+                // scale heat and hit-testing to the snapshot's actual viewport, not the app window's
+                actions.setWindowWidthOverride(replayIframeData.width)
             } else {
                 removeReplayIframeDataFromLocalStorage()
+                actions.setWindowWidthOverride(null)
             }
         },
 

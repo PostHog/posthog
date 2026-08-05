@@ -101,6 +101,43 @@ describe('heatmapsBrowserLogic', () => {
         })
     })
 
+    describe('replay iframe width override', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            router.actions.push('/heatmaps/recording')
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // The recording snapshot is captured at a fixed viewport. Before this, heat and hit-testing
+        // scaled against the app window's width instead, so clicks landed at the wrong x on any
+        // window narrower or wider than the recording.
+        it('scales heat and hit-testing to the snapshot width, not the app window', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setReplayIframeData({
+                html: '<body>snapshot</body>',
+                width: 900,
+                height: 2000,
+                startDateTime: undefined,
+                url: 'https://example.com/pricing',
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.widthOverride).toBe(900)
+
+            logic.actions.setReplayIframeData(null)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.widthOverride).not.toBe(900)
+        })
+    })
+
     describe('iframeBanner', () => {
         beforeEach(() => {
             initKeaTests()

@@ -11,7 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
-import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { HeatmapsBrowserLogicProps, heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { recordingClickmapLogic } from './recordingClickmapLogic'
 
 function UrlSearchHeader(): JSX.Element {
@@ -46,7 +46,7 @@ function UrlSearchHeader(): JSX.Element {
 export function HeatmapRecording({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
-    const logicProps = { ref: iframeRef }
+    const logicProps: HeatmapsBrowserLogicProps = { iframeRef }
 
     const logic = heatmapsBrowserLogic({ iframeRef })
     const clickmapLogic = recordingClickmapLogic({ iframeRef })

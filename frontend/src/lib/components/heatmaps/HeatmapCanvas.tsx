@@ -169,24 +169,58 @@ export function HeatmapCanvas({
         [filteredHeatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
     )
 
+    const [heatmapContainerElement, setHeatmapContainerElement] = useState<HTMLDivElement | null>(null)
+
     const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
         heatmapsJsContainerRef.current = container
+        setHeatmapContainerElement(container)
+    }, [])
+
+    // heatmap.js sizes its canvas from the container's height at create time, and that height
+    // depends on async content (e.g. a screenshot) that can still be zero when this mounts. Retry
+    // on resize until we get a real height, then keep the canvas sized to the container from then on.
+    useEffect(() => {
+        const container = heatmapContainerElement
         if (!container) {
             return
         }
 
-        heatmapsJsRef.current = heatmapsJs.create({
-            ...HEATMAP_CONFIG,
-            container,
-            gradient: heatmapJSColorGradientRef.current,
-        })
+        const createOrResizeHeatmap = (): void => {
+            if (container.offsetHeight === 0) {
+                return
+            }
 
-        try {
-            heatmapsJsRef.current.setData(heatmapJsDataRef.current)
-        } catch (e) {
-            console.error('error setting data', e)
+            if (!heatmapsJsRef.current) {
+                heatmapsJsRef.current = heatmapsJs.create({
+                    ...HEATMAP_CONFIG,
+                    container,
+                    gradient: heatmapJSColorGradientRef.current,
+                })
+            } else {
+                heatmapsJsRef.current.configure({
+                    ...HEATMAP_CONFIG,
+                    container,
+                    gradient: heatmapJSColorGradientRef.current,
+                })
+            }
+
+            try {
+                heatmapsJsRef.current.setData(heatmapJsDataRef.current)
+            } catch (e) {
+                console.error('error setting data', e)
+            }
         }
-    }, [])
+
+        createOrResizeHeatmap()
+
+        const resizeObserver = new ResizeObserver(createOrResizeHeatmap)
+        resizeObserver.observe(container)
+
+        return () => {
+            resizeObserver.disconnect()
+            heatmapsJsRef.current = undefined
+        }
+    }, [heatmapContainerElement])
 
     useEffect(() => {
         try {
@@ -208,7 +242,6 @@ export function HeatmapCanvas({
                 gradient: heatmapJSColorGradient,
             })
         } catch (e) {
-            // configure re-renders the canvas, which throws if it was created zero-height
             console.error('error configuring heatmap', e)
         }
     }, [heatmapJSColorGradient])

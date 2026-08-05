@@ -12,8 +12,14 @@ export function FixedReplayHeatmapBrowser({
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
 
-    const { replayIframeData, hasValidReplayIframeData, widthOverride, heightOverride } = useValues(logic)
+    const { replayIframeData, hasValidReplayIframeData, widthOverride } = useValues(logic)
     const { onIframeLoad } = useActions(logic)
+
+    // widthOverride defaults to the snapshot's own viewport width (see setReplayIframeData) but stays
+    // overridable via the viewport chooser. Height has no such override, so it must come straight from
+    // the snapshot rather than the click-derived heightOverride, which can stretch far past real content.
+    const width = widthOverride
+    const height = replayIframeData?.height
 
     return hasValidReplayIframeData ? (
         <div className="flex flex-row gap-x-2 w-full">
@@ -22,9 +28,9 @@ export function FixedReplayHeatmapBrowser({
                     <div
                         className="relative"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: widthOverride, height: heightOverride }}
+                        style={{ width, height }}
                     >
-                        <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
+                        <HeatmapCanvas positioning="absolute" widthOverride={width} context="in-app" />
                         <RecordingClickmapOverlay iframeRef={iframeRef} />
                         <iframe
                             id="heatmap-iframe"
@@ -32,7 +38,7 @@ export function FixedReplayHeatmapBrowser({
                             title="Heatmap replay browser"
                             className="bg-white"
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: widthOverride, height: heightOverride }}
+                            style={{ width, height }}
                             srcDoc={replayIframeData?.html}
                             // allow-same-origin lets the app measure the snapshot's elements for the
                             // clickmap overlay. NEVER add allow-scripts: combined with allow-same-origin

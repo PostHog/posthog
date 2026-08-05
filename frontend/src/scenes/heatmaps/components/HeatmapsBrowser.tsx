@@ -23,7 +23,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
-import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { HeatmapsBrowserLogicProps, heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { recordingClickmapLogic } from './recordingClickmapLogic'
 
@@ -352,7 +352,7 @@ function Warnings(): JSX.Element | null {
 export function HeatmapsBrowser(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
-    const logicProps = { ref: iframeRef }
+    const logicProps: HeatmapsBrowserLogicProps = { iframeRef }
 
     const logic = heatmapsBrowserLogic({ iframeRef })
     const clickmapLogic = recordingClickmapLogic({ iframeRef })
@@ -377,7 +377,7 @@ export function HeatmapsBrowser(): JSX.Element {
                     />
                     <LemonDivider className="my-4" />
                     <div className="relative border">
-                        {isHeightCapped && (
+                        {isHeightCapped && !hasValidReplayIframeData && (
                             <LemonBanner type="info">
                                 This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering
                                 fast, so data below that point isn't shown.
