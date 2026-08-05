@@ -36,6 +36,9 @@ describe('query', () => {
                     if (data.query?.kind === 'EventsQuery' && data.query.select[0] === 'error') {
                         return [500, { detail: 'error' }]
                     }
+                    if (data.query?.kind === 'EventsQuery' && data.query.select[0] === 'empty-body') {
+                        return [200]
+                    }
                     return [200, {}]
                 },
             },
@@ -160,6 +163,15 @@ describe('query', () => {
         })
         // Raw error text must stay out of telemetry
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
+    })
+
+    it('throws an ApiError instead of crashing when the query response body is empty', async () => {
+        const q: EventsQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['empty-body'],
+            limit: 100,
+        })
+        await expect(performQuery(q)).rejects.toThrow(ApiError)
     })
 
     describe('waitForPageVisible', () => {

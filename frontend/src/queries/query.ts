@@ -1,4 +1,4 @@
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiError, ApiMethodOptions } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -188,6 +188,10 @@ async function executeQuery<N extends DataNode>(
             variablesOverride,
             limitContext,
         })
+
+        if (!response) {
+            throw new ApiError('Query returned an empty response')
+        }
 
         if (response.detail) {
             throw new Error(response.detail)
