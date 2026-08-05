@@ -1260,11 +1260,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.requestScannerEstimate()
                 persistDraft()
             },
-            // resetScanner is every "start fresh" moment: template pick, type switch, discard on leave.
+            // resetScanner covers both genuine "start fresh" moments (template pick, type switch) and the
+            // beforeUnload confirm's revert-before-navigating-away. Only the former should discard the
+            // draft — the latter is the exact trip the draft exists to survive.
             resetScanner: () => {
-                if (props.id === 'new') {
+                if (props.id === 'new' && !cache.preserveDraftOnNextReset) {
                     clearScannerDraft()
                 }
+                cache.preserveDraftOnNextReset = false
             },
             scannerSaved: () => {
                 actions.requestScannerEstimate()
@@ -1589,7 +1592,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         },
     })),
 
-    beforeUnload(({ values, actions, props }) => ({
+    beforeUnload(({ values, actions, props, cache }) => ({
         enabled: (newLocation?: CombinedLocation) =>
             shouldGuardScannerNavigation({
                 hasUnsavedChanges: values.hasUnsavedChanges,
@@ -1601,6 +1604,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         message: 'Leave scanner editor?\nChanges you made will be discarded.',
         onConfirm: () => {
             if (values.originalScanner) {
+                // Leaving isn't starting fresh — keep the draft so it's there if the user comes back.
+                cache.preserveDraftOnNextReset = true
                 actions.resetScanner(values.originalScanner)
             }
         },

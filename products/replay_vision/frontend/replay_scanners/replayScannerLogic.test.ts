@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import { getRouterContext } from 'kea-router/lib/router'
 import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -304,6 +305,19 @@ describe('replayScannerLogic', () => {
             expect(readScannerDraft(teamId)?.name).toBe('Drafted')
             act()
             expect(readScannerDraft(teamId)).toBeNull()
+        })
+
+        it('keeps the draft when confirming the leave-editor dialog', () => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            expect(readScannerDraft(teamId)?.name).toBe('Drafted')
+
+            const interceptor = [...getRouterContext().beforeUnloadInterceptors].find((i) =>
+                i.message.includes('Leave scanner editor?')
+            )
+            interceptor?.onConfirm?.()
+
+            expect(readScannerDraft(teamId)?.name).toBe('Drafted')
         })
     })
 
