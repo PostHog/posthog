@@ -661,7 +661,7 @@ describe('cohortEditLogic', () => {
                 expect(document.querySelector('.CohortCriteriaRow')).toBeInTheDocument()
                 // The type selector has no option to label itself with, so the placeholder is what
                 // keeps it usable as the way back to a valid criterion.
-                expect(screen.getByText('Select criteria type')).toBeInTheDocument()
+                expect(screen.getByText('Choose criterion')).toBeInTheDocument()
                 // No fields render for an unmapped type: substituting another row's fields would let
                 // an edit merge into the criterion, which cleanCriteria then strips to undefined.
                 expect(screen.queryByText('Choose event or action')).not.toBeInTheDocument()

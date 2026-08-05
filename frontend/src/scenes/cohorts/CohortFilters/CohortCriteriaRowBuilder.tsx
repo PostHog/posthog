@@ -107,7 +107,7 @@ export function CohortCriteriaRowBuilder({
                                     {renderField[FilterType.Behavioral]({
                                         fieldKey: 'value',
                                         criteria,
-                                        placeholder: 'Select criteria type',
+                                        placeholder: 'Choose criterion',
                                         onChange: (newCriteria) => {
                                             setCriteria(cleanCriteria(newCriteria, true), groupIndex, index)
                                             onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
