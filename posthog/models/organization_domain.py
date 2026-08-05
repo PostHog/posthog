@@ -15,6 +15,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
@@ -319,6 +320,11 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         if errors:
             raise ValidationError(errors)
         super().save(*args, **kwargs)
+        if self.identity_provider_config_id is not None:
+            LinkedIdentityProviderConfig.objects.get_or_create(
+                organization_domain=self,
+                identity_provider_config_id=self.identity_provider_config_id,
+            )
 
     @property
     def is_verified(self) -> bool:
