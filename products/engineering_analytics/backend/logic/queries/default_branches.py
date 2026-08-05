@@ -2,10 +2,10 @@
 
 The workflow_run webhook's ``repository`` is GitHub's minimal repository representation and
 carries no ``default_branch`` field, so the runs table can never answer this (every landed row
-is empty, verified against production). A PR's ``base.repo`` is a full repository object and
-does carry it; taking the ``argMax`` over ``updated_at`` means a repo that renames its default
-branch converges as soon as any of its PRs updates. A repo with no PR rows yet resolves
-nothing, and broken-default-branch detection honestly skips it rather than guessing.
+is empty). A PR's ``base.repo`` is a full repository object and does carry it; taking the
+``argMax`` over ``updated_at`` means a repo that renames its default branch converges as soon
+as any of its PRs updates. A repo with no PR rows yet resolves nothing, and
+broken-default-branch detection honestly skips it rather than guessing.
 """
 
 from posthog.clickhouse.workload import Workload

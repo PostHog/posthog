@@ -76,7 +76,8 @@ def trim_pr(pr: dict[str, Any]) -> dict[str, Any]:
     trimmed["base"] = {
         "repo": {
             "full_name": pr["base"]["repo"]["full_name"],
-            # The only field carrying GitHub's reported default branch (see query_default_branches).
+            # The only field this product reads that carries GitHub's reported default branch
+            # (see query_default_branches).
             "default_branch": pr["base"]["repo"]["default_branch"],
         }
     }

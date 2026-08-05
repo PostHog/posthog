@@ -93,9 +93,9 @@ def build_query(table_name: str) -> str:
                 -- base.ref is the branch the PR merges into (usually the default branch); the LLM-spend
                 -- session join treats it as neutral, since agents stamp pre-branch exploration with it.
                 JSONExtractString(base, 'ref') AS base_branch,
-                -- The only warehouse column carrying the repo's reported default branch: base.repo is a
-                -- full repository object, unlike the workflow_run webhook's minimal repository payload
-                -- (see query_default_branches).
+                -- The only column among the tables this product reads that carries the repo's reported
+                -- default branch: base.repo is a full repository object, unlike the workflow_run
+                -- webhook's minimal repository payload (see query_default_branches).
                 ifNull(JSONExtractString(base, 'repo', 'default_branch'), '') AS default_branch,
                 parseDateTimeBestEffort(created_at) AS created_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,
