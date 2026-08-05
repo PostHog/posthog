@@ -1555,9 +1555,9 @@ fn hog_date_epoch_days(heap: &VmHeap, obj: &IndexMap<String, HogValue>) -> Resul
 /// `toDateTime(input[, zone])` → a Hog DateTime object `{ __hogDateTime__: true, dt, zone }`.
 ///
 /// To match ClickHouse (the parity oracle), this VM orders Hog temporals by `dt` seconds
-/// ([`crate::values::compare_values`]) — the reference Python/TS HogVMs cannot order them, so their
-/// `is_date_before`/`is_date_after` always return `false`. Naive strings parse as UTC (or `zone` for
-/// the 2-arg form), not the process-local timezone; an explicit offset/`Z` is honored as written.
+/// ([`crate::values::compare_values`]), matching the Python/TS reference VMs' `unify_comparison_types`/
+/// `unifyComparisonTypes`. Naive strings parse as UTC (or `zone` for the 2-arg form), not the
+/// process-local timezone; an explicit offset/`Z` is honored as written.
 fn to_datetime(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
     if args.is_empty() || args.len() > 2 {
         return Err(VmError::NativeCallFailed(
@@ -1609,7 +1609,7 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
 
 const NAIVE_DATETIME_FORMATS: [&str; 2] = ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"];
 
-fn parse_datetime_to_seconds(input: &str, zone: Option<&str>) -> Result<f64, VmError> {
+pub(crate) fn parse_datetime_to_seconds(input: &str, zone: Option<&str>) -> Result<f64, VmError> {
     let input = input.trim();
     // An explicit offset/`Z` pins the absolute instant regardless of `zone`.
     if let Ok(dt) = DateTime::parse_from_rfc3339(input) {

@@ -1528,9 +1528,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             groups=(groups(self.team.organization, self.team)),
         )
 
+        # A shared-link viewer has no user row, so `user_id` is None and the worker would otherwise
+        # run userless - denying every warehouse table and fingerprinting the cache differently than
+        # this request. Carry the share along so the worker can rebuild the same principal.
+        # `user` is typed Optional[User] but shared renders pass a SharedLinkUser at runtime.
+        principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
+        sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
+
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
+            sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),
