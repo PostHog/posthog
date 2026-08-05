@@ -52,10 +52,10 @@ export interface dataThemeLogicActions {
         errorObject?: any
     }
     loadThemesSuccess: (
-        themes: DataColorThemeModel[],
+        themes: DataColorThemeModel[] | null,
         payload?: any
     ) => {
-        themes: DataColorThemeModel[]
+        themes: DataColorThemeModel[] | null
         payload?: any
     }
     setThemes: (themes: any) => {
