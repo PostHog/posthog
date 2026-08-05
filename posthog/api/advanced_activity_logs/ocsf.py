@@ -92,7 +92,10 @@ class ActivityLogOCSFSerializer(serializers.ModelSerializer):
                 "product": {"name": "PostHog", "vendor_name": "PostHog"},
                 "uid": str(instance.id),
             },
-            "time": instance.created_at.isoformat(),
+            # OCSF `time` is timestamp_t: epoch milliseconds as an integer. The RFC-3339 string is a
+            # separate datetime_t attribute, so both are emitted rather than one in the other's place.
+            "time": int(instance.created_at.timestamp() * 1000),
+            "time_dt": instance.created_at.isoformat(),
             "class_uid": class_uid,
             "category_uid": CATEGORY_UID_IAM,
             "type_uid": class_uid * 100 + activity_id,

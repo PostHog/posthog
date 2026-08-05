@@ -68,6 +68,15 @@ class TestActivityLogOCSF(APIBaseTest):
         assert event["entity"]["data"] == {"filters": {"a": 1}}
         assert event["entity_result"]["data"] == {"filters": {"a": 2}}
 
+    def test_time_is_epoch_milliseconds_and_time_dt_is_rfc3339(self):
+        log = self._log()
+
+        event = ActivityLogOCSFSerializer(log).data
+
+        assert isinstance(event["time"], int)
+        assert event["time"] == int(log.created_at.timestamp() * 1000)
+        assert event["time_dt"] == log.created_at.isoformat()
+
     def test_actor_entity_and_source_endpoint_are_mapped(self):
         event = ActivityLogOCSFSerializer(self._log(detail=self._detail_with_values())).data
 
