@@ -8,7 +8,6 @@ import {
     LemonInputSelect,
     LemonMenu,
     LemonModal,
-    LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
@@ -227,12 +226,7 @@ function MergeTicketModal({ sourceTicket, onMerged }: TicketActionsProps): JSX.E
 
                 <div className="flex gap-3">
                     <div className="flex flex-col gap-2 flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                            <label className="font-semibold text-xs">Note on this ticket</label>
-                            {selectedTarget && (
-                                <LemonTag type="muted">links to #{selectedTarget.ticket_number}</LemonTag>
-                            )}
-                        </div>
+                        <label className="font-semibold text-xs">Note on this ticket</label>
                         <LemonTextArea
                             value={sourceNote}
                             onChange={setSourceNote}
@@ -250,12 +244,9 @@ function MergeTicketModal({ sourceTicket, onMerged }: TicketActionsProps): JSX.E
                     </div>
 
                     <div className="flex flex-col gap-2 flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                            <label className="font-semibold text-xs">
-                                Note on {selectedTarget ? `#${selectedTarget.ticket_number}` : 'the target ticket'}
-                            </label>
-                            <LemonTag type="muted">links to #{sourceTicket.ticket_number}</LemonTag>
-                        </div>
+                        <label className="font-semibold text-xs">
+                            Note on {selectedTarget ? `#${selectedTarget.ticket_number}` : 'the target ticket'}
+                        </label>
                         <LemonTextArea
                             value={targetNote}
                             onChange={setTargetNote}
