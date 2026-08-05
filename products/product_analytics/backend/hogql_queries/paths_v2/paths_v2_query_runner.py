@@ -9,6 +9,7 @@ from posthog.schema import (
     FunnelConversionWindowTimeUnit,
     PathsV2Anchor,
     PathsV2AnchorType,
+    PathsV2DropOffEdge,
     PathsV2Edge,
     PathsV2ElementSelector,
     PathsV2ElementType,
@@ -58,6 +59,7 @@ from products.product_analytics.backend.hogql_queries.paths_v2.path_item import 
 ELEMENT_KIND_NODE = "node"
 ELEMENT_KIND_EDGE = "edge"
 ELEMENT_KIND_DROP_OFF = "dropoff"
+ELEMENT_KIND_DROP_OFF_EDGE = "dropoffedge"
 
 # Anchored mode carries per-chain prefix counts for the hover funnel preview. This caps how many rows
 # the prefix query returns, keeping the aggregation bounded on large teams; the most common chains
@@ -261,8 +263,9 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         rows_per_step = self.max_rows_per_step + 1
         node_rows = self.max_steps * rows_per_step
         drop_off_rows = self.max_steps
+        drop_off_edge_rows = self.max_steps * rows_per_step
         edge_rows = (self.max_steps - 1) * rows_per_step * rows_per_step
-        return node_rows + drop_off_rows + edge_rows
+        return node_rows + drop_off_rows + drop_off_edge_rows + edge_rows
 
     def _gap_expr(self) -> ast.Expr:
         # Fixed seconds via the funnels realization (month means 31 days), never calendar INTERVAL
@@ -414,8 +417,9 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         - Immediate repeats of the same path item collapse when collapseRepeats is on.
         - Journeys keep only their first maxSteps items.
         - Elements are tuples of (kind, step index, item, target item):
-          a node per journey position, an edge per adjacent position pair, and a drop-off at the
-          journey's final length when the journey ends within the grid.
+          a node per journey position, an edge per adjacent position pair, and when the journey
+          ends within the grid both a per-column drop-off at the journey's final length and a
+          per-card drop-off edge carrying the journey's last item.
         """
         if self.collapse_repeats:
             collapsed_journeys_expr = parse_expr(
@@ -437,7 +441,8 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
                 arrayFlatten(arrayMap(journey -> arrayMap((item, i) -> tuple({node_kind}, i, item, {no_item}), journey, arrayEnumerate(journey)), trimmed_journeys)) AS node_elements,
                 arrayFlatten(arrayMap(journey -> arrayMap((pair, i) -> tuple({edge_kind}, i, pair.1, pair.2), arrayZip(arrayPopBack(journey), arrayPopFront(journey)), arrayEnumerate(arrayZip(arrayPopBack(journey), arrayPopFront(journey)))), trimmed_journeys)) AS edge_elements,
                 arrayMap(journey_length -> tuple({drop_off_kind}, journey_length, {no_item}, {no_item}), arrayFilter(journey_length -> journey_length <= {max_steps}, arrayMap(journey -> length(journey), collapsed_journeys))) AS drop_off_elements,
-                arrayConcat(node_elements, edge_elements, drop_off_elements) AS elements
+                arrayMap(journey -> tuple({drop_off_edge_kind}, length(journey), arrayElement(journey, -1), {no_item}), arrayFilter(journey -> length(journey) <= {max_steps}, collapsed_journeys)) AS drop_off_edge_elements,
+                arrayConcat(node_elements, edge_elements, drop_off_elements, drop_off_edge_elements) AS elements
             FROM {event_base_query}
             GROUP BY actor_id
             """,
@@ -450,6 +455,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
                 "node_kind": ast.Constant(value=ELEMENT_KIND_NODE),
                 "edge_kind": ast.Constant(value=ELEMENT_KIND_EDGE),
                 "drop_off_kind": ast.Constant(value=ELEMENT_KIND_DROP_OFF),
+                "drop_off_edge_kind": ast.Constant(value=ELEMENT_KIND_DROP_OFF_EDGE),
                 "no_item": parse_expr("tuple('', '')"),
             },
         )
@@ -639,6 +645,23 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         conditions = self._element_condition(ELEMENT_KIND_DROP_OFF, self._required_step_index(element))
         return self._element_actors_query(ast.And(exprs=conditions))
 
+    def _drop_off_edge_actors_query(self, element: PathsV2ElementSelector) -> ast.SelectQuery | ast.SelectSetQuery:
+        """The per-card drop-off set: actors with a journey ending at exactly this step whose last
+        item is the card's, matching the displayed drop-off ribbon count. A missing source means
+        the column's other row, like on an edge."""
+        internal_step_index = self._required_step_index(element)
+        conditions = self._element_condition(ELEMENT_KIND_DROP_OFF_EDGE, internal_step_index)
+        if element.source is not None:
+            conditions.append(parse_expr("element.3 = {item}", {"item": self._item_expr(element.source)}))
+        else:
+            conditions.append(
+                parse_expr(
+                    "element.3 NOT IN {top_items}",
+                    {"top_items": self._top_node_items_at_step_query(internal_step_index)},
+                )
+            )
+        return self._element_actors_query(ast.And(exprs=conditions))
+
     def _edge_actors_query(self, element: PathsV2ElementSelector) -> ast.SelectQuery | ast.SelectSetQuery:
         """The positional edge set: actors transitioning source → target at exactly this step pair,
         matching the displayed ribbon count. A missing endpoint means that column's other row, i.e.
@@ -735,6 +758,8 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             return self._other_actors_query(element)
         if element.elementType == PathsV2ElementType.DROP_OFF:
             return self._drop_off_actors_query(element)
+        if element.elementType == PathsV2ElementType.DROP_OFF_EDGE:
+            return self._drop_off_edge_actors_query(element)
         if element.elementType == PathsV2ElementType.EDGE:
             if element.anyStep:
                 return self._any_step_edge_actors_query(element)
@@ -851,6 +876,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     def _to_results(self, rows: list[tuple[Any, ...]], prefixes: list[PathsV2Prefix]) -> PathsV2Results:
         steps: dict[int, PathsV2Step] = {}
         edges: list[PathsV2Edge] = []
+        drop_off_edges: list[PathsV2DropOffEdge] = []
 
         def step_for(one_based_index: int) -> PathsV2Step:
             step_index = one_based_index - 1
@@ -861,6 +887,14 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         for kind, step_index, source_item, target_item, actor_count in rows:
             if kind == ELEMENT_KIND_DROP_OFF:
                 step_for(step_index).dropOffCount = actor_count
+            elif kind == ELEMENT_KIND_DROP_OFF_EDGE:
+                drop_off_edges.append(
+                    PathsV2DropOffEdge(
+                        stepIndex=step_index - 1,
+                        source=self._to_path_item(source_item),
+                        count=actor_count,
+                    )
+                )
             elif kind == ELEMENT_KIND_NODE:
                 item = self._to_path_item(source_item)
                 if item is None:
@@ -888,10 +922,12 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         edges.sort(
             key=lambda edge: (edge.stepIndex, -edge.count, item_sort_key(edge.source), item_sort_key(edge.target))
         )
+        drop_off_edges.sort(key=lambda edge: (edge.stepIndex, -edge.count, item_sort_key(edge.source)))
 
         return PathsV2Results(
             steps=[steps[index] for index in sorted(steps)],
             edges=edges,
+            dropOffEdges=drop_off_edges,
             prefixes=self._displayed_prefixes(steps, prefixes),
         )
 

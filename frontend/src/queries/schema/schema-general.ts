@@ -2099,6 +2099,19 @@ export type PathsV2Edge = {
     anyStepCount?: number
 }
 
+/** The displayed drop-off flow out of one card: journeys that end at that card's step. */
+export type PathsV2DropOffEdge = {
+    /**
+     * 0-based step index of the column the journeys end at; the drop-off card renders one column
+     * later, like an edge target.
+     */
+    stepIndex: integer
+    /** Source path item, or null for the source column's "other" row. */
+    source: PathsV2Item | null
+    /** Unique actors with a journey whose last displayed item is this card's, ending at this step. */
+    count: number
+}
+
 /**
  * A concrete anchored chain from the anchor and the unique actors whose single sequence begins with
  * exactly these path items. Powers the hover funnel preview over the journey grid.
@@ -2113,6 +2126,11 @@ export type PathsV2Prefix = {
 export type PathsV2Results = {
     steps: PathsV2Step[]
     edges: PathsV2Edge[]
+    /**
+     * Per-card drop-off flows: for each displayed card, the unique actors whose journey ends there.
+     * A column's dropOffCount is its own deduped element, not the sum of these.
+     */
+    dropOffEdges: PathsV2DropOffEdge[]
     /**
      * Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty
      * in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain.
@@ -5225,6 +5243,7 @@ export enum PathsV2ElementType {
     Node = 'node',
     Edge = 'edge',
     DropOff = 'dropOff',
+    DropOffEdge = 'dropOffEdge',
     Other = 'other',
     Chain = 'chain',
 }
@@ -5237,13 +5256,16 @@ export enum PathsV2ElementType {
 export type PathsV2ElementSelector = {
     elementType: PathsV2ElementType
     /**
-     * 0-based step index (column) of the element; for an edge, its source column. Required for
-     * node, other, dropOff, and positional edge elements.
+     * 0-based step index (column) of the element; for an edge or dropOffEdge, its source column.
+     * Required for node, other, dropOff, dropOffEdge, and positional edge elements.
      */
     stepIndex?: integer
     /** The node card's path item. Node elements only. */
     item?: PathsV2Item
-    /** The edge's source path item; omit for the source column's "other" row. Edge elements only. */
+    /**
+     * The edge's source path item; omit for the source column's "other" row. Edge and dropOffEdge
+     * elements only.
+     */
     source?: PathsV2Item
     /** The edge's target path item; omit for the target column's "other" row. Edge elements only. */
     target?: PathsV2Item

@@ -71,6 +71,10 @@ def _drop_off(step_index: int) -> PathsV2ElementSelector:
     return PathsV2ElementSelector(elementType=PathsV2ElementType.DROP_OFF, stepIndex=step_index)
 
 
+def _drop_off_edge(step_index: int, source: PathsV2Item | None) -> PathsV2ElementSelector:
+    return PathsV2ElementSelector(elementType=PathsV2ElementType.DROP_OFF_EDGE, stepIndex=step_index, source=source)
+
+
 def _edge(step_index: int, source: PathsV2Item | None, target: PathsV2Item | None) -> PathsV2ElementSelector:
     return PathsV2ElementSelector(
         elementType=PathsV2ElementType.EDGE, stepIndex=step_index, source=source, target=target
@@ -129,6 +133,10 @@ class PathsV2ActorsTestBase(ClickhouseTestMixin, APIBaseTest):
             key = ("edge", edge.stepIndex, edge.source and edge.source.event, edge.target and edge.target.event)
             displayed_counts[key] = edge.count
             actor_sets[key] = self._names_for(query, _edge(edge.stepIndex, edge.source, edge.target))
+        for drop_off_edge in results.dropOffEdges:
+            key = ("dropOffEdge", drop_off_edge.stepIndex, drop_off_edge.source and drop_off_edge.source.event)
+            displayed_counts[key] = drop_off_edge.count
+            actor_sets[key] = self._names_for(query, _drop_off_edge(drop_off_edge.stepIndex, drop_off_edge.source))
         return displayed_counts, actor_sets
 
 
@@ -178,6 +186,10 @@ class TestPathsV2ActorsElements(PathsV2ActorsTestBase):
                 ("edge", 1, "b", "d"): {"p2"},
                 ("edge", 1, "d", "c"): {"p3"},
                 ("edge", 1, None, "c"): {"p5"},
+                ("dropOffEdge", 0, "d"): {"p4"},
+                ("dropOffEdge", 1, "b"): {"p5"},
+                ("dropOffEdge", 2, "c"): {"p1", "p3", "p5"},
+                ("dropOffEdge", 2, "d"): {"p2"},
             },
         )
         # Every modal equals the number on its element, for every element the grid displays.
@@ -202,6 +214,8 @@ class TestPathsV2ActorsElements(PathsV2ActorsTestBase):
         displayed_counts, actor_sets = self._displayed_elements(query)
 
         self.assertEqual(actor_sets[("edge", 0, None, None)], {"p3"})
+        # p3's journey also ends on a bucketed item, the other-row drop-off ribbon's shape.
+        self.assertEqual(actor_sets[("dropOffEdge", 1, None)], {"p3"})
         self.assertEqual(displayed_counts, {key: len(names) for key, names in actor_sets.items()})
 
     def test_collapse_off_every_displayed_element_equals_its_actor_set(self):

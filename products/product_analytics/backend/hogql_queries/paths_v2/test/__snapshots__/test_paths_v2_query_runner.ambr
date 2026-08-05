@@ -42,7 +42,8 @@
                      arrayFlatten(arrayMap(journey -> arrayMap((item, i) -> tuple('node', i, item, tuple('', '')), journey, arrayEnumerate(journey)), trimmed_journeys)) AS node_elements,
                      arrayFlatten(arrayMap(journey -> arrayMap((pair, i) -> tuple('edge', i, pair.1, pair.2), arrayZip(arrayPopBack(journey), arrayPopFront(journey)), arrayEnumerate(arrayZip(arrayPopBack(journey), arrayPopFront(journey)))), trimmed_journeys)) AS edge_elements,
                      arrayMap(journey_length -> tuple('dropoff', journey_length, tuple('', ''), tuple('', '')), arrayFilter(journey_length -> ifNull(lessOrEquals(journey_length, 5), 0), arrayMap(journey -> length(journey), collapsed_journeys))) AS drop_off_elements,
-                     arrayConcat(node_elements, edge_elements, drop_off_elements) AS elements
+                     arrayMap(journey -> tuple('dropoffedge', length(journey), arrayElement(journey, -1), tuple('', '')), arrayFilter(journey -> lessOrEquals(length(journey), 5), collapsed_journeys)) AS drop_off_edge_elements,
+                     arrayConcat(node_elements, edge_elements, drop_off_elements, drop_off_edge_elements) AS elements
               FROM
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
@@ -71,18 +72,18 @@
            actor_count DESC,
            source_item ASC,
            grouped_target_item ASC
-  LIMIT 89 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  LIMIT 109 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestPathsV2QueryRunner.test_default_pageview_preset_snapshot.1
@@ -102,7 +103,8 @@
             arrayFlatten(arrayMap(journey -> arrayMap((item, i) -> tuple('node', i, item, tuple('', '')), journey, arrayEnumerate(journey)), trimmed_journeys)) AS node_elements,
             arrayFlatten(arrayMap(journey -> arrayMap((pair, i) -> tuple('edge', i, pair.1, pair.2), arrayZip(arrayPopBack(journey), arrayPopFront(journey)), arrayEnumerate(arrayZip(arrayPopBack(journey), arrayPopFront(journey)))), trimmed_journeys)) AS edge_elements,
             arrayMap(journey_length -> tuple('dropoff', journey_length, tuple('', ''), tuple('', '')), arrayFilter(journey_length -> ifNull(lessOrEquals(journey_length, 5), 0), arrayMap(journey -> length(journey), collapsed_journeys))) AS drop_off_elements,
-            arrayConcat(node_elements, edge_elements, drop_off_elements) AS elements
+            arrayMap(journey -> tuple('dropoffedge', length(journey), arrayElement(journey, -1), tuple('', '')), arrayFilter(journey -> lessOrEquals(length(journey), 5), collapsed_journeys)) AS drop_off_edge_elements,
+            arrayConcat(node_elements, edge_elements, drop_off_elements, drop_off_edge_elements) AS elements
      FROM
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,

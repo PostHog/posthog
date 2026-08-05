@@ -237,6 +237,9 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _edges(self, results: Any) -> list[tuple[int, PathsV2Item | None, PathsV2Item | None, float]]:
         return [(edge.stepIndex, edge.source, edge.target, edge.count) for edge in results.edges]
 
+    def _drop_off_edges(self, results: Any) -> list[tuple[int, PathsV2Item | None, float]]:
+        return [(edge.stepIndex, edge.source, edge.count) for edge in results.dropOffEdges]
+
     def test_open_mode_journey_grid(self):
         journeys_for(
             team=self.team,
@@ -656,6 +659,9 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
             self._edges(results),
             [_edge(0, _item("a"), _item("b"), 2), _edge(1, _item("b"), _item("c"), 2)],
         )
+        # Only p2's genuine ending carries a per-card drop-off; p1's trimmed journey carries none,
+        # and it pins the journey's last item, not its first.
+        self.assertEqual(self._drop_off_edges(results), [(2, _item("c"), 1)])
 
     @snapshot_clickhouse_queries
     def test_default_pageview_preset_snapshot(self):
@@ -744,9 +750,11 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("node", 2, ("b", ""), ("", "")),
                 ("edge", 1, ("a", ""), ("b", "")),
                 ("dropoff", 2, ("", ""), ("", "")),
+                ("dropoffedge", 2, ("b", ""), ("", "")),
                 # second journey, split off by the four-hour gap
                 ("node", 1, ("c", ""), ("", "")),
                 ("dropoff", 1, ("", ""), ("", "")),
+                ("dropoffedge", 1, ("c", ""), ("", "")),
             ],
         )
 

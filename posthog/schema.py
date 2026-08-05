@@ -5839,6 +5839,27 @@ class PathsV2Anchor(BaseModel):
     )
 
 
+class PathsV2DropOffEdge(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float = Field(
+        ...,
+        description=("Unique actors with a journey whose last displayed item is this card's, ending at this step."),
+    )
+    source: PathsV2Item | None = Field(
+        ...,
+        description='Source path item, or null for the source column\'s "other" row.',
+    )
+    stepIndex: int = Field(
+        ...,
+        description=(
+            "0-based step index of the column the journeys end at; the drop-off card"
+            " renders one column later, like an edge target."
+        ),
+    )
+
+
 class PathsV2Edge(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5898,13 +5919,17 @@ class PathsV2ElementSelector(BaseModel):
     item: PathsV2Item | None = Field(default=None, description="The node card's path item. Node elements only.")
     source: PathsV2Item | None = Field(
         default=None,
-        description=("The edge's source path item; omit for the source column's \"other\" row. Edge elements only."),
+        description=(
+            "The edge's source path item; omit for the source column's \"other\" row."
+            " Edge and dropOffEdge elements only."
+        ),
     )
     stepIndex: int | None = Field(
         default=None,
         description=(
-            "0-based step index (column) of the element; for an edge, its source"
-            " column. Required for node, other, dropOff, and positional edge elements."
+            "0-based step index (column) of the element; for an edge or dropOffEdge,"
+            " its source column. Required for node, other, dropOff, dropOffEdge, and"
+            " positional edge elements."
         ),
     )
     target: PathsV2Item | None = Field(
@@ -18215,6 +18240,14 @@ class PathsQueryResponse(BaseModel):
 class PathsV2Results(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    dropOffEdges: list[PathsV2DropOffEdge] = Field(
+        ...,
+        description=(
+            "Per-card drop-off flows: for each displayed card, the unique actors whose"
+            " journey ends there. A column's dropOffCount is its own deduped element,"
+            " not the sum of these."
+        ),
     )
     edges: list[PathsV2Edge]
     prefixes: list[PathsV2Prefix] = Field(

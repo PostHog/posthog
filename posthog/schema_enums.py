@@ -3293,6 +3293,7 @@ class PathsV2ElementType(StrEnum):
     NODE = "node"
     EDGE = "edge"
     DROP_OFF = "dropOff"
+    DROP_OFF_EDGE = "dropOffEdge"
     OTHER = "other"
     CHAIN = "chain"
 
