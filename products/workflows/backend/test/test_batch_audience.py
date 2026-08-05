@@ -3,10 +3,13 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
 from products.workflows.backend.services.batch_audience import (
+    audience_filters_for_query,
     get_batch_audience_count,
     get_batch_audience_person_ids,
     use_workflows_batch_audience_query,
@@ -32,6 +35,39 @@ def _cooldown_filters(properties_operator: str | None) -> dict:
 def _uuid(index: int) -> str:
     # Only the last digit differs, so string ordering and ClickHouse UUID ordering agree.
     return f"01970000-0000-0000-0000-00000000000{index}"
+
+
+class TestAudienceFiltersForQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("operator_absent", FILTERS),
+            ("explicit_and", {**FILTERS, "properties_operator": "AND"}),
+            ("or_with_one_condition", {**FILTERS, "properties_operator": "OR"}),
+            ("or_with_no_conditions", {"properties": [], "properties_operator": "OR"}),
+            ("or_without_a_properties_key", {"properties_operator": "OR"}),
+            (
+                "or_with_properties_already_grouped",
+                {"properties": {"type": "AND", "values": []}, "properties_operator": "OR"},
+            ),
+        ]
+    )
+    def test_leaves_filters_that_need_no_rewrite_alone(self, _name, filters):
+        assert audience_filters_for_query(filters) == filters
+
+    def test_wraps_conditions_without_mutating_the_input(self):
+        # The blast radius endpoint mints the confirm token from the same dict it passes here,
+        # and dispatch re-derives that token from the stored trigger filters. Mutating the input
+        # would sign the rewritten shape and every agent-dispatched batch would fail its check.
+        properties = [
+            {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"},
+            {"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"},
+        ]
+        filters = {"properties": properties, "properties_operator": "OR"}
+
+        rewritten = audience_filters_for_query(filters)
+
+        assert rewritten["properties"] == {"type": "OR", "values": properties}
+        assert filters["properties"] == properties
 
 
 class TestBatchAudience(ClickhouseTestMixin, BaseTest):
@@ -133,6 +169,26 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         assert sorted(person_ids) == [_uuid(i) for i in expected_indices]
         assert count == len(expected_indices)
+
+    def test_group_audience_delegates_with_the_operator_applied(self):
+        # The group path hands off to the flags-owned query, which parses a flat list as AND.
+        # Moving the rewrite below that branch would leave group audiences on AND while the
+        # person path honors OR.
+        filters = {
+            "properties": [
+                {"key": "plan", "type": "group", "group_type_index": 1, "value": ["pro"], "operator": "exact"},
+                {"key": "tier", "type": "group", "group_type_index": 1, "value": ["gold"], "operator": "exact"},
+            ],
+            "properties_operator": "OR",
+        }
+
+        with patch(
+            "products.workflows.backend.services.batch_audience.get_user_blast_radius_persons", return_value=[]
+        ) as mock_blast_radius:
+            get_batch_audience_person_ids(self.team, filters, group_type_index=1)
+
+        passed_properties = mock_blast_radius.call_args.args[1]["properties"]
+        assert passed_properties == {"type": "OR", "values": filters["properties"]}
 
     def test_use_flag_defaults_off_when_feature_enabled_raises(self):
         # Batch sends are a critical path — a Redis/HyperCache blip that makes
