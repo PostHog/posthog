@@ -81,10 +81,10 @@ describe('sidepanelTicketsLogic', () => {
     })
 
     it.each([
-        ['analytics', 'list'],
+        ['a general CTA lands on the list view', false, 'list'],
         // Billing problems are answered on every plan
-        ['billing', 'new'],
-    ])('on a free plan, a %s support CTA lands on the %s view', async (targetArea, expectedView) => {
+        ['a billing CTA lands on the composer', true, 'new'],
+    ])('on a free plan, %s', async (_name, billingIssue, expectedView) => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -94,6 +94,7 @@ describe('sidepanelTicketsLogic', () => {
         await expectLogic(logic, () => {
             supportLogic.actions.openSupportForm({
                 kind: 'bug',
+                billing_issue: billingIssue as boolean,
                 isEmailFormOpen: true,
                 message: 'It broke',
                 target: 'sidePanel',
@@ -121,8 +122,8 @@ describe('sidepanelTicketsLogic', () => {
             })
         }).toFinishAllListeners()
 
-        // supportLogic has already cleared target_area by now, so an exemption read off it would be gone
-        expect(supportLogic.values.targetArea).toBeNull()
+        // supportLogic has already cleared billing_issue by now, so an exemption read off it would be gone
+        expect(supportLogic.values.isBillingIssue).toBe(false)
         expect(logic.values.canCreateTicket).toBe(true)
 
         logic.actions.setView('list')
