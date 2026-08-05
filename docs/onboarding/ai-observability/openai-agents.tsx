@@ -78,18 +78,27 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
 
                             instrument(
                                 client=posthog,
-                                distinct_id="user_123", # optional
                                 privacy_mode=False, # optional
                                 groups={"company": "company_id_in_your_db"}, # optional
-                                properties={"conversation_id": "abc123"}, # optional
                             )
                         `}
                     />
 
+                    <CalloutBox type="fyi" icon="IconInfo" title="Identity scope">
+                        <Markdown>
+                            {dedent`
+                                \`instrument()\` registers one tracing processor for the whole process, so anything
+                                you pass here applies to **every** run in the process. Pass the user and
+                                conversation **per run** instead — see the next step. A static \`distinct_id\`
+                                here is only appropriate when one process serves one user, like a CLI or worker.
+                            `}
+                        </Markdown>
+                    </CalloutBox>
+
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, **do not** pass a distinct ID to
-                            `instrument()`. See our docs on [anonymous vs identified
+                            **Note:** If you want to capture LLM events anonymously, **do not** pass a distinct ID —
+                            here or per run. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
@@ -105,7 +114,14 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                         {dedent`
                             Run your OpenAI agents as normal. PostHog automatically captures \`$ai_generation\`
                             events for LLM calls and \`$ai_span\` events for agent execution, tool calls, and
-                            handoffs. The example below defines a tool and lets the agent call it.
+                            handoffs. Pass the user and conversation on the run's \`RunConfig\`:
+
+                            - \`group_id\` groups the run's traces into a conversation — it becomes \`$ai_session_id\`.
+                            - \`trace_metadata["posthog_distinct_id"]\` attributes the run's events to a user, taking
+                              precedence over any \`instrument()\`-level default.
+                            - \`trace_metadata["posthog_properties"]\` adds custom properties to every event in the run.
+
+                            The example below defines a tool and lets the agent call it.
                         `}
                     </Markdown>
 
@@ -128,7 +144,13 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                             result = Runner.run_sync(
                                 agent,
                                 "What's the weather in Paris?",
-                                run_config=RunConfig(group_id="conversation-abc"),
+                                run_config=RunConfig(
+                                    group_id="conversation_abc",  # becomes $ai_session_id
+                                    trace_metadata={
+                                        "posthog_distinct_id": "user_123",
+                                        "posthog_properties": {"plan": "scale"},
+                                    },
+                                ),
                             )
                             print(result.final_output)
                         `}
