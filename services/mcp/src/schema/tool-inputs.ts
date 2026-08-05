@@ -473,7 +473,7 @@ export const PropertyDefinitionUpdateSchema = z.object({
 const PathCleaningAliasField = z
     .string()
     .describe(
-        'The human-readable replacement, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a "?page=N" fragment). Not a regex template — backreferences are not supported.'
+        'The replacement for the matched path, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention, or reference a regex capture group with ClickHouse replaceRegexpAll syntax: "\\1" to "\\9" for a group and "\\0" for the whole match. An empty string is valid — it deletes the matched text (e.g. to strip a "?page=N" fragment).'
     )
 const PathCleaningRegexField = z
     .string()

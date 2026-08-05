@@ -1021,6 +1021,10 @@ class ProjectBackwardCompatSerializer(
     def validate_test_account_filters(value: object) -> list[dict[str, object]]:
         return TeamSerializer.validate_test_account_filters(value)
 
+    @staticmethod
+    def validate_path_cleaning_filters(value: object) -> object:
+        return TeamSerializer.validate_path_cleaning_filters(value)
+
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 

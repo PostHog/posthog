@@ -1030,6 +1030,11 @@ export interface ToolbarProps extends ToolbarParams {
 }
 
 export type PathCleaningFilter = {
+    /**
+     * The replacement for the matched path. Use angle-bracket placeholders (`<id>`, `<uuid>`, `<slug>`)
+     * by convention, or reuse a capture group from the regex with ClickHouse `replaceRegexpAll`
+     * replacement syntax: `\1` to `\9` for a group and `\0` for the whole match.
+     */
     alias?: string
     regex?: string
     order?: number

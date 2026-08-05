@@ -205,6 +205,36 @@ function compileForPreview(regex: string): RegExp | null {
     }
 }
 
+/**
+ * Translate a re2/ClickHouse `replaceRegexpAll` replacement string into a JS `String.replace`
+ * replacement string, so the preview substitutes capture groups the same way the real query does.
+ * re2 uses `\1`–`\9` for groups (`\0` for the whole match); JS uses `$1`–`$9` and `$&`. A literal
+ * `$` is escaped to `$$` so JS doesn't read it as its own back-reference.
+ */
+function aliasToJsReplacement(alias: string): string {
+    let out = ''
+    for (let i = 0; i < alias.length; i++) {
+        const char = alias[i]
+        if (char === '$') {
+            out += '$$'
+        } else if (char === '\\') {
+            const next = alias[i + 1]
+            if (next === '\\') {
+                out += '\\'
+                i++
+            } else if (next !== undefined && next >= '0' && next <= '9') {
+                out += next === '0' ? '$&' : `$${next}`
+                i++
+            } else {
+                out += '\\'
+            }
+        } else {
+            out += char
+        }
+    }
+    return out
+}
+
 /** Chain a path through every rule in order, mirroring ClickHouse `replaceRegexpAll` per rule. */
 function applyChain(path: string, rules: PathCleaningRule[]): string {
     let out = path
@@ -213,8 +243,7 @@ function applyChain(path: string, rules: PathCleaningRule[]): string {
         if (re === null) {
             continue
         }
-        // `alias` is a literal; escape `$` so JS's replace() doesn't treat it as a group ref.
-        out = out.replace(re, rule.alias.replace(/\$/g, '$$$$'))
+        out = out.replace(re, aliasToJsReplacement(rule.alias))
     }
     return out
 }

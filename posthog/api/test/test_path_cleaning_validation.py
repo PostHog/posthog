@@ -1,0 +1,40 @@
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+from rest_framework import exceptions
+
+from posthog.api.team import TeamSerializer, validate_path_cleaning_filters
+
+
+class TestPathCleaningFilterValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("uncompilable_regex", [{"regex": "/users/((", "alias": "/users/x"}]),
+            ("backreference_out_of_range", [{"regex": "/users/(\\d+)", "alias": "/users/\\2"}]),
+            ("backreference_with_no_group", [{"regex": "/users/\\d+", "alias": "/users/\\1"}]),
+        ]
+    )
+    def test_rejects_invalid_rules(self, _name, filters):
+        with self.assertRaises(exceptions.ValidationError):
+            validate_path_cleaning_filters(filters)
+
+    @parameterized.expand(
+        [
+            ("valid_backreference", [{"regex": "/users/(\\d+)", "alias": "/users/\\1"}]),
+            ("whole_match_reference", [{"regex": "/users/(\\d+)", "alias": "/x/\\0"}]),
+            # A doubled backslash is a literal backslash, not a back-reference, so \\1 needs no group.
+            ("escaped_backslash_is_literal", [{"regex": "/users/\\d+", "alias": "/users/\\\\1"}]),
+            ("static_placeholder_alias", [{"regex": "/users/\\d+", "alias": "/users/<id>"}]),
+            ("empty_list", []),
+        ]
+    )
+    def test_accepts_valid_rules(self, _name, filters):
+        assert validate_path_cleaning_filters(filters) == filters
+
+    def test_serializer_wires_up_the_validator(self):
+        serializer = TeamSerializer(
+            data={"path_cleaning_filters": [{"regex": "/users/(\\d+)", "alias": "/users/\\2"}]},
+            partial=True,
+        )
+        assert not serializer.is_valid()
+        assert "path_cleaning_filters" in serializer.errors

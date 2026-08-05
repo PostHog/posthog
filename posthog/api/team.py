@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import re2
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
@@ -783,6 +784,61 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     return cast(list[dict[str, object]], value)
 
 
+def _alias_backreferences(alias: str) -> list[int]:
+    """Return the capture-group numbers a re2 replacement alias references (`\\1`..`\\9`, `\\0` for the
+    whole match). A doubled `\\\\` is a literal backslash, not a back-reference, so it's skipped."""
+    refs: list[int] = []
+    i = 0
+    while i < len(alias):
+        if alias[i] == "\\" and i + 1 < len(alias):
+            nxt = alias[i + 1]
+            if nxt == "\\":
+                i += 2
+                continue
+            if nxt.isdigit():
+                refs.append(int(nxt))
+                i += 2
+                continue
+        i += 1
+    return refs
+
+
+def validate_path_cleaning_filters(value: object) -> object:
+    """Validate path cleaning rules before they're saved. Each regex must compile under re2 (the
+    engine ClickHouse `replaceRegexpAll` uses), and any `\\1`..`\\9` back-reference in the alias must
+    point at a capture group the regex defines. This surfaces a mistake at save time instead of
+    letting it fail the query later, when path cleaning runs."""
+    if not value:
+        return value
+    if not isinstance(value, list):
+        raise exceptions.ValidationError("Must provide a list of path cleaning rules.")
+
+    for rule in value:
+        if not isinstance(rule, dict):
+            continue
+        regex = rule.get("regex")
+        alias = rule.get("alias")
+        if not regex or not isinstance(regex, str):
+            continue
+        try:
+            compiled = re2.compile(regex)
+        except re2.error as error:
+            raise exceptions.ValidationError(f"Invalid path cleaning regex '{regex}': {error}") from error
+
+        if not alias or not isinstance(alias, str):
+            continue
+        group_count = getattr(compiled, "groups", None)
+        if not isinstance(group_count, int):
+            continue
+        for ref in _alias_backreferences(alias):
+            if ref > group_count:
+                raise exceptions.ValidationError(
+                    f"The alias '{alias}' references capture group \\{ref}, but its regex has "
+                    f"{group_count} capture group(s). Add the group to the regex or fix the reference."
+                )
+    return value
+
+
 _default_theme_id_cache: int | None = None
 
 
@@ -1024,6 +1080,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @staticmethod
     def validate_test_account_filters(value: object) -> list[dict[str, object]]:
         return validate_test_account_filters(value)
+
+    @staticmethod
+    def validate_path_cleaning_filters(value: object) -> object:
+        return validate_path_cleaning_filters(value)
 
     @staticmethod
     def validate_revenue_analytics_config(value):

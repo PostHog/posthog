@@ -82,6 +82,16 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                                     Example:{' '}
                                     <span className="font-mono text-accent text-xs">{'/merchant/<id>/dashboard'}</span>
                                 </span>
+                                <br />
+                                <span>
+                                    To reuse a capture group from the regex, reference it with{' '}
+                                    <span className="font-mono text-accent text-xs">{'\\1'}</span>,{' '}
+                                    <span className="font-mono text-accent text-xs">{'\\2'}</span>, and so on. For
+                                    example, regex{' '}
+                                    <span className="font-mono text-accent text-xs">{'/user/(\\d+)/profile'}</span> with
+                                    alias <span className="font-mono text-accent text-xs">{'/user/\\1'}</span> keeps the
+                                    id.
+                                </span>
                             </p>
                         </div>
                     </div>
