@@ -263,7 +263,7 @@ def build_insight_delivery_snapshot(
 
     Set ``force_fresh_calculation`` when the delivery shows these numbers to the recipient, so
     they match the freshly rendered screenshot instead of a cached result. It is ignored for
-    query shapes that can never render as text, which would otherwise pay for a recalculation
+    query shapes out of text-rendering scope, which would otherwise pay for a recalculation
     nobody reads.
     """
     base = _insight_snapshot_base_metadata(insight=insight, tile=tile)
@@ -271,6 +271,7 @@ def build_insight_delivery_snapshot(
 
     query_json = _resolve_effective_query_json(insight, dashboard)
     if query_json is None:
+        base["results_text_eligible"] = False
         base["query_results"] = None
         base["cache_key"] = None
         base["query_error"] = {
@@ -281,6 +282,13 @@ def build_insight_delivery_snapshot(
         base["value_format"] = None
         return base
 
+    # One decision feeds both the execution mode and the renderer's gate: eligible snapshots
+    # calculate fresh, and build_results_text_for_snapshot refuses anything not stamped
+    # eligible. Splitting the two would let a rows-as-lists result from a cached, out-of-scope
+    # query (an EventsQuery, say) render text that disagrees with the fresh image beside it.
+    results_text_eligible = force_fresh_calculation and query_renders_as_text(query_json)
+    base["results_text_eligible"] = results_text_eligible
+
     base["comparison_enabled"] = _has_comparison_enabled(query_json)
     base["value_format"] = _extract_value_format(query_json)
     base.update(
@@ -290,9 +298,7 @@ def build_insight_delivery_snapshot(
             dashboard=dashboard,
             user=user,
             query_json=query_json,
-            # A chart query returns series dicts, which the text renderer always rejects, so
-            # it must not pay for a calculation whose only purpose is matching text to image.
-            force_fresh_calculation=force_fresh_calculation and query_renders_as_text(query_json),
+            force_fresh_calculation=results_text_eligible,
         )
     )
     return base

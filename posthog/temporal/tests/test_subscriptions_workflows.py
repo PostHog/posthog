@@ -1306,6 +1306,7 @@ async def test_create_export_assets_sends_results_text_for_insight_subscriptions
         "dashboard_tile_id": None,
         "query_hash": "cache_key_test",
         "cache_key": "cache_key_test",
+        "results_text_eligible": True,
         "query_results": {"result": [[7]], "columns": ["Open tickets"]},
     }
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="gate01", name="Gate Test")

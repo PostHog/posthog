@@ -17,6 +17,7 @@ being neutral plain text. A non-Slack surface needs its own escaping, not this o
 from __future__ import annotations
 
 import math
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 # Rows beyond this are summarized as a count — a long table is exactly the case where the
@@ -31,13 +32,16 @@ SMALL_FLOAT_THRESHOLD = 0.005
 
 
 def query_renders_as_text(query_json: Any) -> bool:
-    """Whether this query could produce text, judged before it runs.
+    """Whether this query is in scope for text rendering, judged before it runs.
 
-    Only a HogQL query, directly or wrapped in a ``DataVisualizationNode``, returns rows as
-    lists of cells. Chart queries return series dicts, which :func:`build_results_text`
-    always rejects, so a caller deciding whether to pay for a fresh calculation can rule
-    them out up front. A true answer is not a promise: row and column counts still decide
-    whether text is rendered, and those are only known once the query has run.
+    Only a HogQL query, directly or wrapped in a ``DataVisualizationNode``, is in scope.
+    Chart queries return series dicts, which :func:`build_results_text` always rejects.
+    Other rows-as-lists kinds (``EventsQuery``, ``DataTableNode``) are deliberately out of
+    scope: the snapshot builder stamps this verdict on the snapshot, and the renderer
+    refuses snapshots without it, so a shape this predicate rejects can never render text
+    from a cached result that disagrees with the freshly calculated image. A true answer
+    is not a promise: row and column counts still decide whether text is rendered, and
+    those are only known once the query has run.
     """
     if not isinstance(query_json, dict):
         return False
@@ -48,7 +52,14 @@ def query_renders_as_text(query_json: Any) -> bool:
 
 
 def build_results_text_for_snapshot(snapshot: dict[str, Any]) -> str | None:
-    """Render the ``query_results`` of one insight delivery snapshot, if it's compact enough."""
+    """Render the ``query_results`` of one insight delivery snapshot, if it's compact enough.
+
+    Refuses snapshots not stamped ``results_text_eligible`` by the snapshot builder. The
+    stamp certifies the query shape was in scope and the result was calculated fresh, so
+    the rendered numbers cannot disagree with the screenshot delivered beside them.
+    """
+    if not snapshot.get("results_text_eligible"):
+        return None
     query_results = snapshot.get("query_results")
     if not isinstance(query_results, dict):
         return None
@@ -77,13 +88,17 @@ def build_results_text(results: Any, columns: Any, *, has_more: bool = False) ->
         return None
 
     text = _render_single_row(header, shown[0]) if len(shown) == 1 else _render_table(header, shown)
-    footer = _hidden_rows_footer(hidden=len(results) - len(shown), has_more=has_more)
-    if footer:
-        text += f"\n{footer}"
     # Escaping runs after layout so the entity escapes don't count toward the column widths
     # (Slack renders them back as one character each), and before the cap so the budget is
     # measured against the string Slack actually receives.
-    return _cap_length(_escape_slack_mrkdwn(text)) or None
+    text = _escape_slack_mrkdwn(text)
+    # The footer is appended after the cap: it is the one line saying rows are missing, so
+    # it must be the last thing dropped, not the first. It is our own literal text, so it
+    # needs no escaping and its length can be reserved out of the budget exactly.
+    footer = _hidden_rows_footer(hidden=len(results) - len(shown), has_more=has_more)
+    if footer:
+        return f"{_cap_length(text, reserve=len(footer) + 1)}\n{footer}"
+    return _cap_length(text) or None
 
 
 def _hidden_rows_footer(*, hidden: int, has_more: bool) -> str | None:
@@ -113,16 +128,17 @@ def _escape_slack_mrkdwn(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _cap_length(text: str) -> str:
-    """Drop whole lines to fit the budget.
+def _cap_length(text: str, *, reserve: int = 0) -> str:
+    """Drop whole lines to fit the budget, leaving ``reserve`` characters for the caller.
 
     A character-level cut would leave a half-written number reading as a real one, which is
     the one failure this whole rendering can't afford.
     """
-    if len(text) <= MAX_TEXT_LENGTH:
+    max_length = MAX_TEXT_LENGTH - reserve
+    if len(text) <= max_length:
         return text
     kept: list[str] = []
-    budget = MAX_TEXT_LENGTH - len("\n... (truncated)")
+    budget = max_length - len("\n... (truncated)")
     for line in text.splitlines():
         if budget - len(line) - 1 < 0:
             break
@@ -177,6 +193,31 @@ def _padded(row: list[Any], width: int) -> list[Any]:
     return list(row[:width]) + [None] * (width - len(row))
 
 
+def _decimal_string_display(value: str) -> str | None:
+    """Format a string cell that is really a serialized ``Decimal``, or None to pass it through.
+
+    A ClickHouse or Postgres Decimal cell reaches the snapshot as a string (the snapshot
+    serializer dumps unknown types with ``default=str``), so a money ``sum()`` would render
+    unformatted next to formatted float columns. Only a string that is exactly the canonical
+    form of a number with a fractional part is reformatted; anything else (versions, zip
+    codes, free text) is user data and passes through verbatim.
+    """
+    if "." not in value:
+        return None
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        return None
+    if not number.is_finite() or str(number) != value:
+        return None
+    if number == number.to_integral_value():
+        return f"{int(number):,}"
+    if abs(number) < Decimal(str(SMALL_FLOAT_THRESHOLD)):
+        # Matches the float branch: values below 0.005 would collapse to "0.00".
+        return f"{float(number):.3g}"
+    return f"{number:,.2f}"
+
+
 def _cell(value: Any) -> str:
     if value is None:
         return "-"
@@ -195,6 +236,8 @@ def _cell(value: Any) -> str:
             text = f"{value:.3g}"
         else:
             text = f"{value:,.2f}"
+    elif isinstance(value, str):
+        text = _decimal_string_display(value) or value
     else:
         text = str(value)
 

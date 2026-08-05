@@ -125,6 +125,35 @@ class TestBuildResultsText:
         assert lines[-1] == "... (truncated)"
         assert all(line.endswith(cell) for line in lines[2:-1])
 
+    def test_hidden_row_footer_survives_truncation(self) -> None:
+        # The footer is the one line saying rows are missing, so the length cap must not be
+        # able to eat it — a truncated table with no footer reads as the complete result.
+        cell = "x" * 90
+        rows = [[cell] * MAX_COLUMNS] * (MAX_ROWS + 5)
+        text = build_results_text(rows, [f"c{i}" for i in range(MAX_COLUMNS)], has_more=True)
+
+        assert text is not None
+        assert len(text) <= MAX_TEXT_LENGTH
+        lines = text.splitlines()
+        assert lines[-1] == "... and at least 5 more rows"
+        assert lines[-2] == "... (truncated)"
+
+    @parameterized.expand(
+        [
+            # ClickHouse Decimal cells reach the snapshot serialized as strings; a money sum
+            # must not render unformatted next to formatted float columns.
+            ("decimal_money", "12345.6789", "12,345.68"),
+            ("decimal_whole", "3.0", "3"),
+            ("decimal_small_rate", "0.004", "0.004"),
+            # Non-canonical or non-numeric strings are user data and pass through verbatim.
+            ("version_string", "2.5.1", "2.5.1"),
+            ("leading_zero", "02139.5", "02139.5"),
+            ("phone_number", "5551234567", "5551234567"),
+        ]
+    )
+    def test_decimal_strings_format_like_numbers_and_text_passes_through(self, _name, value, expected) -> None:
+        assert build_results_text([[value]], ["v"]) == f"v: {expected}"
+
     @parameterized.expand(
         [
             ("missing_query_results", {}),
@@ -135,9 +164,20 @@ class TestBuildResultsText:
         assert build_results_text_for_snapshot(snapshot) is None
 
     def test_snapshot_renders_its_query_results(self) -> None:
-        snapshot = {"query_results": {"result": [[7]], "columns": ["Open tickets"]}}
+        snapshot = {
+            "results_text_eligible": True,
+            "query_results": {"result": [[7]], "columns": ["Open tickets"]},
+        }
 
         assert build_results_text_for_snapshot(snapshot) == "Open tickets: 7"
+
+    def test_snapshot_without_the_eligibility_stamp_renders_nothing(self) -> None:
+        # An EventsQuery result is also rows-as-lists, but its snapshot was served from cache
+        # (only in-scope shapes calculate fresh), so rendering it would put numbers next to a
+        # screenshot they can disagree with. The renderer fails closed on the stamp.
+        snapshot = {"query_results": {"result": [[7]], "columns": ["Open tickets"]}}
+
+        assert build_results_text_for_snapshot(snapshot) is None
 
     @parameterized.expand(
         [
@@ -165,7 +205,10 @@ class TestBuildResultsText:
         assert query_renders_as_text(query_json) is expected
 
     def test_snapshot_passes_its_has_more_flag_through(self) -> None:
-        snapshot = {"query_results": {"result": [[i] for i in range(100)], "columns": ["n"], "has_more": True}}
+        snapshot = {
+            "results_text_eligible": True,
+            "query_results": {"result": [[i] for i in range(100)], "columns": ["n"], "has_more": True},
+        }
 
         text = build_results_text_for_snapshot(snapshot)
 
