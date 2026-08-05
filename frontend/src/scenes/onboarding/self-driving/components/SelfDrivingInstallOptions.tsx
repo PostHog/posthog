@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { CheckList } from 'scenes/onboarding/shared/components/CheckList'
@@ -22,12 +22,17 @@ function ProductsBeingInstalled(): JSX.Element {
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted">
             <span>Installing:</span>
             {tools.map((tool) => (
-                <span key={tool.name} className="flex items-center gap-1">
+                <Link
+                    key={tool.name}
+                    to={tool.docsUrl}
+                    target="_blank"
+                    className="flex items-center gap-1 text-muted hover:text-default"
+                >
                     <span className="flex text-sm group/colorful-product-icons colorful-product-icons-true">
                         {iconForType(tool.iconType)}
                     </span>
                     {tool.name}
-                </span>
+                </Link>
             ))}
         </div>
     )

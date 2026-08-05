@@ -36,6 +36,7 @@ export interface SelfDrivingTool {
     benefit: string
     /** Product icon key for `iconForType`. */
     iconType: 'product_analytics' | 'session_replay' | 'error_tracking' | 'web_analytics' | 'llm_analytics'
+    docsUrl: string
     /** The team toggle behind the tool, when it needs one. Tools without one are on as soon as data flows. */
     enablement?: EnablementProduct
 }
@@ -47,12 +48,14 @@ export const SELF_DRIVING_TOOLS: Record<SelfDrivingToolKey, SelfDrivingTool> = {
         name: 'Product analytics',
         benefit: 'Events, trends, and funnels start flowing as soon as the SDK is in.',
         iconType: 'product_analytics',
+        docsUrl: 'https://posthog.com/docs/product-analytics',
     },
     session_replay: {
         productKey: ProductKey.SESSION_REPLAY,
         name: 'Session replay',
         benefit: 'Real sessions recorded, so agents can watch what users did.',
         iconType: 'session_replay',
+        docsUrl: 'https://posthog.com/docs/session-replay',
         enablement: 'session_replay',
     },
     error_tracking: {
@@ -60,6 +63,7 @@ export const SELF_DRIVING_TOOLS: Record<SelfDrivingToolKey, SelfDrivingTool> = {
         name: 'Error tracking',
         benefit: 'Exceptions grouped into issues that feed your agents.',
         iconType: 'error_tracking',
+        docsUrl: 'https://posthog.com/docs/error-tracking',
         enablement: 'error_tracking',
     },
     web_analytics: {
@@ -67,12 +71,14 @@ export const SELF_DRIVING_TOOLS: Record<SelfDrivingToolKey, SelfDrivingTool> = {
         name: 'Web analytics',
         benefit: 'Traffic, sources, and conversion on a live dashboard.',
         iconType: 'web_analytics',
+        docsUrl: 'https://posthog.com/docs/web-analytics',
     },
     ai_observability: {
         productKey: ProductKey.AI_OBSERVABILITY,
         name: 'AI observability',
         benefit: 'Traces, costs, and failures from your LLM features.',
         iconType: 'llm_analytics',
+        docsUrl: 'https://posthog.com/docs/llm-analytics',
     },
 }
 
@@ -87,6 +93,13 @@ export interface SelfDrivingToolSet {
 
 // Dashboards for everyone: it answers to the PRODUCT_ANALYTICS intent in the products registry.
 const SHARED_SIDEBAR: ProductKey[] = [ProductKey.PRODUCT_ANALYTICS]
+
+/** Docs pages for sidebar items resolved from the products registry, keyed by their registry path.
+ * Tools in `SELF_DRIVING_TOOLS` carry their own `docsUrl`; this covers the sidebar-only extras. */
+export const SIDEBAR_ITEM_DOCS_URL: Record<string, string> = {
+    Dashboards: 'https://posthog.com/docs/product-analytics/dashboards',
+    'Product analytics': 'https://posthog.com/docs/product-analytics',
+}
 
 const GOAL_TOOL_SETS: Record<SelfDrivingGoal, SelfDrivingToolSet> = {
     user_behavior: { shown: ['product_analytics', 'session_replay'], sidebar: SHARED_SIDEBAR },

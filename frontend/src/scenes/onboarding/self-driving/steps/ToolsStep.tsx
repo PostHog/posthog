@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsProducts } from '~/products'
 
-import { SELF_DRIVING_TOOLS, toolSetForGoal } from '../goals'
+import { SELF_DRIVING_TOOLS, SIDEBAR_ITEM_DOCS_URL, toolSetForGoal } from '../goals'
 import { goalSelectionLogic } from '../goalSelectionLogic'
 import { productEnablementStepLogic } from '../productEnablementStepLogic'
 
@@ -61,7 +61,12 @@ export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Eleme
                             </div>
                             <div className="flex-1 flex flex-col gap-0.5 min-w-0">
                                 <div className="font-semibold text-base">{tool.name}</div>
-                                <div className="text-sm text-secondary text-balance">{tool.benefit}</div>
+                                <div className="text-sm text-secondary text-balance">
+                                    {tool.benefit}{' '}
+                                    <Link to={tool.docsUrl} target="_blank" className="whitespace-nowrap">
+                                        Read the docs
+                                    </Link>
+                                </div>
                             </div>
                             {isOn ? (
                                 <div className="flex items-center gap-1.5 text-sm text-success shrink-0">
@@ -85,20 +90,29 @@ export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Eleme
             {sidebarExtras.length > 0 && (
                 <div className="flex flex-wrap items-center justify-center gap-2">
                     <span className="text-xs text-muted">Also in your sidebar:</span>
-                    {sidebarExtras.map((item) => (
-                        <LemonTag
-                            key={item.path}
-                            icon={
-                                item.iconType ? (
-                                    <span className="flex group/colorful-product-icons colorful-product-icons-true">
-                                        {iconForType(item.iconType)}
-                                    </span>
-                                ) : undefined
-                            }
-                        >
-                            {item.path}
-                        </LemonTag>
-                    ))}
+                    {sidebarExtras.map((item) => {
+                        const tag = (
+                            <LemonTag
+                                icon={
+                                    item.iconType ? (
+                                        <span className="flex group/colorful-product-icons colorful-product-icons-true">
+                                            {iconForType(item.iconType)}
+                                        </span>
+                                    ) : undefined
+                                }
+                            >
+                                {item.path}
+                            </LemonTag>
+                        )
+                        const docsUrl = SIDEBAR_ITEM_DOCS_URL[item.path]
+                        return docsUrl ? (
+                            <Link key={item.path} to={docsUrl} target="_blank">
+                                {tag}
+                            </Link>
+                        ) : (
+                            <span key={item.path}>{tag}</span>
+                        )
+                    })}
                 </div>
             )}
             <div className="flex justify-center">
