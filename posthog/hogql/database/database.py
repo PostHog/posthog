@@ -467,6 +467,38 @@ def _system_table_access_scopes() -> tuple[tuple[str, APIScopeObject], ...]:
     )
 
 
+@cache
+def _system_table_required_features() -> tuple[tuple[str, str], ...]:
+    """(table name, required AvailableFeature) for system tables behind a billing entitlement.
+
+    Same process-static invariant as _system_table_access_scopes: the entitlement a table *requires*
+    is a static property of the table. What varies per organization is whether that entitlement is
+    *available*, which is resolved uncached in _unentitled_system_tables.
+    """
+    return tuple(
+        (name, table_node.table.required_feature_on_cloud)
+        for name, table_node in SystemTables().children.items()
+        if isinstance(table_node.table, PostgresTable) and table_node.table.required_feature_on_cloud is not None
+    )
+
+
+def _unentitled_system_tables(team: Team) -> set[str]:
+    """System tables the team's organization is not entitled to, hidden from the schema.
+
+    Entitlement is organization-wide, so unlike RBAC this applies to every principal including
+    organization admins. Cloud-only, mirroring PremiumFeaturePermission's `premium_feature_on_cloud`.
+    """
+    # Lazy imports keep the Django ORM off this module's import path.
+    from posthog.cloud_utils import is_cloud  # noqa: PLC0415
+
+    required_features = _system_table_required_features()
+    if not required_features or not is_cloud():
+        return set()
+
+    organization = team.organization
+    return {name for name, feature in required_features if not organization.is_feature_available(feature)}
+
+
 def _compute_system_table_access_decision(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
@@ -483,19 +515,22 @@ def _compute_system_table_access_decision(
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
     scoped_tables = _system_table_access_scopes()
+    # Applies to every principal below, admins included - an entitlement the organization does not
+    # have cannot be granted by a role.
+    unentitled = _unentitled_system_tables(team)
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
-        return None, {name for name, access_scope in scoped_tables if access_scope not in readable_scopes}
+        return None, unentitled | {name for name, access_scope in scoped_tables if access_scope not in readable_scopes}
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-        return user_access_control, set()
+        return user_access_control, unentitled
 
-    denied: set[str] = set()
+    denied: set[str] = set(unentitled)
     for name, access_scope in scoped_tables:
         access_level = user_access_control.access_level_for_resource(access_scope)
         if access_level and access_level != NO_ACCESS_LEVEL:

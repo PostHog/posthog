@@ -29,6 +29,7 @@ from posthog.hogql.database.schema.information_schema import information_schema_
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 
+from posthog.constants import AvailableFeature
 from posthog.scopes import APIScopeObject
 
 from products.customer_analytics.backend.facade.hogql import (
@@ -984,6 +985,8 @@ activity_logs: PostgresTable = PostgresTable(
     name="activity_logs",
     postgres_table_name="posthog_activitylog",
     access_scope="activity_log",
+    # Matches `premium_feature_on_cloud` on the REST activity-log viewsets, which gate the same rows.
+    required_feature_on_cloud=AvailableFeature.AUDIT_LOGS,
     description="Audit trail of changes to objects (insights, flags, dashboards, etc.); one row per logged activity.",
     fields={
         "id": StringDatabaseField(name="id", description="Activity log entry UUID."),
