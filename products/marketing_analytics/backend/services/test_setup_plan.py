@@ -19,6 +19,7 @@ from products.marketing_analytics.backend.services.marketing_diagnostic import (
 from products.marketing_analytics.backend.services.setup_plan import get_setup_plan
 from products.marketing_analytics.backend.services.setup_types import (
     Capability,
+    OpenOauth,
     ReadinessStatus,
     Severity,
     SuggestionKind,
@@ -96,7 +97,8 @@ def _goal(goal_id="g1", name="Signup", count=1000, misconfigured=False) -> Conve
     return ConversionGoalSummary(
         id=goal_id,
         name=name,
-        kind="events",
+        # What the inspector actually emits — it defaults to "EventsNode", not "events".
+        kind="EventsNode",
         target_label=name,
         last_30d_count=count,
         integrated_count=count,
@@ -449,6 +451,9 @@ class TestIntegrationSuggestions(SetupPlanTestCase):
         plan = await get_setup_plan(self.team)
 
         reconnect = next(s for s in plan.suggestions if s.kind == SuggestionKind.RECONNECT_OAUTH)
+        # Narrowed rather than indexed: `apply` is the whole ApplyOp union, and only OpenOauth
+        # carries `kind`. This also pins that a reconnect emits that op and not another.
+        assert isinstance(reconnect.apply, OpenOauth)
         # Snapchat registers as "snapchat", not "snapchat-ads" — a derived kebab-case
         # kind would 400 on authorize.
         assert reconnect.apply.kind == "snapchat"
