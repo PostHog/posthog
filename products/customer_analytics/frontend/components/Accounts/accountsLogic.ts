@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { type DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { AccountsQuery, DataNode, DataTableNode, NodeKind, RefreshType } from '~/queries/schema/schema-general'
 import type { AccountCustomPropertyFilter, UserBasicType } from '~/types'
 
@@ -40,6 +41,7 @@ import {
     DEFAULT_ACCOUNT_TAB,
 } from './accountsExpansionLogic'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
+import { sortAccountRows } from './accountsSort'
 import { normalizeRoleFilter } from './accountsViewState'
 import { AccountsEvents } from './constants'
 
@@ -210,6 +212,7 @@ export interface accountsLogicValues {
     savingRoles: Record<string, true>
     searchInput: string
     searchQuery: string
+    sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
     sortOrder: AccountSortOrder
     tagsFilter: string[]
     viewUrlState: AccountsViewUrlState
@@ -393,6 +396,11 @@ export interface accountsLogicMeta {
             columnDisplay: AccountColumnDisplayState
         ) => AccountsViewUrlState
         canSortClientSide: (listHasMoreData: boolean, listPaginated: boolean) => boolean
+        sortedRowsTransformer: (
+            canSortClientSide: boolean,
+            sortOrder: AccountSortOrder,
+            visibleColumnNames: string[]
+        ) => ((rows: DataTableRow[]) => DataTableRow[]) | undefined
         hogqlQuery: (
             searchQuery: string,
             tagsFilter: string[],
@@ -710,6 +718,19 @@ export const accountsLogic = kea<accountsLogicType>([
         canSortClientSide: [
             (s) => [s.listHasMoreData, s.listPaginated],
             (listHasMoreData: boolean, listPaginated: boolean): boolean => !listHasMoreData && !listPaginated,
+        ],
+        // Passed to the DataTable's `dataTableRowsTransformer` context seam; undefined
+        // while the list is paginated (the server already returned globally sorted rows).
+        sortedRowsTransformer: [
+            (s) => [s.canSortClientSide, s.sortOrder, s.visibleColumnNames],
+            (
+                canSortClientSide: boolean,
+                sortOrder: AccountSortOrder,
+                visibleColumnNames: string[]
+            ): ((rows: DataTableRow[]) => DataTableRow[]) | undefined =>
+                canSortClientSide && sortOrder
+                    ? (rows: DataTableRow[]): DataTableRow[] => sortAccountRows(rows, sortOrder, visibleColumnNames)
+                    : undefined,
         ],
         hogqlQuery: [
             (s) => [

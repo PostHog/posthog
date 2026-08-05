@@ -363,6 +363,7 @@ describe('accountsLogic', () => {
             expect(logic.values.canSortClientSide).toBe(true)
             logic.actions.toggleSort('notebook_count')
             expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
+            expect(logic.values.sortedRowsTransformer).toEqual(expect.any(Function))
             logic.actions.toggleSort('notebook_count') // desc
             expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
         })
@@ -371,6 +372,7 @@ describe('accountsLogic', () => {
             logic.actions.listLoadNextData()
             expect(logic.values.canSortClientSide).toBe(false)
             logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
             expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count'])
             logic.actions.toggleSort('notebook_count') // desc
             expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count DESC'])
