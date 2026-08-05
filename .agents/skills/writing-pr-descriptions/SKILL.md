@@ -108,6 +108,7 @@ Keep:
 - Why the change is necessary.
 - What it does, at a level someone who has opened no files can follow.
 - The alternative you rejected, the blast radius, what to watch after it ships, where to look first.
+- What someone arriving from `git blame` in six months needs. They cannot ask you, and the review thread will not tell them.
 
 Cut the detail the diff carries better: exact values, per-file narration, the mechanics of code a reviewer reads in context anyway.
 
