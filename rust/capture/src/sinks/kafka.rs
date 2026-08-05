@@ -224,8 +224,8 @@ enum OrderingGuarantee {
 /// pipeline sets alongside `OverflowReason::ForceLimited` — the metadata is
 /// self-describing).
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Route<'a> {
-    target: Output<'a>,
+struct Route {
+    target: Output,
     ordering: OrderingGuarantee,
 }
 
@@ -244,7 +244,7 @@ fn person_ordering(skip_person_processing: bool) -> OrderingGuarantee {
 /// take priority over per-datatype and overflow routing. Consulted by the
 /// sink, which resolves the target to a topic string and the ordering
 /// guarantee to a partition key, and applies the target-implied side effects.
-fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> Route<'_> {
+fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> Route {
     // redirect_to_dlq takes priority over all other routing.
     if metadata.redirect_to_dlq {
         return Route {
@@ -255,7 +255,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
 
     if let Some(ref topic) = metadata.redirect_to_topic {
         return Route {
-            target: Output::Custom(topic),
+            target: Output::Custom(topic.clone()),
             ordering: OrderingGuarantee::PerDistinctId,
         };
     }
@@ -430,7 +430,7 @@ mod route_tests {
         assert_eq!(
             route(&m, false),
             Route {
-                target: Output::Custom("my_topic"),
+                target: Output::Custom("my_topic".to_string()),
                 ordering: OrderingGuarantee::PerDistinctId,
             }
         );

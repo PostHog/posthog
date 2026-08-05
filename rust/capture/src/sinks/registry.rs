@@ -27,7 +27,7 @@ use crate::config::KafkaConfig;
 /// convergence target when the v1 stack folds onto this registry (see the
 /// plan doc).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Output<'a> {
+pub enum Output {
     AnalyticsMain,
     AnalyticsOverflow,
     AnalyticsHistorical,
@@ -47,15 +47,15 @@ pub enum Output<'a> {
     /// The AI pipeline's overflow lane; only routed to when the AI overflow
     /// valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed.
     AiOverflow,
-    /// Admin-configured custom topic borrowed from `redirect_to_topic`. Resolved
+    /// Admin-configured custom topic copied from `redirect_to_topic`. Resolved
     /// inline by the sink; never registered (it carries its own topic).
-    Custom(&'a str),
+    Custom(String),
 }
 
-impl Output<'_> {
+impl Output {
     /// Every registered always-required output. `check_complete` walks this so
     /// a newly added output is caught at boot rather than at first produce.
-    const REGISTERED: [Output<'static>; 9] = [
+    const REGISTERED: [Output; 9] = [
         Output::AnalyticsMain,
         Output::AnalyticsOverflow,
         Output::AnalyticsHistorical,
@@ -116,7 +116,7 @@ impl OutputRegistry {
     /// (startup validation requires `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`
     /// whenever the routing policy can produce `AiEvents`), so it falls back
     /// to the main topic rather than failing the batch.
-    pub fn topic_for<'a>(&'a self, output: &Output<'a>) -> &'a str {
+    pub fn topic_for<'a>(&'a self, output: &'a Output) -> &'a str {
         match output {
             Output::AnalyticsMain | Output::SessionReplayMain => &self.main,
             Output::AnalyticsOverflow => &self.overflow,
@@ -228,7 +228,7 @@ mod tests {
     #[case(Output::AiMain, "ai_events")]
     #[case(Output::AiOverflow, "ai_events_overflow")]
     fn topic_for_resolves_registered_outputs(
-        #[case] output: Output<'static>,
+        #[case] output: Output,
         #[case] expected: &str,
     ) {
         assert_eq!(test_topics().topic_for(&output), expected);
@@ -238,7 +238,7 @@ mod tests {
     fn topic_for_custom_returns_inline_topic() {
         let registry = test_topics();
         assert_eq!(
-            registry.topic_for(&Output::Custom("admin_topic")),
+            registry.topic_for(&Output::Custom("admin_topic".to_string())),
             "admin_topic"
         );
     }
