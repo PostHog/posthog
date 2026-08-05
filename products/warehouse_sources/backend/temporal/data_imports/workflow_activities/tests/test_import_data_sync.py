@@ -1,12 +1,21 @@
 import uuid
 import contextlib
 from datetime import datetime
+from typing import Any, cast
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest import mock
+
+from django.db import InterfaceError, OperationalError
+
+from parameterized import parameterized
 
 from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -88,6 +97,29 @@ def _inputs() -> ImportDataActivityInputs:
         run_id=str(uuid.uuid4()),
         reset_pipeline=True,
     )
+
+
+class TestGetModelsPrefetchesSource(BaseTest):
+    def test_folder_path_needs_no_query_after_load(self) -> None:
+        # folder_path() reads schema.source.source_type. If _get_models stops prefetching
+        # schema__source, that read fires a lazy SELECT later in the run, on a pooled app-DB
+        # connection the transaction pooler can drop mid-sync — surfacing as a spurious
+        # OperationalError/DNS failure far from where the real query would have been.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="Invoice", team=self.team, source=source, sync_type_config={})
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING
+        )
+
+        # Call the undecorated sync loader directly so the query capture runs on this thread.
+        # `.func` is the wrapped sync callable on database_sync_to_async_pool's DatabaseSyncToAsync
+        # (asgiref); it isn't on the decorator's static type, hence the cast.
+        models = cast(Any, module._get_models).func(str(job.id))
+
+        with self.assertNumQueries(0):
+            models.job.folder_path()
 
 
 @pytest.mark.asyncio
@@ -222,6 +254,66 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
     logger.aexception.assert_not_awaited()
 
 
+@parameterized.expand(
+    [
+        ("operational_error", OperationalError, "query_wait_timeout"),
+        ("interface_error", InterfaceError, "connection already closed"),
+    ]
+)
+@pytest.mark.asyncio
+async def test_app_db_connection_error_reraised_as_non_reportable(_name: str, error_cls: type[Exception], message: str):
+    # A Django OperationalError/InterfaceError here can only come from a lookup against PostHog's
+    # own app DB (e.g. resolving a team or CustomPropertySource for the person-property staging
+    # hook) — sources talk to a customer's own database over a raw driver connection, never Django's
+    # ORM. It's a transient connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout
+    # under load), so it must be re-raised as NonReportableError (like RESTClientRetryableError
+    # above) rather than the bare exception, which the activity interceptor would still capture.
+    error = error_cls(message)
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_transient_object_store_error_reraised_as_non_reportable():
+    # A transient S3 credential-provider blip (IMDS/STS) talking to our own data-warehouse bucket,
+    # e.g. while resetting the Delta table. It's retryable (Temporal retries the activity as usual),
+    # but re-raising the bare OSError would still be captured by the activity interceptor, which
+    # only skips reporting for NonReportableError — so it must be wrapped, not just logged at warning.
+    error = OSError(
+        "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_schema_column_type_changed_routes_through_handler_without_source_opt_in():
     # SchemaColumnTypeChangedException is raised in shared pipeline code when incoming data can't be
@@ -243,6 +335,37 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
 
     # autospec enforces handle_non_retryable_error's real signature, so a call with the wrong
     # positional args (as this branch once had) fails here instead of only at runtime.
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shared_non_retryable_error_routes_through_handler_without_source_opt_in():
+    # "Primary key required for incremental syncs" is raised in shared pipeline code (delta merge),
+    # not any one source, and lives in the shared Any_Source_Errors dict. It must be non-retryable in
+    # this in-activity handler for every source, not just those that duplicate the message into their
+    # own get_non_retryable_errors — otherwise a keyless incremental table retries the activity's whole
+    # budget and reports on every attempt.
+    error = Exception("Primary key required for incremental syncs")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
     with (
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
         mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,

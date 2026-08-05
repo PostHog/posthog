@@ -59,7 +59,7 @@ def maybe_create_provisioned_pat(
 ) -> str | None:
     """Create a Personal API Key for a provisioned user and return the raw key value.
 
-    Gated by ``app.provisioning_issues_personal_api_key``: off by default, so most
+    Gated by ``app.provisioning.issues_personal_api_key``: off by default, so most
     apps never receive a provisioned PAT (the OAuth token is the credential).
     Returns ``None`` when the gate is off, and the caller omits ``personal_api_key``
     from the response entirely.
@@ -80,7 +80,7 @@ def maybe_create_provisioned_pat(
     ``label_prefix`` should be pre-validated by ``validate_label_prefix``; pass
     ``None`` (or any falsy value) to label the key with just the team name.
     """
-    if not app or not app.provisioning_issues_personal_api_key:
+    if not app or not app.provisioning.issues_personal_api_key:
         return None
     if not app.ceiling_scopes:
         capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)

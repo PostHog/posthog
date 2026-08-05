@@ -360,6 +360,21 @@ class TestGetRowsToSync:
         with pytest.raises(TemporaryFileSizeExceedsLimitException):
             impl.get_rows_to_sync(cursor, self._inner(), None, logger)
 
+    def test_permission_denied_on_materialized_view_is_not_reported(self, impl, cursor, logger):
+        # A materialized view's base relation can be denied even when the view itself is
+        # selectable. That's an expected customer permission-config issue, not an actionable bug —
+        # row-count estimation is best-effort (the caller defaults to 0), so skip gracefully
+        # without reporting the non-actionable error to error tracking (the source of the reported
+        # noise).
+        cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege(
+            'permission denied for materialized view base relation "Payment_Actions"'
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
+        mock_capture.assert_not_called()
+
 
 class TestFetchTableStats:
     def test_returns_none_when_no_row(self, impl, cursor, logger):
@@ -834,6 +849,17 @@ class TestRedshiftSourceNonRetryableErrors:
             'connection failed: connection to server at "10.0.0.1", port 5439 failed: '
             "server does not support SSL, but SSL was required"
         )
+        non_retryable = RedshiftSource().get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable
+
+    def test_permission_denied_raw_message_is_non_retryable(self):
+        # The activity-level check matches the raw `str(exception)`, which for a psycopg
+        # `InsufficientPrivilege` never contains the class name — only the `InsufficientPrivilege`
+        # key (which only matches once Temporal's `ApplicationError` wraps the failure with the
+        # class name) would miss this, letting the activity burn its full retry budget on a
+        # permission denial that can't resolve itself.
+        error_msg = 'permission denied for materialized view base relation "Payment_Actions"'
         non_retryable = RedshiftSource().get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable

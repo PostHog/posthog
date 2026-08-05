@@ -136,8 +136,9 @@ pub async fn update_consumer_loop(
                     e
                 )
             });
+        handle.report_healthy();
 
-        process_batch(&config, cache.clone(), &context.pool, batch).await;
+        process_batch(&config, cache.clone(), &context.pool, batch, &handle).await;
     }
 }
 

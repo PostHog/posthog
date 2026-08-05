@@ -3,7 +3,7 @@ from functools import lru_cache
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.lazy_join_tags import TICKET_TAGS
+from posthog.hogql.database.lazy_join_tags import TICKET_ASSIGNMENT, TICKET_TAGS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -1160,6 +1160,64 @@ hog_functions: PostgresTable = PostgresTable(
     },
 )
 
+message_categories: PostgresTable = PostgresTable(
+    name="message_categories",
+    postgres_table_name="posthog_messagecategory",
+    access_scope="hog_flow",
+    description="Message categories recipients can opt out of; one row per category. Join its id against the keys of message_recipient_preferences.preferences.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Category UUID, used as the key in recipient preferences."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "key": StringDatabaseField(name="key", description="Stable category key used in the API, e.g. 'newsletter'."),
+        "name": StringDatabaseField(name="name", description="Display name of the category."),
+        "description": StringDatabaseField(name="description", description="Internal description of the category."),
+        "public_description": StringDatabaseField(
+            name="public_description", description="Description shown to recipients on the preferences page."
+        ),
+        "category_type": StringDatabaseField(
+            name="category_type", description="'marketing' (opt-out applies) or 'transactional'."
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
+            isolate_scope=True,
+            description="1 if the category has been deleted, 0 otherwise.",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the category was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the category was last updated."),
+    },
+)
+
+message_recipient_preferences: PostgresTable = PostgresTable(
+    name="message_recipient_preferences",
+    postgres_table_name="posthog_messagerecipientpreference",
+    access_scope="hog_flow",
+    description="Messaging preferences per recipient; one row per recipient. The preferences map records opt-outs and opt-ins per message category.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Preference row UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "identifier": StringDatabaseField(
+            name="identifier", description="Recipient identifier, usually an email address."
+        ),
+        "preferences": StringJSONDatabaseField(
+            name="preferences",
+            description="JSON map of message category ID to 'OPTED_OUT' or 'OPTED_IN'. The key '$all' covers all marketing messages; other keys are message_categories ids.",
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
+            isolate_scope=True,
+            description="1 if the row has been deleted, 0 otherwise.",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the recipient was first recorded."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", description="When the recipient's preferences last changed."
+        ),
+    },
+)
+
 
 def _notebook_content_or_empty_object_expr() -> ast.Expr:
     return ast.Call(name="ifNull", args=[ast.Field(chain=["content"]), ast.Constant(value="{}")])
@@ -1523,13 +1581,13 @@ logs_alerts: PostgresTable = PostgresTable(
 
 
 class _TicketScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
-    """PostgresTable variant for the tag junction, which has no `team_id` column of its own.
+    """PostgresTable variant for ticket-side tables that have no `team_id` column of their own.
 
     The framework's auto-injected `team_id = X` guard is skipped (the column doesn't exist);
     isolation instead flows from the predicate scoping through `system.support_tickets`, whose
-    own team_id guard the framework re-applies to the inner reference. The same predicate prunes
-    non-ticket `posthog_taggeditem` rows (tags on insights, dashboards, accounts, ...), which
-    carry a NULL `ticket_id` and so never match a ticket id.
+    own team_id guard the framework re-applies to the inner reference. For the tag junction,
+    the same predicate also prunes non-ticket `posthog_taggeditem` rows (tags on insights,
+    dashboards, accounts, ...), which carry a NULL `ticket_id` and so never match a ticket id.
     """
 
     predicates: list[Expr] = [parse_expr("ticket_id IN (SELECT id FROM system.support_tickets)")]
@@ -1614,6 +1672,118 @@ ticket_tags_lazy_join: LazyJoin = LazyJoin(
 )
 
 
+class _TicketAssigneeRolesTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
+    """PostgresTable variant for `ee_role`, which is organization-scoped and has no `team_id` column.
+
+    The framework's auto-injected `team_id = X` guard is skipped (the column doesn't exist); isolation
+    instead flows from the predicate, which scopes to the roles referenced by this team's ticket
+    assignments. That resolves through `system._ticket_assignments` and in turn through
+    `system.support_tickets`, whose own team_id guard the framework re-applies to the inner reference.
+    """
+
+    predicates: list[Expr] = [parse_expr("id IN (SELECT role_id FROM system._ticket_assignments)")]
+
+
+ticket_assignee_roles: _TicketAssigneeRolesTable = _TicketAssigneeRolesTable(
+    name="_ticket_assignee_roles",
+    postgres_table_name="ee_role",
+    description="Internal table (PostgreSQL `ee_role`) of roles this team's tickets are assigned to; not for direct querying — use `system.support_tickets.assignee`.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Role UUID."),
+        "name": StringDatabaseField(name="name", description="Role name, e.g. 'Team Support'."),
+    },
+)
+
+
+ticket_assignments: _TicketScopedPostgresTable = _TicketScopedPostgresTable(
+    name="_ticket_assignments",
+    postgres_table_name="posthog_conversations_ticket_assignment",
+    description="Internal junction table (PostgreSQL `posthog_conversations_ticket_assignment`) of the current assignee per ticket; not for direct querying — use `system.support_tickets.assignee`.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Primary key of the assignment row."),
+        "ticket_id": StringDatabaseField(
+            name="ticket_id", description="Ticket this assignment is for; join to `system.support_tickets.id`."
+        ),
+        "user_id": IntegerDatabaseField(
+            name="user_id", nullable=True, description="User the ticket is assigned to, if assigned to a user."
+        ),
+        "role_id": UUIDDatabaseField(
+            name="role_id", nullable=True, description="Role the ticket is assigned to, if assigned to a role."
+        ),
+    },
+)
+
+
+def _ticket_assignment_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            ta.ticket_id AS ticket_id,
+            ta.user_id AS user_id,
+            ta.role_id AS role_id,
+            nullIf(r.name, '') AS role_name
+        FROM system._ticket_assignments AS ta
+        LEFT JOIN system._ticket_assignee_roles AS r ON r.id = assumeNotNull(ta.role_id)
+        """
+    )
+
+
+class _TicketAssignmentTable(LazyTable):
+    description: str = "Internal table backing `system.support_tickets.assignee`: the current assignee (user or role), if any, per ticket."
+    fields: dict[str, FieldOrTable] = {
+        "ticket_id": StringDatabaseField(
+            name="ticket_id", description="Ticket this assignment belongs to; join to `system.support_tickets.id`."
+        ),
+        "user_id": IntegerDatabaseField(
+            name="user_id", nullable=True, description="User the ticket is assigned to, if assigned to a user."
+        ),
+        "role_id": UUIDDatabaseField(
+            name="role_id", nullable=True, description="Role the ticket is assigned to, if assigned to a role."
+        ),
+        "role_name": StringDatabaseField(
+            name="role_name",
+            nullable=True,
+            description="Name of the role the ticket is assigned to, e.g. 'Team Support'. Null when unassigned or assigned to a user.",
+        ),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _ticket_assignment_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "ticket_assignment"
+
+    def to_printed_hogql(self) -> str:
+        return "ticket_assignment"
+
+
+def ticket_assignment_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `support_tickets.assignee`")
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=_ticket_assignment_select(),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                right=ast.Field(chain=[join_to_add.to_table, "ticket_id"]),
+            ),
+        ),
+    )
+
+
+ticket_assignment_lazy_join: LazyJoin = LazyJoin(
+    from_field=["id"],
+    join_table=_TicketAssignmentTable(),
+    resolver=TICKET_ASSIGNMENT,
+)
+
+
 support_tickets: PostgresTable = PostgresTable(
     name="support_tickets",
     postgres_table_name="posthog_conversations_ticket",
@@ -1683,6 +1853,7 @@ support_tickets: PostgresTable = PostgresTable(
         "created_at": DateTimeDatabaseField(name="created_at", description="When the ticket was opened."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the ticket was last updated."),
         "tags": ticket_tags_lazy_join,
+        "assignee": ticket_assignment_lazy_join,
     },
 )
 
@@ -2127,6 +2298,61 @@ business_knowledge_chunks: PostgresTable = PostgresTable(
 )
 
 
+canvases: PostgresTable = PostgresTable(
+    name="canvases",
+    postgres_table_name="posthog_canvas",
+    access_scope="canvas",
+    # Mirror the REST API's default filter: soft-deleted canvases are not exposed.
+    predicates=[parse_expr("deleted != true")],
+    description="Canvases (agent-built sandboxed browser apps, filed into channels); one row per canvas (soft-deleted canvases are excluded).",
+    fields={
+        "id": StringDatabaseField(name="id", description="Canvas UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "channel_id": StringDatabaseField(
+            name="channel_id", description="Channel the canvas is filed into (tasks Channel UUID)."
+        ),
+        "name": StringDatabaseField(name="name", description="Canvas name."),
+        "template_id": StringDatabaseField(
+            name="template_id", description="Template the canvas was created from, e.g. 'freeform'."
+        ),
+        "context": StringDatabaseField(
+            name="context", description="Author-written context (markdown) passed to generation tasks."
+        ),
+        "generation_task_id": StringDatabaseField(
+            name="generation_task_id",
+            nullable=True,
+            description="Task currently generating this canvas; joins to tasks.id.",
+        ),
+        "pinned_at": DateTimeDatabaseField(
+            name="pinned_at",
+            nullable=True,
+            description="When the canvas was pinned to its channel; NULL if not pinned.",
+        ),
+        "current_source_version_id": StringDatabaseField(
+            name="current_source_version_id",
+            nullable=True,
+            description="The canvas's head source version; NULL until the first publish.",
+        ),
+        "published_build_id": StringDatabaseField(
+            name="published_build_id",
+            nullable=True,
+            description="Build whose artifact the canvas app currently renders; NULL until the first successful build.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the canvas."
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
+            description="1 if the canvas has been deleted, 0 otherwise (always 0 here due to the table filter).",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the canvas was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the canvas was last updated."),
+    },
+)
+
+
 tags: PostgresTable = PostgresTable(
     name="tags",
     postgres_table_name="posthog_tag",
@@ -2168,6 +2394,7 @@ class SystemTables(TableNode):
             name="business_knowledge_documents", table=business_knowledge_documents
         ),
         "business_knowledge_sources": TableNode(name="business_knowledge_sources", table=business_knowledge_sources),
+        "canvases": TableNode(name="canvases", table=canvases),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "custom_property_definitions": TableNode(name="custom_property_definitions", table=custom_property_definitions),
@@ -2207,6 +2434,10 @@ class SystemTables(TableNode):
         "hog_functions": TableNode(name="hog_functions", table=hog_functions),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "integrations": TableNode(name="integrations", table=integrations),
+        "message_categories": TableNode(name="message_categories", table=message_categories),
+        "message_recipient_preferences": TableNode(
+            name="message_recipient_preferences", table=message_recipient_preferences
+        ),
         "integration_repository_cache": TableNode(
             name="integration_repository_cache", table=integration_repository_cache
         ),
@@ -2224,6 +2455,8 @@ class SystemTables(TableNode):
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "_ticket_tagged_items": TableNode(name="_ticket_tagged_items", table=ticket_tagged_items, hidden=True),
+        "_ticket_assignments": TableNode(name="_ticket_assignments", table=ticket_assignments, hidden=True),
+        "_ticket_assignee_roles": TableNode(name="_ticket_assignee_roles", table=ticket_assignee_roles, hidden=True),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "task_runs": TableNode(name="task_runs", table=task_runs),

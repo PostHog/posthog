@@ -45,6 +45,7 @@ from posthog.api.team import (
     validate_secret_token_generation,
     validate_team_attrs,
 )
+from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -121,7 +122,7 @@ from ee.api.rbac.access_control import AccessControlViewSetMixin
 
 logger = structlog.get_logger(__name__)
 
-MAX_ALLOWED_PROJECTS_PER_ORG = 1500
+MAX_ALLOWED_PROJECTS_PER_ORG = 2000
 
 
 # --- Backward-compatibility logic for the /api/projects/ surface ---
@@ -595,7 +596,9 @@ class ProjectBackwardCompatSerializer(
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
             return value
-        return [url for url in value if url]
+        urls = [url for url in value if url]
+        validate_authorized_url_wildcards(urls)
+        return urls
 
     def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -608,6 +611,7 @@ class ProjectBackwardCompatSerializer(
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+            validate_authorized_url_wildcards(value["widget_domains"])
         return value
 
     class Meta:
@@ -1502,12 +1506,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         # Environments already removed before a block are re-pushed lazily on the next
         # warehouse status read, so a partial pass self-heals.
         # Keep the product API off the core import path.
-        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-            block_team_deletion,
-        )
+        from products.managed_warehouse.backend.facade.api import get_team_deletion_block_reason  # noqa: PLC0415
 
         for team_id in team_ids:
-            warehouse_block_reason = block_team_deletion(team_id, organization_id)
+            warehouse_block_reason = get_team_deletion_block_reason(team_id, organization_id)
             if warehouse_block_reason:
                 raise exceptions.ValidationError(warehouse_block_reason)
 

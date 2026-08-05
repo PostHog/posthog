@@ -17,7 +17,7 @@ const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days
 const CLEAR_MAX_ITERATIONS = 50
 const CLEAR_SCAN_COUNT = 100
 
-export type CachePrefix = 'token' | 'session' | 'user'
+export type CachePrefix = 'token' | 'user'
 
 export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     private redis: RedisLike

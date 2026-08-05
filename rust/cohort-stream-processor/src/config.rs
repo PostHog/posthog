@@ -251,8 +251,8 @@ pub struct Config {
     #[envconfig(from = "COHORT_REGISTER_TRANSFER_ENABLED", default = "false")]
     pub cohort_register_transfer_enabled: bool,
 
-    /// Admit and drain reconcile controls. Default off; enable only once every downstream consumer
-    /// tolerates completion markers. Register transfer is gated separately by
+    /// Admit and drain reconcile controls. Default off; enable only once `COHORT_RECONCILE_MARKERS_TOPIC`
+    /// exists in the environment, which startup asserts. Register transfer is gated separately by
     /// `COHORT_REGISTER_TRANSFER_ENABLED`.
     #[envconfig(from = "COHORT_SEED_RECONCILE_ENABLED", default = "false")]
     pub cohort_seed_reconcile_enabled: bool,
@@ -264,6 +264,17 @@ pub struct Config {
     /// Cadence for routing one bounded reconcile-drain tick to each active partition worker.
     #[envconfig(from = "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", default = "2000")]
     pub cohort_seed_reconcile_tick_interval_ms: u64,
+
+    /// Apply `person_property` seeds. Default off; while off they skip and commit, so a run
+    /// produced against a gate-off fleet has to be re-produced after enabling.
+    #[envconfig(from = "COHORT_SEED_PERSON_APPLY_ENABLED", default = "false")]
+    pub cohort_seed_person_apply_enabled: bool,
+
+    /// How far a person seed's scan instant must beat the stored record's stamp before it may
+    /// overwrite live-evaluated state (ms). Covers ClickHouse replication lag plus modest client
+    /// clock skew; ties go to live.
+    #[envconfig(from = "COHORT_SEED_PERSON_LIVE_MARGIN_MS", default = "900000")]
+    pub cohort_seed_person_live_margin_ms: i64,
 
     /// Live-priority gate: pause a seed partition once its live watermark age reaches this (ms).
     /// `0` disables the trigger.
@@ -298,6 +309,22 @@ pub struct Config {
     /// The shadow output topic for membership changes.
     #[envconfig(default = "cohort_membership_changed_shadow")]
     pub cohort_membership_changed_topic: String,
+
+    /// Reconcile completion markers ride their own topic: the membership topic's consumers reject
+    /// any record without `person_id`/`status`, and the seeder's watcher tails this one end to end.
+    #[envconfig(default = "cohort_reconcile_markers")]
+    pub cohort_reconcile_markers_topic: String,
+
+    /// `message.timeout.ms` for the marker producer alone — much shorter than the shared 20 s. The
+    /// marker produce runs inline on a partition worker, so a broker that black-holes it stalls live
+    /// evaluation on that partition for the whole timeout, and the drain sweeper re-queues the job a
+    /// tick later and stalls it again. Half of `COHORT_SEED_RECONCILE_TICK_INTERVAL_MS`, so the
+    /// worker is free for events between attempts rather than held end to end, and still above the
+    /// ingestion cluster's p99 produce ack (~950 ms on prod-us) — below that, healthy tail produces
+    /// turn into spurious marker failures and bury the signal in
+    /// `cohort_reconcile_marker_produce_errors_total`.
+    #[envconfig(default = "1000")]
+    pub reconcile_marker_message_timeout_ms: u32,
 
     /// `murmur2_random` co-partitions a `person_id` key identically to the Node/Python producers.
     #[envconfig(default = "murmur2_random")]
@@ -774,6 +801,31 @@ impl Config {
             );
         }
 
+        // A negative margin biases the person-seed verdict toward the seed, letting a stale scan
+        // overwrite fresher live state.
+        ensure!(
+            self.cohort_seed_person_live_margin_ms >= 0,
+            "COHORT_SEED_PERSON_LIVE_MARGIN_MS must not be negative.",
+        );
+
+        if self.cohort_seed_person_apply_enabled && !self.cohort_seed_consumer_enabled {
+            warn!(
+                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_CONSUMER_ENABLED: no person \
+                 seeds can be consumed; enable the seed consumer or turn person apply off.",
+            );
+        }
+
+        // A membership produce that fails after stage 1 commits drops the single-leaf change: the
+        // replayed seed merges to Unchanged and re-emits only composed flips. The reconcile
+        // snapshot is what repairs that, and it can, because the register row committed with
+        // stage 1 — but only if it is switched on.
+        if self.cohort_seed_person_apply_enabled && !self.cohort_seed_reconcile_enabled {
+            warn!(
+                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_RECONCILE_ENABLED: a failed \
+                 membership produce drops its single-leaf change permanently, with no repair path.",
+            );
+        }
+
         ensure!(
             !self.checkpoint_enabled || self.durable_restore_enabled,
             "CHECKPOINT_ENABLED requires DURABLE_RESTORE_ENABLED: restoring a checkpoint without \
@@ -993,6 +1045,17 @@ impl Config {
             ..self.build_kafka_config()
         }
     }
+
+    /// Producer config for the reconcile-marker sink: the shared config with a shorter
+    /// `message.timeout.ms`. Same inline-on-a-worker reason as the transfer sink, except the retry
+    /// is the drain sweeper's rather than an inline loop, so an unreachable marker topic would
+    /// otherwise hold the worker for the full timeout on every tick.
+    pub fn build_marker_kafka_config(&self) -> KafkaConfig {
+        KafkaConfig {
+            kafka_message_timeout_ms: self.reconcile_marker_message_timeout_ms,
+            ..self.build_kafka_config()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1047,6 +1110,8 @@ mod tests {
             pod_name: None,
             pod_hostname: None,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
+            cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
+            reconcile_marker_message_timeout_ms: 1000,
             kafka_producer_partitioner: "murmur2_random".to_string(),
             cohort_partition_count: 64,
             kafka_compression_codec: "none".to_string(),
@@ -1104,6 +1169,8 @@ mod tests {
             cohort_seed_reconcile_enabled: false,
             cohort_seed_reconcile_scan_page: 256,
             cohort_seed_reconcile_tick_interval_ms: 2_000,
+            cohort_seed_person_apply_enabled: false,
+            cohort_seed_person_live_margin_ms: 900_000,
             cohort_seed_live_lag_pause_ms: 120_000,
             cohort_seed_live_lag_resume_ms: 60_000,
             cohort_seed_disk_pause_pct: 60.0,
@@ -1133,11 +1200,24 @@ mod tests {
             defaults.reconcile_tick_interval(),
             Duration::from_millis(2_000)
         );
+        // The marker produce blocks a partition worker, so its timeout has to stay under the tick
+        // that re-queues it — at parity a black-holed topic occupies the worker end to end.
+        assert_eq!(
+            defaults
+                .build_marker_kafka_config()
+                .kafka_message_timeout_ms,
+            1000,
+        );
+        assert!(
+            u64::from(defaults.reconcile_marker_message_timeout_ms)
+                < defaults.reconcile_tick_interval().as_millis() as u64
+        );
 
         let env: std::collections::HashMap<String, String> = [
             ("COHORT_SEED_RECONCILE_ENABLED", "true"),
             ("COHORT_SEED_RECONCILE_SCAN_PAGE", "17"),
             ("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", "345"),
+            ("RECONCILE_MARKER_MESSAGE_TIMEOUT_MS", "125"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -1146,6 +1226,10 @@ mod tests {
         assert!(config.cohort_seed_reconcile_enabled);
         assert_eq!(config.cohort_seed_reconcile_scan_page, 17);
         assert_eq!(config.reconcile_tick_interval(), Duration::from_millis(345));
+        assert_eq!(
+            config.build_marker_kafka_config().kafka_message_timeout_ms,
+            125,
+        );
     }
 
     #[test]
@@ -1174,6 +1258,38 @@ mod tests {
         config.cohort_seed_consumer_enabled = false;
 
         assert!(config.validate_startup().is_ok());
+    }
+
+    #[test]
+    fn person_seed_knobs_default_dark_and_refuse_a_negative_live_margin() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(!defaults.cohort_seed_person_apply_enabled);
+        assert_eq!(defaults.cohort_seed_person_live_margin_ms, 900_000);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_SEED_PERSON_APPLY_ENABLED", "true"),
+            ("COHORT_SEED_PERSON_LIVE_MARGIN_MS", "1234"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(config.cohort_seed_person_apply_enabled);
+        assert_eq!(config.cohort_seed_person_live_margin_ms, 1234);
+
+        let mut negative = test_config();
+        negative.cohort_seed_person_live_margin_ms = -1;
+        assert!(negative
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_PERSON_LIVE_MARGIN_MS"));
+
+        // Apply-on without the consumer is a warning, not a refusal — same as reconcile.
+        let mut orphaned = test_config();
+        orphaned.cohort_seed_person_apply_enabled = true;
+        orphaned.cohort_seed_consumer_enabled = false;
+        assert!(orphaned.validate_startup().is_ok());
     }
 
     /// A flapping (inverted/equal) threshold pair or a never-releasing resume must be refused at
@@ -1998,6 +2114,10 @@ mod tests {
         let transfer = config.build_transfer_kafka_config();
         // Only `message.timeout.ms` differs; every other producer knob is inherited.
         assert_eq!(transfer.kafka_message_timeout_ms, 2000);
+        assert_eq!(
+            config.build_marker_kafka_config().kafka_message_timeout_ms,
+            1000,
+        );
         assert_eq!(shared.kafka_message_timeout_ms, 20_000);
         assert_eq!(
             transfer.kafka_producer_partitioner,

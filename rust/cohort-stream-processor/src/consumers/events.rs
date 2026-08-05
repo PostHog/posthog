@@ -1489,7 +1489,7 @@ mod tests {
     use tempfile::TempDir;
     use uuid::Uuid;
 
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileTile, RunId};
+    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
 
     use crate::consumers::seeds::SeedWork;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder, TeamId};
@@ -1501,7 +1501,7 @@ mod tests {
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
         CaptureSink, CaptureStreamEventSink, CaptureTransferSink, CohortMembershipChange,
-        MembershipStatus, ReconcileCompleteMarker,
+        MembershipStatus,
     };
     use crate::stage1::state::AppliedOffsets;
     use crate::stage1::{Stage1State, StatefulRecord};
@@ -1542,13 +1542,6 @@ mod tests {
                 self.release.notified().await;
             }
             changes.into_iter().map(|_| Ok(())).collect()
-        }
-
-        async fn produce_markers(
-            &self,
-            markers: Vec<ReconcileCompleteMarker>,
-        ) -> Vec<Result<(), KafkaProduceError>> {
-            markers.into_iter().map(|_| Ok(())).collect()
         }
     }
 
@@ -1909,6 +1902,7 @@ mod tests {
             // The dispatch tests exercise cross-partition register transfer end to end.
             register_transfer_enabled: true,
             reconcile,
+            person_seed: crate::workers::PersonSeedDeps::default(),
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
@@ -2618,6 +2612,7 @@ mod tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile,
+            person_seed: crate::workers::PersonSeedDeps::default(),
         });
         let dispatcher = Arc::new(EventDispatcher::new(
             PartitionRouter::new(64),
@@ -2632,7 +2627,7 @@ mod tests {
         let tile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(1),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(1)),
         );
         let held = dispatcher.dispatch_seeds(vec![ConsumedSeed {

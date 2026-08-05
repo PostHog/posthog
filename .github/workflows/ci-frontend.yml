@@ -89,6 +89,15 @@ jobs:
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs. Excludes
+                        # are order-independent in dorny, so this also covers the broad
+                        # **/*.yml and **/*.md rules below. The desktop CI files live
+                        # outside products/desktop, so exclude them explicitly too.
+                        - '!products/desktop/**'
+                        - '!.github/workflows/desktop-*.yml'
+                        - '!.github/actions/desktop-*/**'
+                        - '!.github/scripts/desktop/**'
                         - 'playwright/**'
                         - 'docs/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
@@ -123,6 +132,9 @@ jobs:
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         - 'playwright/**'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
@@ -317,10 +329,21 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Prepare frontend
               run: bin/turbo --filter=@posthog/frontend prepare
@@ -365,11 +388,21 @@ jobs:
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -457,8 +490,10 @@ jobs:
             # After the base build the tree is on the BASE branch, so guard for the scripts'
             # absence (also covers branches predating a check). Budgets are surfaced
             # warn-only further down.
+            # Comment steps skip trunk-merge/**: merge-queue draft PRs are ephemeral and
+            # unread, and each section write spends shared GITHUB_TOKEN budget.
             - name: Clean up legacy per-check CI comments
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -469,7 +504,7 @@ jobs:
                   fi
 
             - name: Post CI report — eager graph
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -480,7 +515,7 @@ jobs:
                   fi
 
             - name: Post CI report — bundle size
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -491,7 +526,7 @@ jobs:
                   fi
 
             - name: Post CI report — dist size
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -502,7 +537,7 @@ jobs:
                   fi
 
             - name: Post CI report — toolbar bundle
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -583,7 +618,18 @@ jobs:
         name: Frontend typechecking
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
-        runs-on: ubuntu-latest
+        # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on ~6% of runs
+        # on any 16 GB runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the
+        # type graph, not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS
+        # and declaration:false change nothing, and dropping all of products/ from include
+        # removes only 891 of 13703 files because imports pull them back in. 32 GB is the next
+        # rung on Depot's ladder. Talk to #team-devex before changing.
+        #
+        # Forks stay on GitHub-hosted: this job runs `pnpm install`, so a fork PR controls
+        # lifecycle scripts, and Depot runners inject shared cache credentials ambiently
+        # (see _rust-build-images.yml, which skips sccache creds for the same reason).
+        # Fork PRs keep the pre-existing OOM flake; internal PRs and master get the fix.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is large
         # and the cache miss costs ~5min on top of the master baseline (~10min). 15 is too tight.
@@ -591,10 +637,21 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/playwright... install --no-frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Prepare frontend
               run: bin/turbo --filter=@posthog/frontend prepare
@@ -625,19 +682,20 @@ jobs:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Run typescript check (tsgo)
-              run: pnpm --filter=@posthog/frontend typescript:check
+            - parallel:
+                  - name: Run typescript check (tsgo)
+                    run: pnpm --filter=@posthog/frontend typescript:check
 
-            - name: Check if schema.json and validators.js are up to date
-              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+                  - name: Check if schema.json and validators.js are up to date
+                    run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
 
-            - name: Check if mobile replay "schema.json" is up to date
-              run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
-              env:
-                  NODE_OPTIONS: --max-old-space-size=8192
+                  - name: Check if mobile replay "schema.json" is up to date
+                    run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
+                    env:
+                        NODE_OPTIONS: --max-old-space-size=8192
 
-            - name: Validate SetupTaskId completions
-              run: node bin/validate-setup-tasks.mjs
+                  - name: Validate SetupTaskId completions
+                    run: node bin/validate-setup-tasks.mjs
 
     jest:
         runs-on: ubuntu-latest
@@ -671,10 +729,21 @@ jobs:
               if: matrix.segment == 'FOSS'
               run: rm -rf ee
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Test with Jest
               id: run-jest
@@ -771,11 +840,23 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             # Full workspace install: the suite's jsdom test environment resolves
             # through the workspace root, not the package's own dependencies, so a
             # filtered install can't run it.
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
+              with:
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Test with Jest
               id: run-jest
