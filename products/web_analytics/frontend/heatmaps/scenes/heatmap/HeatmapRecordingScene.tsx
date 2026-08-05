@@ -1,7 +1,8 @@
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { HeatmapRecording } from 'scenes/heatmaps/components/HeatmapRecording'
-import { heatmapRecordingLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapRecordingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+
+import { HeatmapRecording } from 'products/web_analytics/frontend/heatmaps/components/HeatmapRecording'
+import { heatmapRecordingLogic } from 'products/web_analytics/frontend/heatmaps/scenes/heatmap/heatmapRecordingLogic'
 
 export const scene: SceneExport = {
     component: HeatmapRecordingScene,

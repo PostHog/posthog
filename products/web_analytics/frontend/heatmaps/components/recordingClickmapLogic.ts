@@ -7,8 +7,10 @@ import { RefObject } from 'react'
 
 import api from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import type { CommonFilters } from 'lib/components/heatmaps/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -16,6 +18,7 @@ import { buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements
 import { escapeUnescapedRegex } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { ElementsEventType } from '~/toolbar/types'
 import { PropertyFilterType, PropertyOperator } from '~/types'
+import type { TeamPublicType, TeamType } from '~/types'
 
 import { getElementsStatsRetrieveUrl } from 'products/product_analytics/frontend/generated/api'
 import type {
@@ -23,9 +26,6 @@ import type {
     ElementsStatsRetrieveParams,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import type { CommonFilters } from '../../../lib/components/heatmaps/types'
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { TeamPublicType, TeamType } from '../../../types'
 import type { ReplayIframeData } from '../replayIframeData'
 import { heatmapsBrowserLogic, isUrlPattern } from './heatmapsBrowserLogic'
 

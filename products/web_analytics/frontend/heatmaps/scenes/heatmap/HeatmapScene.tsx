@@ -14,8 +14,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { FilterPanel } from 'scenes/heatmaps/components/FilterPanel'
-import { HeatmapHeader } from 'scenes/heatmaps/components/HeatmapHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +21,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { FilterPanel } from 'products/web_analytics/frontend/heatmaps/components/FilterPanel'
+import { HeatmapHeader } from 'products/web_analytics/frontend/heatmaps/components/HeatmapHeader'
 
 import { heatmapLogic } from './heatmapLogic'
 

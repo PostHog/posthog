@@ -10,18 +10,22 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
-import { HeatmapRecording } from 'scenes/heatmaps/components/HeatmapRecording'
-import { HeatmapRecordingFallback } from 'scenes/heatmaps/components/HeatmapRecordingFallback'
-import { heatmapsBrowserLogic, isUrlPattern } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
-import { HeatmapsEnableCapture } from 'scenes/heatmaps/components/HeatmapsEnableCapture'
-import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/types'
+
+import { HeatmapAdvancedSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapAdvancedSettings'
+import { HeatmapRecording } from 'products/web_analytics/frontend/heatmaps/components/HeatmapRecording'
+import { HeatmapRecordingFallback } from 'products/web_analytics/frontend/heatmaps/components/HeatmapRecordingFallback'
+import {
+    heatmapsBrowserLogic,
+    isUrlPattern,
+} from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
+import { HeatmapsEnableCapture } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsEnableCapture'
+import { HeatmapsInvalidURL } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsInvalidURL'
 
 import { HeatmapCreationStep, heatmapCreationLogic } from './heatmapCreationLogic'
 import { heatmapLogic } from './heatmapLogic'

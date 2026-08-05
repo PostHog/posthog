@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
-import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+
+import { heatmapsBrowserLogic } from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
 
 export function IframeHeatmapBrowser({
     iframeRef,

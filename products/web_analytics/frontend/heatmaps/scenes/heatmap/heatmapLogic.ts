@@ -4,17 +4,17 @@ import posthog from 'posthog-js'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { heatmapsBrowserLogic, isUrlPattern } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
-import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { AccessControlLevel, ActivityScope, HeatmapStatus, HeatmapType } from '~/types'
+import type { ExportContext } from '~/types'
 
 import {
     getHeatmapScreenshotsContentRetrieveUrl,
@@ -24,9 +24,11 @@ import {
     savedRetrieve,
 } from 'products/web_analytics/frontend/generated/api'
 import type { SavedHeatmapRequestApi } from 'products/web_analytics/frontend/generated/api.schemas'
-
-import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from '../../../../lib/components/heatmaps/types'
-import type { ExportContext } from '../../../../types'
+import {
+    heatmapsBrowserLogic,
+    isUrlPattern,
+} from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
+import { heatmapsSceneLogic } from 'products/web_analytics/frontend/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
 

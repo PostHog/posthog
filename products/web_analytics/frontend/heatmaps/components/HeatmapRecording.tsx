@@ -4,10 +4,11 @@ import { useRef } from 'react'
 import { LemonBanner, LemonDivider, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
-import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
-import { HeatmapsWarnings } from 'scenes/heatmaps/components/HeatmapsWarnings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+
+import { FixedReplayHeatmapBrowser } from 'products/web_analytics/frontend/heatmaps/components/FixedReplayHeatmapBrowser'
+import { HeatmapsWarnings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsWarnings'
 
 import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'

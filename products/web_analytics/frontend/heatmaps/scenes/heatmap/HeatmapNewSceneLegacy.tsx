@@ -9,10 +9,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Link } from 'lib/lemon-ui/Link'
-import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
-import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
-import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
-import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -20,6 +16,11 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/types'
+
+import { HeatmapAdvancedSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapAdvancedSettings'
+import { heatmapsBrowserLogic } from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
+import { HeatmapsForbiddenURL } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsForbiddenURL'
+import { HeatmapsInvalidURL } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsInvalidURL'
 
 import { heatmapLogic } from './heatmapLogic'
 

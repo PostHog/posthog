@@ -3,14 +3,15 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
-import { HeatmapRecordingFallback } from 'scenes/heatmaps/components/HeatmapRecordingFallback'
-import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
-import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
-import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
-import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { HeatmapAdvancedSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapAdvancedSettings'
+import { HeatmapRecordingFallback } from 'products/web_analytics/frontend/heatmaps/components/HeatmapRecordingFallback'
+import { heatmapsBrowserLogic } from 'products/web_analytics/frontend/heatmaps/components/heatmapsBrowserLogic'
+import { HeatmapsForbiddenURL } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsForbiddenURL'
+import { HeatmapsInvalidURL } from 'products/web_analytics/frontend/heatmaps/components/HeatmapsInvalidURL'
+import { heatmapLogic } from 'products/web_analytics/frontend/heatmaps/scenes/heatmap/heatmapLogic'
 
 export function HeatmapHeader(): JSX.Element {
     const {
