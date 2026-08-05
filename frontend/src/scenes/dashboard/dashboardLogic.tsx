@@ -4269,6 +4269,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             LemonDialog.openForm({
                 title: 'Override Tile Filters',
+                maxWidth: '40rem',
                 initialValues: {},
                 content: (
                     <BindLogic logic={tileLogic} props={tileLogicProps}>
