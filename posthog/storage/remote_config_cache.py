@@ -86,7 +86,7 @@ REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
 
 def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> CacheRefreshCounts:
     """
-    Refresh array/config.json caches expiring within ``ttl_threshold_hours``; returns CacheRefreshCounts.
+    Refresh array/config.json caches expiring within ``ttl_threshold_hours``; returns successful and failed counts.
 
     Batch-loads every expiring team's config in one query — the config lives in a separate
     table from Team, so re-stamping per team would be an N+1.

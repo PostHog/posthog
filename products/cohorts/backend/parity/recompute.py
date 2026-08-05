@@ -456,6 +456,10 @@ class DomainCounts:
     unseeded: int
     post: int
 
+    @property
+    def total(self) -> int:
+        return self.grace + self.seed + self.boundary + self.unseeded + self.post
+
 
 def _domain_counts(
     matches: Sequence[DayMatch],
@@ -501,7 +505,7 @@ def _classify_missing_person(
     classes are exhaustive — the final fall-through implies ``post > 0``, since the three preceding
     sums were all below the threshold the total clears."""
     counts = _domain_counts(matches, window=window, ctx=ctx)
-    if counts.grace + counts.seed + counts.boundary + counts.unseeded + counts.post == 0:
+    if counts.total == 0:
         # The member-set read put this person in the oracle, so the day read over the same event and
         # window has to find their matches. Zero means the two reads disagree — override/merge drift
         # between them, or a dropped chunk — which is not the ingestion lag `grace` stands for.

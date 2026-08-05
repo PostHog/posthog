@@ -2950,9 +2950,8 @@ class HogFlowViewSet(
         applied_dedupe_key = None
         if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
             total = self.team.persons_seen_so_far
-            blast_radius = BlastRadiusResult(
-                affected=min(get_batch_audience_count(self.team, filters, dedupe_key), total), total=total
-            )
+            affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
+            blast_radius = BlastRadiusResult(affected=affected, total=total)
             applied_dedupe_key = dedupe_key
         else:
             blast_radius = get_user_blast_radius(self.team, filters, group_type_index)

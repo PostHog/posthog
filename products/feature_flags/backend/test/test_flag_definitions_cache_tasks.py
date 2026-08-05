@@ -19,6 +19,8 @@ class TestRefreshExpiringFlagDefinitionsCacheEntries(PushGatewayTaskTestMixin, T
         refresh_expiring_flag_definitions_cache_entries()
 
         mock_refresh.assert_called_once()
+        assert self.registry.get_sample_value("posthog_flag_definitions_cache_refresh_successful_count") == 5
+        assert self.registry.get_sample_value("posthog_flag_definitions_cache_refresh_failed_count") == 0
 
     @patch("posthog.storage.cache_expiry_manager.refresh_expiring_caches")
     def test_propagates_error(self, mock_refresh: MagicMock) -> None:

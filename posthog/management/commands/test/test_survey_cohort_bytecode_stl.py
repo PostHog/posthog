@@ -277,11 +277,11 @@ class TestAggregateSurvey(BaseTest):
     def test_real_compiler_bytecode_is_walked_and_isnull_is_supported(self):
         from posthog.api.cohort import generate_cohort_filter_bytecode
 
-        result_bytecode = generate_cohort_filter_bytecode(
+        bytecode_result = generate_cohort_filter_bytecode(
             {"key": "age", "type": "person", "value": 13, "operator": "gt"}, self.team
         )
-        self.assertIsNone(result_bytecode.error)
-        assert result_bytecode.bytecode is not None
+        self.assertIsNone(bytecode_result.error)
+        assert bytecode_result.bytecode is not None
 
         row = (
             101,
@@ -292,8 +292,8 @@ class TestAggregateSurvey(BaseTest):
                     "values": [
                         {
                             "type": "person",
-                            "conditionHash": result_bytecode.condition_hash,
-                            "bytecode": result_bytecode.bytecode,
+                            "conditionHash": bytecode_result.condition_hash,
+                            "bytecode": bytecode_result.bytecode,
                         },
                     ],
                 }
@@ -317,7 +317,7 @@ class TestSurveyCommand(BaseTest):
     def test_command_writes_survey_json_for_realtime_cohorts(self):
         from posthog.api.cohort import generate_cohort_filter_bytecode
 
-        result_bytecode = generate_cohort_filter_bytecode(
+        bytecode_result = generate_cohort_filter_bytecode(
             {"key": "age", "type": "person", "value": 13, "operator": "gt"}, self.team
         )
         Cohort.objects.create(
@@ -334,8 +334,8 @@ class TestSurveyCommand(BaseTest):
                             "key": "age",
                             "value": 13,
                             "operator": "gt",
-                            "conditionHash": result_bytecode.condition_hash,
-                            "bytecode": result_bytecode.bytecode,
+                            "conditionHash": bytecode_result.condition_hash,
+                            "bytecode": bytecode_result.bytecode,
                         },
                     ],
                 }
