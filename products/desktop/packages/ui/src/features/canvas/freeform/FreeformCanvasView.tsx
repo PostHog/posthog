@@ -10,6 +10,7 @@ import {
 import {
   currentHeadBuildFailure,
   hasActiveCanvasBuild,
+  historicalCanvasBuild,
   latestFinishedCanvasBuild,
   publishedCanvasBuild,
 } from "@posthog/core/canvas/canvasBuildSchemas";
@@ -222,17 +223,24 @@ export function FreeformCanvasView({
   // Build lifecycle, polled while a build is active or a generation is in
   // flight (the agent's publish queues the build server-side — without the
   // `generating` signal the client would never observe it start).
+  const browsing = interactive && !!browseVersionId;
   const {
     lifecycle,
     isLoading: buildsLoading,
     dataUpdatedAt: buildsUpdatedAt,
-  } = useCanvasBuilds(dashboardId, { generating: isSyncing });
+  } = useCanvasBuilds(dashboardId, {
+    generating: isSyncing,
+    versionId: browsing ? (browseVersionId ?? undefined) : undefined,
+  });
   const publishedBuild = lifecycle ? publishedCanvasBuild(lifecycle) : null;
+  const historicalBuild =
+    lifecycle && browseVersionId
+      ? historicalCanvasBuild(lifecycle, browseVersionId)
+      : null;
 
   // The published build's artifact, pinned to one signed URL per build (so the
   // 2s builds poll can't reload the iframe), with expired-URL recovery via the
   // refresh-key remount. The whole lifecycle machine lives in the hook.
-  const browsing = interactive && !!browseVersionId;
   const {
     artifact: pinnedArtifact,
     refreshKey: artifactRefreshKey,
@@ -426,6 +434,10 @@ export function FreeformCanvasView({
     onArtifactReady();
     setRuntimeError(threadId, null);
   }, [threadId, setRuntimeError, onArtifactReady]);
+  const onHistoricalArtifactReady = useCallback(
+    () => setRuntimeError(threadId, null),
+    [threadId, setRuntimeError],
+  );
 
   // Routes the canvas's allowlisted nav intents within this channel.
   const onNavigate = useCanvasNavigation(channelId);
@@ -638,7 +650,53 @@ export function FreeformCanvasView({
             }
           />
           {browsing ? (
-            browseSourceLoading ? (
+            historicalBuild?.artifactUrl ? (
+              <Flex direction="column" className="h-full">
+                <Flex
+                  align="center"
+                  justify="between"
+                  className="shrink-0 border-b bg-accent-2 px-3 py-1.5"
+                >
+                  <Flex align="center" gap="1" className="text-accent-11">
+                    <ClockCounterClockwiseIcon size={14} />
+                    <Text size="1">Viewing a previous version</Text>
+                  </Flex>
+                  <Flex align="center" gap="2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBrowseVersion(threadId, null)}
+                    >
+                      Back to latest
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={isReverting}
+                      onClick={() => void onRevert()}
+                    >
+                      {isReverting ? "Reverting…" : "Revert"}
+                    </Button>
+                  </Flex>
+                </Flex>
+                <Box className="min-h-0 flex-1">
+                  <BuiltCanvas
+                    key={historicalBuild.id}
+                    artifactUrl={historicalBuild.artifactUrl}
+                    capabilities={historicalBuild.manifest?.capabilities}
+                    onDataRequest={onDataRequest}
+                    onError={onError}
+                    onReady={onHistoricalArtifactReady}
+                    onRendered={onHistoricalArtifactReady}
+                    onNavigate={onNavigate}
+                    onTextSelection={setTextSelection}
+                    onCommentActivate={activateComment}
+                    commentHighlights={commentHighlights}
+                    clearTextSelectionKey={clearTextSelectionKey}
+                  />
+                </Box>
+              </Flex>
+            ) : browseSourceLoading ? (
               <ScrollArea className="h-full">
                 <LoadingState />
               </ScrollArea>
