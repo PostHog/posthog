@@ -8538,6 +8538,7 @@ dependencies = [
  "metrics",
  "personhog-common",
  "personhog-coordination",
+ "personhog-leader",
  "personhog-proto",
  "prost 0.13.5",
  "rdkafka",
