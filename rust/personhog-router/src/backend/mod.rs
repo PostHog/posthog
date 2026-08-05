@@ -3,6 +3,7 @@ mod leader;
 mod replica;
 mod stash;
 
+pub(crate) use leader::counts_as_possibly_applied;
 pub use leader::{
     AddressResolver, BounceReason, ForwardDecision, ForwardPath, LeaderBackend, LeaderBackendConfig,
 };
