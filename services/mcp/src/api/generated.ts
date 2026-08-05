@@ -143,12 +143,14 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     export type AccountProperties = {
       /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
       email_domains?: string[];
+      /** Individual email addresses pinned to this account, matched before the domain fallback. */
+      known_emails?: string[];
       /** @nullable */
       stripe_customer_id?: string | null;
       /** @nullable */
@@ -198,7 +200,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
          * @nullable
          */
       properties?: AccountProperties;
@@ -50227,12 +50229,14 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     export type PatchedAccountProperties = {
       /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
       email_domains?: string[];
+      /** Individual email addresses pinned to this account, matched before the domain fallback. */
+      known_emails?: string[];
       /** @nullable */
       stripe_customer_id?: string | null;
       /** @nullable */
@@ -50268,7 +50272,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
          * @nullable
          */
       properties?: PatchedAccountProperties;

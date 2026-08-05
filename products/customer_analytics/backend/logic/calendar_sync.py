@@ -251,15 +251,24 @@ def _mark_cancelled(team: Team, event: dict, counts: CalendarSyncCounts) -> None
 
 
 def _match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Account]:
-    """Resolve attendee emails to accounts: person group links first, email_domains fallback."""
+    """Resolve attendee emails to accounts: pinned known_emails first, then person
+    group links, then the email_domains fallback."""
     if not emails:
         return {}
 
     matched: dict[str, Account] = {}
 
+    for email in emails:
+        candidates = list(Account.objects.for_team(team.id).filter(_properties__known_emails__contains=[email])[:2])
+        if len(candidates) == 1:
+            matched[email] = candidates[0]
+        elif len(candidates) > 1:
+            logger.warning("calendar_sync_ambiguous_known_email", team_id=team.id, email=email)
+
     group_type_index = team.customer_analytics_config.account_group_type_index
     if group_type_index is not None:
-        email_to_group_key = _group_keys_via_persons(team, emails, group_type_index)
+        unresolved = [email for email in emails if email not in matched]
+        email_to_group_key = _group_keys_via_persons(team, unresolved, group_type_index) if unresolved else {}
         if email_to_group_key:
             accounts = {
                 account.external_id: account
