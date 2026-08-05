@@ -6152,7 +6152,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
     def test_gateway_sponsorship_is_isolated_by_team(self) -> None:
         from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
 
-        other_team = Team.objects.create(organization=self.organization, name="Other gateway team")
+        other_team = Team.objects.create(organization=self.team.organization, name="Other gateway team")
+        baseline_counts = dict(get_teams_with_ai_event_count_in_period(self.begin, self.end))
         trace_id = "shared-across-teams"
         for team, request_id in ((self.team, "first-request"), (other_team, "second-request")):
             _create_event(
@@ -6181,8 +6182,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         flush_persons_and_events()
 
         counts = dict(get_teams_with_ai_event_count_in_period(self.begin, self.end))
-        self.assertEqual(counts.get(self.team.id, 0), 0)
-        self.assertEqual(counts.get(other_team.id, 0), 0)
+        self.assertEqual(counts.get(self.team.id, 0), baseline_counts.get(self.team.id, 0))
+        self.assertEqual(counts.get(other_team.id, 0), baseline_counts.get(other_team.id, 0))
 
     def test_gateway_generation_does_not_sponsor_earlier_relay(self) -> None:
         from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
