@@ -10,7 +10,13 @@ import { KeyedRateLimitRequest, KeyedRateLimiterService } from '../../common/ser
 import { QuotaLimiting } from '../../common/services/quota-limiting.service'
 import { CdpValkeyShadowPools } from '../cdp-services'
 import { counterRateLimited } from '../consumers/metrics'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, LogEntry, MinimalAppMetric } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    HogFunctionInvocationGlobals,
+    LogEntry,
+    MinimalAppMetric,
+} from '../types'
 import { mirrorCompare } from '../utils/mirror-call'
 import { HogFlowExecutorService } from './hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
@@ -124,7 +130,7 @@ export class HogFlowInvocationPipeline {
             (primary, mirror) =>
                 primary.every(([, result], index) => result.isRateLimited === mirror[index]?.[1].isRateLimited)
         )
-        const validInvocations: CyclotronJobInvocation[] = []
+        const validInvocations: CyclotronJobInvocationHogFlow[] = []
 
         await Promise.all(
             possibleInvocations.map(async (item, index) => {
@@ -139,6 +145,7 @@ export class HogFlowInvocationPipeline {
                                 metric_kind: 'failure',
                                 metric_name: 'rate_limited',
                                 count: 1,
+                                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
                             },
                             'hog_flow'
                         )
@@ -191,6 +198,7 @@ export class HogFlowInvocationPipeline {
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
                             count: 1,
+                            app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
                         },
                         'hog_flow'
                     )
@@ -214,6 +222,7 @@ export class HogFlowInvocationPipeline {
                 metric_kind: 'other',
                 metric_name: 'masked',
                 count: 1,
+                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
             })),
             'hog_flow'
         )
@@ -227,6 +236,7 @@ export class HogFlowInvocationPipeline {
                 metric_kind: 'other',
                 metric_name: 'triggered',
                 count: 1,
+                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
             })
         })
 

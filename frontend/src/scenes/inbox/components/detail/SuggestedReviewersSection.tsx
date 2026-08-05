@@ -247,7 +247,7 @@ function ReviewerRow({
 
     return (
         <div className="group grid grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5">
-            {/* no row hover: the row isn't clickable, only the remove button (revealed on group hover) is */}
+            {/* no row hover: the row isn't clickable, only the remove button is */}
             <Tooltip
                 title={
                     reviewer.user
@@ -299,7 +299,9 @@ function ReviewerRow({
                 disabledReason={disabled ? 'Updating…' : undefined}
                 onClick={onRemove}
                 tooltip={`Remove ${reviewer.github_login || reviewer.user?.first_name || 'reviewer'}`}
-                className="opacity-0 transition-opacity group-hover:opacity-100"
+                // Hover reveal keeps rows quiet with a mouse, but a coarse pointer (phone, tablet) has no
+                // hover state, so the button stays visible there and whenever the row holds keyboard focus.
+                className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
             />
         </div>
     )
