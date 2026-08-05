@@ -7990,9 +7990,9 @@ class TestDuckDBPrinter(SimpleTestCase):
             ("bitShiftLeft_uses_operator", "bitShiftLeft(1, 3)", "(1 << 3)"),
             ("bitShiftRight_uses_operator", "bitShiftRight(16, 2)", "(16 >> 2)"),
             (
-                "JSONHas_returns_integer_like_clickhouse",
-                "JSONHas(properties, 'key')",
-                "CAST((json_extract_path(events.properties, %(hogql_val_0)s) IS NOT NULL) AS INTEGER)",
+                "JSONHas_with_dynamic_key_returns_integer_like_clickhouse",
+                "JSONHas(properties, event)",
+                "CAST((json_extract_path(events.properties, events.event) IS NOT NULL) AS INTEGER)",
             ),
             (
                 "multiplyDecimal_casts_to_decimal",
@@ -8130,6 +8130,56 @@ class TestDuckDBPrinter(SimpleTestCase):
         context = HogQLContext(team_id=self.team_id, enable_select_queries=True)
         self._expr("properties['a\"b']", context=context)
         self.assertEqual(list(context.values.values()), ['$."a\\"b"'])
+
+    @parameterized.expand(
+        [
+            (
+                "JSONExtractString_binds_quoted_path",
+                "JSONExtractString(properties, '$survey_response_0a4a5226-1a46-49fd-9348-d01b3543589b')",
+                "json_extract_string(events.properties, %(hogql_val_0)s)",
+                '$."$survey_response_0a4a5226-1a46-49fd-9348-d01b3543589b"',
+            ),
+            (
+                "JSONExtractString_collapses_nested_keys",
+                "JSONExtractString(properties, 'a', '$browser')",
+                "json_extract_string(events.properties, %(hogql_val_0)s)",
+                '$."a"."$browser"',
+            ),
+            (
+                "JSONExtractRaw_binds_quoted_path",
+                "JSONExtractRaw(properties, '$feature/flag')",
+                "json_extract(events.properties, %(hogql_val_0)s)",
+                '$."$feature/flag"',
+            ),
+            (
+                "JSONExtractInt_casts_extracted_string",
+                "JSONExtractInt(properties, '$key')",
+                "CAST(json_extract_string(events.properties, %(hogql_val_0)s) AS INTEGER)",
+                '$."$key"',
+            ),
+            (
+                "JSONHas_binds_quoted_path",
+                "JSONHas(properties, '$key')",
+                "CAST((json_extract(events.properties, %(hogql_val_0)s) IS NOT NULL) AS INTEGER)",
+                '$."$key"',
+            ),
+        ]
+    )
+    def test_json_extract_call_with_constant_key_binds_jsonpath(
+        self, _name: str, expr: str, expected_sql: str, expected_path: str
+    ) -> None:
+        # DuckDB parses the key argument of json_extract* as a JSONPath, so a bare
+        # `$`-prefixed key (most PostHog properties) fails to bind with "JSON path error".
+        context = HogQLContext(team_id=self.team_id, enable_select_queries=True)
+        self.assertEqual(self._expr(expr, context=context), expected_sql)
+        self.assertEqual(list(context.values.values()), [expected_path])
+
+    def test_json_extract_call_with_dynamic_key_keeps_inherited_form(self) -> None:
+        # A non-constant key can't be folded into a bound JSONPath at compile time.
+        self.assertEqual(
+            self._expr("JSONExtractString(properties, event)"),
+            "json_extract_path_text(events.properties, events.event)",
+        )
 
     def test_repeated_property_access_reuses_one_placeholder(self):
         # DuckDB rejects `GROUP BY <expr>` when the same JSON path is bound to a different placeholder

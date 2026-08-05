@@ -18,6 +18,18 @@ _ELEMENT_TYPE_DEFAULTS: tuple[tuple[type, str], ...] = (
     (ast.StringType, "''"),
 )
 
+# JSONExtract*-family call name (lowercased) → (DuckDB extract function, cast type).
+# Cast types mirror the inherited Postgres handlers so both dialects return the same types.
+_JSON_PATH_CALL_FORMS: dict[str, tuple[str, str | None]] = {
+    "jsonextractstring": ("json_extract_string", None),
+    "jsonextractraw": ("json_extract", None),
+    "jsonextractarrayraw": ("json_extract", None),
+    "jsonextractint": ("json_extract_string", "INTEGER"),
+    "jsonextractuint": ("json_extract_string", "INTEGER"),
+    "jsonextractfloat": ("json_extract_string", "DOUBLE PRECISION"),
+    "jsonextractbool": ("json_extract_string", "BOOLEAN"),
+}
+
 
 class DuckDBPrinter(PostgresPrinter):
     """Prints a HogQL AST as DuckDB SQL.
@@ -70,6 +82,9 @@ class DuckDBPrinter(PostgresPrinter):
         return self._duckdb_function_handlers
 
     def visit_call(self, node: ast.Call) -> str:
+        json_path_rendered = self._maybe_visit_json_path_call(node)
+        if json_path_rendered is not None:
+            return json_path_rendered
         rendered = super().visit_call(node)
         return_type = node.type.return_type if isinstance(node.type, ast.CallType) else node.type
         if node.name.lower() in {"dateadd", "datetrunc", "date_trunc"} and isinstance(return_type, ast.DateType):
@@ -78,6 +93,36 @@ class DuckDBPrinter(PostgresPrinter):
             default = next((literal for t, literal in _ELEMENT_TYPE_DEFAULTS if isinstance(return_type, t)), None)
             if default is not None:
                 return f"COALESCE({rendered}, {default})"
+        return rendered
+
+    def _maybe_visit_json_path_call(self, node: ast.Call) -> str | None:
+        # DuckDB parses the key argument of json_extract* as a JSONPath, so the inherited
+        # Postgres rendering (key bound as a bare constant) fails to bind for `$`-prefixed
+        # keys — which is most PostHog properties. Fold constant keys into one quoted
+        # JSONPath (`$."k1"."k2"`) bound as a single value instead.
+        func_name = node.name.lower()
+        if func_name != "jsonhas" and func_name not in _JSON_PATH_CALL_FORMS:
+            return None
+        if len(node.args) < 2 or node.distinct or node.order_by:
+            return None
+        keys: list[str] = []
+        for key_arg in node.args[1:]:
+            if not (isinstance(key_arg, ast.Constant) and isinstance(key_arg.value, str)):
+                # Dynamic or positional keys can't be folded at compile time.
+                return None
+            keys.append(key_arg.value)
+
+        json_sql = self.visit(node.args[0])
+        (path_placeholder,) = self._json_property_args(keys)
+        if func_name == "jsonhas":
+            # json_extract returns JSON 'null' (not SQL NULL) for an existing null value,
+            # matching ClickHouse's JSONHas, which reports presence rather than non-nullness.
+            # The cast keeps the UInt8 return type HogQL resolves for it.
+            return f"CAST((json_extract({json_sql}, {path_placeholder}) IS NOT NULL) AS INTEGER)"
+        extract_fn, cast_type = _JSON_PATH_CALL_FORMS[func_name]
+        rendered = f"{extract_fn}({json_sql}, {path_placeholder})"
+        if cast_type is not None:
+            return f"CAST({rendered} AS {cast_type})"
         return rendered
 
     def _assert_with_ties_supported(self) -> None:
