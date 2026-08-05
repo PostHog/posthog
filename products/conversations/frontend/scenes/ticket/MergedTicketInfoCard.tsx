@@ -1,9 +1,9 @@
-import { LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { LemonCard, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
-import type { Ticket } from '../../types'
+import { type Ticket, priorityOptions } from '../../types'
 
 function customerName(ticket: Ticket): string {
     return (
@@ -17,9 +17,24 @@ function customerName(ticket: Ticket): string {
     )
 }
 
+function InfoRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex justify-between items-start gap-2">
+            <span className="text-muted-alt shrink-0">{label}</span>
+            <span className="text-right min-w-0">{children}</span>
+        </div>
+    )
+}
+
 /** Compact info panel for a merged ticket, shown in the master's sidebar while that ticket's
- * messages are interleaved. Color-coded to match its conversation pills. */
+ * messages are interleaved. Color-coded to match its conversation pills. Extra fields are
+ * collapsed by default. */
 export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?: string }): JSX.Element {
+    const subject = ticket.email_subject || ticket.last_message_text
+    const priorityLabel = ticket.priority
+        ? (priorityOptions.find((o) => o.value === ticket.priority)?.label ?? ticket.priority)
+        : 'None'
+
     return (
         <LemonCard hoverEffect={false} className="p-3">
             <div className="flex items-center justify-between gap-2 mb-2">
@@ -32,14 +47,19 @@ export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?
                 </LemonTag>
             </div>
             <div className="space-y-2 text-xs">
-                <div className="flex justify-between items-start gap-2">
-                    <span className="text-muted-alt shrink-0">Customer</span>
-                    <span className="truncate text-right" title={customerName(ticket)}>
+                <InfoRow label="Customer">
+                    <span className="truncate block" title={customerName(ticket)}>
                         {customerName(ticket)}
                     </span>
-                </div>
-                <div className="flex justify-between items-center">
-                    <span className="text-muted-alt">Channel</span>
+                </InfoRow>
+                {subject && (
+                    <InfoRow label="Subject">
+                        <span className="truncate block" title={subject}>
+                            {subject}
+                        </span>
+                    </InfoRow>
+                )}
+                <InfoRow label="Channel">
                     <span className="capitalize">
                         <ChannelsTag
                             channel={ticket.channel_source}
@@ -47,32 +67,48 @@ export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?
                             to={getChannelThreadUrl(ticket)}
                         />
                     </span>
-                </div>
-                {ticket.channel_source === 'email' && ticket.email_subject && (
-                    <div className="flex justify-between items-start gap-2">
-                        <span className="text-muted-alt shrink-0">Subject</span>
-                        <span className="truncate text-right" title={ticket.email_subject}>
-                            {ticket.email_subject}
-                        </span>
-                    </div>
-                )}
-                {ticket.created_at && (
-                    <div className="flex justify-between">
-                        <span className="text-muted-alt">Created</span>
-                        <span>
-                            <TZLabel time={ticket.created_at} />
-                        </span>
-                    </div>
-                )}
-                {ticket.updated_at && (
-                    <div className="flex justify-between">
-                        <span className="text-muted-alt">Updated</span>
-                        <span>
-                            <TZLabel time={ticket.updated_at} />
-                        </span>
-                    </div>
-                )}
+                </InfoRow>
             </div>
+            <LemonCollapse
+                className="mt-2"
+                size="small"
+                panels={[
+                    {
+                        key: 'more',
+                        header: 'More details',
+                        content: (
+                            <div className="space-y-2 text-xs">
+                                {ticket.created_at && (
+                                    <InfoRow label="Created">
+                                        <TZLabel time={ticket.created_at} />
+                                    </InfoRow>
+                                )}
+                                {ticket.updated_at && (
+                                    <InfoRow label="Updated">
+                                        <TZLabel time={ticket.updated_at} />
+                                    </InfoRow>
+                                )}
+                                <InfoRow label="Priority">
+                                    <span className="capitalize">{priorityLabel}</span>
+                                </InfoRow>
+                                <InfoRow label="Tags">
+                                    {ticket.tags && ticket.tags.length > 0 ? (
+                                        <span className="flex flex-wrap justify-end gap-1">
+                                            {ticket.tags.map((tag) => (
+                                                <LemonTag key={tag} type="muted">
+                                                    {tag}
+                                                </LemonTag>
+                                            ))}
+                                        </span>
+                                    ) : (
+                                        'None'
+                                    )}
+                                </InfoRow>
+                            </div>
+                        ),
+                    },
+                ]}
+            />
         </LemonCard>
     )
 }
