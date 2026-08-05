@@ -74,7 +74,9 @@ logging.getLogger(__name__).setLevel(logging.INFO)
 # AI events dynamically generated from AIEventType TS enum
 # Changes to the AIEventType enum will impact usage reporting
 AI_EVENTS = [event.value for event in AIEventType]
-GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION = 100
+GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE = 20
+GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE = 20
+GATEWAY_SPONSORSHIP_BACKDATE = timedelta(minutes=5)
 GATEWAY_SPONSORSHIP_LOOKAROUND = timedelta(days=1)
 
 # Conversations widget events (fired client-side by posthog-js on pageload).
@@ -1455,7 +1457,7 @@ def get_teams_with_ai_event_count_in_period(
                 SELECT
                     *,
                     min(cumulative_balance) OVER (
-                        PARTITION BY team_id, trace_id
+                        PARTITION BY team_id, trace_id, allowance_kind
                         ORDER BY ledger_timestamp, entry_kind, entry_id
                         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
                     ) AS previous_minimum
@@ -1463,7 +1465,7 @@ def get_teams_with_ai_event_count_in_period(
                     SELECT
                         *,
                         sum(balance_delta) OVER (
-                            PARTITION BY team_id, trace_id
+                            PARTITION BY team_id, trace_id, allowance_kind
                             ORDER BY ledger_timestamp, entry_kind, entry_id
                             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
                         ) AS cumulative_balance
@@ -1471,36 +1473,57 @@ def get_teams_with_ai_event_count_in_period(
                         SELECT
                             team_id,
                             trace_id,
-                            sponsor_timestamp AS ledger_timestamp,
+                            allowance_kind,
+                            if(
+                                allowance_kind = 0,
+                                sponsor_timestamp - toIntervalSecond(%(backdate_seconds)s),
+                                sponsor_timestamp
+                            ) AS ledger_timestamp,
                             0 AS entry_kind,
                             request_id AS entry_id,
-                            toInt64(%(allowance)s) AS balance_delta
+                            if(
+                                allowance_kind = 0,
+                                toInt64(%(trace_allowance)s),
+                                toInt64(%(evaluation_allowance)s)
+                            ) AS balance_delta
                         FROM (
                             SELECT
                                 team_id,
-                                request_id,
-                                argMin(raw_trace_id, (raw_generation_timestamp, raw_trace_id)) AS trace_id,
-                                min(raw_generation_timestamp) AS sponsor_timestamp
+                                trace_id,
+                                min(request_id) AS request_id,
+                                min(request_sponsor_timestamp) AS sponsor_timestamp
                             FROM (
                                 SELECT
                                     team_id,
-                                    timestamp AS raw_generation_timestamp,
-                                    {verified_expr} IN ('true', '1') AS verified,
-                                    {relay_expr} IN ('true', '1') AS relay,
-                                    if(verified AND NOT relay, {trace_id_expr}, '') AS raw_trace_id,
-                                    if(verified AND NOT relay, {request_id_expr}, '') AS request_id
-                                FROM {events_read_table(use_new)}
-                                WHERE team_id IN %(relayed_team_ids)s
-                                  AND event = '$ai_generation'
-                                  AND timestamp >= %(sponsor_begin)s AND timestamp < %(sponsor_end)s
+                                    request_id,
+                                    argMin(raw_trace_id, (raw_generation_timestamp, raw_trace_id)) AS trace_id,
+                                    min(raw_generation_timestamp) AS request_sponsor_timestamp
+                                FROM (
+                                    SELECT
+                                        team_id,
+                                        timestamp AS raw_generation_timestamp,
+                                        {verified_expr} IN ('true', '1') AS verified,
+                                        {relay_expr} IN ('true', '1') AS relay,
+                                        if(verified AND NOT relay, {trace_id_expr}, '') AS raw_trace_id,
+                                        if(verified AND NOT relay, {request_id_expr}, '') AS request_id
+                                    FROM {events_read_table(use_new)}
+                                    WHERE team_id IN %(relayed_team_ids)s
+                                      AND event = '$ai_generation'
+                                      AND timestamp >= %(sponsor_begin)s AND timestamp < %(sponsor_end)s
+                                      AND {verified_expr} IN ('true', '1')
+                                      AND {relay_expr} NOT IN ('true', '1')
+                                )
+                                WHERE verified AND NOT relay AND raw_trace_id != '' AND request_id != ''
+                                GROUP BY team_id, request_id
                             )
-                            WHERE verified AND NOT relay AND raw_trace_id != '' AND request_id != ''
-                            GROUP BY team_id, request_id
+                            GROUP BY team_id, trace_id
                         )
+                        ARRAY JOIN [0, 1] AS allowance_kind
                         UNION ALL
                         SELECT
                             team_id,
                             trace_id,
+                            if(event = '$ai_evaluation', 1, 0) AS allowance_kind,
                             relay_timestamp AS ledger_timestamp,
                             1 AS entry_kind,
                             concat(event, '\\0', span_id) AS entry_id,
@@ -1518,6 +1541,8 @@ def get_teams_with_ai_event_count_in_period(
                             WHERE team_id IN %(relayed_team_ids)s
                               AND event IN %(ai_events)s
                               AND timestamp >= %(sponsor_begin)s AND timestamp < %(sponsor_end)s
+                              AND {verified_expr} IN ('true', '1')
+                              AND {relay_expr} IN ('true', '1')
                             GROUP BY team_id, event, verified, relay, trace_id, span_id
                         )
                         WHERE verified AND relay AND trace_id != '' AND span_id != ''
@@ -1527,7 +1552,9 @@ def get_teams_with_ai_event_count_in_period(
             GROUP BY team_id
             """,
             {
-                "allowance": GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+                "trace_allowance": GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+                "evaluation_allowance": GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE,
+                "backdate_seconds": int(GATEWAY_SPONSORSHIP_BACKDATE.total_seconds()),
                 "relayed_team_ids": relayed_team_ids,
                 "ai_events": AI_EVENTS,
                 "begin": begin,

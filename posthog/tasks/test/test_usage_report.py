@@ -1587,7 +1587,9 @@ class TestQueryUsageReportSQL:
         _mock_events_read_table: MagicMock,
     ) -> None:
         from posthog.tasks.usage_report import (
-            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE,
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+            GATEWAY_SPONSORSHIP_BACKDATE,
             GATEWAY_SPONSORSHIP_LOOKAROUND,
             get_teams_with_ai_event_count_in_period,
         )
@@ -1605,12 +1607,21 @@ class TestQueryUsageReportSQL:
         sponsor_params = mock_sync_execute.call_args_list[1].args[1]
         assert "max(relay) AS has_verified_relay" in base_query
         assert "argMin(raw_trace_id, (raw_generation_timestamp, raw_trace_id)) AS trace_id" in sponsor_query
+        assert "GROUP BY team_id, trace_id" in sponsor_query
+        assert "PARTITION BY team_id, trace_id, allowance_kind" in sponsor_query
+        assert "ARRAY JOIN [0, 1] AS allowance_kind" in sponsor_query
+        assert "if(event = '$ai_evaluation', 1, 0) AS allowance_kind" in sponsor_query
+        assert "sponsor_timestamp - toIntervalSecond(%(backdate_seconds)s)" in sponsor_query
+        assert sponsor_query.count("AND property_expr IN ('true', '1')") >= 3
+        assert "AND property_expr NOT IN ('true', '1')" in sponsor_query
         assert "sum(balance_delta) OVER" in sponsor_query
         assert "min(cumulative_balance) OVER" in sponsor_query
         assert "cumulative_balance >= least(ifNull(previous_minimum, 0), 0)" in sponsor_query
         assert "UNION ALL" in sponsor_query
         assert sponsor_query.count("team_id IN %(relayed_team_ids)s") == 2
-        assert sponsor_params["allowance"] == GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION
+        assert sponsor_params["trace_allowance"] == GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE
+        assert sponsor_params["evaluation_allowance"] == GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE
+        assert sponsor_params["backdate_seconds"] == int(GATEWAY_SPONSORSHIP_BACKDATE.total_seconds())
         assert sponsor_params["relayed_team_ids"] == [1]
         assert sponsor_params["sponsor_begin"] == begin - GATEWAY_SPONSORSHIP_LOOKAROUND
         assert sponsor_params["sponsor_end"] == end + GATEWAY_SPONSORSHIP_LOOKAROUND
@@ -5970,7 +5981,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
     def test_gateway_generation_sponsors_bounded_unique_relay_events(self) -> None:
         from posthog.tasks.usage_report import (
-            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
             get_teams_with_ai_event_count_in_period,
         )
 
@@ -6002,7 +6013,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                     "$ai_trace_id": trace_id,
                 },
             )
-        for index in range(2 * GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION + 1):
+        for index in range(GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE + 1):
             _create_event(
                 event="$ai_span",
                 team=self.team,
@@ -6050,7 +6061,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
     def test_gateway_sponsorship_allowance_is_shared_across_adjacent_periods(self) -> None:
         from posthog.tasks.usage_report import (
-            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
             get_teams_with_ai_event_count_in_period,
         )
 
@@ -6073,7 +6084,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 "$ai_trace_id": trace_id,
             },
         )
-        for index in range(GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION):
+        for index in range(GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE):
             for timestamp in (
                 self.begin - relativedelta(hours=1),
                 self.begin + relativedelta(hours=1),
@@ -6095,7 +6106,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(ai_count(previous_begin, self.begin), previous_baseline)
         self.assertEqual(
             ai_count(self.begin, self.end),
-            current_baseline + GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            current_baseline + GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
         )
 
     def test_gateway_request_sponsors_only_one_trace(self) -> None:
@@ -6168,9 +6179,89 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         self.assertEqual(ai_count(), baseline_count + 1, "the later generation cannot sponsor the earlier span")
 
+    def test_gateway_generation_sponsors_relay_within_backdate_grace(self) -> None:
+        from posthog.tasks.usage_report import GATEWAY_SPONSORSHIP_BACKDATE, get_teams_with_ai_event_count_in_period
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "backdated-sponsored-trace"
+        generation_timestamp = self.begin + relativedelta(hours=2)
+        _create_event(
+            event="$ai_span",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=generation_timestamp - GATEWAY_SPONSORSHIP_BACKDATE,
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_relay": True,
+                "$ai_trace_id": trace_id,
+                "$ai_span_id": "provider-parent-span",
+            },
+        )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=generation_timestamp,
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "completed-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(), baseline_count, "provider-latency backdating keeps the parent span free")
+
+    def test_gateway_sponsorship_has_independent_trace_and_evaluation_allowances(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE,
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "independent-allowance-trace"
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "allowance-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        for event, limit in (
+            ("$ai_span", GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE),
+            ("$ai_evaluation", GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE),
+        ):
+            for index in range(limit + 1):
+                _create_event(
+                    event=event,
+                    team=self.team,
+                    distinct_id="gateway-user",
+                    timestamp=self.begin + relativedelta(hours=2),
+                    properties={
+                        "$ai_gateway_verified": True,
+                        "$ai_gateway_relay": True,
+                        "$ai_trace_id": trace_id,
+                        "$ai_span_id": f"{event}-{index}",
+                    },
+                )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(), baseline_count + 2, "each RFC allowance has one billable overage")
+
     def test_gateway_sponsorship_does_not_carry_relay_debt_forward(self) -> None:
         from posthog.tasks.usage_report import (
-            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
             get_teams_with_ai_event_count_in_period,
         )
 
@@ -6212,21 +6303,21 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         create_generation("first-request", self.begin + relativedelta(hours=1))
         create_relays(
             "first-allowance",
-            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION + 1,
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE + 1,
             self.begin + relativedelta(hours=2),
         )
         create_generation("second-request", self.begin + relativedelta(hours=3))
         create_relays(
             "second-allowance",
-            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
             self.begin + relativedelta(hours=4),
         )
         flush_persons_and_events()
 
         self.assertEqual(
             ai_count(),
-            baseline_count + 2,
-            "pre-sponsor and over-allowance relays stay billable without consuming later allowance",
+            baseline_count + GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE + 2,
+            "a later generation does not replenish the per-trace allowance",
         )
 
     def test_conversations_events_excluded_from_billable_count(self) -> None:
