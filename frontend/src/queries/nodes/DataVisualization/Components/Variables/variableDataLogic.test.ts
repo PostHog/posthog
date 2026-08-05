@@ -23,7 +23,6 @@ describe('variableDataLogic', () => {
     it('does not load variables on mount before the current team ID is known', async () => {
         jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(false)
         const listVariables = jest.spyOn(api.insightVariables, 'list').mockResolvedValue({
-            count: 1,
             results: [variable],
         })
 
@@ -37,7 +36,6 @@ describe('variableDataLogic', () => {
     it('loads variables once the current team ID is known', async () => {
         jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
         const listVariables = jest.spyOn(api.insightVariables, 'list').mockResolvedValue({
-            count: 1,
             results: [variable],
         })
 
