@@ -7,6 +7,7 @@ import {
   formValuesToLoopWrite,
   isAutoFixEnabled,
   isLoopFormValid,
+  isSameConnectorSelection,
   isTriggerDraftValid,
   type LoopFormValues,
   type LoopTriggerDraft,
@@ -266,7 +267,10 @@ describe("loopToFormValues round trip", () => {
       disabled_reason: null,
       overlap_policy: "skip",
       behaviors: defaultLoopBehaviors(),
-      connectors: { mcp_installation_ids: [], posthog_mcp_scopes: "read_only" },
+      connectors: {
+        mcp_installation_ids: ["inst-1", "inst-2"],
+        posthog_mcp_scopes: "full",
+      },
       notifications: {
         push: { enabled: false, events: [], params: {} },
         email: { enabled: false, events: [], params: {} },
@@ -321,6 +325,12 @@ describe("loopToFormValues round trip", () => {
     expect(write.name).toBe(loop.name);
     expect(write.visibility).toBe(loop.visibility);
     expect(write.context_target).toEqual(loop.context_target);
+    // Scopes ride along unchanged: the backend would otherwise reset a
+    // custom value to its default when it deep-merges connectors.
+    expect(write.connectors).toEqual({
+      mcp_installation_ids: ["inst-1", "inst-2"],
+      posthog_mcp_scopes: "full",
+    });
     expect(write.triggers).toEqual([
       {
         id: "trigger-1",
@@ -329,6 +339,52 @@ describe("loopToFormValues round trip", () => {
         config: { cron_expression: "0 9 * * *", timezone: "UTC" },
       },
     ]);
+  });
+});
+
+describe("loop connectors", () => {
+  it.each([
+    { name: "missing connectors", connectors: undefined, expected: [] },
+    { name: "missing ids", connectors: {}, expected: [] },
+    {
+      name: "non-array ids",
+      connectors: { mcp_installation_ids: "inst-1" },
+      expected: [],
+    },
+    {
+      name: "non-string entries",
+      connectors: { mcp_installation_ids: ["inst-1", 7, null] },
+      expected: ["inst-1"],
+    },
+  ])("reads $name defensively", ({ connectors, expected }) => {
+    const loop = {
+      ...baseLoop(),
+      connectors: connectors as unknown as LoopSchemas.LoopConnectors,
+    };
+    expect(loopToFormValues(loop).mcpInstallationIds).toEqual(expected);
+  });
+
+  it("omits connectors from the write when excluded", () => {
+    const values = {
+      ...validFormValues(),
+      mcpInstallationIds: ["inst-1"],
+    };
+    expect(formValuesToLoopWrite(values).connectors).toEqual({
+      mcp_installation_ids: ["inst-1"],
+    });
+    expect(
+      formValuesToLoopWrite(values, { includeConnectors: false }),
+    ).not.toHaveProperty("connectors");
+  });
+
+  it.each([
+    { name: "identical", a: ["1", "2"], b: ["1", "2"], expected: true },
+    { name: "reordered", a: ["1", "2"], b: ["2", "1"], expected: true },
+    { name: "added", a: ["1", "2"], b: ["1"], expected: false },
+    { name: "removed", a: [], b: ["1"], expected: false },
+    { name: "both empty", a: [], b: [], expected: true },
+  ])("isSameConnectorSelection: $name → $expected", ({ a, b, expected }) => {
+    expect(isSameConnectorSelection(a, b)).toBe(expected);
   });
 });
 

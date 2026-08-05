@@ -18,7 +18,7 @@ from .models import MCPServiceAccount
 
 logger = structlog.get_logger(__name__)
 
-BuiltInAgentKey = Literal["support", "scout"]
+BuiltInAgentKey = Literal["support", "scout", "loops"]
 
 GATEWAY_AGENT_TOKEN_PREFIX = "mcp_gw_"
 GATEWAY_AGENT_TOKEN_SALT = "mcp_store.gateway_agent"
@@ -46,6 +46,12 @@ BUILT_IN_AGENTS: tuple[BuiltInAgentSpec, ...] = (
         description="Proactively investigates your product and reports useful findings.",
         handle="posthog-scout",
     ),
+    BuiltInAgentSpec(
+        key="loops",
+        name="Loops agent",
+        description="Runs your loops: recurring agent automations fired on a schedule or by events.",
+        handle="posthog-loops",
+    ),
 )
 
 _SPEC_BY_KEY = {spec.key: spec for spec in BUILT_IN_AGENTS}
@@ -54,6 +60,7 @@ _SPEC_BY_HANDLE = {spec.handle: spec for spec in BUILT_IN_AGENTS}
 _TASK_ORIGIN_TO_AGENT: dict[str, BuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
+    "loop": "loops",
 }
 # Signal report tasks may be created through the public Tasks API, so they
 # remain member-scoped instead of inheriting Scout's MCP grants.

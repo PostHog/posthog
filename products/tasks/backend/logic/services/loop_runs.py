@@ -27,7 +27,16 @@ from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_li
 from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
-from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, Task, TaskRun
+from products.tasks.backend.models import (
+    MCP_BUILT_IN_AGENT_STATE_KEY,
+    MCP_CREDENTIAL_OWNER_STATE_KEY,
+    Channel,
+    Loop,
+    LoopFire,
+    LoopTrigger,
+    Task,
+    TaskRun,
+)
 from products.tasks.backend.temporal.constants import LOOP_RUN_IDLE_TIMEOUT_SECONDS, LOOP_RUN_STALE_SECONDS
 from products.tasks.backend.temporal.process_task.utils import (
     get_default_model_for_runtime_adapter,
@@ -699,6 +708,15 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     feed_channel_id = resolved_channel_id if outputs["post_to_feed"] else None
 
+    # Server-side creation path, so the agent marker is trusted (same contract as
+    # Task._build_task): the run resolves MCP access through the Loops agent's grants
+    # instead of the member lane. The credential owner is the loop's current owner,
+    # whose connections the fire may borrow; an ownerless loop stays fail-closed and
+    # mounts team-scoped grants only.
+    initial_state: dict[str, Any] = {MCP_BUILT_IN_AGENT_STATE_KEY: "loops"}
+    if loop.created_by_id is not None:
+        initial_state[MCP_CREDENTIAL_OWNER_STATE_KEY] = loop.created_by_id
+
     task = Task.objects.create(
         team_id=loop.team_id,
         created_by_id=loop.created_by_id,
@@ -710,6 +728,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         internal=True,
         loop=loop,
         channel_id=feed_channel_id,
+        state=initial_state,
     )
 
     config_snapshot = {

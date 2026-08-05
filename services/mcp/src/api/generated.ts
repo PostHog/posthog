@@ -8055,6 +8055,7 @@ export namespace Schemas {
     export const AgentKeyEnum = {
       Support: 'support',
       Scout: 'scout',
+      Loops: 'loops',
     } as const;
 
     /**
@@ -40690,7 +40691,7 @@ export namespace Schemas {
     } as const;
 
     export interface LoopConnectors {
-      /** MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. */
+      /** MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. Must be the loop owner's own active installations; selecting one also shares that connection with the Loops agent. */
       mcp_installation_ids?: string[];
       /** Scope of the PostHog MCP access injected into this loop's runs.
        *

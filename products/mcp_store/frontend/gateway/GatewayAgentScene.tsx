@@ -97,6 +97,12 @@ export function GatewayAgentScene(): JSX.Element {
                         runs. A team share covers them.
                     </div>
                 )}
+                {account.agent_key === 'loops' && (
+                    <div className="text-sm text-secondary">
+                        Each loop also picks which servers its runs use, so a share here applies only to loops that
+                        select it. Picking a server while editing your loop shares it here automatically.
+                    </div>
+                )}
                 <div className="border rounded divide-y">
                     {allServersLoading && allServers.length === 0 ? (
                         <div className="flex items-center gap-2 p-3 text-sm text-secondary">

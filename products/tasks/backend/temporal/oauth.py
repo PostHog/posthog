@@ -84,6 +84,7 @@ def create_oauth_access_token(
     if task.origin_product in {
         Task.OriginProduct.SIGNALS_SCOUT,
         Task.OriginProduct.SUPPORT_REPLY,
+        Task.OriginProduct.LOOP,
     } and is_builtin_agent_enforcement_enabled(task.team_id):
         # This scope only removes access to the human MCP Store surface. Add it
         # even when a legacy task lacks trusted provenance so an old spoofed

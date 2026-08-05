@@ -51,6 +51,15 @@ export interface LoopFormValues {
    * unrelated change never drops a loop's other repository associations.
    */
   repositories: LoopSchemas.LoopRepositoryEntry[];
+  /** MCP Store installation ids whose connections this loop's runs may use. */
+  mcpInstallationIds: string[];
+  /**
+   * Passthrough, not edited by the form. The backend fills the default for a
+   * missing `posthog_mcp_scopes` and deep-merges connectors on PATCH, so a
+   * write that includes connectors must resend the loaded value or a custom
+   * scope set via the API would be reset.
+   */
+  posthogMcpScopes: LoopSchemas.LoopPosthogMcpScopesEnum | null;
   triggers: LoopTriggerDraft[];
   behaviors: LoopSchemas.LoopBehaviors;
   notifications: LoopSchemas.LoopNotifications;
@@ -147,6 +156,8 @@ export function emptyLoopFormValues(): LoopFormValues {
     model: "",
     reasoningEffort: null,
     repositories: [],
+    mcpInstallationIds: [],
+    posthogMcpScopes: null,
     triggers: [defaultLoopScheduleTrigger()],
     behaviors: defaultLoopBehaviors(),
     notifications: defaultLoopNotifications(),
@@ -187,6 +198,8 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
     model: loop.model,
     reasoningEffort: loop.reasoning_effort,
     repositories: [...loop.repositories],
+    mcpInstallationIds: connectorInstallationIds(loop.connectors),
+    posthogMcpScopes: loop.connectors?.posthog_mcp_scopes ?? null,
     triggers: loop.triggers.map((trigger) => ({
       key: trigger.id,
       id: trigger.id,
@@ -206,9 +219,44 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
   };
 }
 
+/** Defensive read of the backend-controlled connectors JSON: tolerate a
+ * missing field, a non-array, or non-string entries rather than crashing the
+ * form over one malformed loop. */
+function connectorInstallationIds(
+  connectors: LoopSchemas.LoopConnectors | null | undefined,
+): string[] {
+  const ids: unknown = connectors?.mcp_installation_ids;
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is string => typeof id === "string");
+}
+
+/** Order-insensitive equality of two connector id selections. */
+export function isSameConnectorSelection(a: string[], b: string[]): boolean {
+  const aSet = new Set(a);
+  const bSet = new Set(b);
+  return aSet.size === bSet.size && [...aSet].every((id) => bSet.has(id));
+}
+
 export function formValuesToLoopWrite(
   values: LoopFormValues,
+  options?: {
+    /**
+     * The backend deep-merges `connectors` on PATCH and validates the ids
+     * against the owner's currently-active installations, so resending an
+     * unchanged selection that contains a stale id would block an unrelated
+     * edit. Updates pass false when the selection matches the loaded loop.
+     */
+    includeConnectors?: boolean;
+  },
 ): LoopSchemas.LoopWrite {
+  const connectors: LoopSchemas.LoopConnectorsWrite = {
+    mcp_installation_ids: values.mcpInstallationIds,
+    // See `LoopFormValues.posthogMcpScopes`: omitting the loaded scope would
+    // let the backend's default overwrite it.
+    ...(values.posthogMcpScopes
+      ? { posthog_mcp_scopes: values.posthogMcpScopes }
+      : {}),
+  };
   return {
     name: values.name.trim(),
     description: values.description.trim(),
@@ -220,6 +268,7 @@ export function formValuesToLoopWrite(
     model: values.model.trim(),
     reasoning_effort: values.reasoningEffort,
     repositories: values.repositories,
+    ...(options?.includeConnectors === false ? {} : { connectors }),
     triggers: values.triggers.map((trigger) => ({
       id: trigger.id,
       type: trigger.type,

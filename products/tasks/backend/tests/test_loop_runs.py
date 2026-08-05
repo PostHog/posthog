@@ -447,6 +447,11 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
         self.assertEqual(task.created_by_id, self.user.id)
         self.assertEqual(task.loop_id, loop.id)
         self.assertEqual(task.description, loop.instructions)
+        # Without the server-side agent stamp the run resolves MCP access in the legacy
+        # member lane instead of through the Loops agent's grants (and the owner's
+        # selected connections never mount on gateway-enforced teams).
+        self.assertEqual(task.mcp_builtin_agent_key, "loops")
+        self.assertEqual(task.mcp_credential_owner_id, self.user.id)
 
         task_run = TaskRun.objects.get(id=result.task_run_id)
         pending_user_message = task_run.state["pending_user_message"]

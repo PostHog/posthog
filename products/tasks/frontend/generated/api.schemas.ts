@@ -273,7 +273,7 @@ export const PosthogMcpScopesEnumApi = {
 } as const
 
 export interface LoopConnectorsApi {
-    /** MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. */
+    /** MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. Must be the loop owner's own active installations; selecting one also shares that connection with the Loops agent. */
     mcp_installation_ids?: string[]
     /** Scope of the PostHog MCP access injected into this loop's runs.
      *

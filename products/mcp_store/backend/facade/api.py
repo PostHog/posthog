@@ -360,3 +360,60 @@ def get_installations_for_sandbox(
         has_trusted_agent_key=agent_key is not None,
     )
     return results
+
+
+def ensure_built_in_agent_grants(
+    team_id: int,
+    user_id: int,
+    agent_key: str,
+    installation_ids: Iterable[str],
+) -> None:
+    """Grant a built-in agent access to the user's own connections, by installation id.
+
+    The delegation a member makes implicitly by selecting their connections for an
+    agent-run surface (a loop's connector picker), equivalent to flipping the share
+    switch on the agent scene. Only the caller's own personal, gateway-registered
+    installations resolve; ids that aren't theirs, aren't registered with the
+    gateway, or don't exist are skipped rather than raised, because the runtime
+    mount path fails closed on missing grants anyway. Existing grants keep their
+    scope (a team share must not be demoted back to personal by re-selection);
+    only a stale credential pointer is repaired.
+    """
+    ids: list[uuid.UUID] = []
+    for installation_id in installation_ids:
+        try:
+            ids.append(uuid.UUID(str(installation_id)))
+        except ValueError:
+            continue
+    if not ids:
+        return
+    agent_account = get_built_in_agent(team_id, agent_key)
+    if agent_account is None:
+        return
+    installations = MCPServerInstallation.objects.filter(
+        team_id=team_id,
+        user_id=user_id,
+        id__in=ids,
+        scope="personal",
+        gateway_server__isnull=False,
+    ).select_related("gateway_server")
+    granted_servers: set[uuid.UUID] = set()
+    for installation in installations:
+        gateway_server_id = installation.gateway_server_id
+        if gateway_server_id is None or gateway_server_id in granted_servers:
+            continue
+        granted_servers.add(gateway_server_id)
+        access, created = MCPServiceAccountServerAccess.objects.for_team(team_id).get_or_create(
+            service_account=agent_account,
+            gateway_server_id=gateway_server_id,
+            user_id=user_id,
+            defaults={
+                "team_id": team_id,
+                "installation": installation,
+                "granted_by_id": user_id,
+                "scope": "personal",
+            },
+        )
+        if not created and access.installation_id != installation.id:
+            access.installation = installation
+            access.save(update_fields=["installation"])

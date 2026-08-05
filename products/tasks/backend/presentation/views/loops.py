@@ -15,7 +15,11 @@ from rest_framework.views import APIView
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
-from posthog.permissions import APIScopePermission, is_authenticated_via_project_secret_api_key
+from posthog.permissions import (
+    APIScopePermission,
+    DenyMCPBuiltInAgentOAuth,
+    is_authenticated_via_project_secret_api_key,
+)
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.tasks.backend.facade import (
@@ -101,6 +105,14 @@ class LoopTriggerProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTea
     rate = "1000/hour"
 
 
+class DenyBuiltInAgentLoopManagement(DenyMCPBuiltInAgentOAuth):
+    """Loops schedule future runs that resolve the owner's credentials (their MCP
+    connections get delegated to the Loops agent at save time), so a built-in agent's
+    sandbox token must not create, edit, or trigger them."""
+
+    message = "Built-in agents cannot manage loops."
+
+
 class HasLoopsAccess(BasePermission):
     """Gate every Loops endpoint on `has_loops_access` (tasks access plus the `loops` flag).
 
@@ -143,7 +155,7 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, HasLoopsAccess, APIScopePermission]
+    permission_classes = [IsAuthenticated, HasLoopsAccess, APIScopePermission, DenyBuiltInAgentLoopManagement]
     scope_object = "loop"
     # A project secret API key can fire a loop (`trigger`) and read back its run history
     # (`runs`), so a service that triggers can also poll the outcome. Everything else (CRUD,

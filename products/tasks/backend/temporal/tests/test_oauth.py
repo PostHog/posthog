@@ -14,6 +14,7 @@ from products.tasks.backend.temporal.oauth import create_oauth_access_token, cre
     [
         (Task.OriginProduct.SIGNALS_SCOUT, "array"),
         (Task.OriginProduct.SUPPORT_REPLY, "array"),
+        (Task.OriginProduct.LOOP, "array"),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)

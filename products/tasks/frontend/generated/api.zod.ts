@@ -157,7 +157,9 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                 mcp_installation_ids: zod
                     .array(zod.string())
                     .optional()
-                    .describe("MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs."),
+                    .describe(
+                        "MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. Must be the loop owner's own active installations; selecting one also shares that connection with the Loops agent."
+                    ),
                 posthog_mcp_scopes: zod
                     .enum(['read_only', 'full'])
                     .describe('\* `read_only` - read_only\n\* `full` - full')
@@ -458,7 +460,9 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                 mcp_installation_ids: zod
                     .array(zod.string())
                     .optional()
-                    .describe("MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs."),
+                    .describe(
+                        "MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. Must be the loop owner's own active installations; selecting one also shares that connection with the Loops agent."
+                    ),
                 posthog_mcp_scopes: zod
                     .enum(['read_only', 'full'])
                     .describe('\* `read_only` - read_only\n\* `full` - full')

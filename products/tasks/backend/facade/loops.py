@@ -40,7 +40,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from products.mcp_store.backend.facade.api import ensure_built_in_agent_grants, get_active_installations
 from products.tasks.backend import loop_service
 from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
 from products.tasks.backend.logic.services import loop_runs
@@ -614,6 +614,25 @@ def active_mcp_installation_ids(team_id: int, owner_id: int | None) -> set[str]:
     return {installation.id for installation in get_active_installations(team_id, owner_id)}
 
 
+def _connector_installation_ids(connectors: dict | None) -> set[str]:
+    ids = connectors.get("mcp_installation_ids") if isinstance(connectors, dict) else None
+    return {str(i) for i in ids} if isinstance(ids, list) else set()
+
+
+def _ensure_loop_connector_grants(loop: Loop, installation_ids: set[str]) -> None:
+    """Delegate the loop owner's selected connections to the Loops built-in agent.
+
+    Selecting a connection for a loop is the owner deciding their credential may back
+    this agent's runs, so the grant is provisioned here rather than requiring a second
+    explicit share step on the agent scene. Fire time then mounts the owner's grants and
+    filters them down to the ids snapshotted on the run (see loop_mcp_installation_allowlist),
+    which keeps the selection per-loop even though grants are per-member-per-agent.
+    """
+    if not installation_ids or loop.created_by_id is None:
+        return
+    ensure_built_in_agent_grants(loop.team_id, loop.created_by_id, "loops", sorted(installation_ids))
+
+
 def github_integration_ids_for_team(team_id: int, integration_ids: Iterable[int]) -> set[int]:
     return set(
         Integration.objects.filter(team_id=team_id, kind="github", id__in=list(integration_ids)).values_list(
@@ -872,6 +891,7 @@ def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDT
             )
             for payload in trigger_payloads
         ]
+        _ensure_loop_connector_grants(loop, _connector_installation_ids(loop.connectors))
 
     for trigger in created_triggers:
         loop_service.sync_loop_trigger_schedule(trigger)
@@ -929,6 +949,15 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
         data["context_target"] if "context_target" in data else loop.context_target,
     )
 
+    # Only connections newly selected in this request get delegated to the Loops agent.
+    # Re-saving an unchanged selection provisions nothing, so a grant the member removed
+    # on the agent scene stays removed until they explicitly re-select the server here.
+    added_installation_ids = (
+        _connector_installation_ids(data["connectors"]) - _connector_installation_ids(loop.connectors)
+        if "connectors" in data
+        else set()
+    )
+
     enabled_before = loop.enabled
     with transaction.atomic():
         for field_name, value in data.items():
@@ -950,6 +979,7 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
         if "enabled" in data and loop.enabled and not enabled_before:
             loop.disabled_reason = None
         loop.save()
+        _ensure_loop_connector_grants(loop, added_installation_ids)
 
     # Toggling `enabled` must drive the Temporal Schedules, not just the row. Without this,
     # re-enabling a loop after an auto-pause (the documented recovery) returns 200 but never

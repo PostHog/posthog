@@ -1221,6 +1221,8 @@ export interface LoopSavedProperties {
   is_auto_fix_enabled: boolean;
   /** Count of notifications.{push,email,slack} that are enabled. */
   notification_channel_count: number;
+  /** Count of connectors.mcp_installation_ids selected on the loop. */
+  mcp_server_count: number;
   has_context_target: boolean;
 }
 

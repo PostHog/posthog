@@ -77,7 +77,11 @@ class LoopConnectorsSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         default=list,
-        help_text="MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs.",
+        help_text=(
+            "MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. "
+            "Must be the loop owner's own active installations; selecting one also shares that "
+            "connection with the Loops agent."
+        ),
     )
     posthog_mcp_scopes = serializers.ChoiceField(
         choices=loops_facade.POSTHOG_MCP_SCOPES_CHOICES,

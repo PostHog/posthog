@@ -33,7 +33,7 @@ from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import DenyMCPBuiltInAgentOAuth
 
-from ..agents import built_in_agent_handles, get_built_in_agent_spec, sync_built_in_agents
+from ..agents import BUILT_IN_AGENTS, built_in_agent_handles, get_built_in_agent_spec, sync_built_in_agents
 from ..gateway import installation_for_agent_access, installation_for_agent_grant, members_can_manage_agent_access
 from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
@@ -623,7 +623,7 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
             "last_active_at": {"help_text": "When the agent last made a call through the gateway."},
         }
 
-    @extend_schema_field(serializers.ChoiceField(choices=["support", "scout"]))
+    @extend_schema_field(serializers.ChoiceField(choices=[spec.key for spec in BUILT_IN_AGENTS]))
     def get_agent_key(self, obj: MCPServiceAccount) -> str:
         spec = get_built_in_agent_spec(obj)
         return spec.key if spec is not None else ""

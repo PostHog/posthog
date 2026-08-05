@@ -28,6 +28,8 @@ from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
+from products.mcp_store.backend.agents import get_built_in_agent
+from products.mcp_store.backend.models import MCPGatewayServer, MCPServerInstallation, MCPServiceAccountServerAccess
 from products.tasks.backend.facade import loops as loops_facade
 from products.tasks.backend.models import Channel, Loop, LoopTrigger, Task, TaskRun
 from products.tasks.backend.presentation.views.loops import MAX_LOOP_TRIGGER_PAYLOAD_BYTES
@@ -1514,3 +1516,83 @@ class LoopTriggerAuthAPITest(LoopsAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)
+
+
+class LoopConnectorGrantsAPITest(LoopsAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.gateway_server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Linear",
+            url="https://linear.example.com/mcp",
+            is_team_enabled=True,
+        )
+        self.installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.owner,
+            display_name="Linear",
+            url="https://linear.example.com/mcp",
+            auth_type="api_key",
+            is_enabled=True,
+            scope="personal",
+            gateway_server=self.gateway_server,
+        )
+
+    def _loops_agent_grants(self):
+        account = get_built_in_agent(self.team.id, "loops")
+        assert account is not None
+        return MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(service_account=account)
+
+    def test_selecting_a_connector_at_create_shares_it_with_the_loops_agent(self):
+        self._create_loop(self.owner_client, connectors={"mcp_installation_ids": [str(self.installation.id)]})
+
+        grants = list(self._loops_agent_grants())
+        self.assertEqual(len(grants), 1)
+        self.assertEqual(grants[0].user_id, self.owner.id)
+        self.assertEqual(grants[0].gateway_server_id, self.gateway_server.id)
+        self.assertEqual(grants[0].installation_id, self.installation.id)
+        self.assertEqual(grants[0].scope, "personal")
+
+    def test_only_newly_selected_connectors_are_shared_on_update(self):
+        loop_id = self._create_loop(
+            self.owner_client, connectors={"mcp_installation_ids": [str(self.installation.id)]}
+        )["id"]
+        # The member withdrew the agent share on the gateway scene; resending the loop's
+        # unchanged selection must not quietly restore it.
+        self._loops_agent_grants().delete()
+
+        resend = self.owner_client.patch(
+            self._loop_url(loop_id),
+            {"connectors": {"mcp_installation_ids": [str(self.installation.id)]}},
+            format="json",
+        )
+
+        self.assertEqual(resend.status_code, status.HTTP_200_OK, resend.content)
+        self.assertEqual(self._loops_agent_grants().count(), 0)
+
+        second_server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Slack",
+            url="https://slack.example.com/mcp",
+            is_team_enabled=True,
+        )
+        second = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.owner,
+            display_name="Slack",
+            url="https://slack.example.com/mcp",
+            auth_type="api_key",
+            is_enabled=True,
+            scope="personal",
+            gateway_server=second_server,
+        )
+
+        add = self.owner_client.patch(
+            self._loop_url(loop_id),
+            {"connectors": {"mcp_installation_ids": [str(self.installation.id), str(second.id)]}},
+            format="json",
+        )
+
+        self.assertEqual(add.status_code, status.HTTP_200_OK, add.content)
+        grants = list(self._loops_agent_grants())
+        self.assertEqual([grant.gateway_server_id for grant in grants], [second_server.id])

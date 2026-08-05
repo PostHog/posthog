@@ -6,7 +6,11 @@ from parameterized import parameterized
 from posthog.models import User
 
 from products.mcp_store.backend.agents import get_built_in_agent, resolve_gateway_agent_token
-from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
+from products.mcp_store.backend.facade.api import (
+    ensure_built_in_agent_grants,
+    get_active_installations,
+    get_installations_for_sandbox,
+)
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
@@ -400,6 +404,25 @@ class TestGetInstallationsForSandbox(BaseTest):
             credential_owner_id=credential_owner_id,
         )
 
+    def test_loop_origin_mounts_the_loops_agents_grants(self) -> None:
+        account = get_built_in_agent(self.team.id, "loops")
+        assert account is not None
+        server = self._create_gateway_server(name="Linear", url="https://linear.example.com/mcp")
+        installation = self._create_installation(gateway_server=server, url=server.url)
+        self._grant(account, server, user=self.user, installation=installation)
+        # A shared installation that a legacy-lane task would mount; the loop lane must not.
+        self._create_installation(scope="shared", url="https://shared.example.com/mcp")
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            task_origin="loop",
+            task_agent_key="loops",
+            credential_owner_id=self.user.id,
+        )
+
+        assert [result.id for result in results] == [str(installation.id)]
+        assert results[0].proxy_token is not None
+
     def test_agent_run_mounts_its_owners_grants_plus_teammates_team_shares(self) -> None:
         account = self._support_agent()
         teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
@@ -651,3 +674,93 @@ class TestGetInstallationsForSandbox(BaseTest):
         results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=include_personal)
 
         assert (len(results) == 1) == expected_included
+
+
+class TestEnsureBuiltInAgentGrants(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Linear",
+            url="https://linear.example.com/mcp",
+            is_team_enabled=True,
+        )
+        self.installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Linear",
+            url="https://linear.example.com/mcp",
+            auth_type="api_key",
+            is_enabled=True,
+            scope="personal",
+            gateway_server=self.server,
+        )
+
+    def _grants(self) -> list[MCPServiceAccountServerAccess]:
+        account = get_built_in_agent(self.team.id, "loops")
+        assert account is not None
+        return list(MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(service_account=account))
+
+    def test_creates_a_personal_grant_for_the_users_own_installation(self) -> None:
+        ensure_built_in_agent_grants(self.team.id, self.user.id, "loops", [str(self.installation.id)])
+
+        grants = self._grants()
+        assert len(grants) == 1
+        assert grants[0].user_id == self.user.id
+        assert grants[0].gateway_server_id == self.server.id
+        assert grants[0].installation_id == self.installation.id
+        assert grants[0].granted_by_id == self.user.id
+        assert grants[0].scope == "personal"
+
+    def test_reselection_neither_duplicates_nor_demotes_a_team_share(self) -> None:
+        ensure_built_in_agent_grants(self.team.id, self.user.id, "loops", [str(self.installation.id)])
+        grant = self._grants()[0]
+        grant.scope = "team"
+        grant.save(update_fields=["scope"])
+
+        ensure_built_in_agent_grants(self.team.id, self.user.id, "loops", [str(self.installation.id)])
+
+        grants = self._grants()
+        assert len(grants) == 1
+        assert grants[0].scope == "team"
+
+    def test_repairs_a_grant_whose_credential_pointer_was_cleared(self) -> None:
+        ensure_built_in_agent_grants(self.team.id, self.user.id, "loops", [str(self.installation.id)])
+        grant = self._grants()[0]
+        grant.installation = None
+        grant.save(update_fields=["installation"])
+
+        ensure_built_in_agent_grants(self.team.id, self.user.id, "loops", [str(self.installation.id)])
+
+        grants = self._grants()
+        assert len(grants) == 1
+        assert grants[0].installation_id == self.installation.id
+
+    @parameterized.expand(
+        [
+            ("someone_elses_installation", "other_user"),
+            ("shared_installation", "shared_scope"),
+            ("not_gateway_registered", "no_gateway"),
+            ("malformed_id", "malformed"),
+        ]
+    )
+    def test_ungrantable_selections_provision_nothing(self, _name: str, case: str) -> None:
+        if case == "other_user":
+            other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+            self.installation.user = other
+            self.installation.save(update_fields=["user"])
+            selection = [str(self.installation.id)]
+        elif case == "shared_scope":
+            self.installation.scope = "shared"
+            self.installation.save(update_fields=["scope"])
+            selection = [str(self.installation.id)]
+        elif case == "no_gateway":
+            self.installation.gateway_server = None
+            self.installation.save(update_fields=["gateway_server"])
+            selection = [str(self.installation.id)]
+        else:
+            selection = ["not-a-uuid"]
+
+        ensure_built_in_agent_grants(self.team.id, self.user.id, "loops", selection)
+
+        assert self._grants() == []

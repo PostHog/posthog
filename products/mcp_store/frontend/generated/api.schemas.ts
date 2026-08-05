@@ -715,6 +715,7 @@ export type AgentKeyEnumApi = (typeof AgentKeyEnumApi)[keyof typeof AgentKeyEnum
 export const AgentKeyEnumApi = {
     Support: 'support',
     Scout: 'scout',
+    Loops: 'loops',
 } as const
 
 /**

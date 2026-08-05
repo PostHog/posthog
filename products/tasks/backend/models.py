@@ -49,12 +49,13 @@ from products.tasks.backend.storage import append_jsonl_object
 logger = structlog.get_logger(__name__)
 
 LogLevel = Literal["debug", "info", "warn", "error"]
-MCPBuiltInAgentKey = Literal["support", "scout"]
+MCPBuiltInAgentKey = Literal["support", "scout", "loops"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
+    "loop": "loops",
 }
 
 

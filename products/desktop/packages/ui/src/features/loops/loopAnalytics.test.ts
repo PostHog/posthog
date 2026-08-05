@@ -249,6 +249,18 @@ describe("buildLoopSavedProps", () => {
   it("omits model when the loop uses the adapter default", () => {
     expect(buildLoopSavedProps(loop({ model: "" })).model).toBeUndefined();
   });
+
+  it("counts selected MCP connectors", () => {
+    const props = buildLoopSavedProps(
+      loop({
+        connectors: {
+          mcp_installation_ids: ["inst-1", "inst-2"],
+          posthog_mcp_scopes: "read_only",
+        },
+      }),
+    );
+    expect(props.mcp_server_count).toBe(2);
+  });
 });
 
 describe("buildLoopEnabledToggledProps", () => {

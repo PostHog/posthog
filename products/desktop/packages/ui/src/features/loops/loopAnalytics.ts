@@ -53,6 +53,7 @@ export function buildLoopSavedProps(
     notification_channel_count: (["push", "email", "slack"] as const).filter(
       (channel) => loop.notifications[channel]?.enabled,
     ).length,
+    mcp_server_count: loop.connectors?.mcp_installation_ids?.length ?? 0,
     has_context_target: loop.context_target !== null,
   };
 }

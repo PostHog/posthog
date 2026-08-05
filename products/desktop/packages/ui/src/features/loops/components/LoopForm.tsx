@@ -38,6 +38,7 @@ import {
   formValuesToLoopWrite,
   isAutoFixEnabled,
   isLoopFormValid,
+  isSameConnectorSelection,
   isTriggerDraftValid,
   type LoopContextTargetDraft,
   type LoopFormValues,
@@ -50,6 +51,7 @@ import { LoopBehaviorFields } from "./LoopBehaviorFields";
 import { LoopContextFields } from "./LoopContextFields";
 import { Field } from "./LoopFormPrimitives";
 import { LoopHeaderTitle } from "./LoopHeaderTitle";
+import { LoopMcpServerFields } from "./LoopMcpServerFields";
 import { LoopModelFields } from "./LoopModelFields";
 import { LoopNotificationsFields } from "./LoopNotificationsFields";
 import { LoopRepositoryPicker } from "./LoopRepositoryPicker";
@@ -243,7 +245,18 @@ export function LoopForm({
       return;
     }
     if (!canSubmit) return;
-    const body = formValuesToLoopWrite(values);
+    // A PATCH resends connectors only when the selection changed, so a
+    // connection that went stale since the loop was saved can't block an
+    // unrelated edit (the backend validates every id it receives).
+    const body = formValuesToLoopWrite(values, {
+      includeConnectors:
+        !isEdit ||
+        !baseline ||
+        !isSameConnectorSelection(
+          values.mcpInstallationIds,
+          baseline.values.mcpInstallationIds,
+        ),
+    });
 
     // Bundling runs before anything is persisted: a missing or broken local
     // skill fails here with no partial state, instead of leaving a saved loop
@@ -454,6 +467,17 @@ export function LoopForm({
             </Field>
           ) : null}
 
+          <Field
+            label="MCP servers"
+            hint="Runs of this loop can use the connections you pick here."
+          >
+            <LoopMcpServerFields
+              selectedIds={values.mcpInstallationIds}
+              disabled={isSubmitting}
+              onChange={(mcpInstallationIds) => patch({ mcpInstallationIds })}
+            />
+          </Field>
+
           <Field label="Notifications">
             <LoopNotificationsFields
               notifications={values.notifications}
@@ -663,6 +687,21 @@ export function LoopForm({
                         ? [repository, ...prev.repositories.slice(1)]
                         : prev.repositories.slice(1),
                     }))
+                  }
+                />
+              </Field>
+
+              <Divider />
+
+              <Field
+                label="MCP servers"
+                hint="Runs of this loop can use the connections you pick here."
+              >
+                <LoopMcpServerFields
+                  selectedIds={values.mcpInstallationIds}
+                  disabled={isSubmitting}
+                  onChange={(mcpInstallationIds) =>
+                    patch({ mcpInstallationIds })
                   }
                 />
               </Field>
@@ -929,6 +968,14 @@ function ReviewList({
           values.repositories.length > 0
             ? values.repositories.map((repo) => repo.full_name).join(", ")
             : "None (report-only)"
+        }
+      />
+      <ReviewRow
+        label="MCP servers"
+        value={
+          values.mcpInstallationIds.length === 0
+            ? "None"
+            : `${values.mcpInstallationIds.length} selected`
         }
       />
       <ReviewRow
