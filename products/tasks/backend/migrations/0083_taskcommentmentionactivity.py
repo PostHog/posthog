@@ -62,7 +62,7 @@ class Migration(migrations.Migration):
                     models.Index(
                         condition=models.Q(("read_at__isnull", True)),
                         fields=["team", "user"],
-                        name="task_comment_mention_unread_idx",
+                        name="task_comment_mention_unread",
                     ),
                 ],
                 "constraints": [

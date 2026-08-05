@@ -1206,7 +1206,7 @@ class TaskCommentMentionActivity(TeamScopedRootMixin):
             models.Index(
                 fields=["team", "user"],
                 condition=models.Q(read_at__isnull=True),
-                name="task_comment_mention_unread_idx",
+                name="task_comment_mention_unread",
             ),
         ]
 
