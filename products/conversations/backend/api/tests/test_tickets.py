@@ -2009,6 +2009,33 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             response = getattr(self.client, method)(url)
         assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
 
+    @parameterized.expand(
+        [
+            ("note_with_write", "patch", ["ticket:write"], status.HTTP_200_OK),
+            ("note_with_read_only", "patch", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("note_wrong_scope", "patch", ["insight:write"], status.HTTP_403_FORBIDDEN),
+            ("delete_note_with_write", "delete", ["ticket:write"], status.HTTP_204_NO_CONTENT),
+            ("delete_note_with_read_only", "delete", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("delete_note_wrong_scope", "delete", ["insight:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_note_scopes(self, _name, method, scopes, expected_status):
+        note = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Original note",
+            item_context={"author_type": "support", "is_private": True},
+        )
+        self._auth_with_pak(scopes)
+        url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
+        if method == "patch":
+            response = self.client.patch(url, {"message": "Updated note"}, format="json")
+        else:
+            response = self.client.delete(url)
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
+
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestTicketMessagesAPI(APIBaseTest):
@@ -2118,6 +2145,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             "author_name",
             "is_private",
             "created_at",
+            "version",
         }
 
     def test_messages_lookup_by_ticket_number(self, mock_on_commit):
@@ -2768,3 +2796,149 @@ class TestTicketViewParamFilter(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data={"view": view.short_id})
         assert response.status_code == status.HTTP_200_OK
         assert [r["id"] for r in response.json()["results"]] == [str(first.id), str(second.id)]
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketNoteAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.save()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="note-session",
+            distinct_id="user-1",
+            status=Status.OPEN,
+        )
+        self.note = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Original private note",
+            rich_content={
+                "type": "doc",
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Original private note"}]}],
+            },
+            item_context={"author_type": "support", "is_private": True},
+        )
+        self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{self.note.id}/"
+
+    def test_patch_updates_content_and_bumps_version(self, mock_on_commit):
+        response = self.client.patch(
+            self.url,
+            {"message": "Updated note", "rich_content": {"type": "doc", "content": []}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["content"] == "Updated note"
+        assert body["is_private"] is True
+        assert body["version"] == 1
+
+        self.note.refresh_from_db()
+        assert self.note.content == "Updated note"
+        assert self.note.version == 1
+
+    def test_patch_message_only_clears_stale_rich_content(self, mock_on_commit):
+        response = self.client.patch(self.url, {"message": "Markdown-only update"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["content"] == "Markdown-only update"
+        assert response.json()["rich_content"] is None
+
+        self.note.refresh_from_db()
+        assert self.note.content == "Markdown-only update"
+        assert self.note.rich_content is None
+
+    def test_delete_soft_deletes_and_hides_from_messages(self, mock_on_commit):
+        response = self.client.delete(self.url)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        self.note.refresh_from_db()
+        assert self.note.deleted is True
+
+        messages = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/messages/")
+        assert messages.status_code == status.HTTP_200_OK
+        assert all(m["id"] != str(self.note.id) for m in messages.json()["results"])
+
+    @parameterized.expand(
+        [
+            ("other_user_author", "other_user", True, status.HTTP_403_FORBIDDEN, "not_note_author"),
+            ("ai_note_no_author", "ai", True, status.HTTP_403_FORBIDDEN, "not_note_author"),
+            ("public_reply", "self", False, status.HTTP_400_BAD_REQUEST, "not_private_note"),
+            ("other_ticket", "other_ticket", True, status.HTTP_404_NOT_FOUND, "note_not_found"),
+            ("already_deleted", "deleted", True, status.HTTP_404_NOT_FOUND, "note_not_found"),
+            ("invalid_uuid", "invalid_id", True, status.HTTP_404_NOT_FOUND, "note_not_found"),
+        ]
+    )
+    def test_guard_matrix(self, mock_on_commit, _name, setup_kind, is_private, expected_status, expected_error):
+        if setup_kind == "other_user":
+            other = User.objects.create_and_join(self.organization, "other@posthog.com", "pass")
+            note = Comment.objects.create(
+                team=self.team,
+                created_by=other,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content="Someone else's note",
+                item_context={"author_type": "support", "is_private": True},
+            )
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
+        elif setup_kind == "ai":
+            note = Comment.objects.create(
+                team=self.team,
+                created_by=None,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content="AI note",
+                item_context={"author_type": "AI", "is_private": True},
+            )
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
+        elif setup_kind == "self":
+            note = Comment.objects.create(
+                team=self.team,
+                created_by=self.user,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content="Public reply",
+                item_context={"author_type": "support", "is_private": is_private},
+            )
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
+        elif setup_kind == "other_ticket":
+            other_ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id="other-note-session",
+                distinct_id="user-2",
+                status=Status.OPEN,
+            )
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{other_ticket.id}/notes/{self.note.id}/"
+        elif setup_kind == "deleted":
+            self.note.deleted = True
+            self.note.save(update_fields=["deleted"])
+            url = self.url
+        else:
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/not-a-uuid/"
+
+        response = self.client.patch(url, {"message": "Hacked"}, format="json")
+        assert response.status_code == expected_status
+        body = response.json()
+        assert body["error_type"] == expected_error
+        if expected_error == "not_note_author":
+            assert "You can only edit your own private notes." == body["detail"]
+        elif expected_error == "not_private_note":
+            assert "Only private notes can be edited." == body["detail"]
+
+        # DELETE must produce the same error shape (with delete verbs).
+        response = self.client.delete(url)
+        assert response.status_code == expected_status
+        body = response.json()
+        assert body["error_type"] == expected_error
+        if expected_error == "not_note_author":
+            assert "You can only delete your own private notes." == body["detail"]
+        elif expected_error == "not_private_note":
+            assert "Only private notes can be deleted." == body["detail"]
+
+    def test_blank_message_rejected(self, mock_on_commit):
+        response = self.client.patch(self.url, {"message": "   "}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
