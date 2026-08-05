@@ -2139,9 +2139,17 @@ class TaskRun(models.Model):
             props["rtk_enabled"] = rtk
         return props
 
-    def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
+    def capture_event(
+        self,
+        event: str,
+        properties: dict | None = None,
+        event_uuid: str | None = None,
+        distinct_id_override: str | None = None,
+    ) -> None:
         try:
-            distinct_id = (
+            # The override lets the PR webhook attribute pr_merged to the GitHub user who
+            # actually merged, rather than the task's assigned user.
+            distinct_id = distinct_id_override or (
                 str(self.task.created_by.distinct_id)
                 if self.task.created_by_id and self.task.created_by
                 else str(self.team.uuid)
