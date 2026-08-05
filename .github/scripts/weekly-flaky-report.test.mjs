@@ -293,9 +293,17 @@ describe('weekly flaky report', () => {
 
     it('treats both quarantine systems as parked, but keeps a Trunk flag that still fails CI', () => {
         const quarantineFile = { runner: 'pytest', selector: 'file.py::test_file', classification: 'quarantined' }
+        // Quarantined earlier in the window, un-quarantined since, and failing on its own now.
+        const unparked = {
+            runner: 'pytest',
+            selector: 'expired.py::test_expired',
+            classification: 'quarantined',
+            quarantined_failed_run_count: 3,
+            failed_run_count: 4,
+        }
         const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
         const plain = { runner: 'pytest', selector: 'plain.py::test_plain', failed_run_count: 1 }
-        const items = [quarantineFile, trunked, plain]
+        const items = [quarantineFile, unparked, trunked, plain]
         const trunkFor = (item) =>
             item.selector === trunked.selector ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
         const selectors = (list) => list.map((item) => item.selector)
@@ -303,10 +311,10 @@ describe('weekly flaky report', () => {
         const masked = buildQueue(items, testStatusFor(trunkFor, true))
         const unmasked = buildQueue(items, testStatusFor(trunkFor, false))
 
-        assert.deepEqual(selectors(masked.queue), [plain.selector])
+        assert.deepEqual(selectors(masked.queue), [unparked.selector, plain.selector])
         assert.deepEqual(selectors(masked.parked), [quarantineFile.selector, trunked.selector])
         // Masking off leaves Trunk's failure reddening CI, so only the quarantine file parks.
-        assert.deepEqual(selectors(unmasked.queue), [trunked.selector, plain.selector])
+        assert.deepEqual(selectors(unmasked.queue), [unparked.selector, trunked.selector, plain.selector])
         assert.deepEqual(selectors(unmasked.parked), [quarantineFile.selector])
         const [ownerCell] = tableRows(
             [trunked],

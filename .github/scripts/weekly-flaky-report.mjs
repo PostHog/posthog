@@ -356,7 +356,12 @@ async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_U
 // flaky, CI still goes red on it, so it stays in the queue carrying a label.
 function testStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
     return (item) => {
-        if (item.classification === 'quarantined' || item.quarantined_failed_run_count > 0) {
+        // Both counts are seven-day aggregates and the endpoint counts a quarantined run
+        // separately from a failed one, so a park that ended inside the window leaves the
+        // quarantined count set while CI fails on the test again. The unquarantined failures
+        // decide: with any of them the test is still red and still work.
+        const quarantineFile = item.classification === 'quarantined' || item.quarantined_failed_run_count > 0
+        if (quarantineFile && !item.failed_run_count) {
             return { parked: true, source: 'the quarantine file' }
         }
         const trunk = trunkFor(item)
