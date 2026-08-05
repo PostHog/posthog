@@ -35,6 +35,7 @@ SLACK_APP_ASSISTANT_FLAG = "slack-app-assistant"
 SLACK_APP_BOT_PRS_FLAG = "slack-app-bot-prs"
 SLACK_APP_LIVING_ARTIFACTS_FLAG = "slack-app-living-artifacts"
 SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG = "slack-app-canvas-file-artifacts"
+SLACK_APP_MODEL_CLASSIFIER_FLAG = "slack-app-model-classifier"
 UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 
 
@@ -87,6 +88,32 @@ def is_slack_app_home_enabled(integration: Integration) -> bool:
     except Exception:
         logger.exception(
             "slack_app_home_feature_flag_check_failed",
+            integration_id=integration.id,
+        )
+        return False
+
+
+def is_slack_app_model_classifier_enabled(integration: Integration) -> bool:
+    """Gate for reading a one-off model choice out of the mention text ("use fable
+    for this one") and running that task on it. Keyed on the Slack workspace +
+    PostHog org, matching the other Slack-app gates.
+
+    Independent of ``slack-app-home``: an override applies whether or not the
+    workspace has opted into the settings tab."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_MODEL_CLASSIFIER_FLAG,
+                f"slack_workspace:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_model_classifier_feature_flag_check_failed",
             integration_id=integration.id,
         )
         return False

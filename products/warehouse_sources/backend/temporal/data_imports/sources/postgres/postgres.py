@@ -392,10 +392,14 @@ def _is_connection_limit_error(error: BaseException) -> bool:
 # database system is starting up"), a server replaying WAL after a crash ("the database system is
 # in recovery mode"), or a hot standby that has accepted the connection attempt but not yet reached
 # a consistent recovery point ("the database system is not yet accepting connections", DETAIL
-# "Consistent recovery state has not been yet reached"). All are transient: the server begins
-# accepting connections within seconds once startup/recovery completes, so a fresh connect after a
-# short backoff succeeds. libpq surfaces these as a bare OperationalError at connect time (no
-# SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
+# "Consistent recovery state has not been yet reached"). The same SQLSTATE also covers the mirror
+# case at the other end of the server's lifecycle: a smart/fast shutdown in progress refuses new
+# connections with "the database system is shutting down" while existing backends are terminated
+# (that termination surfaces separately as "terminating connection due to administrator command",
+# already retried via `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`). All are transient: the server begins
+# accepting connections again within seconds once startup/recovery/restart completes, so a fresh
+# connect after a short backoff succeeds. libpq surfaces these as a bare OperationalError at connect
+# time (no SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
 # hot-standby-disabled refusal — that reads "the database system is not accepting connections"
 # (no "yet") with DETAIL "Hot standby mode is disabled" and stays non-retryable (see source.py's
 # `get_non_retryable_errors`); none of the substrings below appear in it.
@@ -403,6 +407,7 @@ _SERVER_STARTING_UP_ERROR_SUBSTRINGS = (
     "the database system is starting up",
     "the database system is not yet accepting connections",
     "the database system is in recovery mode",
+    "the database system is shutting down",
 )
 
 
@@ -427,9 +432,10 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     the moment another connection closes, and the server begins accepting connections once
     startup/recovery finishes. Used by the read/sync connect retry (`_connect_with_dropped_retry`)
     and the `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit
-    refusals and server-startup refusals too (via `_is_dropped_or_connection_limit`) but deliberately
-    keeps failing fast on connect-time *timeouts*, where a timeout usually means an unreachable host /
-    unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    refusals, server-startup refusals, and recovery conflicts too (via
+    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
+    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
+    and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
@@ -443,17 +449,24 @@ def _is_dropped_or_connection_limit(error: BaseException) -> bool:
     """Transient conditions the background schema-discovery retry recovers from in process.
 
     A mid-stream drop (`_is_connection_dropped_error`), a connection-limit refusal
-    (`_is_connection_limit_error`), or a "server not ready" refusal while the source is still
-    starting up / recovering (`_is_server_starting_up_error`). All are transient — a slot frees as
-    connections close, a pooler-cached login failure clears once the upstream has capacity, and the
-    server begins accepting connections once startup/recovery finishes — so discovery retries them on
-    a fresh connection instead of failing the activity and surfacing captured error-tracking noise.
-    Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
-    deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
-    should fail fast rather than burn the retry budget.
+    (`_is_connection_limit_error`), a "server not ready" refusal while the source is still starting
+    up / recovering (`_is_server_starting_up_error`), or a hot-standby recovery conflict
+    (`_is_recovery_conflict_error`). All are transient — a slot frees as connections close, a
+    pooler-cached login failure clears once the upstream has capacity, the server begins accepting
+    connections once startup/recovery finishes, and a recovery conflict clears once the replica's WAL
+    replay moves past the conflicting row versions — so discovery retries them on a fresh connection
+    instead of failing the activity and surfacing captured error-tracking noise. The import read path
+    already retries the same recovery-conflict condition mid-stream (see `handle_recovery_conflict`);
+    discovery just needed the same treatment. Unlike the read/sync connect path
+    (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is deliberately excluded: during
+    discovery a timeout usually means a now-unreachable host, which should fail fast rather than burn
+    the retry budget.
     """
     return (
-        _is_connection_dropped_error(error) or _is_connection_limit_error(error) or _is_server_starting_up_error(error)
+        _is_connection_dropped_error(error)
+        or _is_connection_limit_error(error)
+        or _is_server_starting_up_error(error)
+        or _is_recovery_conflict_error(error)
     )
 
 
@@ -664,12 +677,15 @@ def _get_sslmode(require_ssl: bool) -> str:
 # Transaction-mode connection poolers reject the libpq `options` startup parameter outright:
 # Supabase's Supavisor (port 6543) and PgBouncer in transaction mode report "unsupported startup
 # parameter: options", and AWS RDS Proxy reports "RDS Proxy currently doesn't support command-line
-# options". We only send `options` to pin client_encoding=UTF8 for Redshift's legacy UNICODE alias
-# (see FORCE_UTF8_CLIENT_ENCODING), and Redshift never sits behind these poolers — so when a server
-# rejects `options`, dropping it and retrying is safe (UTF8 is the default client encoding for real
-# Postgres). The RDS Proxy text uses a typographic apostrophe, so match the apostrophe-free tail.
+# options". Neon's pooler names the offending setting instead — "unsupported startup parameter in
+# options: statement_timeout" — so match on the prefix rather than any one parameter name.
+# Beyond client_encoding=UTF8 for Redshift's legacy UNICODE alias (see FORCE_UTF8_CLIENT_ENCODING),
+# `options` only ever carries server-side timeouts that the caller's own deadlines already bound —
+# so when a server rejects it, dropping it and retrying is safe. The RDS Proxy text uses a
+# typographic apostrophe, so match the apostrophe-free tail.
 _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS = (
     "unsupported startup parameter: options",
+    "unsupported startup parameter in options",
     "support command-line options",
 )
 
@@ -701,18 +717,24 @@ def _is_ip_literal(host: str) -> bool:
         return False
 
 
-def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> str | None:
-    """Resolve `host` to an IP under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
+def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> list[str] | None:
+    """Resolve `host` to its addresses under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
 
     psycopg3 resolves hostnames in Python before libpq ever connects — `conninfo_attempts` calls
-    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved address
-    to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so a stalled
-    or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as long as the
-    OS resolver takes. It never trips `connect_timeout`; the activity instead runs until Temporal's
-    `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a misleading
-    `CancelledError` and burning the whole activity's retry budget. Resolving here and passing the
-    address via `hostaddr` (which makes psycopg skip its own lookup) turns a stalled resolver into a
-    fast, retryable error instead.
+    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved
+    address(es) to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so
+    a stalled or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as
+    long as the OS resolver takes. It never trips `connect_timeout`; the activity instead runs until
+    Temporal's `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a
+    misleading `CancelledError` and burning the whole activity's retry budget. Resolving here turns a
+    stalled resolver into a fast, retryable error instead.
+
+    Returns every resolved address, not just one: when a host resolves to more than one address (most
+    commonly a dual-stack host with both an AAAA and an A record), `Connection.connect` tries each
+    `hostaddr` attempt in turn and only fails once all of them do (see `conninfo_attempts` /
+    `Connection.connect`'s attempt loop) — a network that can't route one address family (e.g. no IPv6
+    egress) still connects via the other. Handing psycopg a single pre-resolved `hostaddr` would
+    collapse that to one attempt and turn an unreachable-address-family blip into a hard failure.
 
     Returns None when there is nothing to bound — an empty host, a Unix-socket path, or a host that is
     already an IP literal — and also on a genuine resolution failure, so psycopg connects (and
@@ -749,8 +771,17 @@ def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> str 
     if not addrinfo:
         return None
     # sockaddr[0] is the address string (getaddrinfo types it as str | int across the IPv4/IPv6
-    # tuple variants, so coerce to satisfy the str return type).
-    return str(addrinfo[0][4][0])
+    # tuple variants, so coerce to satisfy the str return type). Dedupe while preserving order —
+    # getaddrinfo can repeat an address across otherwise-distinct tuples (e.g. differing canonical
+    # names), and a duplicate `hostaddr` attempt would just fail the same way twice.
+    seen: set[str] = set()
+    addresses: list[str] = []
+    for info in addrinfo:
+        address = str(info[4][0])
+        if address not in seen:
+            seen.add(address)
+            addresses.append(address)
+    return addresses
 
 
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
@@ -793,9 +824,14 @@ def _connect_to_postgres(
     # Bound psycopg's Python-side DNS lookup in production (see `_resolve_hostaddr_with_timeout`).
     # Dev/test connect to local or fake hosts, so skip the real lookup there — mirrors `_get_sslmode`.
     if not (settings.TEST or settings.DEBUG or settings.E2E_TESTING):
-        hostaddr = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
-        if hostaddr is not None:
-            kwargs["hostaddr"] = hostaddr
+        addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
+        if addresses:
+            # A comma-separated `host`/`hostaddr` pair of matching length is how psycopg/libpq
+            # represent multiple attempts (see `split_attempts` in psycopg/_conninfo_utils.py) — this
+            # keeps its per-address failover intact for a dual-stack host instead of pinning the
+            # connection to whichever single address `getaddrinfo` happened to return first.
+            host = ",".join([host] * len(addresses))
+            kwargs["hostaddr"] = ",".join(addresses)
     try:
         return _connect_with_options_fallback(
             host=host,
@@ -1445,8 +1481,11 @@ def get_schemas(
     # captured error-tracking noise even though the next attempt would succeed. Connection-limit
     # refusals ("remaining connection slots are reserved", "sorry, too many clients already") are
     # retried the same way — the customer's database is momentarily out of slots and frees one as
-    # connections close. Permanent errors (auth failures, SSL-required) re-raise immediately because
-    # `_is_dropped_or_connection_limit` matches only transient drops and connection-limit refusals.
+    # connections close. A hot-standby recovery conflict ("canceling statement due to conflict with
+    # recovery") is retried too — the same transient condition the import read path already recovers
+    # from mid-stream — since discovery can run against a read replica just like the row-copy path.
+    # Permanent errors (auth failures, SSL-required) re-raise immediately because
+    # `_is_dropped_or_connection_limit` matches only these known-transient conditions.
     def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
         connection = _connect_to_postgres(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -2556,7 +2595,18 @@ class PostgreSQLColumn(Column):
 
 
 def _is_read_replica(cursor: psycopg.Cursor) -> bool:
-    cursor.execute("SELECT pg_is_in_recovery()")
+    try:
+        cursor.execute("SELECT pg_is_in_recovery()")
+    except Exception as e:
+        # Postgres-wire-compatible engines (e.g. DuckDB-backed proxies) accept the connection but
+        # don't implement `pg_is_in_recovery` — a Postgres-only replication concept. Such an engine
+        # is never a physical hot-standby, so degrade to "not a replica" like the other best-effort
+        # probes on this connection (mirrors `_is_unsupported_function_error` callers). The setup
+        # connection runs autocommit, so this failed statement can't poison later probes on it.
+        if not _is_unsupported_function_error(e, "pg_is_in_recovery"):
+            raise
+        return False
+
     row = cursor.fetchone()
     if row is None:
         return False

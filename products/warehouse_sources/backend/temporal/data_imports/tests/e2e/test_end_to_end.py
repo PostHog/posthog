@@ -2195,7 +2195,14 @@ async def test_in_place_repartition_to_finer_datetime_format(team, postgres_conf
     )
     await postgres_connection.commit()
 
-    await _execute_run(str(uuid.uuid4()), inputs, [])
+    # The rollout flag gates the queued rewrite, not just detection, so a table whose repartition is
+    # already pending is still released when the flag is off. Force it on for the run under test.
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
+        "repartition_table.is_auto_repartition_enabled",
+        return_value=True,
+    ):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)

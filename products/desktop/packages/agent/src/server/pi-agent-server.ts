@@ -500,6 +500,7 @@ export class PiAgentServer {
           this.config.apiUrl,
         ),
       },
+      channelMode: !this.config.repositoryPath,
     });
     const runtime = new PiRuntime(client);
     const unsubscribeConversation = runtime.onConversationEvent((event) =>
