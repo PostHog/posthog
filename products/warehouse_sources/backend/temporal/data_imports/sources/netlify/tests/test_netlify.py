@@ -80,10 +80,11 @@ class TestTopLevelPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_and_checkpoints_after_each_page(self, MockSession) -> None:
         session = MockSession.return_value
+        next_url = f"{BASE}/sites?filter=all&page=2&per_page=100"  # Netlify echoes the query, filter included
         snaps = _wire(
             session,
             [
-                _response([{"id": "a"}], next_url=f"{BASE}/sites?page=2&per_page=100"),
+                _response([{"id": "a"}], next_url=next_url),
                 _response([{"id": "b"}], next_url=None),
             ],
         )
@@ -95,15 +96,17 @@ class TestTopLevelPagination:
         # filter=all is load-bearing: without it Netlify returns only sites the token's user
         # personally owns, hiding team sites (and starving every site-scoped fan-out).
         assert snaps[0]["params"]["filter"] == "all"
-        # The next-page URL is self-contained, so its params are dropped on the follow-up request.
+        # The next-page URL is followed verbatim (params dropped, not re-appended), so the filter
+        # rides along to every subsequent page.
+        assert snaps[1]["url"] == next_url
         assert snaps[1]["params"] == {}
         # State saved once — after the first page, pointing at the second. The last page has no next
         # link, so nothing is saved for it.
-        manager.save_state.assert_called_once_with(NetlifyResumeConfig(next_url=f"{BASE}/sites?page=2&per_page=100"))
+        manager.save_state.assert_called_once_with(NetlifyResumeConfig(next_url=next_url))
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_url(self, MockSession) -> None:
-        resume_url = f"{BASE}/sites?page=3&per_page=100"
+        resume_url = f"{BASE}/sites?filter=all&page=3&per_page=100"
         session = MockSession.return_value
         snaps = _wire(session, [_response([{"id": "c"}], next_url=None)])
         manager = _manager(NetlifyResumeConfig(next_url=resume_url))
