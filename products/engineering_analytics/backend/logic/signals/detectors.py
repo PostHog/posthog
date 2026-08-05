@@ -63,7 +63,7 @@ DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
 # A sharded job reports one GitHub job per shard, labeled `(i/N)`. turbo-discover.js builds the
 # label into the matrix group and ci-backend.yml wraps the group mid-name for product tests, so
 # the match cannot be anchored to the end of the string.
-SHARD_LABEL_RE = re.compile(r"\s*\(\d+/\d+\)")
+SHARD_LABEL_RE = re.compile(r"\s*\((\d+)/\d+\)")
 
 
 def _base_job_name(job_name: str) -> str:
@@ -124,16 +124,19 @@ def detect_flaky_checks(
 
     findings: list[CISignalFinding] = []
     for (repo_owner, repo_name, workflow_name, job_name), rows in sorted(by_job.items()):
-        flaky_count = len(rows)
+        # One run recovering on several shards is one flaky run: counting rows would let a single
+        # bad run clear min_flaky_runs on its own.
+        flaky_count = len({row.run_id for row in rows})
         if flaky_count < min_flaky_runs:
             continue
         repo = f"{repo_owner}/{repo_name}"
         # The flaky thing is the job, not any one rerun: one worked example plus a count.
         latest = max(rows, key=lambda row: row.run_id)
         # Which shard holds the offending test is still evidence, so keep it on the worked example
-        # even though it's out of the key.
-        shard_names = {row.job_name for row in rows}
-        shard_note = f", spread over {len(shard_names)} shards of the job" if len(shard_names) > 1 else ""
+        # even though it's out of the key. Distinct indices, not names: `(1/4)` and `(1/6)` are the
+        # same shard slot under a drifted count.
+        shard_indices = {match.group(1) for row in rows if (match := SHARD_LABEL_RE.search(row.job_name))}
+        shard_note = f", spread over {len(shard_indices)} shards of the job" if len(shard_indices) > 1 else ""
         latest_shard = f" (shard '{latest.job_name}')" if latest.job_name != job_name else ""
         findings.append(
             CISignalFinding(

@@ -708,7 +708,21 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].extra["flaky_count"] == 3
         # The shard the worked example came from is evidence, so it survives outside the key.
         assert "Product tests (warehouse-sources (1/6), events schema legacy)" in findings[0].description
+        # `(1/4)`..`(1/6)` are all shard slot 1, so no multi-shard spread is claimed.
+        assert "spread over" not in findings[0].description
         _assert_emittable(findings[0])
+
+    def test_flaky_check_counts_runs_not_shard_recoveries(self) -> None:
+        # One run recovering on three shards is one flaky run: counting query rows would let a
+        # single bad run clear min_flaky_runs on its own.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [_run_row(1, "CI", "shaQ", "success", now - timedelta(hours=1), 60, run_attempt=2)]
+        jobs = []
+        for index in range(1, 4):
+            shard = f"Product tests (warehouse-sources ({index}/6), events schema legacy)"
+            jobs.append(_job_row(index * 10, 1, shard, "shaQ", "failure", now - timedelta(hours=1), run_attempt=1))
+            jobs.append(_job_row(index * 10 + 1, 1, shard, "shaQ", "success", now - timedelta(hours=1), run_attempt=2))
+        assert detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=3) == []
 
     @parameterized.expand(
         [
