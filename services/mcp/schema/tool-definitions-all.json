@@ -2494,7 +2494,7 @@
         }
     },
     "docs-search": {
-        "description": "Use this tool for any PostHog questions to search the documentation. If the user's question mentions multiple topics, search for each topic separately and combine the results. It relies on a hybrid (semantic + full-text) search, so phrase your query in natural language. Our product and docs change often, so this tool is required for accurate answers:\n\n- How to use PostHog\n- How to use PostHog features\n- How to contact support or other humans\n- How to report bugs\n- How to submit feature requests\n- To troubleshoot something\n- What default fields and properties are available for events and persons\n- …Or anything else PostHog-related\n\nFor troubleshooting, ask the user to provide the error messages they are encountering. If no error message is involved, ask the user to describe their expected results vs. the actual results they're seeing. You avoid suggesting things that the user has told you they've already tried.\n\nImportant:\n\n1. Don't rely on your training data or previous searches/answers. Always re-check facts against current docs and tutorials. If current docs or tutorials contradict core memory on product facts, prefer the docs result.\n2. Always search PostHog docs/tutorials and prioritize results from posthog.com over training data.\n3. Always include at least one relevant docs/tutorial link in your reply.\n4. Never suggest emailing support@posthog.com or say you'll create a support ticket.\n5. Never use Community Questions as a source or cite them; they're often outdated or incorrect.",
+        "description": "Use this tool for any PostHog questions to search the documentation. If the user's question mentions multiple topics, search for each topic separately and combine the results. It relies on a hybrid (semantic + full-text) search, so phrase your query in natural language. Our product and docs change often, so this tool is required for accurate answers:\n\n- How to use PostHog\n- How to use PostHog features\n- What's new in PostHog — recently shipped features, products, and tools\n- How to contact support or other humans\n- How to report bugs\n- How to submit feature requests\n- To troubleshoot something\n- What default fields and properties are available for events and persons\n- …Or anything else PostHog-related\n\nFor troubleshooting, ask the user to provide the error messages they are encountering. If no error message is involved, ask the user to describe their expected results vs. the actual results they're seeing. You avoid suggesting things that the user has told you they've already tried.\n\nImportant:\n\n1. Don't rely on your training data or previous searches/answers. Always re-check facts against current docs and tutorials. If current docs or tutorials contradict core memory on product facts, prefer the docs result.\n2. Always search PostHog docs/tutorials and prioritize results from posthog.com over training data.\n3. PostHog ships changes daily, so a capability missing from your training data may exist now. If a search comes up empty for something that plausibly shipped recently, check the changelog: https://posthog.com/changelog.md (RSS: https://posthog.com/changelog.rss).\n4. Always include at least one relevant docs/tutorial link in your reply.\n5. Never suggest emailing support@posthog.com or say you'll create a support ticket.\n6. Never use Community Questions as a source or cite them; they're often outdated or incorrect.",
         "category": "Docs",
         "feature": "docs",
         "summary": "Search documentation",
@@ -5555,7 +5555,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). Results are '$ai_evaluation' events.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session' — a session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). Results are '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -5738,7 +5738,7 @@
         "requires_ai_consent": true
     },
     "llma-evaluation-test-hog": {
-        "description": "Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and runs against trace-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's aggregation window. Returns per-sample results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
+        "description": "Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period. Returns per-sample results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Test Hog evaluation code",
@@ -5752,7 +5752,7 @@
         }
     },
     "llma-evaluation-update": {
-        "description": "Partially update an AI observability evaluation. Requires the evaluation `id` (UUID) — if you don't have it, call llma-evaluation-list first to look it up by name. Toggle enabled, change its type or evaluation config, or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id may be null when no key is pinned.",
+        "description": "Partially update an AI observability evaluation. Requires the evaluation `id` (UUID) — if you don't have it, call llma-evaluation-list first to look it up by name. Toggle enabled, change its type or evaluation config, or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",
@@ -7547,7 +7547,7 @@
         }
     },
     "pr-lifecycle": {
-        "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". metric_quality is \"partial\" — it covers CI events only; review and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.",
+        "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events — opened, ready for review, converted to draft, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". Draft/ready transitions appear only when the issue-events table is synced and cover a bounded recent window. metric_quality is \"partial\" — review and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "PR lifecycle timeline",
@@ -7702,7 +7702,7 @@
         }
     },
     "pull-requests": {
-        "description": "Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI rollup (runs / passing / failing / pending). Use this for \"which PRs are stuck\", \"which open PRs have failing or pending CI\", and per-author or per-repo PR triage. open_to_merge_seconds is coarse — it is merged_at minus created_at and fuses draft and ready-for-review time, so report it as \"open to merge\", never \"cycle time\". CI counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput questions.",
+        "description": "Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI rollup (runs / passing / failing / pending). Use this for \"which PRs are stuck\", \"which open PRs have failing or pending CI\", and per-author or per-repo PR triage. open_to_merge_seconds is coarse — it is merged_at minus created_at and fuses draft and ready-for-review time, so report it as \"open to merge\", never \"cycle time\". ready_to_merge_seconds is the true cycle time: merged_at minus the last observed ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null means \"not observed\" (the issue-events window is bounded), never zero. CI counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput questions.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "List pull requests with CI status",
@@ -11341,6 +11341,37 @@
             "readOnlyHint": false
         }
     },
+    "web-analytics-path-cleaning-suggestions-apply": {
+        "description": "Apply a suggested set of path-cleaning rules by its health-issue `id`, merging them into the project's path cleaning configuration. Existing rules are never overwritten — only new rules are appended — and the underlying `path_cleaning_suggestions` health issue is resolved. Returns how many rules were added. Requires project admin (the same gate as editing path cleaning rules in team settings). Applying changes historical numbers in every Web analytics and Paths chart that has cleaning enabled, so confirm with the user before calling this.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Apply a path-cleaning suggestion",
+        "title": "Apply a path-cleaning suggestion",
+        "required_scopes": ["web_analytics:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "web-analytics-path-cleaning-suggestions"
+    },
+    "web-analytics-path-cleaning-suggestions-generate": {
+        "description": "Analyze the project's recent URL paths and generate suggested path-cleaning rules on demand. Samples the most-viewed paths, asks the model for `{regex, alias}` rules, and validates each against the real paths (dropping any that don't match), then stores the result as a `path_cleaning_suggestions` health issue. Returns `status` ('generated' with a `suggestion`, or a skip reason like 'skipped_no_paths' / 'skipped_low_cardinality' when there isn't enough to suggest from). Pending suggestions surface through the health-issues API (filter `kind=path_cleaning_suggestions`); dismiss one by PATCHing the issue's `dismissed` flag. Use when the user asks to clean up or normalize their paths and no suggestion exists yet. This only proposes rules — apply them with `web-analytics-path-cleaning-suggestions-apply`; nothing changes until then.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Generate path-cleaning suggestions",
+        "title": "Generate path-cleaning suggestions",
+        "required_scopes": ["web_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "web-analytics-path-cleaning-suggestions"
+    },
     "web-analytics-weekly-digest": {
         "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
         "category": "Web analytics",
@@ -11441,7 +11472,7 @@
         }
     },
     "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish; if draft editing isn't enabled for the project yet, a live change means recreating the workflow as a new draft.",
+        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Enable workflow",
@@ -11609,7 +11640,7 @@
         }
     },
     "workflows-patch-action-email": {
-        "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
+        "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch a workflow step's email",
@@ -11637,7 +11668,7 @@
         }
     },
     "workflows-patch-graph": {
-        "description": "Surgically edit a workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any graph change — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until workflows-publish. A rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft. The full updated workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
+        "description": "Surgically edit a workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any graph change — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until workflows-publish. The full updated workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch workflow graph",
@@ -11749,7 +11780,7 @@
         }
     },
     "workflows-update": {
-        "description": "Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet - then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable / workflows-archive.",
+        "description": "Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately. Status changes go through workflows-enable / workflows-archive.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

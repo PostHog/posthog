@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popover } from '@posthog/lemon-ui'
@@ -7,12 +7,20 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { urls } from 'scenes/urls'
 
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { MarketingAnalyticsAttributionBreakdown } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { BREAKDOWN_LABELS, marketingAttributionLogic } from '../../logic/marketingAttributionLogic'
+import {
+    BREAKDOWN_LABELS,
+    MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID,
+    marketingAttributionLogic,
+    unattributedTooltip,
+} from '../../logic/marketingAttributionLogic'
 import { AttributionTable } from './AttributionTable'
+import { ConversionPaths } from './ConversionPaths'
 
 // Offered but disabled: they exist on the Dashboard's drill-down, so dropping them silently reads as
 // a bug, but events carry no ad identifier for any model to credit.
@@ -30,9 +38,11 @@ export function AttributionTab(): JSX.Element {
     const {
         breakdownBy,
         excludeDirectTraffic,
+        excludeUnattributed,
         attributableGoals,
         selectedGoalId,
         query,
+        pathsQuery,
         attribution_window_days,
         effectiveLookbackDays,
         effectiveAllowMultipleConversions,
@@ -42,6 +52,7 @@ export function AttributionTab(): JSX.Element {
         setBreakdownBy,
         setConversionGoalId,
         setExcludeDirectTraffic,
+        setExcludeUnattributed,
         setLookbackWindowDays,
         setAllowMultipleConversionsPerVisitor,
         setOptionsOpen,
@@ -105,6 +116,14 @@ export function AttributionTab(): JSX.Element {
             />
             <LemonSwitch
                 fullWidth
+                checked={excludeUnattributed}
+                onChange={setExcludeUnattributed}
+                label="Exclude unattributed traffic"
+                tooltip={unattributedTooltip(breakdownBy)}
+                data-attr="marketing-attribution-exclude-unattributed"
+            />
+            <LemonSwitch
+                fullWidth
                 checked={effectiveAllowMultipleConversions}
                 onChange={setAllowMultipleConversionsPerVisitor}
                 label="Count repeat conversions"
@@ -115,66 +134,74 @@ export function AttributionTab(): JSX.Element {
     )
 
     return (
-        <div className="flex flex-col">
-            <FilterBar
-                showBorderBottom
-                left={
-                    <div className="flex flex-wrap items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <span className="text-secondary">Conversion goal</span>
-                            <LemonSelect
-                                size="small"
-                                value={selectedGoalId}
-                                onChange={(value) => value && setConversionGoalId(value)}
-                                options={attributableGoals.map((goal) => ({
-                                    value: goal.conversion_goal_id,
-                                    label: goal.conversion_goal_name,
-                                }))}
-                            />
+        // Rebinds the collection inside the tab, shadowing the scene-level binding on purpose: the
+        // refresh button reloads the attribution queries, not the dashboard tiles.
+        <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID }}>
+            <div className="flex flex-col">
+                <FilterBar
+                    showBorderBottom
+                    left={
+                        <div className="flex flex-wrap items-center gap-4">
+                            <div className="flex items-center gap-2">
+                                <span className="text-secondary">Conversion goal</span>
+                                <LemonSelect
+                                    size="small"
+                                    value={selectedGoalId}
+                                    onChange={(value) => value && setConversionGoalId(value)}
+                                    options={attributableGoals.map((goal) => ({
+                                        value: goal.conversion_goal_id,
+                                        label: goal.conversion_goal_name,
+                                    }))}
+                                />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-secondary">Break down by</span>
+                                <LemonSelect
+                                    size="small"
+                                    value={breakdownBy}
+                                    onChange={(value) => value && setBreakdownBy(value)}
+                                    options={[
+                                        ...Object.values(MarketingAnalyticsAttributionBreakdown).map((level) => ({
+                                            value: level,
+                                            label: BREAKDOWN_LABELS[level],
+                                        })),
+                                        ...UNATTRIBUTABLE_LEVELS.map((level) => ({
+                                            value: level.value as MarketingAnalyticsAttributionBreakdown,
+                                            label: level.label,
+                                            disabledReason: UNATTRIBUTABLE_REASON,
+                                        })),
+                                    ]}
+                                />
+                            </div>
                         </div>
+                    }
+                    right={
                         <div className="flex items-center gap-2">
-                            <span className="text-secondary">Break down by</span>
-                            <LemonSelect
-                                size="small"
-                                value={breakdownBy}
-                                onChange={(value) => value && setBreakdownBy(value)}
-                                options={[
-                                    ...Object.values(MarketingAnalyticsAttributionBreakdown).map((level) => ({
-                                        value: level,
-                                        label: BREAKDOWN_LABELS[level],
-                                    })),
-                                    ...UNATTRIBUTABLE_LEVELS.map((level) => ({
-                                        value: level.value as MarketingAnalyticsAttributionBreakdown,
-                                        label: level.label,
-                                        disabledReason: UNATTRIBUTABLE_REASON,
-                                    })),
-                                ]}
-                            />
+                            <ReloadAll iconOnly />
+                            <Popover
+                                visible={optionsOpen}
+                                onClickOutside={() => setOptionsOpen(false)}
+                                placement="bottom-end"
+                                overlay={optionsContent}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconGear />}
+                                    onClick={() => setOptionsOpen(!optionsOpen)}
+                                    data-attr="marketing-attribution-options"
+                                >
+                                    Options
+                                </LemonButton>
+                            </Popover>
                         </div>
-                    </div>
-                }
-                right={
-                    <Popover
-                        visible={optionsOpen}
-                        onClickOutside={() => setOptionsOpen(false)}
-                        placement="bottom-end"
-                        overlay={optionsContent}
-                    >
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconGear />}
-                            onClick={() => setOptionsOpen(!optionsOpen)}
-                            data-attr="marketing-attribution-options"
-                        >
-                            Options
-                        </LemonButton>
-                    </Popover>
-                }
-            />
-            <div className="mt-4 flex flex-col gap-4 pb-8">
-                {query && <AttributionTable query={query} attachTo={marketingAnalyticsLogic} />}
+                    }
+                />
+                <div className="mt-4 flex flex-col gap-4 pb-8">
+                    {query && <AttributionTable query={query} attachTo={marketingAnalyticsLogic} />}
+                    {pathsQuery && <ConversionPaths query={pathsQuery} attachTo={marketingAnalyticsLogic} />}
+                </div>
             </div>
-        </div>
+        </BindLogic>
     )
 }

@@ -257,7 +257,7 @@ class DeltaWriter:
                 governor_observed_delta_mb=adm.observed_delta_mb,
                 governor_budget_mb=adm.budget_mb,
                 governor_capacity_exceeded=adm.capacity_exceeded,
-                governor_mpp=adm.upsert_kwargs.get("max_parallel_partitions"),
+                governor_mpp=adm.planned_mpp,
                 **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()

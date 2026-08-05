@@ -196,10 +196,9 @@ pub struct Config {
     ///      `UnknownKind` and skip-commits it without a marker, stranding the run as a shortfall.
     ///   2. Flip `SEEDER_PERSON_SEEDS_ENABLED` and let person runs seed.
     ///   3. Flip this once step 1 is confirmed everywhere.
-    ///   4. Flip Django's `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` once both preconditions in
-    ///      its `posthog/settings/cohorts.py` docstring hold: the flags service no longer reads
-    ///      `last_backfill_person_properties_at` as proof `cohort_membership` is populated, and a
-    ///      person-leaf edit supersedes the cohort's active person runs. Until then the finalizer
+    ///   4. Set `REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY=events_or_calculation_stamp` on every
+    ///      region's flags service, then flip Django's
+    ///      `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`. Until that gate opens the finalizer
     ///      skips person runs, so they stay `reconciling` after step 3 and
     ///      `seeder_runs_reconciling{kind="person_property"}` climbs. That is expected, not a
     ///      stalled dispatch.
@@ -269,10 +268,13 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub seeder_reconcile_max_concurrent_dispatches: usize,
 
-    /// The membership-change topic whose high watermarks anchor the marker watcher's start
-    /// positions, captured at dispatch time. The observer reads markers from the same topic.
-    #[envconfig(default = "cohort_membership_changed_shadow")]
-    pub cohort_membership_changed_topic: String,
+    /// The reconcile-marker topic whose high watermarks anchor the marker watcher's start positions,
+    /// captured at dispatch time. The observer reads markers from the same topic. Its partition count
+    /// must not change while runs are in flight: a run's watch covers the partitions that existed at
+    /// its dispatch, so one added later is never read — holding the run open if it appeared before
+    /// the observation ends were captured, and settling the run short if it appeared after them.
+    #[envconfig(default = "cohort_reconcile_markers")]
+    pub cohort_reconcile_markers_topic: String,
 
     /// Enable the dark-by-default reconcile observer: the marker-watch task and the driver's
     /// observation pass. A separate gate from auto-dispatch — observation can run against
@@ -285,7 +287,7 @@ pub struct Config {
     #[envconfig(default = "cohort-stream-seeds")]
     pub kafka_seed_consumer_group: String,
 
-    /// Timeout for the seed-group OffsetFetch and membership-topic watermark metadata calls the
+    /// Timeout for the seed-group OffsetFetch and marker-topic watermark metadata calls the
     /// observer makes.
     #[envconfig(default = "10000")]
     pub seeder_reconcile_offsets_timeout_ms: u64,

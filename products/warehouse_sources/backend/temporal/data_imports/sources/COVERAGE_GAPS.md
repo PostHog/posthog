@@ -7,7 +7,8 @@ This is not a list of unimplemented sources.
 Every source below already syncs data.
 The gap is that the vendor's API offers objects we never wired up.
 
-Produced 2026-07-26 by the [auditing-warehouse-source-coverage skill](/.agents/skills/auditing-warehouse-source-coverage/SKILL.md).
+Produced 2026-07-26 by the [auditing-warehouse-source-coverage skill](/.agents/skills/auditing-warehouse-source-coverage/SKILL.md),
+refreshed 2026-08-04.
 Re-run that skill to refresh this file.
 Tick items off as they ship rather than deleting them, so the next audit can tell "done" from "never found".
 
@@ -18,9 +19,19 @@ Per-source detail for the remaining 547 lives in
 [COVERAGE_GAPS_APPENDIX.md](COVERAGE_GAPS_APPENDIX.md), which is generated and covers every source
 with its assessment, the doc URL it was diffed against, and its gap list.
 
-Headline numbers: **4,540 missing endpoints across 547 sources**, of which 1,704 are high priority.
+Headline numbers from the original sweep: **4,540 missing endpoints across 547 sources**, of which
+1,704 are high priority.
 466 sources have at least one high-priority gap.
 55 sources are adequately covered.
+
+**2026-08-04 refresh.** Eight tier 1 and 2 sources shipped their gaps between 2026-07-28 and 07-30 and
+their boxes are now ticked: Stripe (16 tables to 42), GitHub (10 to 54), Sentry (37), Cloudflare (36),
+Zendesk (34), Klaviyo (32), Mailchimp (32), Clerk (4 to 27).
+Stripe, Sentry, Klaviyo and Mailchimp are fully closed.
+Work is in flight on the remaining tier 1 and 2 sources, so treat unticked boxes there as claimed
+rather than free.
+Intercom was added as a tier 2 entry in the same refresh: it is more widely connected than several
+sources that were hand-audited, but the original pass only swept it into the appendix.
 
 ## How sources were prioritized
 
@@ -47,10 +58,10 @@ ClickHouse, Neon, Convex, Google Sheets, Custom) introspect user-defined schemas
 
 Two different confidence levels are mixed below. Treat them differently.
 
-| Marker                 | Meaning                                                                                                                                                   |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **spec-verified**      | The vendor's official machine-readable spec was fetched on 2026-07-26 and diffed against our endpoint list. Gaps are real as of that date.                |
-| **needs confirmation** | Our side was read from code, but the vendor side comes from API familiarity rather than a fetched spec. Confirm against current docs before implementing. |
+| Marker                 | Meaning                                                                                                                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **spec-verified**      | The vendor's official machine-readable spec was fetched (2026-07-26, or 2026-08-04 where a section says so) and diffed against our endpoint list. Gaps are real as of that date. |
+| **needs confirmation** | Our side was read from code, but the vendor side comes from API familiarity rather than a fetched spec. Confirm against current docs before implementing.                        |
 
 Our side was read from each source's `settings.py` / `constants.py` endpoint map for every entry,
 so the "what we have today" column is accurate in all cases.
@@ -129,23 +140,23 @@ Have: `BalanceTransaction`, `Charge`, `Coupon`, `CreditNote`, `Customer`,
 
 High value:
 
-- [ ] `payment_intents` — the payment funnel and failure reasons. Charges alone miss attempts that never became a charge.
-- [ ] `checkout/sessions` — checkout conversion and abandonment.
-- [ ] `subscription_items` — per-price lines on multi-item subscriptions. Without it, MRR cannot be split by product on any subscription with more than one item.
-- [ ] `subscription_schedules` — phased and scheduled subscription changes.
-- [ ] `promotion_codes` — `Coupon` tells you the discount exists but not which redeemable code was used.
-- [ ] `plans` — the legacy pricing model, still widely in use.
-- [ ] `tax_rates` and `tax_ids`.
-- [ ] `quotes` — sales-led billing.
-- [ ] `events` — Stripe's own event log, useful as a generic change feed.
-- [ ] `billing/meters`, `billing/credit_grants`, `billing/credit_balance_transactions`, `billing/credit_balance_summary` — usage-based billing. Entirely absent, and this is where Stripe is actively investing.
-- [ ] `entitlements/features`, `entitlements/active_entitlements` — feature entitlements.
-- [ ] `invoice_payments` — how an invoice actually got paid.
-- [ ] `setup_intents`, `setup_attempts` — payment method setup funnel.
-- [ ] `payment_links`.
-- [ ] `transfers`, `application_fees`, `topups` — needed by any Connect platform.
-- [ ] `reviews`, `radar/early_fraud_warnings` — fraud review outcomes.
-- [ ] `shipping_rates`.
+- [x] `payment_intents` — the payment funnel and failure reasons. Charges alone miss attempts that never became a charge.
+- [x] `checkout/sessions` — checkout conversion and abandonment.
+- [x] `subscription_items` — per-price lines on multi-item subscriptions. Without it, MRR cannot be split by product on any subscription with more than one item.
+- [x] `subscription_schedules` — phased and scheduled subscription changes.
+- [x] `promotion_codes` — `Coupon` tells you the discount exists but not which redeemable code was used.
+- [x] `plans` — the legacy pricing model, still widely in use.
+- [x] `tax_rates` and `tax_ids`.
+- [x] `quotes` — sales-led billing.
+- [x] `events` — Stripe's own event log, useful as a generic change feed.
+- [x] `billing/meters`, `billing/credit_grants`, `billing/credit_balance_transactions`, `billing/credit_balance_summary` — usage-based billing. Entirely absent, and this is where Stripe is actively investing.
+- [x] `entitlements/features`, `entitlements/active_entitlements` — feature entitlements.
+- [x] `invoice_payments` — how an invoice actually got paid.
+- [x] `setup_intents`, `setup_attempts` — payment method setup funnel.
+- [x] `payment_links`.
+- [x] `transfers`, `application_fees`, `topups` — needed by any Connect platform.
+- [x] `reviews`, `radar/early_fraud_warnings` — fraud review outcomes.
+- [x] `shipping_rates`.
 
 Lower priority: `issuing/*`, `treasury/*`, `terminal/*`, `identity/*`, `financial_connections/*`,
 `climate/*`, `sigma/*`, `reporting/*`, `forwarding/*`, `files`, `file_links`, `webhook_endpoints`,
@@ -243,24 +254,29 @@ Have: `issues`, `issue_comments`, `issue_events`, `issue_types`, `labels`, `mile
 - [ ] `code-quality/findings` and `pulls/stacks` (skipped: both back GitHub features that are still rolling out, and neither endpoint returns anything on an account without the feature enabled, so they would ship as tables that stay empty or error for nearly everyone. Worth revisiting once the features are generally available).
 - [ ] `repos/{repo}/events` (skipped: GitHub caps this feed at 300 events over 90 days and it restates what `repository_activity`, `issues`, and `pull_requests` already carry).
 
-### HubSpot — our side code-verified, vendor side needs confirmation
+### HubSpot — spec-verified 2026-08-04
 
-`ENDPOINTS` in `hubspot/settings.py` is exactly seven CRM objects.
-Two small additions would unblock most real analysis.
+Diffed against HubSpot's public spec catalog (<https://api.hubspot.com/public/api/spec/v1/specs>) and the
+individual 2026-03 OpenAPI specs behind it.
 
-- [ ] `pipelines` (and pipeline stages) — deals and tickets return `dealstage` and `pipeline` as opaque IDs today, so no one can group by stage name without hardcoding a mapping. Highest value item here.
-- [ ] `owners` — same problem for owner IDs. Also unblocks rep-level reporting.
-- [ ] `line_items` and `products` — deal composition and what was actually sold.
-- [ ] `calls`, `notes`, `tasks`, `communications` — the rest of the engagement objects. We have `emails` and `meetings` only.
-- [ ] `lists` and list memberships.
-- [ ] Marketing emails and marketing campaigns, with their statistics.
-- [ ] `forms` and form submissions.
-- [ ] Custom objects. Currently impossible to sync, and most mature HubSpot portals have them.
-- [ ] Property definitions — needed to interpret and label custom properties.
-- [ ] Associations as a first-class table. Today they ride along as a query param on contacts and companies only, so deal-to-contact links are not queryable.
-- [ ] Feedback submissions (NPS/CSAT surveys).
-- [ ] Workflows.
-- [ ] Web analytics events. `WEB_ANALYTICS_EVENTS_ENDPOINT` is already defined in `hubspot/settings.py:63` but is referenced nowhere else, so this is a half-finished thread rather than a new build.
+Have: contacts, companies, deals, tickets, quotes, emails, meetings, leads, calls, notes, tasks,
+communications, feedback_submissions, line_items, products, invoices, orders, subscriptions,
+commerce_payments, pipelines, pipeline_stages, properties, owners.
+
+- [x] `pipelines` (and pipeline stages) — deals and tickets return `dealstage` and `pipeline` as opaque IDs today, so no one can group by stage name without hardcoding a mapping. Highest value item here.
+- [x] `owners` — same problem for owner IDs. Also unblocks rep-level reporting.
+- [x] `line_items` and `products` — deal composition and what was actually sold.
+- [x] `calls`, `notes`, `tasks`, `communications` — the rest of the engagement objects. We have `emails` and `meetings` only.
+- [ ] `lists` and list memberships. (skipped: the v3 Lists API is a POST `/crm/v3/lists/search` with its own paging, and memberships are an unbounded per-list fan-out — neither fits the CRM object machinery)
+- [ ] Marketing emails and marketing campaigns, with their statistics. (skipped: `/marketing/v3/*` is a separate API family needing its own scopes and paginator)
+- [ ] `forms` and form submissions. (skipped: the only published Forms spec is version `2026-09-beta`, not GA)
+- [ ] Custom objects. Currently impossible to sync, and most mature HubSpot portals have them. (skipped: needs schema discovery per portal rather than a fixed table)
+- [x] Property definitions — needed to interpret and label custom properties.
+- [ ] Associations as a first-class table. Today they ride along as a query param on contacts and companies only, so deal-to-contact links are not queryable. (skipped: needs a pair-by-pair batch read across every object type; `line_items` now carries its deal association inline)
+- [x] Feedback submissions (NPS/CSAT surveys).
+- [ ] Workflows. (skipped: Automation v4 is a separate API family)
+- [ ] Web analytics events. `WEB_ANALYTICS_EVENTS_ENDPOINT` is already defined in `hubspot/settings.py:63` but is referenced nowhere else, so this is a half-finished thread rather than a new build. (skipped: `/events/v3/events` requires an objectId per request, so it is a per-record fan-out over the whole portal rather than a listable table)
+- [x] Commerce: `invoices`, `orders`, `subscriptions`, `commerce_payments`. Not covered: `carts`, `discounts`, `fees`, `taxes`, `tax_rates`, `payment_links` — configuration-shaped objects with little query value.
 
 ### LinkedIn Ads — spec-verified
 
@@ -275,31 +291,49 @@ Have: `accounts`, `campaigns`, `campaign_groups`, `creatives`, `conversions`, `c
 - [ ] Budget and bid data on campaigns. (skipped: `dailyBudget`, `unitCost` and `costType` already sync on `campaigns` and `totalBudget` on `campaign_groups`; the remainder would mean adding columns to live tables)
 - [ ] Video ad analytics. (skipped: `videoViews` and `videoCompletions` already sync on the stats tables; the extra quartile metrics would mean adding columns to live tables)
 
-### Google Search Console — needs confirmation
+### Google Search Console — spec-verified
 
-Seven tables, all of them `search_analytics` dimension bundles.
+Diffed against the [Search Console API discovery document](https://searchconsole.googleapis.com/$discovery/rest?version=v1)
+(revision 20260803) on 2026-08-04.
 
-- [ ] `sitemaps` — submission status, errors, indexed counts.
-- [ ] `sites` — the property list itself.
-- [ ] URL inspection results (index status per URL).
-- [ ] Additional dimension combinations, notably date + page + query together, and country + device.
+Have: `search_analytics_by_date`, `search_analytics_by_query`, `search_analytics_by_page`,
+`search_analytics_by_country`, `search_analytics_by_device`, `search_analytics_by_country_device`,
+`search_analytics_by_query_page`, `search_analytics_by_search_appearance`, `search_analytics_by_hour`,
+`sites`, `sitemaps`, `sitemap_contents`.
+
+- [x] `sitemaps` — submission status, errors, indexed counts. (`indexed` itself is marked deprecated
+      "do not use" in the discovery document, so the per-content-type `submitted` count ships instead,
+      as a `sitemap_contents` table.)
+- [x] `sites` — the property list itself.
+- [ ] URL inspection results (index status per URL). (skipped: `urlInspection.index.inspect` is a
+      per-URL POST with no listing endpoint, and nothing in the API yields a bounded URL list —
+      `sitemaps.list` returns sitemap file paths, not the URLs inside them. Combined with the
+      2,000 inspections per property per day quota, there is no way to drive it as a table.)
+- [x] Additional dimension combinations: country + device. (date + page + query already shipped as
+      `search_analytics_by_query_page`.) Also added `search_analytics_by_hour`, the only dimension
+      Google serves outside the 16-month daily window — it retains 10 days and needs
+      `dataState: hourly_all`.
+- [ ] Per search type (`type`: image, video, news, discover, googleNews) variants of the dimension
+      bundles. (skipped: real endpoint, but the docs do not state which dimensions each type supports,
+      so the table set could not be pinned down from the spec alone.)
 
 ### Clerk — spec-verified
 
 Diffed against [clerk/openapi-specs](https://github.com/clerk/openapi-specs).
 Four tables, and the two that matter most for an auth provider are missing.
 
-- [ ] `sessions` — no login/session data, so "how many people signed in" is unanswerable. Biggest gap.
+- [x] `sessions` — no login/session data, so "how many people signed in" is unanswerable. Biggest gap.
 - [ ] `sign_ups` — signup attempts including abandoned and failed ones. `users` only shows successes.
-- [ ] `organization_invitations`, `organization_domains`.
-- [ ] `organization_roles`, `organization_permissions` — needed to interpret membership roles.
-- [ ] `waitlist_entries`.
-- [ ] `allowlist_identifiers`, `blocklist_identifiers`.
-- [ ] `domains`, `saml_connections`, `enterprise_connections` — enterprise SSO configuration.
-- [ ] `billing` and `commerce` — Clerk's newer billing surface.
-- [ ] `oauth_applications`, `api_keys`, `m2m_tokens`, `machines`, `clients`.
+- [x] `organization_invitations`, `organization_domains`.
+- [x] `organization_roles`, `organization_permissions` — needed to interpret membership roles.
+- [x] `waitlist_entries`.
+- [x] `allowlist_identifiers`, `blocklist_identifiers`.
+- [x] `domains`, `saml_connections`, `enterprise_connections` — enterprise SSO configuration.
+- [x] `billing` and `commerce` — Clerk's newer billing surface (shipped as `commerce_plans` and `commerce_subscription_items`)
+- [x] `oauth_applications`, `api_keys`, `m2m_tokens`, `machines`, `clients`.
 - [ ] `email_addresses`, `phone_numbers` as their own tables.
-- [ ] `actor_tokens`, `sign_in_tokens`, `jwt_templates`, `redirect_urls`, `role_sets`, `templates`, `webhooks`.
+- [x] `jwt_templates`, `redirect_urls`, `role_sets`, `email_templates`, `sms_templates`
+- [ ] `actor_tokens`, `sign_in_tokens`, `webhooks`
 
 ### Reddit Ads, TikTok Ads, Snapchat Ads, Pinterest Ads — needs confirmation
 
@@ -335,18 +369,86 @@ campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demogr
 - [ ] Organization-level tables — funding sources, billing centers, invoices, members (skipped: all
       scoped to an organization ID this source does not collect).
 
-### Linear — needs confirmation
+### Reddit Ads — spec-verified
 
-Eight tables. Two small additions unblock the cycle-time use case.
+Reddit Ads is done; the section above still covers TikTok.
+Diffed against the Reddit Ads v3 OpenAPI spec (`https://ads-api.reddit.com/api/v3/openapi.json`) on 2026-08-04.
 
-- [ ] `workflow_states` — issues carry a state ID with no way to resolve it to a name or type (backlog / started / completed). Highest value item.
-- [ ] `issue_history` — state transitions over time. Without it, cycle time, lead time, and time-in-state cannot be computed.
-- [ ] `project_milestones`, `initiatives`, `roadmaps`.
-- [ ] `attachments` — links out to PRs and tickets, which is how Linear connects to GitHub.
-- [ ] `issue_relations` — blocks / blocked-by / duplicates.
-- [ ] `project_updates`, `documents`.
-- [ ] `team_memberships`, `organization`.
-- [ ] Custom views, templates, reactions, triage responsibilities.
+Have: campaigns, ad_groups, ads, campaign_report, ad_group_report, ad_report, ad_account,
+custom_audiences, saved_audiences, pixels, funding_instruments, lead_gen_forms, profiles,
+structured_posts, campaign_country_report, campaign_gender_report, campaign_placement_report,
+campaign_community_report, campaign_os_type_report.
+
+- [x] Creative metadata — `structured_posts`, fanned out over the account's profiles. Reddit hangs creatives off profiles, not off the ad account, and ad rows carry the `post_id` to join on.
+- [x] Breakdown dimensions on the report tables — gender, country, placement, device (`OS_TYPE`) and community, each a campaign-grain report table defaulted to `should_sync_default=False`. Reddit returns breakdowns as extra dimensions on the same `POST /reports` call, capped at three per request, so each dimension is its own table rather than a new param. Age is not shippable: `AGE` is absent from the spec's `breakdowns` enum (it appears only in a stale request example).
+- [x] Ad account table — `ad_account`, carrying `currency` and `time_zone_id`.
+- [x] Audiences and pixel definitions — `custom_audiences`, `saved_audiences`, `pixels`. Conversion _events_ are write-only (`POST /pixels/{id}/conversion_events`), so there is nothing to sync.
+- Also added: `funding_instruments` (per-instrument currency and credit limit), `lead_gen_forms`, `profiles`.
+- Not built: `apps` (the response schema exposes only `id`); `creative_assets` (rows arrive wrapped in a per-item `result` envelope); product catalogs, feeds, sets and their imports (business-scoped, not reachable from the configured ad account); the targeting reference lists (`communities`, `interests`, `geolocations`, `languages`, `devices`, `carriers`) and `time_zones`, which are global catalogs rather than account data; `POST /ad_accounts/{id}/history` (an audit log, not warehouse-shaped); forecasting, bid suggestions and data-deletion jobs (write or estimate endpoints).
+
+### Pinterest Ads — spec-verified
+
+Diffed against the Pinterest API v5 OpenAPI description in
+[pinterest/api-description](https://github.com/pinterest/api-description) (`v5/openapi.yaml`, spec version
+5.28.0) on 2026-08-04. Supersedes the Pinterest entries in the block above.
+
+Have: `campaigns`, `ad_groups`, `ads`, `campaign_analytics`, `ad_group_analytics`, `ad_analytics`,
+`ad_accounts`, `audiences`, `conversion_tags`, `keywords`, `campaign_targeting_analytics`,
+`ad_group_targeting_analytics`, `ad_targeting_analytics`.
+
+- [ ] Creative metadata (skipped: the only creative endpoints, `GET /pins` and `GET /pins/{pin_id}`,
+      need the `boards:read` and `pins:read` scopes, and the Pinterest OAuth app only requests
+      `ads:read user_accounts:read`. Adding scopes forces every existing connection to reconsent, so
+      it is its own piece of work. `ads.pin_id` and `ads.creative_type` already identify the creative.)
+- [x] Breakdown dimensions on the report tables — `campaign_targeting_analytics`,
+      `ad_group_targeting_analytics`, `ad_targeting_analytics`, broken down by age, gender, device,
+      placement, country and region. Off by default.
+- [x] Ad account table — `ad_accounts`, carrying currency and time zone.
+- [x] Audiences and pixel / conversion event definitions — `audiences` and `conversion_tags`,
+      plus `keywords` to resolve keyword targeting back to the bid term.
+
+Verified but not built: `lead_forms`, `customer_lists`, `customer_segments`, `labels`, `order_lines`,
+`promotions`, `product_group_promotions`, `templates`, `targeting_templates`, `schedules`,
+`advertiser_defined_events`, `ad_accounts/{id}/analytics` (account-level totals),
+`product_groups/analytics`. `billing_invoices` needs the `billing:read` scope.
+
+### TikTok Ads — spec-verified
+
+Supersedes the TikTok Ads entries in the section above.
+Diffed on 2026-08-04 against the TikTok Marketing API v1.3 surface as expressed by the actively
+maintained Airbyte `source-tiktok-marketing` manifest
+(<https://github.com/airbytehq/airbyte/blob/master/airbyte-integrations/connectors/source-tiktok-marketing/manifest.yaml>),
+since TikTok publishes no machine-readable spec and its docs portal renders client-side.
+
+Have: campaigns, ad_groups, ads, campaign_report, ad_group_report, ad_report, creative_videos,
+creative_images, campaign_demographic_report, campaign_country_report, campaign_platform_report,
+ad_group_demographic_report, ad_group_country_report, ad_group_platform_report,
+ad_demographic_report, ad_country_report, ad_platform_report.
+
+- [x] Creative metadata — `creative_videos` (`/file/video/ad/search/`) and `creative_images` (`/file/image/ad/search/`) decode the `video_id` / `image_ids` already synced on `ads`.
+- [x] Breakdown dimensions on the report tables — nine `report_type=AUDIENCE` tables covering gender + age, country, and operating system at campaign, ad group, and ad level. All default to off.
+- [ ] Ad account table (skipped: `/advertiser/info/` is not readable with the scope the PostHog TikTok app holds, so the table would fail for every connection. Report tables already carry `currency`; timezone stays missing).
+- [ ] Audiences (skipped: `/dmp/custom_audience/list/` needs the audience-management scope, which the app does not hold today).
+- [ ] Pixel / conversion event definitions (skipped: `/pixel/list/` needs the events-manager scope, which the app does not hold today).
+- [ ] Province-level breakdown (skipped: TikTok only offers `province_id` at ad level, so it does not fit the symmetric set above).
+- [ ] Spark Ads posts, creative portfolios, and music assets.
+
+### Linear — spec-verified
+
+Verified 2026-08-04 against the root `Query` type published by `@linear/sdk` 89.0.0 (npm), which is
+generated from Linear's live GraphQL schema.
+
+Have: issues, projects, teams, users, comments, labels, cycles, resources, workflow_states,
+project_milestones, initiatives, team_memberships, issue_relations, project_updates, documents.
+
+- [x] `workflow_states` — issues carry a state ID with no way to resolve it to a name or type (backlog / started / completed). Highest value item.
+- [ ] `issue_history` — state transitions over time. Without it, cycle time, lead time, and time-in-state cannot be computed. (skipped: no root `issueHistory` query — history is only reachable as `issue(id).history`, so it would need a per-issue fan-out)
+- [x] `project_milestones`, [x] `initiatives`, [ ] `roadmaps` (skipped: the schema marks `roadmaps` deprecated in favour of `initiatives`)
+- [x] `attachments` — links out to PRs and tickets, which is how Linear connects to GitHub. (already shipped as the `resources` table)
+- [x] `issue_relations` — blocks / blocked-by / duplicates.
+- [x] `project_updates`, [x] `documents`.
+- [x] `team_memberships`, [ ] `organization` (skipped: a singleton object, not a paginated connection)
+- [ ] Custom views, templates, reactions, triage responsibilities. (skipped: `templates` returns a plain list with no pagination, and there is no root `reactions` query; custom views and triage responsibilities are UI configuration rather than analyzable records)
 
 ## Tier 2
 
@@ -365,19 +467,19 @@ Diffed against [getsentry/sentry-api-schema](https://github.com/getsentry/sentry
 Fourteen tables and reasonable issue coverage.
 The gaps are the newer product surfaces.
 
-- [ ] `sessions` — release health and crash-free rate. The headline Sentry metric and not available.
-- [ ] `releases/*/deploys` and `releases/*/commits` (plus `commitfiles`) — we have `releases` but nothing about what shipped in them or when they deployed.
-- [ ] `user-feedback` — user-submitted reports.
-- [ ] `replays` — session replay metadata.
-- [ ] `stats_v2` / `stats-summary` — event volume and quota consumption per project.
-- [ ] `repos` and repo commits.
-- [ ] `dashboards`, `discover/saved`.
-- [ ] `monitors/*/checkins` — we have `monitors` but not their check-in history.
-- [ ] `workflows`, `detectors` — the current alerting model.
-- [ ] Organization-level `tags` and `events` (Discover).
-- [ ] `trace-items` and trace metadata — tracing and spans.
-- [ ] Project `filters`, `ownership`, `stats`.
-- [ ] `integrations` and installed apps.
+- [x] `sessions` — release health and crash-free rate. The headline Sentry metric and not available.
+- [x] `releases/*/deploys` and `releases/*/commits` (plus `commitfiles`) — we have `releases` but nothing about what shipped in them or when they deployed (`commitfiles` still open)
+- [x] `user-feedback` — user-submitted reports.
+- [x] `replays` — session replay metadata.
+- [x] `stats_v2` / `stats-summary` — event volume and quota consumption per project.
+- [x] `repos` and repo commits.
+- [x] `dashboards`, `discover/saved`.
+- [x] `monitors/*/checkins` — we have `monitors` but not their check-in history.
+- [x] `workflows`, `detectors` — the current alerting model.
+- [x] Organization-level `tags` and `events` (Discover).
+- [x] `trace-items` and trace metadata — tracing and spans.
+- [x] Project `filters`, `ownership`, `stats`.
+- [x] `integrations` and installed apps.
 
 ### Shopify — needs confirmation
 
@@ -438,17 +540,17 @@ No ad group, ad, or keyword entity tables at all, which is unusual relative to o
 Diffed against [klaviyo/openapi](https://github.com/klaviyo/openapi) stable spec.
 Eight tables. The vendor exposes 42 top-level collections.
 
-- [ ] `segments` and segment membership — Klaviyo users organize everything around segments and we expose none of them. Biggest gap. We already have the analogous `list_profiles` fan-out pattern to copy.
-- [ ] `flow-actions` and `flow-messages` — we have `flows` but no step-level structure, so flow performance cannot be broken down.
-- [ ] Campaign and flow values reporting endpoints — Klaviyo's own computed revenue and engagement metrics.
-- [ ] `templates`.
-- [ ] `catalog-items`, `catalog-variants`, `catalog-categories` — product catalog for ecommerce attribution.
-- [ ] `coupons` and `coupon-codes`.
+- [x] `segments` and segment membership — Klaviyo users organize everything around segments and we expose none of them. Biggest gap. We already have the analogous `list_profiles` fan-out pattern to copy.
+- [x] `flow-actions` and `flow-messages` — we have `flows` but no step-level structure, so flow performance cannot be broken down.
+- [x] Campaign and flow values reporting endpoints — Klaviyo's own computed revenue and engagement metrics.
+- [x] `templates`.
+- [x] `catalog-items`, `catalog-variants`, `catalog-categories` — product catalog for ecommerce attribution.
+- [x] `coupons` and `coupon-codes`.
 - [ ] `forms` — signup form performance.
-- [ ] `reviews`.
-- [ ] `tags` and `tag-groups`.
-- [ ] `custom-metrics`, `data-sources`, `object-types`.
-- [ ] `push-tokens`, `images`, `web-feeds`, `webhooks`, `accounts`.
+- [x] `reviews`.
+- [x] `tags` and `tag-groups`.
+- [x] `custom-metrics`, `data-sources`, `object-types`.
+- [x] `push-tokens`, `images`, `web-feeds`, `webhooks`, `accounts`.
 
 ### Salesforce — our side code-verified, vendor side needs confirmation
 
@@ -496,32 +598,32 @@ Six tables covering the transactional core but no catalog.
 Diffed against Zendesk's published OpenAPI description.
 Nine tables.
 
-- [ ] `satisfaction_ratings` — CSAT. Absent, and it is usually the first thing a support team asks for.
-- [ ] `ticket_metrics` — per-ticket first reply time, full resolution time, and reply counts. We ship `ticket_metric_events` (the raw event stream) but not the rolled-up per-ticket metrics that most people actually want.
-- [ ] `ticket_comments` / `ticket_audits` — no conversation content or change history.
-- [ ] `group_memberships`, `organization_memberships` — which agents are in which groups, which users in which orgs.
-- [ ] `macros`, `views`, `triggers`, `automations` — workflow configuration.
-- [ ] `custom_roles`, `user_fields`, `organization_fields`, `ticket_forms`, `custom_statuses`.
-- [ ] `tags`.
-- [ ] `custom_objects`.
+- [x] `satisfaction_ratings` — CSAT. Absent, and it is usually the first thing a support team asks for.
+- [x] `ticket_metrics` — per-ticket first reply time, full resolution time, and reply counts. We ship `ticket_metric_events` (the raw event stream) but not the rolled-up per-ticket metrics that most people actually want.
+- [x] `ticket_comments` / `ticket_audits` — no conversation content or change history.
+- [x] `group_memberships`, `organization_memberships` — which agents are in which groups, which users in which orgs.
+- [x] `macros`, `views`, `triggers`, `automations` — workflow configuration.
+- [x] `custom_roles`, `user_fields`, `organization_fields`, `ticket_forms`, `custom_statuses`.
+- [x] `tags`.
+- [x] `custom_objects`.
 - [ ] `schedules` — business hours, without which SLA math is wrong.
-- [ ] `audit_logs`, `activities`, `requests`, `suspended_tickets`, `deleted_tickets`, `saved_searches`, `queues`, `brand_agents`.
+- [x] `audit_logs`, `activities`, `requests`, `suspended_tickets`, `deleted_tickets`, `saved_searches`, `queues`, `brand_agents`.
 
 ### Mailchimp — spec-verified
 
 Diffed against Mailchimp's published Swagger schema.
 Four tables, and the entire per-recipient engagement layer is missing.
 
-- [ ] `reports/*/email-activity` — per-member opens and clicks. The single biggest gap.
-- [ ] `reports/*/open-details`, `reports/*/click-details`, `reports/*/sent-to`, `reports/*/unsubscribed`, `reports/*/abuse-reports`.
-- [ ] `lists/*/segments` — segment definitions and membership.
-- [ ] `automations` and `automations/*/emails` — automated journeys, entirely absent.
-- [ ] `lists/*/merge-fields`, `lists/*/interest-categories` — needed to interpret contact fields.
-- [ ] `lists/*/growth-history`, `lists/*/activity` — list growth over time.
-- [ ] `templates`, `landing-pages`, `sms-campaigns`, `conversations`.
-- [ ] Ecommerce stores, orders, and products.
-- [ ] `reports/*/domain-performance`, `reports/*/locations`, `reports/*/ecommerce-product-activity`.
-- [ ] `campaigns/*/content`, `campaigns/*/feedback`, `campaign-folders`, `verified-domains`.
+- [x] `reports/*/email-activity` — per-member opens and clicks. The single biggest gap.
+- [x] `reports/*/open-details`, `reports/*/click-details`, `reports/*/sent-to`, `reports/*/unsubscribed`, `reports/*/abuse-reports`.
+- [x] `lists/*/segments` — segment definitions and membership.
+- [x] `automations` and `automations/*/emails` — automated journeys, entirely absent.
+- [x] `lists/*/merge-fields`, `lists/*/interest-categories` — needed to interpret contact fields.
+- [x] `lists/*/growth-history`, `lists/*/activity` — list growth over time.
+- [x] `templates`, `landing-pages`, `sms-campaigns`, `conversations`.
+- [x] Ecommerce stores, orders, and products.
+- [x] `reports/*/domain-performance`, `reports/*/locations`, `reports/*/ecommerce-product-activity`.
+- [x] `campaigns/*/content`, `campaigns/*/feedback`, `campaign-folders`, `verified-domains`.
 
 ### Cloudflare — spec-verified
 
@@ -531,16 +633,16 @@ This is effectively DNS and zone configuration only, and none of the telemetry p
 Cloudflare for.
 
 - [ ] The GraphQL Analytics API entirely (`httpRequests1dGroups`, `httpRequestsAdaptiveGroups`, `firewallEventsAdhoc`, `workersInvocationsAdaptive`, and siblings). This is the traffic data and it is the most valuable single addition. Note it is GraphQL, not REST, so it needs a different transport than the rest of the source.
-- [ ] `dns_analytics/report` — query volume and response codes.
-- [ ] `firewall/rules`, `filters`, `rulesets`, `rate_limits` — security configuration.
-- [ ] `logpush/jobs`, `logs/received`.
-- [ ] `workers/routes` and Worker scripts.
-- [ ] `load_balancers`, `healthchecks`.
-- [ ] `page_shield/scripts`, `page_shield/connections`.
-- [ ] `custom_hostnames`, `ssl/certificate_packs`, `custom_certificates`.
-- [ ] `waiting_rooms`, `pagerules`, `snippets`, `bot_management`.
+- [x] `dns_analytics/report` — query volume and response codes.
+- [x] `firewall/rules`, `filters`, `rulesets`, `rate_limits` — security configuration.
+- [x] `logpush/jobs`, `logs/received` (`logs/received` still open)
+- [x] `workers/routes` and Worker scripts.
+- [x] `load_balancers`, `healthchecks`.
+- [x] `page_shield/scripts`, `page_shield/connections`.
+- [x] `custom_hostnames`, `ssl/certificate_packs`, `custom_certificates`.
+- [x] `waiting_rooms`, `pagerules`, `snippets`, `bot_management`.
 - [ ] Account `audit_logs`, `billing/usage`, `billable/usage`.
-- [ ] `access/*` (Zero Trust apps, policies, groups, users) — a large product surface with nothing exposed.
+- [x] `access/*` (Zero Trust apps, policies, groups, users) — a large product surface with nothing exposed.
 - [ ] R2 buckets, KV namespaces, D1 databases, Stream usage, `spectrum/apps`, `api_gateway/operations`, `security-center/insights`.
 
 ## Tier 3
@@ -555,7 +657,8 @@ Seventeen tables (10 API endpoints plus 7 webhook event streams) and one of our 
 
 ### Postmark — needs confirmation
 
-Five tables. Delivery config is present, engagement is not.
+Five tables. Delivery config is present, engagement is not. `bounces` also accepts pushed rows
+through the Webhooks API (Bounce and SpamComplaint triggers).
 
 - [ ] Opens and clicks per message.
 - [ ] Outbound overview stats (sends, bounce rate, open rate, spam complaints).
@@ -633,12 +736,14 @@ Two tables (`forms`, `responses`).
 
 ### WooCommerce — needs confirmation
 
-Ten tables, decent coverage.
+Ten tables, decent coverage. Products, orders, coupons and customers can also sync via webhooks
+(`/webhooks`, HMAC-SHA256 signed deliveries) instead of polling.
 
 - [ ] Product variations.
 - [ ] Order refunds and order notes.
 - [ ] Reports endpoints.
-- [ ] Payment gateways, shipping methods, webhooks.
+- [ ] Payment gateways, shipping methods. Webhooks are now managed programmatically for sync, but
+      are not exposed as a table.
 
 ### Slack — needs confirmation
 
@@ -679,7 +784,7 @@ gaps, so that earlier "looks proportionate" read was wrong. See the appendix for
 The two worth pulling forward, because both are higher-adoption than most appendix entries:
 
 - **ActiveCampaign** — no `emailActivities` (per-contact opens and clicks), no e-commerce objects at all (`ecomOrders`, `ecomOrderProducts`, `ecomCustomers`), and no membership tables joining the contacts we sync to the lists and automations we also sync.
-- **Pipedrive** — no deal line items (`deals/{id}/products`), so deal revenue is only readable as a single number; `/deals` excludes archived deals, so closed pipeline history is silently missing; and no `deals/{id}/flow` changelog, so stage-transition and velocity analysis is impossible.
+- **Pipedrive** — no deal line items (`deals/{id}/products`), so deal revenue is only readable as a single number; `/deals` excludes archived deals, so closed pipeline history is silently missing; and no `deals/{id}/flow` changelog, so stage-transition and velocity analysis is impossible. Webhook ingest now supplements the poll for the seven API v2 entity tables (activities, deals, organizations, persons, pipelines, products, stages); the remaining v1-shaped tables stay poll-only.
 
 ## Full sweep results
 
