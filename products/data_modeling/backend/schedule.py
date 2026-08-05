@@ -89,46 +89,21 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
     return dag_ids
 
 
-def _team_dag_ids_for_nodeless_queries(saved_query_ids: set[uuid.UUID]) -> dict[uuid.UUID, set[str]]:
-    """Stand in the owning team's DAGs for saved queries that have no node to resolve through.
-
-    A saved query normally reaches its DAG via its node, but the node can be absent when we are
-    asked: `sync_saved_query_to_dag` deletes it when dependency resolution raises. Resolving "no
-    node" to "not on v2" mints a v1 per-query schedule beside the team's live tier, and the query
-    then materializes twice on every cycle. Answering from the team is the safe direction, because
-    a team with no v2-scheduled DAG still comes back v1-eligible.
-    """
-    if not saved_query_ids:
-        return {}
-
-    team_by_saved_query = dict(
-        DataWarehouseSavedQuery.objects.filter(id__in=saved_query_ids).values_list("id", "team_id")
-    )
-    if not team_by_saved_query:
-        return {}
-
-    dag_ids_by_team: dict[int, set[str]] = defaultdict(set)
-    for team_id, dag_id in DAG.objects.filter(team_id__in=set(team_by_saved_query.values())).values_list(
-        "team_id", "id"
-    ):
-        dag_ids_by_team[team_id].add(str(dag_id))
-
-    return {
-        saved_query_id: dag_ids_by_team[team_id]
-        for saved_query_id, team_id in team_by_saved_query.items()
-        if dag_ids_by_team.get(team_id)
-    }
-
-
-def get_v2_saved_query_ids(candidate_ids: Collection[uuid.UUID] | None = None) -> set[uuid.UUID]:
+def get_v2_saved_query_ids(
+    candidate_ids: Collection[uuid.UUID] | None = None, *, team_id: int | None = None
+) -> set[uuid.UUID]:
     """Return saved query IDs whose DAG already runs on a v2 schedule.
 
     A saved query counts as on v2 when any DAG it belongs to has a v2 schedule, because it can sit
     in several DAGs and one v1-scheduled placement does not make a v1 schedule safe to mint.
 
-    A saved query with no node at all counts as on v2 when its team has any v2-scheduled DAG, so a
-    failed DAG sync never routes it to v1. Callers that then need a node must check for one
-    themselves, because this answers about the team rather than about a placement.
+    `team_id` extends that to saved queries with no node, answering from the team's DAGs instead.
+    A node can be absent because `sync_saved_query_to_dag` deletes it when dependency resolution
+    raises, and reading "no node" as "not on v2" mints a v1 per-query schedule beside the team's
+    live tier, which then materializes the query twice on every cycle. Only a caller that is about
+    to create a v1 schedule needs this, so it stays opt-in: it answers about the team rather than
+    about a placement, and such a caller must still check for a node before scheduling. Pass the
+    team the candidates belong to, never one derived from the ids themselves.
 
     Optionally restrict the lookup to `candidate_ids` to keep the query bounded. These saved
     queries must be skipped by v1 schedule commands so we never undo migration progress.
@@ -145,9 +120,15 @@ def get_v2_saved_query_ids(candidate_ids: Collection[uuid.UUID] | None = None) -
             if dag_id is not None:
                 dag_ids_by_saved_query[saved_query_id].add(str(dag_id))
 
-        dag_ids_by_saved_query.update(
-            _team_dag_ids_for_nodeless_queries(set(candidate_ids) - dag_ids_by_saved_query.keys())
-        )
+        if team_id is not None:
+            nodeless = set(candidate_ids) - dag_ids_by_saved_query.keys()
+            team_dag_ids = (
+                {str(dag_id) for dag_id in DAG.objects.filter(team_id=team_id).values_list("id", flat=True)}
+                if nodeless
+                else set()
+            )
+            if team_dag_ids:
+                dag_ids_by_saved_query.update(dict.fromkeys(nodeless, team_dag_ids))
         if not dag_ids_by_saved_query:
             return set()
 

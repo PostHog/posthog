@@ -1883,7 +1883,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         with (
             mock.patch(
                 "products.data_modeling.backend.schedule.get_v2_saved_query_ids",
-                side_effect=lambda ids: set(ids),
+                side_effect=lambda ids, **_kwargs: set(ids),
             ),
             mock.patch(
                 "products.data_modeling.backend.logic.node_materialization.sync_connect",

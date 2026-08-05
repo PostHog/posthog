@@ -223,7 +223,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # create or revive a per-query v1 schedule. This Temporal lookup stays inside the try so
             # that, if it fails, we honor the failure contract below rather than leaving
             # is_materialized=True with no schedule backing it.
-            on_v2 = self.id in get_v2_saved_query_ids([self.id])
+            on_v2 = self.id in get_v2_saved_query_ids([self.id], team_id=self.team_id)
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
