@@ -1931,6 +1931,33 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="10/hour")
+    def test_retry_after_reflects_full_wait_for_rejected_batch(self, _rate_limit_enabled_mock, _time_sensitive_mock):
+        # DRF's default wait() divides the remaining window by (num_requests -
+        # len(history) + 1), which assumes each rejected call costs one slot.
+        # Here a rejected call can represent a whole batch of invites, so that
+        # formula understates the real wait - this locks in the fix.
+        base_time = now()
+        with freeze_time(base_time):
+            response = self.client.post(
+                "/api/organizations/@current/invites/bulk/",
+                self._payload(6, seed="first"),
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+            response = self.client.post(
+                "/api/organizations/@current/invites/bulk/",
+                self._payload(6, seed="second"),
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+            retry_after = int(response.headers["Retry-After"])
+            # The correct wait is ~1 hour (until the first batch's slots expire).
+            # DRF's default formula would have returned ~720s (3600 / 5) instead.
+            self.assertGreater(retry_after, 3000)
+
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="5/hour")
     def test_bulk_request_larger_than_cap_is_rejected_even_on_empty_bucket(
         self, _rate_limit_enabled_mock, _time_sensitive_mock

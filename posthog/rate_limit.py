@@ -1360,22 +1360,40 @@ class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
             if self.key is None:
                 return True
 
-            count = _resolve_invite_count(request)
+            self.count = _resolve_invite_count(request)
             self.history = self.cache.get(self.key, [])
             self.now = self.timer()
 
             while self.history and self.history[-1] <= self.now - self.duration:
                 self.history.pop()
 
-            if len(self.history) + count > self.num_requests:
+            if len(self.history) + self.count > self.num_requests:
                 return self.throttle_failure()
 
-            self.history = [self.now] * count + self.history
+            self.history = [self.now] * self.count + self.history
             self.cache.set(self.key, self.history, self.duration)
             return True
         except Exception as e:
             capture_exception(e)
             return True
+
+    def wait(self):
+        # DRF's default wait() assumes each rejected call consumes exactly one
+        # slot (remaining_duration / (num_requests - len(history) + 1)). Here a
+        # single rejected request can represent a whole batch of invites, so that
+        # formula divides the remaining window by the batch size and returns a
+        # Retry-After far shorter than the real wait - which is what drove
+        # onboarding users into a throttle-retry loop instead of backing off.
+        count = getattr(self, "count", 1)
+        history = getattr(self, "history", None)
+        if not history or self.num_requests is None:
+            return None
+
+        slots_needed = count + len(history) - self.num_requests
+        if slots_needed <= 0 or slots_needed > len(history):
+            return None
+
+        return max(0.0, (history[-slots_needed] + self.duration) - self.now)
 
 
 def _resolve_invite_count(request) -> int:
@@ -1391,7 +1409,7 @@ def _resolve_invite_count(request) -> int:
 
 class OrganizationInviteBurstThrottle(_OrganizationInviteRateThrottleBase):
     scope = "organization_invite_burst"
-    rate = "50/hour"
+    rate = "100/hour"
 
 
 class OrganizationInviteSustainedThrottle(_OrganizationInviteRateThrottleBase):
