@@ -185,8 +185,9 @@ class AttributionQueryRunnerBase(MarketingAnalyticsBaseQueryRunner[ResponseType]
     def _breakdown_expr(self) -> ast.Expr:
         """The dimension a touchpoint reports as, read off the session it belongs to.
 
-        Channel and source fall back to the same sentinels the rest of marketing analytics uses, so rows
-        line up with the cost side.
+        Channel, source and campaign fall back to the same sentinels and normalization the rest of
+        marketing analytics uses, so rows line up with the cost side. The remaining breakdowns have no
+        team-configurable aliasing to collapse, so they pass the entry field straight through.
         """
         field = ast.Field(chain=["events", "session", BREAKDOWN_SESSION_FIELDS[self.breakdown]])
 
@@ -194,6 +195,8 @@ class AttributionQueryRunnerBase(MarketingAnalyticsBaseQueryRunner[ResponseType]
             return self._non_empty_or(field, UNKNOWN_CHANNEL)
         if self.breakdown == MarketingAnalyticsAttributionBreakdown.SOURCE:
             return self._normalized_source_expr(field)
+        if self.breakdown == MarketingAnalyticsAttributionBreakdown.CAMPAIGN:
+            return self._normalized_campaign_expr(field)
         return ast.Call(name="toString", args=[ast.Call(name="ifNull", args=[field, ast.Constant(value="")])])
 
     def _normalized_source_expr(self, field: ast.Expr) -> ast.Expr:
@@ -209,6 +212,23 @@ class AttributionQueryRunnerBase(MarketingAnalyticsBaseQueryRunner[ResponseType]
         return build_source_normalization_expr(
             self._non_empty_or(field, self.config.organic_source),
             source_mappings,
+        )
+
+    def _normalized_campaign_expr(self, field: ast.Expr) -> ast.Expr:
+        """Collapse the team's dirty utm_campaign spellings onto the clean name they're mapped to.
+
+        Without this a campaign whose UTMs vary lands as one row per spelling, and because the models
+        credit each row independently, first touch can name one spelling while last touch names another
+        — the comparison this table exists for then reads as a difference between campaigns that are
+        the same campaign. Scoped by source, so the mapping is applied the way the Dashboard applies it.
+        """
+        from .utils import build_campaign_display_normalization_expr  # noqa: PLC0415 — avoids an import cycle
+
+        raw_campaign = ast.Call(name="toString", args=[ast.Call(name="ifNull", args=[field, ast.Constant(value="")])])
+        return build_campaign_display_normalization_expr(
+            raw_campaign,
+            ast.Field(chain=["events", "session", "$entry_utm_source"]),
+            self.team.marketing_analytics_config,
         )
 
     @staticmethod

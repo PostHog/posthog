@@ -260,6 +260,23 @@ class TestMarketingAnalyticsAttributionPathsQueryRunner(ClickhouseTestMixin, Bas
         )
         self.assertEqual(without_none, {("summer",): 1})
 
+    def test_campaign_name_mappings_collapse_dirty_spellings_into_one_step_label(self):
+        # Two spellings of one campaign are still two visits, so the path keeps two steps — but both must
+        # carry the mapped name, which is what lets the UI collapse them into "Spring Sale 2026 x2"
+        # instead of the journey reading as one campaign handing off to another.
+        config = self.team.marketing_analytics_config
+        config.campaign_name_mappings = {"GoogleAds": {"Spring Sale 2026": ["spring_sale_2026", "spring-sale-2026"]}}
+        config.save()
+
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google", utm_campaign="spring_sale_2026")
+        self._session("p1", ONE_DAY_BEFORE, utm_source="google", utm_campaign="spring-sale-2026")
+        self._conversion("p1", CONVERSION_AT)
+
+        paths = self._paths(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+
+        self.assertEqual(paths, {("Spring Sale 2026", "Spring Sale 2026"): 1})
+
     def test_excluding_unattributed_drops_organic_steps_from_the_path(self):
         # Source breakdown, where the untagged step renders as "organic" rather than "". The paths section
         # has to drop exactly what the table above it drops, or a journey shown here would contradict the

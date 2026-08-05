@@ -415,6 +415,82 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self.assertNotIn("Unknown", without_unknown)
         self.assertAlmostEqual(without_unknown[paid_channel][AttributionMode.LINEAR], 1.0, places=4)
 
+    def test_campaign_name_mappings_collapse_dirty_utm_spellings(self):
+        # The team's own mapping says these two spellings are one campaign, and the Dashboard reports
+        # them as one. Left unmapped here, each spelling is its own row and the models credit them
+        # independently — first touch names one spelling, last touch the other — so the model comparison
+        # this table exists for would read as a difference between campaigns that are the same campaign.
+        config = self.team.marketing_analytics_config
+        config.campaign_name_mappings = {"GoogleAds": {"Spring Sale 2026": ["spring_sale_2026", "spring-sale-2026"]}}
+        config.save()
+
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google", utm_campaign="spring_sale_2026")
+        self._session("p1", ONE_DAY_BEFORE, utm_source="google", utm_campaign="spring-sale-2026")
+        self._conversion("p1", CONVERSION_AT)
+
+        rows = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+
+        self.assertEqual(list(rows), ["Spring Sale 2026"])
+        # One campaign touched twice holds the whole conversion under every model.
+        for model in [AttributionMode.FIRST_TOUCH, AttributionMode.LAST_TOUCH, AttributionMode.LINEAR]:
+            self.assertAlmostEqual(rows["Spring Sale 2026"][model], 1.0, places=4)
+
+    def test_campaign_name_mappings_are_scoped_to_the_mapped_integration(self):
+        # The mapping keys off the touchpoint's source, so the same spelling arriving on a source that
+        # doesn't belong to the mapped integration must stay as it came.
+        config = self.team.marketing_analytics_config
+        config.campaign_name_mappings = {"GoogleAds": {"Spring Sale 2026": ["spring_sale_2026"]}}
+        config.save()
+
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google", utm_campaign="spring_sale_2026")
+        self._session("p1", ONE_DAY_BEFORE, utm_source="newsletter", utm_campaign="spring_sale_2026")
+        self._conversion("p1", CONVERSION_AT)
+
+        rows = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+
+        self.assertEqual(sorted(rows), ["Spring Sale 2026", "spring_sale_2026"])
+
+    def test_campaign_id_matching_preference_leaves_the_displayed_campaign_raw(self):
+        # With match_field=campaign_id the mapping's clean_name is an *id*, which the Dashboard uses to
+        # find the cost row while leaving the displayed campaign name untouched. There is no cost join
+        # here, so applying it would put a bare id in the campaign column.
+        config = self.team.marketing_analytics_config
+        config.campaign_name_mappings = {"GoogleAds": {"10042": ["spring_sale_2026"]}}
+        config.campaign_field_preferences = {"GoogleAds": {"match_field": "campaign_id"}}
+        config.save()
+
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", ONE_DAY_BEFORE, utm_source="google", utm_campaign="spring_sale_2026")
+        self._conversion("p1", CONVERSION_AT)
+
+        rows = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+
+        self.assertEqual(list(rows), ["spring_sale_2026"])
+
+    def test_an_empty_campaign_is_never_mapped_onto_a_real_name(self):
+        # Nothing stops a team listing "" among a campaign's raw values, but an empty utm_campaign is the
+        # absence of a campaign rather than a misspelling of one. Mapping it would invent attribution and
+        # would leave "Exclude unattributed traffic" dropping a row labelled like a campaign that stayed.
+        config = self.team.marketing_analytics_config
+        config.campaign_name_mappings = {"GoogleAds": {"Spring Sale 2026": ["", "spring_sale_2026"]}}
+        config.save()
+
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google", utm_campaign="spring_sale_2026")
+        self._session("p1", ONE_DAY_BEFORE, utm_source="google")  # no utm_campaign
+        self._conversion("p1", CONVERSION_AT)
+
+        rows = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+        self.assertEqual(sorted(rows), ["", "Spring Sale 2026"])
+
+        # ...and it stays the row the exclusion drops.
+        excluded = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, exclude_unattributed=True)
+        )
+        self.assertEqual(list(excluded), ["Spring Sale 2026"])
+
     def test_excluding_unattributed_drops_the_organic_source_row(self):
         # Source is the breakdown where "unattributed" is easiest to get wrong: an empty utm_source is
         # *displayed* as "organic", a real-looking name, so it renders nothing like the "(none)" row the
