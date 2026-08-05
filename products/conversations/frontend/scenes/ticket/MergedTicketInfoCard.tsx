@@ -1,4 +1,7 @@
-import { LemonCard, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
+import { useState } from 'react'
+
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -27,9 +30,10 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 }
 
 /** Compact info panel for a merged ticket, shown in the master's sidebar while that ticket's
- * messages are interleaved. Color-coded to match its conversation pills. Extra fields are
- * collapsed by default. */
+ * messages are interleaved. Color-coded to match its conversation pills. Extra fields are hidden
+ * until the user expands them. */
 export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
     const subject = ticket.email_subject || ticket.last_message_text
     const priorityLabel = ticket.priority
         ? (priorityOptions.find((o) => o.value === ticket.priority)?.label ?? ticket.priority)
@@ -68,47 +72,46 @@ export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?
                         />
                     </span>
                 </InfoRow>
+                {expanded && (
+                    <>
+                        {ticket.created_at && (
+                            <InfoRow label="Created">
+                                <TZLabel time={ticket.created_at} />
+                            </InfoRow>
+                        )}
+                        {ticket.updated_at && (
+                            <InfoRow label="Updated">
+                                <TZLabel time={ticket.updated_at} />
+                            </InfoRow>
+                        )}
+                        <InfoRow label="Priority">
+                            <span className="capitalize">{priorityLabel}</span>
+                        </InfoRow>
+                        <InfoRow label="Tags">
+                            {ticket.tags && ticket.tags.length > 0 ? (
+                                <span className="flex flex-wrap justify-end gap-1">
+                                    {ticket.tags.map((tag) => (
+                                        <LemonTag key={tag} type="muted">
+                                            {tag}
+                                        </LemonTag>
+                                    ))}
+                                </span>
+                            ) : (
+                                'None'
+                            )}
+                        </InfoRow>
+                    </>
+                )}
             </div>
-            <LemonCollapse
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
                 className="mt-2"
-                size="small"
-                panels={[
-                    {
-                        key: 'more',
-                        header: 'More details',
-                        content: (
-                            <div className="space-y-2 text-xs">
-                                {ticket.created_at && (
-                                    <InfoRow label="Created">
-                                        <TZLabel time={ticket.created_at} />
-                                    </InfoRow>
-                                )}
-                                {ticket.updated_at && (
-                                    <InfoRow label="Updated">
-                                        <TZLabel time={ticket.updated_at} />
-                                    </InfoRow>
-                                )}
-                                <InfoRow label="Priority">
-                                    <span className="capitalize">{priorityLabel}</span>
-                                </InfoRow>
-                                <InfoRow label="Tags">
-                                    {ticket.tags && ticket.tags.length > 0 ? (
-                                        <span className="flex flex-wrap justify-end gap-1">
-                                            {ticket.tags.map((tag) => (
-                                                <LemonTag key={tag} type="muted">
-                                                    {tag}
-                                                </LemonTag>
-                                            ))}
-                                        </span>
-                                    ) : (
-                                        'None'
-                                    )}
-                                </InfoRow>
-                            </div>
-                        ),
-                    },
-                ]}
-            />
+                icon={expanded ? <IconChevronDown /> : <IconChevronRight />}
+                onClick={() => setExpanded(!expanded)}
+            >
+                {expanded ? 'Show less' : 'More details'}
+            </LemonButton>
         </LemonCard>
     )
 }
