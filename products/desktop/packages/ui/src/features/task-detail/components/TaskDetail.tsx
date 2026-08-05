@@ -1,8 +1,12 @@
+import { PI_SESSION_CONTROLLER } from "@posthog/core/pi-runtime/identifiers";
+import type { PiSessionController } from "@posthog/core/pi-runtime/piSessionController";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
+import { useService } from "@posthog/di/react";
 import type { Task } from "@posthog/shared/domain-types";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys, useHotkeysContext } from "react-hotkeys-hook";
+import { useStore } from "zustand";
 import { useBlurOnEscape } from "../../../hooks/useBlurOnEscape";
 import { useSetHeaderContent } from "../../../hooks/useSetHeaderContent";
 import { toast } from "../../../primitives/toast";
@@ -57,6 +61,13 @@ export function TaskDetail({
   const taskId = initialTask.id;
   const { task } = useTaskData({ taskId, initialTask });
   const taskSession = useSidebarSessionMap().get(taskId);
+  const piSessionController = useService<PiSessionController>(
+    PI_SESSION_CONTROLLER,
+  );
+  const isPiGenerating = useStore(
+    piSessionController.store,
+    (state) => state.sessions[taskId]?.status?.isStreaming ?? false,
+  );
   const runtime = task.runtime === "pi" ? "pi" : "acp";
   const selectedTaskRunId = task.latest_run?.id;
 
@@ -93,7 +104,10 @@ export function TaskDetail({
       if (useArchivingTasksStore.getState().isArchiving(taskId)) return;
       if (
         isTaskActivelyRunning({
-          isGenerating: taskSession?.isPromptPending ?? false,
+          isGenerating:
+            runtime === "pi"
+              ? isPiGenerating
+              : (taskSession?.isPromptPending ?? false),
           taskRunEnvironment: task.latest_run?.environment,
           taskRunStatus:
             taskSession?.cloudStatus ?? task.latest_run?.status ?? undefined,
@@ -105,7 +119,7 @@ export function TaskDetail({
       void runArchive().catch(() => undefined);
     },
     { scopes: ["taskDetail"] },
-    [task, taskId, taskSession, runArchive],
+    [task, taskId, taskSession, runtime, isPiGenerating, runArchive],
   );
 
   useEffect(() => {
