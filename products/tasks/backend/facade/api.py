@@ -158,6 +158,7 @@ __all__ = [
     "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
     "edit_task_run_living_artifact",
+    "enqueue_comment_activity_retry",
     "complete_idle_local_task_run",
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
@@ -6063,6 +6064,29 @@ def record_comment_activity(
     from products.tasks.backend.logic.services.comment_activity import project_comment_activity
 
     project_comment_activity(
+        team_id=team_id,
+        comment_id=comment_id,
+        mentioned_user_ids=mentioned_user_ids,
+        include_relationship_recipients=include_relationship_recipients,
+        target_owner_id=target_owner_id,
+        activity_at=activity_at,
+    )
+
+
+def enqueue_comment_activity_retry(
+    *,
+    team_id: int,
+    comment_id: str,
+    mentioned_user_ids: list[int],
+    include_relationship_recipients: bool,
+    target_owner_id: int | None,
+    activity_at: str | None,
+) -> None:
+    from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — avoids the facade/task circular import
+        project_task_comment_activity,
+    )
+
+    project_task_comment_activity.delay(
         team_id=team_id,
         comment_id=comment_id,
         mentioned_user_ids=mentioned_user_ids,

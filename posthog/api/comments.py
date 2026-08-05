@@ -95,13 +95,13 @@ def _record_task_comment_activity(
         )
     except Exception:
         logger.exception("Failed to project task comment activity", extra={"comment_id": str(comment.id)})
-        from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product
-            project_task_comment_activity,
+        from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product
+            enqueue_comment_activity_retry,
         )
 
         activity_at_value = activity_at.isoformat() if activity_at else None
         transaction.on_commit(
-            lambda: project_task_comment_activity.delay(
+            lambda: enqueue_comment_activity_retry(
                 team_id=comment.team_id,
                 comment_id=str(comment.id),
                 mentioned_user_ids=mentions,
