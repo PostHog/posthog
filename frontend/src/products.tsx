@@ -1471,7 +1471,6 @@ export const fileSystemTypes = {
         href: () => urls.endpoints(),
         iconColor: ['var(--color-product-endpoints-light)'],
         filterKey: 'endpoints',
-        flag: FEATURE_FLAGS.ENDPOINTS,
     },
     experiment: {
         name: 'Experiment',
@@ -1919,7 +1918,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.TOOLS,
         href: urls.endpoints(),
         type: 'endpoints',
-        flag: FEATURE_FLAGS.ENDPOINTS,
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
@@ -2230,7 +2228,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_prompts',
         iconType: 'llm_prompts' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.aiObservabilityPrompts(),
         sceneKey: 'AIObservabilityPrompts',
         sceneKeys: [
@@ -2307,7 +2305,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.TOOLS,
         type: 'llm_skills',
         iconType: 'llm_prompts' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.skills(),
         sceneKey: 'Skills',
         sceneKeys: ['Skills', 'Skill'],
@@ -2519,7 +2517,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         href: urls.endpoints(),
         sceneKey: 'EndpointsScene',
-        flag: FEATURE_FLAGS.ENDPOINTS,
         sceneKeys: ['EndpointsScene', 'EndpointScene'],
     },
     {
