@@ -19,7 +19,7 @@ logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 # Keep in sync with MAX_INSIGHTS in products/subscriptions/frontend/components/Subscriptions/insightSelectorLogic.ts.
-MAX_DASHBOARD_INSIGHTS = 6
+MAX_DASHBOARD_INSIGHTS = 10
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
 # Prometheus metrics for Temporal workers (web/worker pods)
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(

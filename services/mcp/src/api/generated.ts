@@ -48316,7 +48316,7 @@ export namespace Schemas {
       readonly insight_short_id: string | null;
       /** @nullable */
       readonly resource_name: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
       dashboard_export_insights?: number[];
       /**
          * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -56464,7 +56464,7 @@ export namespace Schemas {
       readonly insight_short_id?: string | null;
       /** @nullable */
       readonly resource_name?: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
       dashboard_export_insights?: number[];
       /**
          * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.

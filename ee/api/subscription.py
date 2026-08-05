@@ -234,7 +234,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     )
     dashboard_export_insights = DashboardExportInsightsField(
         required=False,
-        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.",
     )
     ai_prompt_config = AIPromptConfigSerializer(
         required=False,
