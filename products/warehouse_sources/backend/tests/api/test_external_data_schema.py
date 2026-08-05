@@ -1147,7 +1147,7 @@ class TestExternalDataSchema(APIBaseTest):
         ]
     )
     def test_update_schema_xmin_floors_at_five_minutes(self, _name, sync_frequency, expected_status):
-        # xmin does not get CDC's 1-minute cadence — it floors at the normal 5-minute incremental cadence.
+        # xmin floors at the 5-minute minimum like every other sync type.
         source = self._xmin_postgres_source()
         schema = ExternalDataSchema.objects.create(
             name="public.orders",
@@ -1176,7 +1176,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == expected_status, response.content
         if expected_status == 400:
-            assert "1-minute" in str(response.json()).lower() or "cdc" in str(response.json()).lower()
+            assert "not a valid sync frequency" in str(response.json()).lower()
 
     def test_update_schema_to_xmin_forces_full_resync(self):
         # Switching to xmin from another strategy adds the `_ph_xmin` control column to the physical
@@ -1246,14 +1246,17 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("incremental", ExternalDataSchema.SyncType.INCREMENTAL, 400),
-            ("full_refresh", ExternalDataSchema.SyncType.FULL_REFRESH, 400),
-            ("cdc", ExternalDataSchema.SyncType.CDC, 200),
+            ("incremental_one_minute", ExternalDataSchema.SyncType.INCREMENTAL, "1min", 400),
+            ("full_refresh_one_minute", ExternalDataSchema.SyncType.FULL_REFRESH, "1min", 400),
+            ("cdc_one_minute", ExternalDataSchema.SyncType.CDC, "1min", 400),
+            ("cdc_five_minutes", ExternalDataSchema.SyncType.CDC, "5min", 200),
         ]
     )
-    def test_update_schema_one_minute_frequency_only_for_cdc(self, _name, sync_type, expected_status):
-        # A 1-minute cadence is CDC-only. The backend must enforce this regardless of caller
-        # (UI, API, or MCP) so non-CDC schemas can't be pushed below the 5-minute floor.
+    def test_update_schema_sync_frequency_floors_at_five_minutes(
+        self, _name, sync_type, sync_frequency, expected_status
+    ):
+        # The 5-minute floor applies to every sync type, CDC included. The backend must enforce it
+        # regardless of caller (UI, API, or MCP).
         is_cdc = sync_type == ExternalDataSchema.SyncType.CDC
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1288,20 +1291,20 @@ class TestExternalDataSchema(APIBaseTest):
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_frequency": "1min"},
+                data={"sync_frequency": sync_frequency},
             )
 
         assert response.status_code == expected_status, response.content
         if expected_status == 400:
-            assert "cdc" in str(response.json()).lower()
+            assert "not a valid sync frequency" in str(response.json()).lower()
             schema.refresh_from_db()
             # Rejected before the interval is persisted.
             assert schema.sync_frequency_interval != timedelta(minutes=1)
 
     def test_update_schema_one_minute_clamps_on_switch_away_from_cdc(self):
-        # A CDC schema on a 1-minute schedule switched to a non-CDC sync type without re-sending
-        # sync_frequency would otherwise dead-end (1-minute is CDC-only). Instead of rejecting the
-        # switch, clamp the inherited cadence to the non-CDC floor so the switch goes through.
+        # A schema whose stored interval predates the 5-minute floor (a legacy 1-minute CDC row)
+        # switched to a non-CDC sync type without re-sending sync_frequency must not dead-end:
+        # the inherited cadence is clamped to the floor so the switch goes through.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -1339,6 +1342,31 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_frequency_interval == timedelta(minutes=5)
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_stored_one_minute_interval_still_deserializes(self):
+        # Rows written before the 5-minute floor still carry a 1-minute interval until the
+        # migration command runs. Reading them must keep working, or every list/retrieve
+        # containing such a row 500s.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"primary_key_columns": ["id"]},
+            sync_frequency_interval=timedelta(minutes=1),
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}")
+
+        assert response.status_code == 200, response.content
+        assert response.json()["sync_frequency"] == "1min"
 
     def test_update_schema_frequency_on_disabled_schema_does_not_touch_missing_schedule(self):
         # A disabled / never-activated schema has no Temporal schedule. Changing its sync frequency

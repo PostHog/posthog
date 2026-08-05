@@ -23,6 +23,7 @@ import type {
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
+    PatchedPullRequestReviewCommentUpdateApi,
     PatchedSignalReportArtefactLogUpdateApi,
     PatchedSignalReportContentUpdateApi,
     PatchedSignalScoutConfigUpdateApi,
@@ -32,6 +33,10 @@ import type {
     ProjectProfileApi,
     PullRequestChecksResponseApi,
     PullRequestCommentsResponseApi,
+    PullRequestReviewCommentCreateApi,
+    PullRequestReviewCommentCreateResponseApi,
+    PullRequestReviewCommentReactionCreateApi,
+    PullRequestReviewCommentReactionCreateResponseApi,
     RememberRequestApi,
     ReportSignalsResponseApi,
     ScoutEmissionReportLinkApi,
@@ -47,6 +52,8 @@ import type {
     SignalReportArtefactWriteResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
+    SignalReportFeedbackRequestApi,
+    SignalReportFeedbackResponseApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
@@ -222,6 +229,28 @@ export const signalsReportsPartialUpdate = async (
     })
 }
 
+export const getSignalsReportsFeedbackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/feedback/`
+}
+
+/**
+ * Record a note left with the thumbs rating at the end of a report. The rating itself is a product-analytics event; this endpoint exists to carry the note into the scout steering channel. For a report authored by a scout, the note is forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer and the call is a no-op success. The report's state is never changed.
+ * @summary Leave feedback on a report
+ */
+export const signalsReportsFeedbackCreate = async (
+    projectId: string,
+    id: string,
+    signalReportFeedbackRequestApi: SignalReportFeedbackRequestApi,
+    options?: RequestInit
+): Promise<SignalReportFeedbackResponseApi> => {
+    return apiMutator<SignalReportFeedbackResponseApi>(getSignalsReportsFeedbackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportFeedbackRequestApi),
+    })
+}
+
 export const getSignalsReportPrChecksUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/pr_checks/`
 }
@@ -257,6 +286,125 @@ export const signalsReportPrComments = async (
     return apiMutator<PullRequestCommentsResponseApi>(getSignalsReportPrCommentsUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportPrReviewCommentsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/`
+}
+
+/**
+ * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
+ * @summary Post an inline review comment on a report's implementation PR
+ */
+export const signalsReportPrReviewCommentsCreate = async (
+    projectId: string,
+    id: string,
+    pullRequestReviewCommentCreateApi: PullRequestReviewCommentCreateApi,
+    options?: RequestInit
+): Promise<PullRequestReviewCommentCreateResponseApi> => {
+    return apiMutator<PullRequestReviewCommentCreateResponseApi>(
+        getSignalsReportPrReviewCommentsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(pullRequestReviewCommentCreateApi),
+        }
+    )
+}
+
+export const getSignalsReportPrReviewCommentUpdateUrl = (projectId: string, id: string, commentId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
+}
+
+/**
+ * @summary Edit one of the requesting user's own review comments
+ */
+export const signalsReportPrReviewCommentUpdate = async (
+    projectId: string,
+    id: string,
+    commentId: string,
+    patchedPullRequestReviewCommentUpdateApi?: PatchedPullRequestReviewCommentUpdateApi,
+    options?: RequestInit
+): Promise<PullRequestReviewCommentCreateResponseApi> => {
+    return apiMutator<PullRequestReviewCommentCreateResponseApi>(
+        getSignalsReportPrReviewCommentUpdateUrl(projectId, id, commentId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedPullRequestReviewCommentUpdateApi),
+        }
+    )
+}
+
+export const getSignalsReportPrReviewCommentDestroyUrl = (projectId: string, id: string, commentId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
+}
+
+/**
+ * @summary Delete one of the requesting user's own review comments
+ */
+export const signalsReportPrReviewCommentDestroy = async (
+    projectId: string,
+    id: string,
+    commentId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportPrReviewCommentDestroyUrl(projectId, id, commentId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSignalsReportPrReviewCommentReactionsCreateUrl = (projectId: string, id: string, commentId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/`
+}
+
+/**
+ * @summary React to a review comment as the requesting user
+ */
+export const signalsReportPrReviewCommentReactionsCreate = async (
+    projectId: string,
+    id: string,
+    commentId: string,
+    pullRequestReviewCommentReactionCreateApi: PullRequestReviewCommentReactionCreateApi,
+    options?: RequestInit
+): Promise<PullRequestReviewCommentReactionCreateResponseApi> => {
+    return apiMutator<PullRequestReviewCommentReactionCreateResponseApi>(
+        getSignalsReportPrReviewCommentReactionsCreateUrl(projectId, id, commentId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(pullRequestReviewCommentReactionCreateApi),
+        }
+    )
+}
+
+export const getSignalsReportPrReviewCommentReactionDestroyUrl = (
+    projectId: string,
+    id: string,
+    commentId: string,
+    reactionId: string
+) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/${reactionId}/`
+}
+
+/**
+ * @summary Remove one of the requesting user's own reactions from a review comment
+ */
+export const signalsReportPrReviewCommentReactionDestroy = async (
+    projectId: string,
+    id: string,
+    commentId: string,
+    reactionId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportPrReviewCommentReactionDestroyUrl(projectId, id, commentId, reactionId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -532,7 +680,7 @@ export const getSignalsScoutCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
  * @summary Create a scout
  */
 export const signalsScoutCreate = async (
@@ -571,7 +719,7 @@ export const getSignalsScoutConfigCreateUrl = (projectId: string) => {
 }
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
 export const signalsScoutConfigCreate = async (
@@ -592,7 +740,7 @@ export const getSignalsScoutConfigUpdateUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (trusted-domain allowlist vs full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const signalsScoutConfigUpdate = async (

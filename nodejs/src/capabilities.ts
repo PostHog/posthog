@@ -30,7 +30,6 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
-    emailReputationEvaluator: isDevEnv(),
 }
 
 /** Realtime Cohorts - precalculated filters and cohort membership */
@@ -199,10 +198,6 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_hogflow_scheduler:
             return {
                 cdpHogflowScheduler: true,
-            }
-        case PluginServerMode.email_reputation_evaluator:
-            return {
-                emailReputationEvaluator: true,
             }
         case PluginServerMode.recordings_blob_ingestion_v2:
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:

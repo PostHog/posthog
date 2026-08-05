@@ -15,9 +15,9 @@ class SlackSummaryCadence(models.TextChoices):
 class AccountChannelSummary(TeamScopedRootMixin, UUIDModel):
     """An AI summary of one closed period of an account's bound Slack channel.
 
-    Written by the conversations summary pipeline through the facade. The channel
-    messages themselves are never persisted — only this summary, which cites them
-    with permalinks.
+    Written by the conversations summary pipeline through the facade. Message text is
+    never persisted — only this summary (which cites messages with permalinks) and
+    per-message metadata in ``messages`` backing the audit trail.
     """
 
     all_teams = models.Manager()  # noqa: DJ012
@@ -34,6 +34,9 @@ class AccountChannelSummary(TeamScopedRootMixin, UUIDModel):
     period_end = models.DateTimeField()
     content = models.TextField()
     message_count = models.PositiveIntegerField(default=0)
+    # Audit trail behind message_count: [{author, sent_at, permalink}] per covered
+    # message, in transcript order. Metadata only, never message text.
+    messages = models.JSONField(default=list)
     model_name = models.CharField(max_length=100, blank=True, default="")
     generated_at = models.DateTimeField(auto_now_add=True)
 

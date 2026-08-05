@@ -30,7 +30,12 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CORRUPTED_PARQUET_METADATA_MESSAGE, wrap_clickhouse_query_error
+from posthog.errors import (
+    CORRUPTED_PARQUET_METADATA_MESSAGE,
+    QueryErrorCategory,
+    classify_query_error,
+    wrap_clickhouse_query_error,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.schema_enums import DatabaseSerializedFieldType
@@ -71,6 +76,9 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
     "Access Denied: while reading key:": "Access was denied when reading the provided file",
+    # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
+    # tables) use a different vocabulary than ClickHouse's native S3 errors above.
+    "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
     "Could not list objects in bucket": "Access was denied to the provided bucket",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
@@ -105,6 +113,15 @@ HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debu
 # (each request also pins ~300MB of RSS for the embedded ClickHouse). Running it in a
 # subprocess lets us kill it and degrade to the ClickHouse-cluster fallback.
 CHDB_QUERY_TIMEOUT_SECONDS = 30.0
+
+# ClickHouse's Hive-style partition inference guesses a type per partition-folder value it
+# samples (e.g. our internal `_ph_partition_key`), independently of the physical column type.
+# A table whose partition granularity changed over time (see repartition.py's tiering from
+# week -> hour) mixes value shapes across folders — e.g. an hour-tier "2017-06-30T05" next to
+# older week-tier folders — and CH can misclassify the column as Date, then fail to parse it.
+# HogQLGlobalSettings.use_hive_partitioning disables this for the normal HogQL query path; the
+# raw ClickHouse queries below bypass that path and must opt out the same way.
+DISABLE_HIVE_PARTITIONING_SETTINGS: dict[str, int] = {"use_hive_partitioning": 0}
 
 _CHDB_SUBPROCESS_SCRIPT = """
 import sys
@@ -440,7 +457,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
-            chdb_query = f"DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
+            chdb_query = f"SET use_hive_partitioning = 0; DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
             # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
             # See https://github.com/chdb-io/chdb/pull/374 for the fix
@@ -471,7 +488,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             attempts = 5
             for i in range(attempts):
                 try:
-                    get_columns_settings: dict[str, int] = {}
+                    get_columns_settings: dict[str, int] = dict(DISABLE_HIVE_PARTITIONING_SETTINGS)
                     if self._is_csv_format() and self.csv_allow_double_quotes is not None:
                         get_columns_settings["format_csv_allow_double_quotes"] = (
                             1 if self.csv_allow_double_quotes else 0
@@ -530,6 +547,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             result = sync_execute(
                 f"SELECT max({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
                 args=placeholder_context.values,
+                settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
             )
 
             return result[0][0]
@@ -563,7 +581,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
-            chdb_query = f"SELECT count() FROM {s3_table_func}" % quoted_placeholders
+            chdb_query = f"SET use_hive_partitioning = 0; SELECT count() FROM {s3_table_func}" % quoted_placeholders
 
             chdb_result = run_chdb_query(chdb_query)
             reader = csv.reader(StringIO(chdb_result))
@@ -584,6 +602,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 result = sync_execute(
                     f"SELECT count() FROM {s3_table_func}",
                     args=placeholder_context.values,
+                    settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
                 )
             except Exception as err:
                 capture_exception(err)
@@ -893,7 +912,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             sync_execute(
                 f"SELECT 1 FROM {func} LIMIT 100",
                 args=ctx.values,
-                settings={"format_csv_allow_double_quotes": 1 if setting else 0},
+                settings={**DISABLE_HIVE_PARTITIONING_SETTINGS, "format_csv_allow_double_quotes": 1 if setting else 0},
             )
         except ClickHouseServerException as e:
             if e.code in self._CSV_PARSE_ERROR_CODES:
@@ -917,6 +936,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # error (or an already user-safe one) behind a misleading user-facing message.
         if not hasattr(err, "message"):
             raise err
+
+        # A cancelled query here means our own client timed out reading, not a bad file or bucket.
+        if classify_query_error(err) == QueryErrorCategory.CANCELLED:
+            raise Exception(
+                "Reading the files from your storage bucket took too long and the query was cancelled. "
+                "This is usually temporary - try again, or narrow the URL pattern if the dataset is very large."
+            )
 
         for key, value in ExtractErrors.items():
             if key in raw_message:

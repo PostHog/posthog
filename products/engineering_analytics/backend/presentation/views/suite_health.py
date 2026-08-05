@@ -10,7 +10,11 @@ from rest_framework.response import Response
 from posthog.api.mixins import TypedRequest, validated_request
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import FLAKY_TEST_SIGNAL_CAVEAT, QuarantineRequest
+from products.engineering_analytics.backend.facade.contracts import (
+    FLAKY_TEST_SIGNAL_CAVEAT,
+    CITestRunner,
+    QuarantineRequest,
+)
 from products.engineering_analytics.backend.presentation.serializers.suite_health import (
     BrokenTestsResultSerializer,
     FlakyTestListSerializer,
@@ -24,6 +28,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
     _SOURCE_ID,
     EngineeringAnalyticsViewSetBase,
     _bad_request,
+    _optional_enum_param,
     _optional_int_param,
 )
 
@@ -59,13 +64,21 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
                 required=False,
                 description="Maximum number of tests to return (1-200). Defaults to 50.",
             ),
+            OpenApiParameter(
+                name="runner",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[runner.value for runner in CITestRunner],
+                description="Optional test runner to return: 'pytest' or 'jest'.",
+            ),
             _SOURCE_ID,
             _REPO,
         ],
         responses={
             200: FlakyTestListSerializer,
             400: OpenApiResponse(
-                description="Invalid date, threshold, limit, or source_id, or a window longer than 30 days."
+                description="Invalid date, threshold, limit, runner, or source_id, or a window longer than 30 days."
             ),
         },
         description=(
@@ -88,12 +101,13 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
+                runner=_optional_enum_param(request, "runner", CITestRunner),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
+            return _bad_request(exc, fallback="Invalid date, threshold, limit, runner, or source_id")
         return Response(FlakyTestListSerializer(instance=result).data)
 
     @extend_schema(

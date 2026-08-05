@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cohort_core::seed::{decode_seed, DecodedSeed, ReconcileTile, SChunkMs, SeedTile};
+use cohort_core::seed::{decode_seed, DecodedSeed, PersonSeed, ReconcileTile, SChunkMs, SeedTile};
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
@@ -74,6 +74,7 @@ impl SeedSkipReason {
 #[derive(Debug)]
 pub enum SeedWork {
     Tile(SeedTile),
+    Person(PersonSeed),
     Reconcile(ReconcileTile),
     Skip(SeedSkipReason),
 }
@@ -115,11 +116,12 @@ impl ConsumedSeed {
         }
     }
 
-    /// The fence input; control messages and skips are fence-open.
+    /// The fence input. Control messages, person seeds, and skips are fence-open: none of them
+    /// bounds the arrival of events over the live stream.
     fn s_chunk_ms(&self) -> Option<SChunkMs> {
         match &self.work {
             SeedWork::Tile(tile) => Some(tile.s_chunk_ms()),
-            SeedWork::Reconcile(_) | SeedWork::Skip(_) => None,
+            SeedWork::Person(_) | SeedWork::Reconcile(_) | SeedWork::Skip(_) => None,
         }
     }
 }
@@ -691,6 +693,7 @@ fn decode_payload(payload: Option<&[u8]>, partition: i32, offset: i64) -> SeedWo
     };
     match decode_seed(payload) {
         Ok(DecodedSeed::Tile(tile)) => SeedWork::Tile(tile),
+        Ok(DecodedSeed::Person(seed)) => SeedWork::Person(seed),
         Ok(DecodedSeed::Reconcile(tile)) => SeedWork::Reconcile(tile),
         Ok(DecodedSeed::UnknownKind { kind, .. }) => {
             debug!(partition, offset, kind, "skipping seed of unknown kind");
@@ -866,7 +869,8 @@ mod tests {
     use std::num::NonZeroU32;
 
     use cohort_core::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileTile, RunId, SChunkMs,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, ReconcileScope, ReconcileTile,
+        RunId, SChunkMs, ScannedAtMs,
     };
     use uuid::Uuid;
 
@@ -902,6 +906,28 @@ mod tests {
     fn skip(partition: i32, offset: i64) -> ConsumedSeed {
         ConsumedSeed {
             work: SeedWork::Skip(SeedSkipReason::UnknownKind),
+            partition,
+            offset,
+            broker_ts_ms: None,
+        }
+    }
+
+    fn person_seed() -> PersonSeed {
+        PersonSeed::new(
+            TeamId(2),
+            Uuid::from_u128(7),
+            vec![ConditionHash::parse("0123456789abcdef").unwrap()],
+            vec![ConditionHash::parse("0123456789abcdef").unwrap()],
+            ScannedAtMs(1_700_000_000_000),
+            RunId(Uuid::nil()),
+            ClaimEpoch(1),
+        )
+        .unwrap()
+    }
+
+    fn person(partition: i32, offset: i64) -> ConsumedSeed {
+        ConsumedSeed {
+            work: SeedWork::Person(person_seed()),
             partition,
             offset,
             broker_ts_ms: None,
@@ -1245,16 +1271,27 @@ mod tests {
         let reconcile = ReconcileTile::new(
             TeamId(2),
             CohortId(42),
-            BehavioralShapeHash::parse(
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            )
-            .unwrap(),
+            ReconcileScope::Behavioral(
+                BehavioralShapeHash::parse(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                )
+                .unwrap(),
+            ),
             RunId(Uuid::nil()),
         );
         let bytes = serde_json::to_vec(&reconcile).unwrap();
         assert!(matches!(
             decode_payload(Some(&bytes), 0, 0),
             SeedWork::Reconcile(decoded) if decoded == reconcile,
+        ));
+
+        // An undecodable person seed would skip-and-commit and never replay, so the decode arm has
+        // to land before any seeder emits the kind.
+        let person = person_seed();
+        let bytes = serde_json::to_vec(&person).unwrap();
+        assert!(matches!(
+            decode_payload(Some(&bytes), 0, 0),
+            SeedWork::Person(decoded) if decoded == person,
         ));
 
         let mut newer = serde_json::to_value(&tile).unwrap();
@@ -1294,7 +1331,7 @@ mod tests {
         let reconcile = ReconcileTile::new(
             TeamId(2),
             CohortId(42),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::nil()),
         );
         let consumed = ConsumedSeed {
@@ -1317,7 +1354,7 @@ mod tests {
         let reconcile = ReconcileTile::new(
             TeamId(2),
             CohortId(42),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::nil()),
         );
         let reconcile_seed = |offset| ConsumedSeed {
@@ -1343,6 +1380,38 @@ mod tests {
         );
         assert!(closed_prefix.admitted.is_empty());
         assert_eq!(offsets(&closed_prefix.held[&3]), vec![3, 4]);
+    }
+
+    #[test]
+    fn person_seeds_are_fence_open_but_never_leapfrog_a_held_partition() {
+        let none = HashSet::new();
+        let open_prefix = split_for_admission(
+            vec![person(3, 1), seed(3, 2, 0)],
+            &HashSet::new(),
+            &fence_only(&none, |_| None),
+        );
+        assert_eq!(offsets(&open_prefix.admitted), vec![1]);
+        assert_eq!(offsets(&open_prefix.held[&3]), vec![2]);
+
+        let closed_prefix = split_for_admission(
+            vec![seed(3, 3, 0), person(3, 4)],
+            &HashSet::new(),
+            &fence_only(&none, |_| None),
+        );
+        assert!(closed_prefix.admitted.is_empty());
+        assert_eq!(offsets(&closed_prefix.held[&3]), vec![3, 4]);
+
+        let watermarks = LiveWatermarks::new();
+        watermarks.observe(3, i64::MAX); // fence wide open — live-priority must hold regardless
+        let lagging = HashSet::from([3]);
+        let gated = split_for_admission(
+            vec![person(3, 5), person(3, 6)],
+            &HashSet::new(),
+            &fence_only(&lagging, |p| watermarks.get(p)),
+        );
+        assert!(gated.admitted.is_empty());
+        assert_eq!(offsets(&gated.held[&3]), vec![5, 6]);
+        assert_eq!(gated.causes[&3], causes_of(&[PauseCause::LiveLag]));
     }
 
     /// A wrong `true` declares a partition with unfolded live events idle — the fence's
