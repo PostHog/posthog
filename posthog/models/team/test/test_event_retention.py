@@ -58,6 +58,16 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
 
         assert reconcile_organization_events_retention(self.organization) == 0
 
+    def test_reconciles_from_persisted_entitlement_not_snapshot(self) -> None:
+        Team.objects.filter(pk=self.team.pk).update(event_retention_months=84)
+        stale_org = Organization.objects.get(pk=self.organization.pk)
+        self._set_retention_feature(1, "year")
+
+        assert reconcile_organization_events_retention(stale_org) == 1
+
+        self.team.refresh_from_db()
+        assert self.team.event_retention_months == 12
+
     def test_new_team_inherits_org_retention(self) -> None:
         self._set_retention_feature(1, "year")
 

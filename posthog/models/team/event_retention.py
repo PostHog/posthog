@@ -99,7 +99,11 @@ def organization_events_retention_months(organization: "Organization") -> int:
 
 
 def reconcile_organization_events_retention(organization: "Organization") -> int:
-    """Align the org's teams with its entitlement-derived retention window; returns teams updated."""
+    """Align the org's teams with its entitlement-derived retention window; returns teams updated.
+
+    Re-reads the persisted entitlement so overlapping billing syncs can't apply a stale in-memory snapshot.
+    """
+    organization.refresh_from_db(fields=["available_product_features"])
     target_months = organization_events_retention_months(organization)
     return (
         Team.objects.filter(organization=organization)
