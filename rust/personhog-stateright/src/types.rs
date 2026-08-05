@@ -62,6 +62,21 @@ pub struct WarmState {
     pub accepted: u8,
 }
 
+/// A warm caught between its two steps, under the rejected read-first
+/// ordering: the changelog read is taken while the fence — and with it
+/// the rejection of a stale owner's write — does not exist yet, so a
+/// write can be acked into the gap and sit above the cutoff forever.
+///
+/// Fence-first needs no such state. Its epoch bump precedes the read and
+/// an append requires an installed warm carrying the current epoch, so
+/// nothing can append between the two steps and the model installs the
+/// warm atomically.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PendingWarm {
+    /// The changelog length captured before the fence existed.
+    pub cutoff: u8,
+}
+
 /// One leader pod. `registered` is the etcd lease-bound registration key;
 /// everything else is process memory and dies with the process.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -73,6 +88,10 @@ pub struct Pod {
     /// Partitions warmed by this process incarnation (production:
     /// `warmed_partitions` on the pod handle).
     pub warmed: BTreeMap<Partition, WarmState>,
+    /// Warms mid-flight under `EpochFenced` — one step of
+    /// `warm_partition` done, the other not (empty under `Current`,
+    /// whose warm has no broker step to separate from the read).
+    pub pending_warm: BTreeMap<Partition, PendingWarm>,
     /// Write-fenced partitions (production: `InflightTracker` fences +
     /// the pod handle's `fenced_partitions`).
     pub fenced: BTreeSet<Partition>,
