@@ -10,9 +10,9 @@
 import * as zod from 'zod'
 
 /**
- * Create an item and its first immutable version. An identical external ID retry returns the existing item. If the matching item is archived, the submitted content is restored as a new active version.
+ * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */
-export const datasetItemsCreateBodyExternalIdMax = 255
+export const datasetItemsCreateBodyClientItemIdMax = 255
 
 export const datasetItemsCreateBodySourceTraceIdMax = 255
 
@@ -20,11 +20,11 @@ export const datasetItemsCreateBodySourceEventIdMax = 255
 
 export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
     dataset: zod.uuid().describe('Dataset that will own the item.'),
-    external_id: zod
+    client_item_id: zod
         .string()
-        .max(datasetItemsCreateBodyExternalIdMax)
+        .max(datasetItemsCreateBodyClientItemIdMax)
         .nullish()
-        .describe('Optional case-sensitive stable key used for idempotent creates.'),
+        .describe('Optional case-sensitive stable key used for idempotent creates. It cannot be changed.'),
     input: zod
         .union([
             zod.record(zod.string(), zod.unknown()),
@@ -177,6 +177,37 @@ export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create an asynchronous JSONL export pinned to an immutable dataset revision.
+ */
+
+export const DatasetsExportsCreateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Dataset revision to export. Defaults to the latest revision when the export is created.'),
+})
+
+export const evaluationDirectoriesCreateBodyNameMax = 400
+
+export const EvaluationDirectoriesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(evaluationDirectoriesCreateBodyNameMax)
+        .describe('Directory name shown in the online evals list.'),
+})
+
+export const evaluationDirectoriesPartialUpdateBodyNameMax = 400
+
+export const EvaluationDirectoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(evaluationDirectoriesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Directory name shown in the online evals list.'),
+})
+
+/**
  * Create a new evaluation run.
  *
  * This endpoint validates the request and enqueues a Temporal workflow
@@ -221,6 +252,10 @@ export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(evaluationsCreateBodyNameMax).describe('Name of the evaluation.'),
     description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+    directory_id: zod
+        .uuid()
+        .nullish()
+        .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
     enabled: zod
         .boolean()
         .optional()
@@ -410,6 +445,10 @@ export const evaluationsUpdateBodyModelConfigurationOneModelMax = 100
 export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(evaluationsUpdateBodyNameMax).describe('Name of the evaluation.'),
     description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+    directory_id: zod
+        .uuid()
+        .nullish()
+        .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
     enabled: zod
         .boolean()
         .optional()
@@ -599,6 +638,10 @@ export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(evaluationsPartialUpdateBodyNameMax).optional().describe('Name of the evaluation.'),
     description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+    directory_id: zod
+        .uuid()
+        .nullish()
+        .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
     enabled: zod
         .boolean()
         .optional()
