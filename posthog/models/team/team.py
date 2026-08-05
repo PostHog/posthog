@@ -174,11 +174,21 @@ class TeamManager(models.Manager):
         return team
 
     def create(self, **kwargs):
+        from ..organization import Organization
         from ..project import Project
+        from .event_retention import organization_events_retention_months
 
         with transaction.atomic(using=self.db):
             if "id" not in kwargs:
                 kwargs["id"] = self.increment_id_sequence()
+            if "event_retention_months" not in kwargs:
+                organization = kwargs.get("organization")
+                if organization is None and (organization_id := kwargs.get("organization_id")):
+                    organization = (
+                        Organization.objects.filter(pk=organization_id).only("available_product_features").first()
+                    )
+                if organization is not None:
+                    kwargs["event_retention_months"] = organization_events_retention_months(organization)
             if kwargs.get("project") is None and kwargs.get("project_id") is None:
                 # If a parent project is not provided for this team, ensure there is one
                 # This should be removed once environments are fully rolled out
