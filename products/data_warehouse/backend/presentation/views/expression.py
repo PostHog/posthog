@@ -31,6 +31,7 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             "table_name",
             "field_name",
             "expression",
+            "connection_id",
         ]
         read_only_fields = ["id", "created_by", "created_at"]
         extra_kwargs = {
@@ -42,17 +43,22 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             "expression": {
                 "help_text": "HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email)."
             },
+            "connection_id": {
+                "help_text": "ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database."
+            },
         }
 
-    def _database(self) -> Database:
-        database = self.context.get("database")
+    def _database(self, connection_id: Optional[str]) -> Database:
+        cache_key = f"database_{connection_id}"
+        database = self.context.get(cache_key)
         if not database:
             database = Database.create_for(
                 team_id=self.context["team_id"],
                 user=cast(User, self.context["request"].user),
+                connection_id=connection_id,
             )
-            # Cache on the shared context so a list response builds the database at most once.
-            self.context["database"] = database
+            # Cache on the shared context so a list response builds each database at most once.
+            self.context[cache_key] = database
         return database
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -60,6 +66,7 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
         table_name = attrs.get("table_name", instance.table_name if instance else None)
         field_name = attrs.get("field_name", instance.field_name if instance else None)
         expression = attrs.get("expression", instance.expression if instance else None)
+        connection_id = attrs.get("connection_id", instance.connection_id if instance else None)
         team_id = self.context["team_id"]
 
         if not table_name:
@@ -71,7 +78,12 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
         if not expression:
             raise serializers.ValidationError({"expression": ["Expression must not be empty."]})
 
-        database = self._database()
+        try:
+            database = self._database(str(connection_id) if connection_id else None)
+        except Exception:
+            if connection_id:
+                raise serializers.ValidationError({"connection_id": ["Invalid connection."]})
+            raise
         try:
             table = database.get_table(table_name)
         except Exception:
@@ -83,6 +95,7 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             and not instance.deleted
             and instance.table_name == table_name
             and instance.field_name == field_name
+            and instance.connection_id == connection_id
         )
         if not is_own_field and table.fields.get(field_name) is not None:
             raise serializers.ValidationError(
@@ -94,7 +107,7 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             )
 
         duplicates = DataWarehouseExpression.objects.for_team(team_id).filter(
-            table_name=table_name, field_name=field_name, deleted=False
+            table_name=table_name, field_name=field_name, connection_id=connection_id, deleted=False
         )
         if instance is not None:
             duplicates = duplicates.exclude(id=instance.id)

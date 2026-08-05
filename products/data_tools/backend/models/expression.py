@@ -25,6 +25,9 @@ class DataWarehouseExpression(ModelActivityMixin, TeamScopedRootMixin, UUIDTMode
     table_name = models.CharField(max_length=400)
     field_name = models.CharField(max_length=400)
     expression = models.TextField()
+    # ExternalDataSource id when the expression is scoped to one connection's direct-query
+    # database; null scopes it to the default warehouse database.
+    connection_id = models.UUIDField(null=True, blank=True)
 
     def soft_delete(self) -> None:
         self.deleted = True

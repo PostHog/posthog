@@ -1443,7 +1443,14 @@ class Database(BaseModel):
             data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
 
         with timings.measure("data_warehouse_expressions", emit_span=True):
-            data_warehouse_expressions = list(DataWarehouseExpression.objects.for_team(team.pk).exclude(deleted=True))
+            expressions_query = DataWarehouseExpression.objects.for_team(team.pk).exclude(deleted=True)
+            # An expression is scoped either to one connection's direct-query database or to the
+            # default warehouse database; never both.
+            if is_direct_query:
+                expressions_query = expressions_query.filter(connection_id=connection_id)
+            else:
+                expressions_query = expressions_query.filter(connection_id__isnull=True)
+            data_warehouse_expressions = list(expressions_query)
 
         with timings.measure("attach_credentials", emit_span=True):
             # Tables and view-backing tables share the credential pool; attach across all of them.

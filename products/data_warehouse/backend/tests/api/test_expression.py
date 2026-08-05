@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
@@ -115,6 +117,18 @@ class TestExpressionApi(APIBaseTest):
                 ("deleted", self.user.email, "events.browser"),
             ],
         )
+
+    def test_connection_scoped_expression_stays_out_of_default_database(self):
+        with team_scope(self.team.pk):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="events",
+                field_name="scoped_field",
+                expression="upper(event)",
+                connection_id=uuid4(),
+            )
+
+        self.assertNotIn("scoped_field", self._database().get_table("events").fields)
 
     def test_stale_expression_degrades_instead_of_breaking_schema(self):
         # Bypasses API validation the way a valid expression goes stale in real life: the

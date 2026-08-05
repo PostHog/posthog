@@ -818,6 +818,11 @@ export interface DataWarehouseExpressionApi {
     field_name: string
     /** HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email). */
     expression: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
 }
 
 export interface PaginatedDataWarehouseExpressionListApi {
@@ -850,6 +855,11 @@ export interface PatchedDataWarehouseExpressionApi {
     field_name?: string
     /** HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email). */
     expression?: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
 }
 
 export interface DataWarehouseModelPathApi {

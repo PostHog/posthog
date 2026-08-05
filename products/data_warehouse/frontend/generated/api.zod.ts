@@ -297,6 +297,12 @@ export const WarehouseExpressionsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).'
         ),
+    connection_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database."
+        ),
 })
 
 /**
@@ -322,6 +328,12 @@ export const WarehouseExpressionsUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             'HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).'
+        ),
+    connection_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database."
         ),
 })
 
@@ -351,6 +363,12 @@ export const WarehouseExpressionsPartialUpdateBody = /* @__PURE__ */ zod.object(
         .optional()
         .describe(
             'HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).'
+        ),
+    connection_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database."
         ),
 })
 
