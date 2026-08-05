@@ -196,7 +196,9 @@ def _handle_bit_shift_right(args: list[str]) -> str:
 
 
 def _handle_json_has(args: list[str]) -> str:
-    return f"(json_extract_path({', '.join(args)}) IS NOT NULL)"
+    # ClickHouse's JSONHas returns UInt8, and HogQL types it as an integer, so a bare
+    # boolean would break numeric consumers such as sum(JSONHas(...)).
+    return f"CAST((json_extract_path({', '.join(args)}) IS NOT NULL) AS INTEGER)"
 
 
 def _make_decimal_arithmetic_handler(op: str) -> Callable[[list[str]], str]:

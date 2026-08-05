@@ -9,6 +9,15 @@ from posthog.hogql.escape_sql import escape_duckdb_identifier
 from posthog.hogql.printer.duckdb_functions import DUCKDB_FUNCTION_HANDLERS_LOWER, DUCKDB_FUNCTION_RENAMES_LOWER
 from posthog.hogql.printer.postgres import PostgresPrinter
 
+# ClickHouse returns the element-type default when arrayFirst matches nothing, whereas
+# indexing an empty DuckDB list yields NULL. Literals here restore the ClickHouse value.
+_ELEMENT_TYPE_DEFAULTS: tuple[tuple[type, str], ...] = (
+    (ast.BooleanType, "false"),
+    (ast.IntegerType, "0"),
+    (ast.FloatType, "0.0"),
+    (ast.StringType, "''"),
+)
+
 
 class DuckDBPrinter(PostgresPrinter):
     """Prints a HogQL AST as DuckDB SQL.
@@ -65,6 +74,10 @@ class DuckDBPrinter(PostgresPrinter):
         return_type = node.type.return_type if isinstance(node.type, ast.CallType) else node.type
         if node.name.lower() in {"dateadd", "datetrunc", "date_trunc"} and isinstance(return_type, ast.DateType):
             return f"CAST({rendered} AS DATE)"
+        if node.name.lower() == "arrayfirst":
+            default = next((literal for t, literal in _ELEMENT_TYPE_DEFAULTS if isinstance(return_type, t)), None)
+            if default is not None:
+                return f"COALESCE({rendered}, {default})"
         return rendered
 
     def _assert_with_ties_supported(self) -> None:

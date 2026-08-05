@@ -7990,9 +7990,9 @@ class TestDuckDBPrinter(SimpleTestCase):
             ("bitShiftLeft_uses_operator", "bitShiftLeft(1, 3)", "(1 << 3)"),
             ("bitShiftRight_uses_operator", "bitShiftRight(16, 2)", "(16 >> 2)"),
             (
-                "JSONHas_checks_path_not_null",
+                "JSONHas_returns_integer_like_clickhouse",
                 "JSONHas(properties, 'key')",
-                "(json_extract_path(events.properties, %(hogql_val_0)s) IS NOT NULL)",
+                "CAST((json_extract_path(events.properties, %(hogql_val_0)s) IS NOT NULL) AS INTEGER)",
             ),
             (
                 "multiplyDecimal_casts_to_decimal",
@@ -8025,9 +8025,14 @@ class TestDuckDBPrinter(SimpleTestCase):
                 "list_filter([1, 2, 3], lambda x: (x > 1))",
             ),
             (
-                "arrayFirst_indexes_list_filter",
+                "arrayFirst_defaults_to_zero_for_numbers",
                 "arrayFirst(x -> x > 1, [1, 2, 3])",
-                "(list_filter([1, 2, 3], lambda x: (x > 1)))[1]",
+                "COALESCE((list_filter([1, 2, 3], lambda x: (x > 1)))[1], 0)",
+            ),
+            (
+                "arrayFirst_defaults_to_empty_string_for_strings",
+                "arrayFirst(x -> x = 'a', ['a', 'b'])",
+                "COALESCE((list_filter([%(hogql_val_1)s, %(hogql_val_2)s], lambda x: (x = %(hogql_val_0)s)))[1], '')",
             ),
             (
                 "JSONExtractKeysAndValuesRaw_uses_map_entries",
