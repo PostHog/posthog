@@ -498,7 +498,8 @@
 
         if (dryRun) {
             return window.confirm(
-                "Dry run: no recordings will be deleted. Preview " + action + " for " + project + "?" + scopeLine
+                "Dry run: no recordings will be deleted.\n\n" +
+                "Preview which recordings would match if you " + action + " from " + project + "?" + scopeLine
             );
         }
 
