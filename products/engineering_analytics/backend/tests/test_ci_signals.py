@@ -672,11 +672,8 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         _assert_emittable(findings[0])
 
     def test_flaky_check_groups_a_sharded_job_under_one_signal(self) -> None:
-        # A sharded job reports per shard, and the shard count moves between runs, so keying on the raw
-        # name splits one flaky job into a signal per shard name, each separately gated by
-        # min_flaky_runs, so a job that recovered 3 times reports nothing at all. These are the real
-        # rendered names: the shard label sits mid-name, so a key that only strips a trailing label
-        # still splits this job.
+        # Real rendered names with the shard label mid-name: an end-anchored match still splits
+        # this job, and per-shard keys each miss min_flaky_runs, so 3 recoveries report nothing.
         now = datetime.now(UTC).replace(tzinfo=None)
         shards = [
             "Product tests (warehouse-sources (1/4), events schema legacy)",

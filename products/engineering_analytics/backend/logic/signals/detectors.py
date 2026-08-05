@@ -60,20 +60,18 @@ DURATION_MIN_PCT_INCREASE = 0.2
 DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
 
 
-# A sharded job reports as one GitHub job per shard, labeled `(i/N)`. The label is not always a
-# suffix: a product-test job renders as `Product tests (<product> (i/N), events schema <mode>)`,
-# which carries the label mid-name, so matching only at the end of the string would leave every
-# sharded product-test job splitting per shard.
+# A sharded job reports one GitHub job per shard, labeled `(i/N)`. turbo-discover.js builds the
+# label into the matrix group and ci-backend.yml wraps the group mid-name for product tests, so
+# the match cannot be anchored to the end of the string.
 SHARD_LABEL_RE = re.compile(r"\s*\(\d+/\d+\)")
 
 
 def _base_job_name(job_name: str) -> str:
     """The job name with its shard label removed.
 
-    The flaky thing is the job, not the shard that happened to hold the offending test: shards are a
-    sizing detail, and the shard count itself moves between runs, so a raw-name key splits one flaky
-    job across a signal per shard (each separately gated by min_flaky_runs) and mints fresh keys the
-    day the count changes. Falls back to the raw name if stripping would leave nothing.
+    The flaky thing is the job, not the shard, and the shard count moves between runs, so a
+    raw-name key splits one flaky job into a signal per shard, each gated separately by
+    min_flaky_runs. Falls back to the raw name if stripping would leave nothing.
     """
     return SHARD_LABEL_RE.sub("", job_name) or job_name
 
