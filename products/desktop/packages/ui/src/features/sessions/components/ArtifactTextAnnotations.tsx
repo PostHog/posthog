@@ -257,11 +257,9 @@ export function ArtifactTextAnnotations({
               top: rect.top,
               width: rect.width,
               height: rect.height,
-              backgroundColor: "rgba(250, 204, 21, 0.32)",
-              outline: rect.active
-                ? "2px solid rgba(255, 255, 255, 0.9)"
-                : undefined,
-              outlineOffset: rect.active ? 1 : undefined,
+              backgroundColor: rect.active
+                ? "rgba(250, 204, 21, 0.48)"
+                : "rgba(250, 204, 21, 0.32)",
             }}
             onClick={() => onActivateThread(rect.id)}
             aria-label="Open comment thread"

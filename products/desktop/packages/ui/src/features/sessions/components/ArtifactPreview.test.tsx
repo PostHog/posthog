@@ -621,8 +621,7 @@ describe("ArtifactPreview", () => {
       // And the thread reads as the active one on the surface.
       const highlight = await screen.findByLabelText("Open comment thread");
       expect(highlight).toHaveStyle({
-        backgroundColor: "rgba(250, 204, 21, 0.32)",
-        outline: "2px solid rgba(255, 255, 255, 0.9)",
+        backgroundColor: "rgba(250, 204, 21, 0.48)",
       });
     });
 
@@ -686,7 +685,8 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("<style>.card{color:red}</style>");
     expect(document).toContain('style="font-size:20px"');
     expect(document).toContain("__POSTHOG_ARTIFACT_COMMENT_BRIDGE__");
-    expect(document).toContain("ph-artifact-comment-outline");
+    expect(document).toContain("posthog-artifact-comment-active");
+    expect(document).not.toContain("ph-artifact-comment-outline");
     expect(document).toContain("💬 Comment");
     expect(document).toContain('var CHANNEL="test-channel"');
     expect(document).toContain('d.type==="locate"');

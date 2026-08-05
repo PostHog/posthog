@@ -80,7 +80,8 @@ describe("buildSandboxDocument", () => {
     const html = buildSandboxDocument("edit");
     expect(html).toContain('d.type === "set-comment-highlights"');
     expect(html).toContain('CSS.highlights.set("posthog-canvas-comment"');
-    expect(html).toContain("ph-canvas-comment-outline");
+    expect(html).toContain("posthog-canvas-comment-active");
+    expect(html).not.toContain("ph-canvas-comment-outline");
     expect(html).toContain("renderCommentHighlights(currentCommentHighlights)");
   });
 });
