@@ -67,11 +67,6 @@ import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 
 const HedgehogExperiment = pngHoggie(experimentPng)
 
-// Renders nothing on purpose: leftover scaffolding from a flag-cleanup dogfood.
-const CleanupDummyExperiment = (): JSX.Element | null => {
-    return null
-}
-
 export const scene: SceneExport = {
     component: Experiments,
     logic: experimentsLogic,
@@ -643,7 +638,6 @@ export function Experiments(): JSX.Element {
                     ) : undefined
                 }
             />
-            <CleanupDummyExperiment />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}
