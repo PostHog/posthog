@@ -544,6 +544,11 @@ class TestResponsesApiItems:
                 "London",
             ),
             (
+                "unrecognized_item_type",
+                {"id": "f1", "status": "completed", "whatever": [1, 2], "type": "some_future_call"},
+                "some_future_call() (completed)",
+            ),
+            (
                 "builtin_web_search_call",
                 {"id": "ws1", "status": "completed", "type": "web_search_call"},
                 "web_search_call() (completed)",
@@ -592,6 +597,12 @@ class TestResponsesApiItems:
         message = {"type": "reasoning", "encrypted_content": "gAAAA", "summary": []}
         result = "\n".join(format_input_messages([message]))
         assert MISSING_REASONING_NOTE in result
+
+    def test_legacy_choice_objects_still_route_to_the_message_path(self):
+        choices = [{"index": 0, "message": {"role": "assistant", "content": "Hi"}, "finish_reason": "stop"}]
+        result = "\n".join(format_output_messages(None, choices))
+        assert "[1] ASSISTANT" in result
+        assert "Hi" in result
 
     def test_falsey_tool_output_is_not_reported_as_missing(self):
         message = {"call_id": "call_1", "output": 0, "type": "function_call_output"}

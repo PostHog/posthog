@@ -18,9 +18,7 @@ from .constants import (
     MISSING_TOOL_OUTPUT_NOTE,
     PLAIN_TEXT_BLOCK_TYPES,
     PRESERVE_HEADER_LINES,
-    RESPONSES_BUILTIN_TOOL_CALL_TYPES,
     RESPONSES_ITEM_METADATA_KEYS,
-    RESPONSES_ITEM_TYPES,
     RESPONSES_TOOL_CALL_TYPES,
     RESPONSES_TOOL_OUTPUT_TYPES,
     SAMPLED_VIEW_HEADER,
@@ -427,11 +425,22 @@ def extract_payload_text(payload: Any) -> str:
     return extract_text_content(payload)
 
 
-def _format_builtin_tool_call(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
-    """Format a Responses built-in tool call (web search, code interpreter, MCP, and so on).
+def _is_responses_item(msg: dict[str, Any]) -> bool:
+    """True for a Responses API item, which is a typed entry carrying no Chat Completions message.
 
-    Each type carries its own payload keys rather than a uniform argument object, so render the
-    item's remaining fields instead of fitting them to a function signature.
+    Responses items sit at the top level of the conversation array with a `type` and no `role` or
+    `content`. Matching on that shape rather than on a list of known types means a built-in tool
+    OpenAI adds later renders its fields instead of a bare header.
+    """
+    item_type = msg.get("type")
+    return bool(item_type) and item_type not in PLAIN_TEXT_BLOCK_TYPES and "role" not in msg and "content" not in msg
+
+
+def _format_responses_item_fields(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
+    """Format a Responses item from its own fields, for types with no dedicated branch.
+
+    Built-in tools each carry a different payload (`action`, `code`, `queries`, `result`), so
+    render what the item holds rather than fitting every type to a function signature.
     """
     name = str(msg.get("name") or msg.get("type") or "unknown")
     signature = format_single_tool_call(name, msg.get("arguments") or {})
@@ -465,9 +474,6 @@ def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None
         lines, _ = truncate_content(call_line, options)
         return lines
 
-    if item_type in RESPONSES_BUILTIN_TOOL_CALL_TYPES:
-        return _format_builtin_tool_call(msg, options)
-
     if item_type in RESPONSES_TOOL_OUTPUT_TYPES:
         output = msg.get("output")
         text = extract_payload_text(msg.get("content") if output is None else output)
@@ -490,6 +496,9 @@ def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None
         tool_lines = format_tools(msg.get("tools"), options)
         if tool_lines:
             return tool_lines
+
+    if _is_responses_item(msg):
+        return _format_responses_item_fields(msg, options)
 
     return None
 
@@ -633,7 +642,7 @@ def format_output_messages(
             # The Responses API can send its items at the top level of the array, with no `role`
             # and no `content`. Pass those straight to `format_messages_array`, which knows their
             # shapes, rather than dropping them for failing the role check below.
-            if choice.get("type") in RESPONSES_ITEM_TYPES:
+            if _is_responses_item(choice):
                 messages.append(choice)
                 continue
 
