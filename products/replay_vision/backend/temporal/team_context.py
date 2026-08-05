@@ -1,13 +1,16 @@
 """Customer product context for scanner prompts: Max core memory + event definition descriptions.
 
 Both sources are customer-authored text rendered into the trusted preamble, so everything is
-sanitized (control chars stripped, whitespace collapsed, length-capped) before it is stored.
+sanitized (control chars stripped, backticks replaced, whitespace collapsed, length-capped)
+before it is stored.
 """
 
 import re
 from collections import Counter
 from functools import cache
 from typing import Any
+
+from django.db.models import Q
 
 from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models import Team
@@ -20,7 +23,8 @@ _MAX_EVENT_DESCRIPTION_LEN = 500
 # Bound the name list sent to Postgres when a session emits a pathological number of distinct events.
 _MAX_LOOKUP_NAMES = 300
 
-_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# \x0a (newline) is excluded so `keep_newlines` callers can preserve line structure.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
 
 
 @cache
@@ -32,8 +36,14 @@ def _core_event_names() -> frozenset[str]:
     return frozenset(CORE_FILTER_DEFINITIONS_BY_GROUP["events"])
 
 
-def _sanitize(text: str, max_len: int) -> str:
-    cleaned = " ".join(_CONTROL_CHARS_RE.sub(" ", text).split())
+def _sanitize(text: str, max_len: int, *, keep_newlines: bool = False) -> str:
+    # Backticks become apostrophes because the preamble fences these values as inline code.
+    stripped = _CONTROL_CHARS_RE.sub(" ", text).replace("`", "'")
+    if keep_newlines:
+        lines = [" ".join(line.split()) for line in stripped.split("\n")]
+        cleaned = "\n".join(line for line in lines if line)
+    else:
+        cleaned = " ".join(stripped.split())
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len] + "…"
     return cleaned
@@ -44,11 +54,12 @@ def fetch_product_context(team: Team) -> str:
     text = get_team_business_context(team)
     if not text:
         text = (team.project.product_description or "").strip()
-    return _sanitize(text, _MAX_PRODUCT_CONTEXT_LEN)
+    # Core memory is one fact per line; keep the newlines so the model sees a list, not a wall of text.
+    return _sanitize(text, _MAX_PRODUCT_CONTEXT_LEN, keep_newlines=True)
 
 
 def _event_names_by_frequency(columns: list[str], rows: list[list[Any]]) -> list[str]:
-    """Distinct event names in the session, most frequent first, alphabetical tie-break for stable order."""
+    """Distinct event names, most frequent first (counted over deduplicated rows), alphabetical tie-break."""
     if "event" not in columns:
         return []
     event_index = columns.index("event")
@@ -56,7 +67,7 @@ def _event_names_by_frequency(columns: list[str], rows: list[list[Any]]) -> list
     return [name for name, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
 
 
-def fetch_event_descriptions(team_id: int, columns: list[str], rows: list[list[Any]]) -> dict[str, str]:
+def fetch_event_descriptions(team: Team, columns: list[str], rows: list[list[Any]]) -> dict[str, str]:
     """Customer-written descriptions for this session's custom events, keyed by name, most frequent first.
 
     Descriptions only exist on the enterprise EventDefinition model, so this is a no-op on OSS builds.
@@ -65,13 +76,17 @@ def fetch_event_descriptions(team_id: int, columns: list[str], rows: list[list[A
         return {}
     from ee.models.event_definition import EnterpriseEventDefinition  # noqa: PLC0415 — absent from OSS builds
 
-    # A backtick in a name would escape the prompt's inline-code fencing; drop such names rather than escape.
+    # A backtick in a name would escape the prompt's inline-code fencing; drop such names rather than rewrite an identifier.
     custom_names = [
         name for name in _event_names_by_frequency(columns, rows) if name not in _core_event_names() and "`" not in name
     ][:_MAX_LOOKUP_NAMES]
 
     found = dict(
-        EnterpriseEventDefinition.objects.filter(team_id=team_id, name__in=custom_names)
+        EnterpriseEventDefinition.objects.filter(
+            # Definitions are project-scoped with a team-scoped legacy fallback; mirrors posthog/api/event_definition.py.
+            Q(project_id=team.project_id) | Q(project_id__isnull=True, team_id=team.project_id),
+            name__in=custom_names,
+        )
         .exclude(description__isnull=True)
         .exclude(description="")
         .values_list("name", "description")

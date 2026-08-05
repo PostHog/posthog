@@ -179,11 +179,20 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     # Derive from duration; clamp because CH can yield active > duration (tab visibility, clock skew).
     inactive_seconds = max(0.0, duration_seconds - active_seconds)
 
+    # Best-effort: product context is a nice-to-have prompt block, so a Postgres hiccup must not fail the scan.
+    product_context = ""
+    event_descriptions: dict[str, str] = {}
+    try:
+        product_context = fetch_product_context(team)
+        event_descriptions = fetch_event_descriptions(team, processed.columns, processed.rows)
+    except Exception:
+        logger.warning("replay_vision.fetch.team_context_failed", team_id=team_id, session_id=session_id, exc_info=True)
+
     return ScannerLlmInputs(
         session_id=session_id,
         team_id=team_id,
-        product_context=fetch_product_context(team),
-        event_descriptions=fetch_event_descriptions(team_id, processed.columns, processed.rows),
+        product_context=product_context,
+        event_descriptions=event_descriptions,
         events=EventTable(columns=processed.columns, rows=processed.rows),
         url_mapping=processed.url_mapping,
         window_mapping=processed.window_mapping,
