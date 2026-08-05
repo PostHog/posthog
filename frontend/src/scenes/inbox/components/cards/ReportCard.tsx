@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconArchive, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -99,12 +99,15 @@ export function ReportCard({
     attached = false,
     onArchive,
     onRestore,
+    backUrl,
 }: {
     report: SignalReport
     tabKey?: InboxFlatListTabKey
     attached?: boolean
     onArchive?: (reason: DismissalReasonValue, note: string) => void
     onRestore?: () => void
+    /** Internal path the detail view's back button should return to, for cards rendered outside the inbox. */
+    backUrl?: string
 }): JSX.Element {
     const isArchived = tabKey === 'archived'
     // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
@@ -121,7 +124,9 @@ export function ReportCard({
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
-    const detailUrl = urls.inboxReport(tabKey, report.id)
+    const detailUrl = backUrl
+        ? combineUrl(urls.inboxReport(tabKey, report.id), { back: backUrl }).url
+        : urls.inboxReport(tabKey, report.id)
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,
@@ -206,7 +211,7 @@ export function ReportCard({
                                 'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
                             )}
                         >
-                            No summary yet – still collecting context.
+                            No summary yet. Still collecting context.
                         </p>
                     ) : null}
 
@@ -285,7 +290,7 @@ export function ReportCard({
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                tooltip="Open the full report – summary, evidence, and actions"
+                                tooltip="Open the full report to see its summary, evidence, and actions"
                                 onClick={(event) => {
                                     event.preventDefault()
                                     event.stopPropagation()

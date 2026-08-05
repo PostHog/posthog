@@ -64,6 +64,33 @@ export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchT
 
 export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
 
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneOperatorDefault = `exact`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneTypeDefault = `event`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemTwoTypeDefault = `person`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemThreeKeyDefault = `id`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemThreeOperatorDefault = `in`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemThreeTypeDefault = `cohort`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemFourTypeDefault = `element`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemFiveTypeDefault = `hogql`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemSixTypeDefault = `data_warehouse`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemOneOperatorDefault = `exact`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemOneTypeDefault = `event`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemTwoTypeDefault = `person`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemThreeKeyDefault = `id`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemThreeOperatorDefault = `in`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemThreeTypeDefault = `cohort`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemFourTypeDefault = `element`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemFiveTypeDefault = `hogql`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemSixTypeDefault = `data_warehouse`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemOneOperatorDefault = `exact`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemOneTypeDefault = `event`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemTwoTypeDefault = `person`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemThreeKeyDefault = `id`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemThreeOperatorDefault = `in`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemThreeTypeDefault = `cohort`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemFourTypeDefault = `element`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemFiveTypeDefault = `hogql`
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault = `data_warehouse`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
@@ -404,22 +431,1979 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .optional(),
         marketing_analytics_config: zod
             .object({
-                sources_map: zod.unknown().optional(),
-                conversion_goals: zod.unknown().optional(),
+                sources_map: zod
+                    .record(
+                        zod.string(),
+                        zod.object({
+                            ad_group_id: zod.union([zod.string(), zod.null()]).optional(),
+                            ad_group_name: zod.union([zod.string(), zod.null()]).optional(),
+                            ad_id: zod.union([zod.string(), zod.null()]).optional(),
+                            ad_name: zod.union([zod.string(), zod.null()]).optional(),
+                            campaign: zod.union([zod.string(), zod.null()]).optional(),
+                            clicks: zod.union([zod.string(), zod.null()]).optional(),
+                            cost: zod.union([zod.string(), zod.null()]).optional(),
+                            currency: zod.union([zod.string(), zod.null()]).optional(),
+                            date: zod.union([zod.string(), zod.null()]).optional(),
+                            id: zod.union([zod.string(), zod.null()]).optional(),
+                            impressions: zod.union([zod.string(), zod.null()]).optional(),
+                            reported_conversion: zod.union([zod.string(), zod.null()]).optional(),
+                            reported_conversion_value: zod.union([zod.string(), zod.null()]).optional(),
+                            source: zod.union([zod.string(), zod.null()]).optional(),
+                        })
+                    )
+                    .describe("Mapping of external data source id to that source's column mapping.")
+                    .optional()
+                    .describe(
+                        'Column mapping per external data source, keyed by source id. Tells marketing analytics which column holds campaign, source, cost, clicks and impressions for that source.'
+                    ),
+                conversion_goals: zod
+                    .array(
+                        zod.union([
+                            zod
+                                .object({
+                                    conversion_goal_id: zod.string(),
+                                    conversion_goal_name: zod.string(),
+                                    counts_as_customer: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.'
+                                        ),
+                                    counts_as_revenue: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false.'
+                                        ),
+                                    custom_name: zod.union([zod.string(), zod.null()]).optional(),
+                                    event: zod
+                                        .union([zod.string(), zod.null()])
+                                        .optional()
+                                        .describe('The event or `null` for all events.'),
+                                    kind: zod.literal('EventsNode'),
+                                    limit: zod.union([zod.number(), zod.null()]).optional(),
+                                    math: zod
+                                        .union([
+                                            zod.enum([
+                                                'total',
+                                                'dau',
+                                                'weekly_active',
+                                                'monthly_active',
+                                                'unique_session',
+                                                'first_time_for_user',
+                                                'first_matching_event_for_user',
+                                            ]),
+                                            zod.enum([
+                                                'total',
+                                                'first_time_for_user',
+                                                'first_time_for_user_with_filters',
+                                            ]),
+                                            zod.enum([
+                                                'avg',
+                                                'sum',
+                                                'min',
+                                                'max',
+                                                'median',
+                                                'p75',
+                                                'p90',
+                                                'p95',
+                                                'p99',
+                                            ]),
+                                            zod.enum([
+                                                'avg_count_per_actor',
+                                                'min_count_per_actor',
+                                                'max_count_per_actor',
+                                                'median_count_per_actor',
+                                                'p75_count_per_actor',
+                                                'p90_count_per_actor',
+                                                'p95_count_per_actor',
+                                                'p99_count_per_actor',
+                                            ]),
+                                            zod.enum([
+                                                'total',
+                                                'sum',
+                                                'unique_session',
+                                                'min',
+                                                'max',
+                                                'avg',
+                                                'dau',
+                                                'unique_group',
+                                                'hogql',
+                                            ]),
+                                            zod.enum(['total', 'dau']),
+                                            zod.literal('unique_group'),
+                                            zod.literal('hogql'),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    math_group_type_index: zod
+                                        .union([
+                                            zod.union([
+                                                zod.literal(0),
+                                                zod.literal(1),
+                                                zod.literal(2),
+                                                zod.literal(3),
+                                                zod.literal(4),
+                                            ]),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    math_hogql: zod.union([zod.string(), zod.null()]).optional(),
+                                    math_multiplier: zod.union([zod.number(), zod.null()]).optional(),
+                                    math_property: zod.union([zod.string(), zod.null()]).optional(),
+                                    math_property_revenue_currency: zod
+                                        .union([
+                                            zod.object({
+                                                property: zod.union([zod.string(), zod.null()]).optional(),
+                                                static: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'AED',
+                                                            'AFN',
+                                                            'ALL',
+                                                            'AMD',
+                                                            'ANG',
+                                                            'AOA',
+                                                            'ARS',
+                                                            'AUD',
+                                                            'AWG',
+                                                            'AZN',
+                                                            'BAM',
+                                                            'BBD',
+                                                            'BDT',
+                                                            'BGN',
+                                                            'BHD',
+                                                            'BIF',
+                                                            'BMD',
+                                                            'BND',
+                                                            'BOB',
+                                                            'BRL',
+                                                            'BSD',
+                                                            'BTC',
+                                                            'BTN',
+                                                            'BWP',
+                                                            'BYN',
+                                                            'BZD',
+                                                            'CAD',
+                                                            'CDF',
+                                                            'CHF',
+                                                            'CLP',
+                                                            'CNY',
+                                                            'COP',
+                                                            'CRC',
+                                                            'CVE',
+                                                            'CZK',
+                                                            'DJF',
+                                                            'DKK',
+                                                            'DOP',
+                                                            'DZD',
+                                                            'EGP',
+                                                            'ERN',
+                                                            'ETB',
+                                                            'EUR',
+                                                            'FJD',
+                                                            'GBP',
+                                                            'GEL',
+                                                            'GHS',
+                                                            'GIP',
+                                                            'GMD',
+                                                            'GNF',
+                                                            'GTQ',
+                                                            'GYD',
+                                                            'HKD',
+                                                            'HNL',
+                                                            'HRK',
+                                                            'HTG',
+                                                            'HUF',
+                                                            'IDR',
+                                                            'ILS',
+                                                            'INR',
+                                                            'IQD',
+                                                            'IRR',
+                                                            'ISK',
+                                                            'JMD',
+                                                            'JOD',
+                                                            'JPY',
+                                                            'KES',
+                                                            'KGS',
+                                                            'KHR',
+                                                            'KMF',
+                                                            'KRW',
+                                                            'KWD',
+                                                            'KYD',
+                                                            'KZT',
+                                                            'LAK',
+                                                            'LBP',
+                                                            'LKR',
+                                                            'LRD',
+                                                            'LTL',
+                                                            'LVL',
+                                                            'LSL',
+                                                            'LYD',
+                                                            'MAD',
+                                                            'MDL',
+                                                            'MGA',
+                                                            'MKD',
+                                                            'MMK',
+                                                            'MNT',
+                                                            'MOP',
+                                                            'MRU',
+                                                            'MTL',
+                                                            'MUR',
+                                                            'MVR',
+                                                            'MWK',
+                                                            'MXN',
+                                                            'MYR',
+                                                            'MZN',
+                                                            'NAD',
+                                                            'NGN',
+                                                            'NIO',
+                                                            'NOK',
+                                                            'NPR',
+                                                            'NZD',
+                                                            'OMR',
+                                                            'PAB',
+                                                            'PEN',
+                                                            'PGK',
+                                                            'PHP',
+                                                            'PKR',
+                                                            'PLN',
+                                                            'PYG',
+                                                            'QAR',
+                                                            'RON',
+                                                            'RSD',
+                                                            'RUB',
+                                                            'RWF',
+                                                            'SAR',
+                                                            'SBD',
+                                                            'SCR',
+                                                            'SDG',
+                                                            'SEK',
+                                                            'SGD',
+                                                            'SRD',
+                                                            'SSP',
+                                                            'STN',
+                                                            'SYP',
+                                                            'SZL',
+                                                            'THB',
+                                                            'TJS',
+                                                            'TMT',
+                                                            'TND',
+                                                            'TOP',
+                                                            'TRY',
+                                                            'TTD',
+                                                            'TWD',
+                                                            'TZS',
+                                                            'UAH',
+                                                            'UGX',
+                                                            'USD',
+                                                            'UYU',
+                                                            'UZS',
+                                                            'VES',
+                                                            'VND',
+                                                            'VUV',
+                                                            'WST',
+                                                            'XAF',
+                                                            'XCD',
+                                                            'XOF',
+                                                            'XPF',
+                                                            'YER',
+                                                            'ZAR',
+                                                            'ZMW',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    math_property_type: zod.union([zod.string(), zod.null()]).optional(),
+                                    name: zod.string(),
+                                    optionalInFunnel: zod.union([zod.boolean(), zod.null()]).optional(),
+                                    orderBy: zod
+                                        .union([zod.array(zod.string()), zod.null()])
+                                        .optional()
+                                        .describe('Columns to order by'),
+                                    properties: zod
+                                        .union([
+                                            zod.array(
+                                                zod.union([
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneOperatorDefault
+                                                            ),
+                                                        type: zod
+                                                            .literal('event')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneTypeDefault
+                                                            )
+                                                            .describe('Event properties'),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('person')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemTwoTypeDefault
+                                                            )
+                                                            .describe('Person properties'),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                                        key: zod
+                                                            .literal('id')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemThreeKeyDefault
+                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemThreeOperatorDefault
+                                                            ),
+                                                        type: zod
+                                                            .literal('cohort')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemThreeTypeDefault
+                                                            ),
+                                                        value: zod.number(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('element')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemFourTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        type: zod
+                                                            .literal('hogql')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemFiveTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemSixTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                ])
+                                            ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    response: zod
+                                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                                        .optional(),
+                                    schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
+                                    version: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe('version of the node, used for schema migrations'),
+                                })
+                                .describe('A conversion goal counted from events.'),
+                            zod
+                                .object({
+                                    conversion_goal_id: zod.string(),
+                                    conversion_goal_name: zod.string(),
+                                    counts_as_customer: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.'
+                                        ),
+                                    counts_as_revenue: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false.'
+                                        ),
+                                    custom_name: zod.union([zod.string(), zod.null()]).optional(),
+                                    id: zod.number(),
+                                    kind: zod.literal('ActionsNode'),
+                                    math: zod
+                                        .union([
+                                            zod.enum([
+                                                'total',
+                                                'dau',
+                                                'weekly_active',
+                                                'monthly_active',
+                                                'unique_session',
+                                                'first_time_for_user',
+                                                'first_matching_event_for_user',
+                                            ]),
+                                            zod.enum([
+                                                'total',
+                                                'first_time_for_user',
+                                                'first_time_for_user_with_filters',
+                                            ]),
+                                            zod.enum([
+                                                'avg',
+                                                'sum',
+                                                'min',
+                                                'max',
+                                                'median',
+                                                'p75',
+                                                'p90',
+                                                'p95',
+                                                'p99',
+                                            ]),
+                                            zod.enum([
+                                                'avg_count_per_actor',
+                                                'min_count_per_actor',
+                                                'max_count_per_actor',
+                                                'median_count_per_actor',
+                                                'p75_count_per_actor',
+                                                'p90_count_per_actor',
+                                                'p95_count_per_actor',
+                                                'p99_count_per_actor',
+                                            ]),
+                                            zod.enum([
+                                                'total',
+                                                'sum',
+                                                'unique_session',
+                                                'min',
+                                                'max',
+                                                'avg',
+                                                'dau',
+                                                'unique_group',
+                                                'hogql',
+                                            ]),
+                                            zod.enum(['total', 'dau']),
+                                            zod.literal('unique_group'),
+                                            zod.literal('hogql'),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    math_group_type_index: zod
+                                        .union([
+                                            zod.union([
+                                                zod.literal(0),
+                                                zod.literal(1),
+                                                zod.literal(2),
+                                                zod.literal(3),
+                                                zod.literal(4),
+                                            ]),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    math_hogql: zod.union([zod.string(), zod.null()]).optional(),
+                                    math_multiplier: zod.union([zod.number(), zod.null()]).optional(),
+                                    math_property: zod.union([zod.string(), zod.null()]).optional(),
+                                    math_property_revenue_currency: zod
+                                        .union([
+                                            zod.object({
+                                                property: zod.union([zod.string(), zod.null()]).optional(),
+                                                static: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'AED',
+                                                            'AFN',
+                                                            'ALL',
+                                                            'AMD',
+                                                            'ANG',
+                                                            'AOA',
+                                                            'ARS',
+                                                            'AUD',
+                                                            'AWG',
+                                                            'AZN',
+                                                            'BAM',
+                                                            'BBD',
+                                                            'BDT',
+                                                            'BGN',
+                                                            'BHD',
+                                                            'BIF',
+                                                            'BMD',
+                                                            'BND',
+                                                            'BOB',
+                                                            'BRL',
+                                                            'BSD',
+                                                            'BTC',
+                                                            'BTN',
+                                                            'BWP',
+                                                            'BYN',
+                                                            'BZD',
+                                                            'CAD',
+                                                            'CDF',
+                                                            'CHF',
+                                                            'CLP',
+                                                            'CNY',
+                                                            'COP',
+                                                            'CRC',
+                                                            'CVE',
+                                                            'CZK',
+                                                            'DJF',
+                                                            'DKK',
+                                                            'DOP',
+                                                            'DZD',
+                                                            'EGP',
+                                                            'ERN',
+                                                            'ETB',
+                                                            'EUR',
+                                                            'FJD',
+                                                            'GBP',
+                                                            'GEL',
+                                                            'GHS',
+                                                            'GIP',
+                                                            'GMD',
+                                                            'GNF',
+                                                            'GTQ',
+                                                            'GYD',
+                                                            'HKD',
+                                                            'HNL',
+                                                            'HRK',
+                                                            'HTG',
+                                                            'HUF',
+                                                            'IDR',
+                                                            'ILS',
+                                                            'INR',
+                                                            'IQD',
+                                                            'IRR',
+                                                            'ISK',
+                                                            'JMD',
+                                                            'JOD',
+                                                            'JPY',
+                                                            'KES',
+                                                            'KGS',
+                                                            'KHR',
+                                                            'KMF',
+                                                            'KRW',
+                                                            'KWD',
+                                                            'KYD',
+                                                            'KZT',
+                                                            'LAK',
+                                                            'LBP',
+                                                            'LKR',
+                                                            'LRD',
+                                                            'LTL',
+                                                            'LVL',
+                                                            'LSL',
+                                                            'LYD',
+                                                            'MAD',
+                                                            'MDL',
+                                                            'MGA',
+                                                            'MKD',
+                                                            'MMK',
+                                                            'MNT',
+                                                            'MOP',
+                                                            'MRU',
+                                                            'MTL',
+                                                            'MUR',
+                                                            'MVR',
+                                                            'MWK',
+                                                            'MXN',
+                                                            'MYR',
+                                                            'MZN',
+                                                            'NAD',
+                                                            'NGN',
+                                                            'NIO',
+                                                            'NOK',
+                                                            'NPR',
+                                                            'NZD',
+                                                            'OMR',
+                                                            'PAB',
+                                                            'PEN',
+                                                            'PGK',
+                                                            'PHP',
+                                                            'PKR',
+                                                            'PLN',
+                                                            'PYG',
+                                                            'QAR',
+                                                            'RON',
+                                                            'RSD',
+                                                            'RUB',
+                                                            'RWF',
+                                                            'SAR',
+                                                            'SBD',
+                                                            'SCR',
+                                                            'SDG',
+                                                            'SEK',
+                                                            'SGD',
+                                                            'SRD',
+                                                            'SSP',
+                                                            'STN',
+                                                            'SYP',
+                                                            'SZL',
+                                                            'THB',
+                                                            'TJS',
+                                                            'TMT',
+                                                            'TND',
+                                                            'TOP',
+                                                            'TRY',
+                                                            'TTD',
+                                                            'TWD',
+                                                            'TZS',
+                                                            'UAH',
+                                                            'UGX',
+                                                            'USD',
+                                                            'UYU',
+                                                            'UZS',
+                                                            'VES',
+                                                            'VND',
+                                                            'VUV',
+                                                            'WST',
+                                                            'XAF',
+                                                            'XCD',
+                                                            'XOF',
+                                                            'XPF',
+                                                            'YER',
+                                                            'ZAR',
+                                                            'ZMW',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    math_property_type: zod.union([zod.string(), zod.null()]).optional(),
+                                    name: zod.string(),
+                                    optionalInFunnel: zod.union([zod.boolean(), zod.null()]).optional(),
+                                    properties: zod
+                                        .union([
+                                            zod.array(
+                                                zod.union([
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemOneOperatorDefault
+                                                            ),
+                                                        type: zod
+                                                            .literal('event')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemOneTypeDefault
+                                                            )
+                                                            .describe('Event properties'),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('person')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemTwoTypeDefault
+                                                            )
+                                                            .describe('Person properties'),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                                        key: zod
+                                                            .literal('id')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemThreeKeyDefault
+                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemThreeOperatorDefault
+                                                            ),
+                                                        type: zod
+                                                            .literal('cohort')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemThreeTypeDefault
+                                                            ),
+                                                        value: zod.number(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('element')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemFourTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        type: zod
+                                                            .literal('hogql')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemFiveTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemSixTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                ])
+                                            ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    response: zod
+                                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                                        .optional(),
+                                    schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
+                                    version: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe('version of the node, used for schema migrations'),
+                                })
+                                .describe('A conversion goal counted from an action.'),
+                            zod
+                                .object({
+                                    conversion_goal_id: zod.string(),
+                                    conversion_goal_name: zod.string(),
+                                    counts_as_customer: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.'
+                                        ),
+                                    counts_as_revenue: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false.'
+                                        ),
+                                    custom_name: zod.union([zod.string(), zod.null()]).optional(),
+                                    distinct_id_field: zod.string(),
+                                    dw_source_type: zod.union([zod.string(), zod.null()]).optional(),
+                                    id: zod.string(),
+                                    id_field: zod.string(),
+                                    kind: zod.literal('DataWarehouseNode'),
+                                    math: zod
+                                        .union([
+                                            zod.enum([
+                                                'total',
+                                                'dau',
+                                                'weekly_active',
+                                                'monthly_active',
+                                                'unique_session',
+                                                'first_time_for_user',
+                                                'first_matching_event_for_user',
+                                            ]),
+                                            zod.enum([
+                                                'total',
+                                                'first_time_for_user',
+                                                'first_time_for_user_with_filters',
+                                            ]),
+                                            zod.enum([
+                                                'avg',
+                                                'sum',
+                                                'min',
+                                                'max',
+                                                'median',
+                                                'p75',
+                                                'p90',
+                                                'p95',
+                                                'p99',
+                                            ]),
+                                            zod.enum([
+                                                'avg_count_per_actor',
+                                                'min_count_per_actor',
+                                                'max_count_per_actor',
+                                                'median_count_per_actor',
+                                                'p75_count_per_actor',
+                                                'p90_count_per_actor',
+                                                'p95_count_per_actor',
+                                                'p99_count_per_actor',
+                                            ]),
+                                            zod.enum([
+                                                'total',
+                                                'sum',
+                                                'unique_session',
+                                                'min',
+                                                'max',
+                                                'avg',
+                                                'dau',
+                                                'unique_group',
+                                                'hogql',
+                                            ]),
+                                            zod.enum(['total', 'dau']),
+                                            zod.literal('unique_group'),
+                                            zod.literal('hogql'),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    math_group_type_index: zod
+                                        .union([
+                                            zod.union([
+                                                zod.literal(0),
+                                                zod.literal(1),
+                                                zod.literal(2),
+                                                zod.literal(3),
+                                                zod.literal(4),
+                                            ]),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    math_hogql: zod.union([zod.string(), zod.null()]).optional(),
+                                    math_multiplier: zod.union([zod.number(), zod.null()]).optional(),
+                                    math_property: zod.union([zod.string(), zod.null()]).optional(),
+                                    math_property_revenue_currency: zod
+                                        .union([
+                                            zod.object({
+                                                property: zod.union([zod.string(), zod.null()]).optional(),
+                                                static: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'AED',
+                                                            'AFN',
+                                                            'ALL',
+                                                            'AMD',
+                                                            'ANG',
+                                                            'AOA',
+                                                            'ARS',
+                                                            'AUD',
+                                                            'AWG',
+                                                            'AZN',
+                                                            'BAM',
+                                                            'BBD',
+                                                            'BDT',
+                                                            'BGN',
+                                                            'BHD',
+                                                            'BIF',
+                                                            'BMD',
+                                                            'BND',
+                                                            'BOB',
+                                                            'BRL',
+                                                            'BSD',
+                                                            'BTC',
+                                                            'BTN',
+                                                            'BWP',
+                                                            'BYN',
+                                                            'BZD',
+                                                            'CAD',
+                                                            'CDF',
+                                                            'CHF',
+                                                            'CLP',
+                                                            'CNY',
+                                                            'COP',
+                                                            'CRC',
+                                                            'CVE',
+                                                            'CZK',
+                                                            'DJF',
+                                                            'DKK',
+                                                            'DOP',
+                                                            'DZD',
+                                                            'EGP',
+                                                            'ERN',
+                                                            'ETB',
+                                                            'EUR',
+                                                            'FJD',
+                                                            'GBP',
+                                                            'GEL',
+                                                            'GHS',
+                                                            'GIP',
+                                                            'GMD',
+                                                            'GNF',
+                                                            'GTQ',
+                                                            'GYD',
+                                                            'HKD',
+                                                            'HNL',
+                                                            'HRK',
+                                                            'HTG',
+                                                            'HUF',
+                                                            'IDR',
+                                                            'ILS',
+                                                            'INR',
+                                                            'IQD',
+                                                            'IRR',
+                                                            'ISK',
+                                                            'JMD',
+                                                            'JOD',
+                                                            'JPY',
+                                                            'KES',
+                                                            'KGS',
+                                                            'KHR',
+                                                            'KMF',
+                                                            'KRW',
+                                                            'KWD',
+                                                            'KYD',
+                                                            'KZT',
+                                                            'LAK',
+                                                            'LBP',
+                                                            'LKR',
+                                                            'LRD',
+                                                            'LTL',
+                                                            'LVL',
+                                                            'LSL',
+                                                            'LYD',
+                                                            'MAD',
+                                                            'MDL',
+                                                            'MGA',
+                                                            'MKD',
+                                                            'MMK',
+                                                            'MNT',
+                                                            'MOP',
+                                                            'MRU',
+                                                            'MTL',
+                                                            'MUR',
+                                                            'MVR',
+                                                            'MWK',
+                                                            'MXN',
+                                                            'MYR',
+                                                            'MZN',
+                                                            'NAD',
+                                                            'NGN',
+                                                            'NIO',
+                                                            'NOK',
+                                                            'NPR',
+                                                            'NZD',
+                                                            'OMR',
+                                                            'PAB',
+                                                            'PEN',
+                                                            'PGK',
+                                                            'PHP',
+                                                            'PKR',
+                                                            'PLN',
+                                                            'PYG',
+                                                            'QAR',
+                                                            'RON',
+                                                            'RSD',
+                                                            'RUB',
+                                                            'RWF',
+                                                            'SAR',
+                                                            'SBD',
+                                                            'SCR',
+                                                            'SDG',
+                                                            'SEK',
+                                                            'SGD',
+                                                            'SRD',
+                                                            'SSP',
+                                                            'STN',
+                                                            'SYP',
+                                                            'SZL',
+                                                            'THB',
+                                                            'TJS',
+                                                            'TMT',
+                                                            'TND',
+                                                            'TOP',
+                                                            'TRY',
+                                                            'TTD',
+                                                            'TWD',
+                                                            'TZS',
+                                                            'UAH',
+                                                            'UGX',
+                                                            'USD',
+                                                            'UYU',
+                                                            'UZS',
+                                                            'VES',
+                                                            'VND',
+                                                            'VUV',
+                                                            'WST',
+                                                            'XAF',
+                                                            'XCD',
+                                                            'XOF',
+                                                            'XPF',
+                                                            'YER',
+                                                            'ZAR',
+                                                            'ZMW',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    math_property_type: zod.union([zod.string(), zod.null()]).optional(),
+                                    name: zod.string(),
+                                    optionalInFunnel: zod.union([zod.boolean(), zod.null()]).optional(),
+                                    properties: zod
+                                        .union([
+                                            zod.array(
+                                                zod.union([
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemOneOperatorDefault
+                                                            ),
+                                                        type: zod
+                                                            .literal('event')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemOneTypeDefault
+                                                            )
+                                                            .describe('Event properties'),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('person')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemTwoTypeDefault
+                                                            )
+                                                            .describe('Person properties'),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                                        key: zod
+                                                            .literal('id')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemThreeKeyDefault
+                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemThreeOperatorDefault
+                                                            ),
+                                                        type: zod
+                                                            .literal('cohort')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemThreeTypeDefault
+                                                            ),
+                                                        value: zod.number(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('element')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemFourTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        type: zod
+                                                            .literal('hogql')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemFiveTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    }),
+                                                ])
+                                            ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    response: zod
+                                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                                        .optional(),
+                                    schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
+                                    table_name: zod.string(),
+                                    timestamp_field: zod.string(),
+                                    version: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe('version of the node, used for schema migrations'),
+                                })
+                                .describe('A conversion goal counted from a data warehouse table.'),
+                        ])
+                    )
+                    .describe('The conversion goals configured for marketing analytics, in display order.')
+                    .optional()
+                    .describe(
+                        'Conversion goals to attribute against, in display order. Each goal points at an event, an action or a data warehouse table, and carries a schema_map describing which fields hold the UTM parameters, the timestamp and the distinct id. Replaces the whole list on write.'
+                    ),
                 attribution_window_days: zod
                     .number()
                     .min(1)
                     .max(organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax)
-                    .optional(),
+                    .optional()
+                    .describe('How many days back a touchpoint can be credited for a conversion. Between 1 and 90.'),
                 attribution_mode: zod
                     .enum(['first_touch', 'last_touch', 'linear', 'time_decay', 'position_based'])
-                    .optional()
                     .describe(
                         '\* `first_touch` - First Touch\n\* `last_touch` - Last Touch\n\* `linear` - Linear\n\* `time_decay` - Time Decay\n\* `position_based` - Position Based'
+                    )
+                    .optional()
+                    .describe(
+                        'How credit is split across touchpoints when a person saw several campaigns before converting.\n\n\* `first_touch` - First Touch\n\* `last_touch` - Last Touch\n\* `linear` - Linear\n\* `time_decay` - Time Decay\n\* `position_based` - Position Based'
                     ),
-                campaign_name_mappings: zod.unknown().optional(),
-                custom_source_mappings: zod.unknown().optional(),
-                campaign_field_preferences: zod.unknown().optional(),
+                campaign_name_mappings: zod
+                    .record(zod.string(), zod.record(zod.string(), zod.array(zod.string())))
+                    .describe('Mapping of integration type to canonical campaign name to the aliases folded into it.')
+                    .optional()
+                    .describe(
+                        'Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching.'
+                    ),
+                custom_source_mappings: zod
+                    .record(zod.string(), zod.array(zod.string()))
+                    .describe('Mapping of integration type to the custom UTM source values folded into it.')
+                    .optional()
+                    .describe(
+                        'Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration.'
+                    ),
+                campaign_field_preferences: zod
+                    .record(
+                        zod.string(),
+                        zod.object({
+                            match_field: zod.enum(['campaign_name', 'campaign_id']),
+                        })
+                    )
+                    .describe('Mapping of integration type to the campaign field used when matching campaigns.')
+                    .optional()
+                    .describe(
+                        'Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence.'
+                    ),
             })
             .optional(),
         customer_analytics_config: zod

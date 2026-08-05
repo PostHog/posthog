@@ -168,6 +168,29 @@ class TestCompactTable:
         mock_delta.update_incremental.assert_called_once()
 
 
+class TestVacuum:
+    @pytest.mark.asyncio
+    async def test_retries_on_commit_conflict_then_succeeds(self):
+        # vacuum() commits a REMOVE of tombstoned files — the same commit-conflict shape as
+        # optimize.compact() (see TestCompactTable.test_retries_compact_on_commit_conflict_then_succeeds).
+        # Regression coverage for a CommitFailedError propagating straight out of _vacuum on the first
+        # conflict instead of retrying with a refreshed table, like compact_table already does.
+        mock_delta = MagicMock()
+        mock_delta.vacuum = MagicMock(
+            side_effect=[
+                deltalake.exceptions.CommitFailedError(
+                    "Commit failed: a concurrent transaction deleted data this operation read."
+                ),
+                [],
+            ]
+        )
+
+        await _make_maintenance(mock_delta)._vacuum(mock_delta)
+
+        assert mock_delta.vacuum.call_count == 2
+        mock_delta.update_incremental.assert_called_once()
+
+
 class TestVacuumIfStale:
     @parameterized.expand(
         [
