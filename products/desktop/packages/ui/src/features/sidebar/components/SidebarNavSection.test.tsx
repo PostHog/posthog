@@ -50,6 +50,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToCommandCenter,
   navigateToInbox,
   navigateToLoops: vi.fn(),
+  navigateToSupport: vi.fn(),
   navigateToMcpServers,
   navigateToSkills,
   navigateToWebsiteCommandCenter: vi.fn(),
@@ -116,6 +117,7 @@ describe("SidebarNavSection", () => {
     ["activity", "Activity"],
     ["configure", "Configure"],
     ["loops", "Loops"],
+    ["support", "Support"],
   ] as const)("removes %s from the sidebar when hidden", (id, label) => {
     useSidebarStore.setState({ navItemOverrides: { [id]: false } });
     renderNav();
