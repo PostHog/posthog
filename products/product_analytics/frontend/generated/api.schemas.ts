@@ -3845,6 +3845,7 @@ export const IntegrationKindApi = {
     AwsS3: 'aws-s3',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
+    Ebay: 'ebay',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
