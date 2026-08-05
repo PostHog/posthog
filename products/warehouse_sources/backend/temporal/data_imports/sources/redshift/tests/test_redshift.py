@@ -1,7 +1,8 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import psycopg
+import pyarrow as pa
 from psycopg import sql
 from psycopg.pq import TransactionStatus
 
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.r
     RedshiftImplementation,
     _build_query,
     _explain_query,
+    _stream_arrow_batches,
     filter_redshift_incremental_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import (
@@ -499,36 +501,117 @@ class TestFetchAverageRowSize:
     def _inner(self):
         return sql.SQL("SELECT 1").format()
 
-    def test_returns_none_when_no_row(self, impl, cursor, logger):
-        cursor.fetchone.return_value = None
-        assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
-
-    def test_returns_none_when_row_value_is_none(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (None,)
-        assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
-
-    def test_returns_row_size_bytes(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (256.4,)
-        result = impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger)
-        assert result == 256
+    @pytest.mark.parametrize(
+        "table_info_row,expected",
+        [
+            ((2, 100), 2 * 1024 * 1024 // 100),
+            # Rows far smaller than a byte still have to report at least 1: a 0 would make the
+            # caller discard the measurement and fall back to the full default chunk.
+            ((1, 10_000_000), 1),
+            (None, None),
+            ((0, 100), None),
+            ((10, 0), None),
+        ],
+    )
+    def test_derives_row_size_from_table_stats(self, impl, cursor, logger, table_info_row, expected):
+        cursor.fetchone.return_value = table_info_row
+        assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) == expected
 
     def test_returns_none_on_exception(self, impl, cursor, logger):
-        cursor.execute.side_effect = [None, RuntimeError("boom")]
-        assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
-
-    def test_does_not_report_whole_row_reference_failure(self, impl, cursor, logger):
-        # Redshift rejects the `pg_column_size(t)` whole-row reference with this exact error on every
-        # table. It's a best-effort probe that falls back to the default chunk size, so it must not be
-        # reported to error tracking (the source of the noise this fix addresses).
-        cursor.execute.side_effect = [None, psycopg.errors.UndefinedColumn('column "t" does not exist in t')]
-
+        cursor.execute.side_effect = RuntimeError("boom")
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
-        ) as mock_capture:
-            result = impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger)
+        ):
+            assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
 
-        assert result is None
-        mock_capture.assert_not_called()
+
+# ---------------------------------------------------------------------------
+# Streaming reads
+# ---------------------------------------------------------------------------
+
+
+_STREAM_SCHEMA = pa.schema([pa.field("id", pa.int64())])
+_STREAM_QUERY = sql.SQL("SELECT id FROM public.t").format()
+
+
+def _stream_cursor(batches: list[list[tuple]]) -> MagicMock:
+    column = MagicMock()
+    column.name = "id"
+
+    cursor = MagicMock()
+    cursor.description = [column]
+    cursor.fetchmany.side_effect = [*batches, []]
+    cursor.__enter__.return_value = cursor
+    cursor.__exit__.return_value = False
+    return cursor
+
+
+def _stream_connection(
+    server_cursor: MagicMock,
+    client_cursor: MagicMock,
+    transaction_status: TransactionStatus = TransactionStatus.INTRANS,
+) -> MagicMock:
+    connection = MagicMock()
+    connection.cursor.side_effect = lambda name=None: server_cursor if name is not None else client_cursor
+    connection.info.transaction_status = transaction_status
+    return connection
+
+
+def _ids(tables) -> list[list[int]]:
+    return [table.column("id").to_pylist() for table in tables]
+
+
+class TestStreamArrowBatches:
+    def test_streams_through_a_server_side_cursor(self, logger):
+        server_cursor = _stream_cursor([[(1,), (2,)], [(3,)]])
+        client_cursor = _stream_cursor([])
+        connection = _stream_connection(server_cursor, client_cursor)
+
+        tables = list(_stream_arrow_batches(connection, _STREAM_QUERY, 2, _STREAM_SCHEMA, "cur", logger))
+
+        assert _ids(tables) == [[1, 2], [3]]
+        # The whole point of the fix: an unnamed cursor is client-side, so `execute` would buffer the
+        # entire table into the worker and OOM it on anything large.
+        assert connection.cursor.call_args_list == [call(name="cur")]
+        client_cursor.execute.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "failure_point,error",
+        [
+            # Cumulative cursor result sets are capped per node type.
+            ("declare", psycopg.errors.FeatureNotSupported("cursor result set too large")),
+            # Single-node clusters reject a FETCH FORWARD above 1000 rows.
+            ("fetch", psycopg.errors.InvalidCursorName("cursor does not exist")),
+        ],
+    )
+    def test_falls_back_to_a_client_cursor_when_the_server_cursor_fails(self, logger, failure_point, error):
+        server_cursor = _stream_cursor([])
+        if failure_point == "declare":
+            server_cursor.execute.side_effect = error
+        else:
+            server_cursor.fetchmany.side_effect = error
+        client_cursor = _stream_cursor([[(1,), (2,)]])
+        connection = _stream_connection(server_cursor, client_cursor, TransactionStatus.INERROR)
+
+        tables = list(_stream_arrow_batches(connection, _STREAM_QUERY, 2, _STREAM_SCHEMA, "cur", logger))
+
+        assert _ids(tables) == [[1, 2]]
+        # Without the rollback the fallback dies on `InFailedSqlTransaction` instead of syncing.
+        connection.rollback.assert_called_once()
+
+    def test_does_not_fall_back_once_a_batch_has_been_yielded(self, logger):
+        server_cursor = _stream_cursor([])
+        server_cursor.fetchmany.side_effect = [[(1,)], psycopg.OperationalError("connection lost")]
+        client_cursor = _stream_cursor([[(9,)]])
+        connection = _stream_connection(server_cursor, client_cursor)
+
+        stream = _stream_arrow_batches(connection, _STREAM_QUERY, 1, _STREAM_SCHEMA, "cur", logger)
+
+        assert next(stream).column("id").to_pylist() == [1]
+        with pytest.raises(psycopg.OperationalError):
+            next(stream)
+        # Re-running the query here would re-emit rows the pipeline already merged.
+        client_cursor.execute.assert_not_called()
 
 
 class TestHasDuplicatePrimaryKeys:

@@ -2,8 +2,8 @@ import { buildCloudTaskDescription } from "@posthog/core/editor/cloud-prompt";
 import type {
   Adapter,
   AgentRuntime,
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
+  McpServerConnection,
   TaskCreationInput,
   WorkspaceMode,
 } from "@posthog/shared";
@@ -38,7 +38,7 @@ export interface PrepareTaskInputOptions {
   autoPublishCloudRuns?: boolean;
   rtkEnabledCloud?: boolean;
   allowNoRepo?: boolean;
-  importedMcpServers?: CloudMcpServerImport[];
+  importedMcpServers?: McpServerConnection[];
   relayedMcpServers?: CloudMcpServerRelayDesignation[];
 }
 

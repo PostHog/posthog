@@ -7,7 +7,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, Literal, TypedDict, get_args
-from uuid import uuid4
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -116,7 +116,7 @@ logger = structlog.get_logger(__name__)
 # experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
 EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
 
-CleanupRepositorySource = Literal["explicit", "single_repo", "ambiguous", "no_integration"]
+CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
 
 class CleanupRepositoryTarget(TypedDict):
@@ -406,6 +406,88 @@ def _merge_saved_metric_links(
         if survivor is not _MISSING:
             merged.append({"id": link_id, "metadata": survivor})
     return merged, conflicts
+
+
+# The client base uses API field names while validated payloads use model field names.
+_SCALAR_BASE_ALIASES = {"holdout": "holdout_id"}
+
+_SCALAR_MISSING = object()
+
+
+# Canonicalization depth bound: values needing conversion (datetimes, model instances) only
+# occur in the shallow, schema-shaped parts of a payload, while the unrestricted JSON fields
+# can nest arbitrarily deep — beyond this depth values are JSON-native on all three sides,
+# so plain equality compares them correctly without recursing down the interpreter stack.
+_CONCURRENCY_VIEW_MAX_DEPTH = 32
+
+
+def _concurrency_value_view(value: Any, depth: int = 0) -> Any:
+    """A scalar value as compared for concurrency resolution, canonicalized so the three
+    representations of one field agree: the client's base echoes API JSON (ISO datetime
+    strings, related-object ids), the payload carries validated Python objects (datetimes,
+    model instances), and the row holds ORM values."""
+    if isinstance(value, datetime):
+        # Match DRF's rendering, which the client echoes back: isoformat with +00:00 as Z.
+        iso = value.isoformat()
+        return iso[:-6] + "Z" if iso.endswith("+00:00") else iso
+    if isinstance(value, UUID):
+        return str(value)
+    pk = getattr(value, "pk", None)
+    if pk is not None:
+        return pk
+    if depth >= _CONCURRENCY_VIEW_MAX_DEPTH:
+        return value
+    if isinstance(value, dict):
+        return {key: _concurrency_value_view(item, depth + 1) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_concurrency_value_view(item, depth + 1) for item in value]
+    return value
+
+
+def _scalar_merge_view(field: str, value: Any) -> Any:
+    """The value of one scalar payload field as compared for concurrency resolution.
+
+    ``parameters`` needs shape normalization on top of value canonicalization: reads project
+    the linked flag's config into it (``ExperimentBaseSerializer._project_feature_flag_config``)
+    while writes strip that config before storage, so a client-echoed base only matches the
+    stored column when all sides are compared flag-stripped, with empty and null collapsed.
+    """
+    if field == "parameters":
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            value = ExperimentService._strip_feature_flag_config(value)
+    return _concurrency_value_view(value)
+
+
+def _resolve_scalar_updates(update_data: dict, original: Mapping, current_values: Mapping) -> list[str]:
+    """Per-field three-way merge for the scalar (non-mergeable) fields of a stale write.
+
+    Per field: an echo of the current value is a no-op; if only this write changed it, it
+    applies; if only the other side changed it (the payload echoes the base), the field is
+    dropped so the concurrent edit survives; both sides changing it differently is a
+    conflict. Without a base value for the field, anything but an echo of the current value
+    conflicts — the conservative behavior clients that only send metric bases keep. Mutates
+    ``update_data`` in place (dropping other-side-owned fields) and returns the conflicting
+    field names, sorted.
+    """
+    conflicts: list[str] = []
+    scalar_fields = sorted(set(update_data) - CONCURRENCY_MERGEABLE_FIELDS - {"get_feature_flag_key"})
+    for field in scalar_fields:
+        mine = _scalar_merge_view(field, update_data[field])
+        current = _scalar_merge_view(field, current_values.get(field, _SCALAR_MISSING))
+        if mine == current:
+            continue
+        base = original.get(_SCALAR_BASE_ALIASES.get(field, field), _SCALAR_MISSING)
+        if base is not _SCALAR_MISSING:
+            base = _scalar_merge_view(field, base)
+            if base == current:
+                continue
+            if mine == base:
+                del update_data[field]
+                continue
+        conflicts.append(field)
+    return conflicts
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -2481,6 +2563,7 @@ class ExperimentService:
         conclusion_comment: str | None = None,
         open_cleanup_pr: bool = False,
         repository: str | None = None,
+        set_repository_as_team_default: bool = False,
         request: Any | None = None,
     ) -> Experiment:
         """End a running experiment: set end_date and mark as stopped.
@@ -2500,7 +2583,11 @@ class ExperimentService:
         self._bump_version_and_save(experiment, update_fields=["end_date", "conclusion", "conclusion_comment"])
 
         self._report_experiment_ended(
-            experiment, request=request, open_cleanup_pr=open_cleanup_pr, repository=repository
+            experiment,
+            request=request,
+            open_cleanup_pr=open_cleanup_pr,
+            repository=repository,
+            set_repository_as_team_default=set_repository_as_team_default,
         )
 
         return experiment
@@ -2521,7 +2608,11 @@ class ExperimentService:
         )
 
     def _maybe_open_cleanup_pr(
-        self, experiment: Experiment, open_cleanup_pr: bool, requested_repository: str | None = None
+        self,
+        experiment: Experiment,
+        open_cleanup_pr: bool,
+        requested_repository: str | None = None,
+        set_repository_as_team_default: bool = False,
     ) -> None:
         """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
         experiment's feature-flag code, via the Tasks engine.
@@ -2548,10 +2639,11 @@ class ExperimentService:
                 )
                 return
 
-            if requested_repository and target["source"] == "explicit":
+            picked_repository = requested_repository if target["source"] == "explicit" else None
+            if picked_repository:
                 # Persist the request's choice only now that it passed the installation check —
                 # a typo'd or stale name must not stick and block the single-repo fallback later.
-                experiment.repository = requested_repository
+                experiment.repository = picked_repository
                 experiment.save(update_fields=["repository"])
 
             plan = cleanup_plan(conclusion, experiment.feature_flag.variants or [])
@@ -2581,6 +2673,12 @@ class ExperimentService:
                     # on_commit runs before the view serializes the response — reflect the id on the
                     # in-memory instance so the end/ship response already carries it.
                     experiment.flag_cleanup_task_id = created.task_id
+                    if picked_repository and set_repository_as_team_default:
+                        # The team default steers other experiments, so save it only once a
+                        # cleanup has actually opened against the picked repo.
+                        config = self._get_team_experiments_config()
+                        config.flag_cleanup_repository = picked_repository
+                        config.save(update_fields=["flag_cleanup_repository"])
                 except Exception:
                     logger.exception("experiment_cleanup_pr_task_failed", experiment_id=experiment_id)
 
@@ -2601,9 +2699,9 @@ class ExperimentService:
         self, experiment: Experiment, requested_repository: str | None = None
     ) -> CleanupRepositoryTarget:
         """Repository the cleanup PR targets: the repository requested on end/ship, else the
-        experiment's saved `repository`, else the team's only cached GitHub repo. Several repos
-        (or no GitHub integration) means there is no safe target and the cleanup is skipped —
-        a wrong-repo PR is worse than none.
+        experiment's saved `repository`, else the team default, else the team's only cached
+        GitHub repo. Several repos (or no GitHub integration) means there is no safe target
+        and the cleanup is skipped — a wrong-repo PR is worse than none.
 
         Returns how the target was determined (`source`) and the team's connected repositories
         (`candidates`) so the end-experiment modal can show the target or offer a picker.
@@ -2641,6 +2739,11 @@ class ExperimentService:
                 # The stored value is lowercased on write; return GitHub's own casing.
                 return {"repository": cached[explicit.lower()], "source": "explicit", "candidates": candidates}
             return {"repository": None, "source": "ambiguous", "candidates": candidates}
+        team_default = self._get_team_experiments_config().flag_cleanup_repository
+        if team_default and team_default.lower() in cached:
+            # A stale default falls through instead of asking: it is a convenience, not
+            # per-experiment intent, so it must not brick the flow when it stops matching.
+            return {"repository": cached[team_default.lower()], "source": "team_default", "candidates": candidates}
         if len(cached) == 1:
             return {"repository": candidates[0], "source": "single_repo", "candidates": candidates}
         return {"repository": None, "source": "ambiguous", "candidates": candidates}
@@ -2652,10 +2755,11 @@ class ExperimentService:
         request: Any | None = None,
         open_cleanup_pr: bool = False,
         repository: str | None = None,
+        set_repository_as_team_default: bool = False,
     ) -> None:
         # The opt-in cleanup PR doesn't depend on the request — run it before the request-gated
         # analytics below so it behaves the same regardless of call context.
-        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr, repository)
+        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr, repository, set_repository_as_team_default)
 
         if request is None:
             return
@@ -2850,6 +2954,7 @@ class ExperimentService:
         conclusion_comment: str | None = None,
         open_cleanup_pr: bool = False,
         repository: str | None = None,
+        set_repository_as_team_default: bool = False,
         request: Any,
     ) -> Experiment:
         """Ship a variant and (optionally) end the experiment.
@@ -2934,7 +3039,11 @@ class ExperimentService:
         )
         if was_running:
             self._report_experiment_ended(
-                experiment, request=request, open_cleanup_pr=open_cleanup_pr, repository=repository
+                experiment,
+                request=request,
+                open_cleanup_pr=open_cleanup_pr,
+                repository=repository,
+                set_repository_as_team_default=set_repository_as_team_default,
             )
 
         return experiment
@@ -3030,6 +3139,18 @@ class ExperimentService:
             for link in experiment.experimenttosavedmetric_set.all()
         ]
 
+    @staticmethod
+    def _current_scalar_values(experiment: Experiment, update_data: Mapping) -> dict[str, Any]:
+        """The stored values scalar payload fields resolve against, keyed by payload field name.
+
+        ``holdout`` reads the id column directly so the comparison never fetches the related row.
+        """
+        return {
+            field: (experiment.holdout_id if field == "holdout" else getattr(experiment, field, _SCALAR_MISSING))
+            for field in update_data
+            if field not in CONCURRENCY_MERGEABLE_FIELDS and field != "get_feature_flag_key"
+        }
+
     def _resolve_concurrent_update(
         self,
         experiment: Experiment,
@@ -3039,26 +3160,28 @@ class ExperimentService:
     ) -> None:
         """Resolve a stale write (client version behind the row) against the current state.
 
-        Only the metric collections are resolvable: they merge per uuid (each metric's
-        server-assigned uuid preserves intent across concurrent edits), and client-supplied
-        ordering arrays are reconciled to the current state — the ordering syncs re-derive
-        the rest. A stale write touching anything else conflicts outright: scalar fields
-        have no sub-identity to merge on, and the edit was likely written against context
-        that has since changed. Scalar changes made by the *other* side never block a
-        metric-only write — a PATCH that omits a field cannot clobber it. Mutates
-        ``update_data`` in place, or raises ``ExperimentVersionConflict``.
+        The metric collections merge per uuid (each metric's server-assigned uuid preserves
+        intent across concurrent edits), and client-supplied ordering arrays are reconciled
+        to the current state — the ordering syncs re-derive the rest. Scalar fields merge
+        per field against their base value in ``original`` (see ``_resolve_scalar_updates``):
+        only a same-field double edit conflicts, so background writers bumping the version
+        (e.g. the running-time calculator auto-save) don't fail unrelated scalar saves.
+        Either side's changes never block a write that omits the field — a PATCH that omits
+        a field cannot clobber it. Mutates ``update_data`` in place, or raises
+        ``ExperimentVersionConflict``.
         """
         if original is None:
             raise ExperimentVersionConflict(current_version=current_version)
 
-        payload_fields = {key for key in update_data if key != "get_feature_flag_key"}
-        non_mergeable_payload = sorted(payload_fields - CONCURRENCY_MERGEABLE_FIELDS)
-        if non_mergeable_payload:
+        scalar_conflicts = _resolve_scalar_updates(
+            update_data, original, self._current_scalar_values(experiment, update_data)
+        )
+        if scalar_conflicts:
             raise ExperimentVersionConflict(
                 f"This experiment changed since you loaded it, and your update changes fields that "
-                f"can't be merged ({', '.join(non_mergeable_payload)}). Review the latest changes and try again.",
+                f"can't be merged ({', '.join(scalar_conflicts)}). Review the latest changes and try again.",
                 current_version=current_version,
-                conflicting_fields=non_mergeable_payload,
+                conflicting_fields=scalar_conflicts,
             )
 
         conflict_uuids: list[str] = []
@@ -3165,7 +3288,7 @@ class ExperimentService:
                     resolution="merged",
                     versions_behind=current_version - client_version,
                     base_snapshot_sent=True,
-                    merged_fields=sorted(set(update_data) & CONCURRENCY_MERGEABLE_FIELDS),
+                    merged_fields=sorted(set(update_data) - {"get_feature_flag_key"}),
                 )
             resolution_version = current_version
 

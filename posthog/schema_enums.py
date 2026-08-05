@@ -2468,6 +2468,7 @@ class ExternalDataSourceType(StrEnum):
     RAISELY = "Raisely"
     WINDSOR_AI = "WindsorAi"
     WIX = "Wix"
+    SEVALLA = "Sevalla"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2937,6 +2938,11 @@ class LogsOrderBy(StrEnum):
 class LogsSparklineBreakdownBy(StrEnum):
     SEVERITY = "severity"
     SERVICE = "service"
+
+
+class LogsSparklineRankBy(StrEnum):
+    COUNT = "count"
+    BYTES = "bytes"
 
 
 class NeighborDirection(StrEnum):
