@@ -317,6 +317,7 @@ class TestRecalculationService(BaseTest):
 
     def test_changing_excluded_variants_invalidates_run_results(self):
         exp = self._launched_experiment(flag_key="reuse-excluded")
+        assert exp.start_date is not None  # _launched_experiment always sets it; narrow for the create below
         query_to = datetime(2026, 1, 10, tzinfo=UTC)
         recalc_fp = compute_recalc_fingerprint(
             compute_metric_fingerprint(
