@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -59,6 +60,14 @@ export interface QueuedMessage {
 
 /** Stable id for the single staged "Up next" message — the queue never holds more than one. */
 const QUEUED_MESSAGE_ID = 'queued'
+
+/** Prefer the server's own message (e.g. `code_access_required`) over a generic fallback. */
+function describeSendError(error: unknown, fallback: string): string {
+    if (error instanceof ApiError && error.message) {
+        return error.message
+    }
+    return fallback
+}
 
 // Agent-server (ACP) session config option ids — see the `/code` agent's buildConfigOptions. The model
 // option's id is `model`; the effort option's id is `effort` (its category is `thought_level`).
@@ -685,7 +694,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
                     actions.pushHumanMessage(content)
                     markPendingContextSent(pendingContext)
-                } catch {
+                } catch (error) {
                     actions.releaseApplyBackTargets(streamKey)
                     // Restore unsent content for retry, preserving send order — draft content goes back ahead of
                     // anything typed during the failed send, queue content re-stages ahead of anything staged since.
@@ -696,7 +705,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     } else {
                         actions.prependQueuedMessage(content)
                     }
-                    lemonToast.error('Failed to send message. Please try again.')
+                    lemonToast.error(describeSendError(error, 'Failed to send message. Please try again.'))
                 } finally {
                     actions.setSending(false)
                 }
@@ -750,9 +759,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     } else {
                         actions.releaseApplyBackTargets(streamKey)
                     }
-                } catch {
+                } catch (error) {
                     actions.releaseApplyBackTargets(claimedStreamKey)
-                    lemonToast.error('Failed to start a new run. Please try again.')
+                    lemonToast.error(describeSendError(error, 'Failed to start a new run. Please try again.'))
                 } finally {
                     actions.setStartingRun(false)
                 }
