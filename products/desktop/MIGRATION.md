@@ -269,12 +269,14 @@ ports from source using these rules.
     `POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}`. Applies to
     `POSTHOG_SOURCEMAP_API_KEY`, `POSTHOG_ENV_ID` and `POSTHOG_HOST` across desktop-release,
     desktop-build-test, desktop-pr-build-installer and desktop-update-e2e. The same
-    treatment covers the Windows Authenticode signing secrets in desktop-release's
-    `publish-windows` job (`WINDOWS_PUBLISHER_NAME`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
+    treatment covers the Windows Authenticode signing secrets on desktop-release's
+    `Package installer` step (`WINDOWS_PUBLISHER_NAME`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
     `AZURE_CLIENT_SECRET`, `AZURE_CODE_SIGNING_ENDPOINT`, `AZURE_CODE_SIGNING_ACCOUNT`,
-    `AZURE_CERT_PROFILE_NAME`): `AZURE_*` is far too generic to claim repo-wide, and
-    electron-builder reads the bare names from the environment, so only the `secrets.`
-    lookup is prefixed. Left bare:
+    `AZURE_CERT_PROFILE_NAME`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`): `AZURE_*` is far
+    too generic to claim repo-wide, and electron-builder reads the bare names from the
+    environment, so only the `secrets.` lookup is prefixed. They sit on the step rather
+    than the job so a signing credential is not readable by every dependency install
+    script in the job. Left bare:
     `VITE_POSTHOG_API_KEY` and `VITE_POSTHOG_API_HOST` (already org-wide and shared), names
     that already carry a desktop, twig or code qualifier (`AWS_DESKTOP_*`, `AWS_TWIG_*`,
     `POSTHOG_CODE_E2E_*`) and genuinely repo-wide ones (`TRUNK_API_TOKEN`, `VR_API_TOKEN`,

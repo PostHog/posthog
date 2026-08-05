@@ -304,25 +304,6 @@ jobs:
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
-            # Windows Authenticode signing (Azure Trusted Signing), mirroring the
-            # macOS CSC_*/APPLE_* wiring in publish-macos. Without these,
-            # electron-builder produces an unsigned installer and electron-updater
-            # skips signature verification of downloaded updates (see
-            # products/desktop/apps/code/electron-builder.ts). electron-builder reads
-            # the AZURE_* credentials via Entra ID EnvironmentCredential and
-            # auto-installs the TrustedSigning module, so no extra step is needed.
-            # The env var names are what electron-builder reads and must stay bare;
-            # only the secret lookups carry the DESKTOP_ prefix, because AZURE_* is
-            # too generic to claim repo-wide (MIGRATION.md transform rule 15).
-            # DESKTOP_WINDOWS_PUBLISHER_NAME must match the certificate subject
-            # exactly, since it is verified on every update.
-            WINDOWS_PUBLISHER_NAME: ${{ secrets.DESKTOP_WINDOWS_PUBLISHER_NAME }}
-            AZURE_TENANT_ID: ${{ secrets.DESKTOP_AZURE_TENANT_ID }}
-            AZURE_CLIENT_ID: ${{ secrets.DESKTOP_AZURE_CLIENT_ID }}
-            AZURE_CLIENT_SECRET: ${{ secrets.DESKTOP_AZURE_CLIENT_SECRET }}
-            AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.DESKTOP_AZURE_CODE_SIGNING_ENDPOINT }}
-            AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.DESKTOP_AZURE_CODE_SIGNING_ACCOUNT }}
-            AZURE_CERT_PROFILE_NAME: ${{ secrets.DESKTOP_AZURE_CERT_PROFILE_NAME }}
         steps:
             - name: Get app token
               id: app-token
@@ -401,8 +382,35 @@ jobs:
               working-directory: products/desktop/apps/code
               run: pnpm exec electron-vite build
 
+            # Windows Authenticode signing, mirroring the macOS CSC_*/APPLE_*
+            # wiring in publish-macos. Without these, electron-builder produces an
+            # unsigned installer and electron-updater skips signature verification
+            # of downloaded updates (see
+            # products/desktop/apps/code/electron-builder.ts). electron-builder
+            # reads the AZURE_* credentials via Entra ID EnvironmentCredential and
+            # auto-installs the TrustedSigning module, so no extra step is needed;
+            # WIN_CSC_* is the PFX fallback for when no Trusted Signing account
+            # exists. The env var names are what electron-builder reads and must
+            # stay bare; only the secret lookups carry the DESKTOP_ prefix, because
+            # AZURE_* is too generic to claim repo-wide (MIGRATION.md transform
+            # rule 15). DESKTOP_WINDOWS_PUBLISHER_NAME must match the certificate
+            # subject exactly, since it is verified on every update.
+            #
+            # Scoped to this step rather than the job: a signing credential in the
+            # job env is readable by every dependency install script and build
+            # command in the job, and this is the only step that signs.
             - name: Package installer
               working-directory: products/desktop/apps/code
+              env:
+                  WINDOWS_PUBLISHER_NAME: ${{ secrets.DESKTOP_WINDOWS_PUBLISHER_NAME }}
+                  AZURE_TENANT_ID: ${{ secrets.DESKTOP_AZURE_TENANT_ID }}
+                  AZURE_CLIENT_ID: ${{ secrets.DESKTOP_AZURE_CLIENT_ID }}
+                  AZURE_CLIENT_SECRET: ${{ secrets.DESKTOP_AZURE_CLIENT_SECRET }}
+                  AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.DESKTOP_AZURE_CODE_SIGNING_ENDPOINT }}
+                  AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.DESKTOP_AZURE_CODE_SIGNING_ACCOUNT }}
+                  AZURE_CERT_PROFILE_NAME: ${{ secrets.DESKTOP_AZURE_CERT_PROFILE_NAME }}
+                  WIN_CSC_LINK: ${{ secrets.DESKTOP_WIN_CSC_LINK }}
+                  WIN_CSC_KEY_PASSWORD: ${{ secrets.DESKTOP_WIN_CSC_KEY_PASSWORD }}
               run: pnpm exec electron-builder build --win --x64 --publish never --config electron-builder.ts
 
             - name: Verify package
