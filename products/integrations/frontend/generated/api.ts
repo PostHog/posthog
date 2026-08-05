@@ -33,6 +33,8 @@ import type {
     PaginatedRoleExternalReferenceListApi,
     PatchedIntegrationConfigApi,
     PatchedOrganizationIntegrationApi,
+    PostHogConnectionForwardApi,
+    PostHogConnectionForwardResponseApi,
     RoleExternalReferenceApi,
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
@@ -774,5 +776,27 @@ export const integrationsRequestAccessCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(integrationAccessRequestApi),
+    })
+}
+
+export const getPosthogConnectionsForwardCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/posthog_connections/${id}/forward/`
+}
+
+/**
+ * Replay an API request against the connected PostHog project. The server injects the connection's token; the response is passed through.
+ * @summary Forward a request through a PostHog connection
+ */
+export const posthogConnectionsForwardCreate = async (
+    projectId: string,
+    id: string,
+    postHogConnectionForwardApi: PostHogConnectionForwardApi,
+    options?: RequestInit
+): Promise<PostHogConnectionForwardResponseApi> => {
+    return apiMutator<PostHogConnectionForwardResponseApi>(getPosthogConnectionsForwardCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(postHogConnectionForwardApi),
     })
 }
