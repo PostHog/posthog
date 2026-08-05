@@ -564,6 +564,11 @@ impl Hash for GroupType {
 // so a coarser period trades a staler stored last_seen_at for proportionally fewer writes.
 pub const DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 3600;
 
+// Upper bound on the period, 30 days. Nothing operational wants a window this coarse — the cap
+// exists so the jitter offset stays small enough that the bucket arithmetic below cannot overflow
+// or leave chrono's representable range, which is what makes its fallback unreachable.
+pub const MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 30 * 24 * 3600;
+
 /// Start of the current `period_secs` window containing `now`, offset per identity by
 /// `jitter_seed` so that different identities roll over at different points in the period.
 ///
@@ -575,15 +580,20 @@ pub const DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 3600;
 /// The result always falls in `(now - period, now]`, matching un-jittered flooring, so it can
 /// never produce a future timestamp.
 ///
-/// A non-positive period is treated as `DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS` rather than
-/// disabling flooring. With flooring off, every event's `last_seen_at` is unique, the dedup
-/// cache filters nothing, and the full event stream reaches `posthog_eventdefinition` as row
-/// updates, so "disabled" must not be expressible here at all. Config validation at startup
-/// rejects non-positive values loudly; this clamp is the backstop for any caller that does
-/// not go through `Config`.
+/// The period is clamped into `1..=MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS`, with a non-positive value
+/// treated as `DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS`. Both ends of that clamp guard the same
+/// failure: an unfloored `last_seen_at` is unique per event, so the dedup cache filters nothing
+/// and the full event stream reaches `posthog_eventdefinition` as row updates. A non-positive
+/// period would produce that directly; an unbounded one would produce it via the fallback below,
+/// since a large enough offset pushes `bucket_start` outside chrono's range. Config validation at
+/// startup rejects out-of-range values loudly; this clamp backstops callers that bypass `Config`.
+///
+/// With the period capped, `offset` stays under a month of seconds, so `shifted` cannot overflow
+/// and `bucket_start` stays within a month of `now` — `from_timestamp` therefore cannot fail and
+/// the `unwrap_or` never fires.
 pub fn floor_last_seen(now: DateTime<Utc>, period_secs: i64, jitter_seed: u64) -> DateTime<Utc> {
     let period_secs = if period_secs > 0 {
-        period_secs
+        period_secs.min(MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS)
     } else {
         DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS
     };

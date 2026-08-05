@@ -9,6 +9,7 @@ use property_defs_rs::{
     config::Config,
     measuring_channel::measuring_channel,
     metrics_consts::CHANNEL_CAPACITY,
+    types::MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS,
     update_cache::Cache,
     update_consumer_loop, update_producer_loop,
 };
@@ -45,10 +46,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Refuse the "0 disables it" convention: with flooring off, every event's last_seen_at is
     // unique, dedup filters nothing, and the full event stream lands on posthog_eventdefinition
-    // as row updates. Failing the deploy is cheaper than that.
-    if config.eventdef_last_seen_floor_secs <= 0 {
+    // as row updates. Failing the deploy is cheaper than that. The upper bound guards the same
+    // outcome from the other direction, where the jitter offset outruns the timestamp range.
+    if config.eventdef_last_seen_floor_secs <= 0
+        || config.eventdef_last_seen_floor_secs > MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS
+    {
         return Err(format!(
-            "EVENTDEF_LAST_SEEN_FLOOR_SECS must be positive, got {}: flooring bounds how often event-definition writes are re-issued and must not be disabled",
+            "EVENTDEF_LAST_SEEN_FLOOR_SECS must be in 1..={MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS}, got {}: flooring bounds how often event-definition writes are re-issued and must not be disabled",
             config.eventdef_last_seen_floor_secs
         )
         .into());
