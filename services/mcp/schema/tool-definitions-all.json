@@ -8714,6 +8714,20 @@
             "readOnlyHint": true
         }
     },
+    "scout-record-output": {
+        "description": "Persist schema-validated structured records for a `SignalScoutRun` — the structured-output channel next to findings and reports. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record); without it the call fails closed. Pass the `run_id` and a `records` list of `{payload, subject}` entries. All-or-nothing: any record failing the schema fails the whole call with nothing written — fix and resubmit the batch. Each accepted record persists as a queryable row and mirrors into the project's event stream as a `$scout_structured_output` event. NOT idempotent — a resubmitted batch writes duplicate rows, so record each batch exactly once.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Record structured output for a run",
+        "title": "Record structured output for a run",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "scout-run-now": {
         "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.",
         "category": "Signals",
@@ -8784,12 +8798,40 @@
             "readOnlyHint": true
         }
     },
+    "scout-runs-recent-structured-outputs": {
+        "description": "Return the team's recent structured-output records across *every* `SignalScoutRun`, newest first — the cross-run counterpart to `scout-runs-structured-outputs-list`. Each row carries its `run_id`, `skill_name`, `subject`, and schema-validated `payload`, so a measuring scout's series (\"all grouping-quality judgments this week\") is one call. Pass `skill_name` to scope to one scout, `subject` to follow one judged entity across runs, and `date_from` / `date_to` (half-open window on `created_at`) to bound or paginate — set `date_to` to the oldest record's `created_at` to walk back past the cap. Capped at 500 rows (default 100). Strictly team-scoped.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List recent structured-output records across all scout runs",
+        "title": "List recent structured-output records across all scout runs",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "scout-runs-retrieve": {
         "description": "Return the full `SignalScoutRun` row for the given `run_id`, including the agent's end-of-run `summary`, `emitted_count`, and `emitted_finding_ids`. Status, timestamps, `error` (full TaskRun error message), and the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly team-scoped — a UUID belonging to another team returns 404.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get a scout run by ID",
         "title": "Get a scout run by ID",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-runs-structured-outputs-list": {
+        "description": "Return the schema-validated records a `SignalScoutRun` persisted via `scout-record-output`, in submission order — one row per record with its `subject` (what the record is about) and `payload` (validated against the scout config's `structured_output_schema` at submission time). The queryable view of a measuring scout's output (judgments, scores, classifications) without parsing the run `summary`. Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a scout run's structured-output records",
+        "title": "List a scout run's structured-output records",
         "required_scopes": ["signal_scout:read"],
         "annotations": {
             "destructiveHint": false,

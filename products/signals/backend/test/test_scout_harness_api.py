@@ -35,6 +35,7 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutNote,
     SignalScoutRun,
+    SignalScoutStructuredOutput,
     SignalScratchpad,
 )
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
@@ -708,6 +709,230 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             assert response.status_code == status.HTTP_404_NOT_FOUND, (
                 f"expected 404 for {bad!r}, got {response.status_code}"
             )
+
+
+_STRUCTURED_OUTPUT_SCHEMA: dict = {
+    "type": "object",
+    "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}},
+    "required": ["verdict", "reason"],
+    "additionalProperties": False,
+}
+
+
+class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # record-output requires `signal_scout_internal:write` — session auth is rejected.
+        _authenticate_as_scout(self)
+
+    def _record_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/record-output/"
+
+    def _run_outputs_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/structured-outputs/"
+
+    def _recent_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/structured-outputs/recent/"
+
+    def _make_run_with_schema(self, team: Team | None = None, **config_overrides) -> SignalScoutRun:
+        run = _make_run(team or self.team)
+        assert run.scout_config is not None
+        run.scout_config.structured_output_schema = _STRUCTURED_OUTPUT_SCHEMA
+        for field, value in config_overrides.items():
+            setattr(run.scout_config, field, value)
+        run.scout_config.save()
+        return run
+
+    def test_record_output_persists_rows_and_forwards_events(self) -> None:
+        run = self._make_run_with_schema()
+        records = [
+            {"payload": {"verdict": "good", "reason": "coherent grouping"}, "subject": "report-1"},
+            {"payload": {"verdict": "bad", "reason": "two unrelated issues merged"}, "subject": "report-2"},
+            {"payload": {"verdict": "unsure", "reason": "not enough signals"}},
+        ]
+        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_internal") as mock_capture:
+            response = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["recorded_count"] == 3
+        assert len(body["record_ids"]) == 3
+        rows = list(SignalScoutStructuredOutput.objects.filter(scout_run=run).order_by("created_at", "id"))
+        assert [row.subject for row in rows] == ["report-1", "report-2", ""]
+        assert rows[0].payload == {"verdict": "good", "reason": "coherent grouping"}
+        assert rows[0].skill_name == run.skill_name
+        # One customer-facing event per record, person processing off, scalar payload keys
+        # flattened for breakdowns.
+        assert mock_capture.call_count == 3
+        first = mock_capture.call_args_list[0].kwargs
+        assert first["event_name"] == "$scout_structured_output"
+        assert first["process_person_profile"] is False
+        assert first["properties"]["output_verdict"] == "good"
+        assert first["properties"]["subject"] == "report-1"
+        assert first["properties"]["run_id"] == str(run.id)
+
+    def test_record_output_is_all_or_nothing_on_invalid_record(self) -> None:
+        run = self._make_run_with_schema()
+        records = [
+            {"payload": {"verdict": "good", "reason": "fine"}},
+            {"payload": {"verdict": "terrible", "reason": "not in the enum"}},
+        ]
+        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_internal") as mock_capture:
+            response = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "records[1]" in str(response.json())
+        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 0
+        mock_capture.assert_not_called()
+
+    def test_record_output_fails_closed_without_configured_schema(self) -> None:
+        run = _make_run(self.team)
+        response = self.client.post(
+            self._record_url(str(run.id)),
+            data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "structured_output_schema" in str(response.json())
+        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 0
+
+    def test_record_output_rejects_non_in_progress_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = self._make_run_with_schema()
+        TaskRun.objects.filter(id=run.task_run_id).update(status=TaskRun.Status.COMPLETED)
+        response = self.client.post(
+            self._record_url(str(run.id)),
+            data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_record_output_other_teams_run_returns_404(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        run = self._make_run_with_schema(team=other)
+        response = self.client.post(
+            self._record_url(str(run.id)),
+            data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_record_output_dry_run_persists_rows_but_forwards_no_events(self) -> None:
+        # A dry-run scout is being validated: its rows must record (that's the validation
+        # evidence) but nothing may drive customer-visible automation.
+        run = self._make_run_with_schema(emit=False)
+        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_internal") as mock_capture:
+            response = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 1
+        mock_capture.assert_not_called()
+
+    def test_record_output_enforces_per_run_cap(self) -> None:
+        run = self._make_run_with_schema()
+        records = [{"payload": {"verdict": "good", "reason": f"r{i}"}} for i in range(3)]
+        with patch("products.signals.backend.scout_harness.tools.structured_output.MAX_RECORDS_PER_RUN", 2):
+            response = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 0
+
+    def test_run_outputs_listed_in_submission_order(self) -> None:
+        run = self._make_run_with_schema()
+        for index in range(3):
+            SignalScoutStructuredOutput.objects.create(
+                team=self.team,
+                scout_run=run,
+                skill_name=run.skill_name,
+                subject=f"report-{index}",
+                payload={"verdict": "good", "reason": str(index)},
+            )
+        response = self.client.get(self._run_outputs_url(str(run.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["subject"] for row in response.json()] == ["report-0", "report-1", "report-2"]
+
+    def test_run_outputs_other_teams_run_returns_404(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        run = self._make_run_with_schema(team=other)
+        response = self.client.get(self._run_outputs_url(str(run.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_recent_outputs_scoped_to_team_with_filters(self) -> None:
+        run = self._make_run_with_schema()
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="Other")
+        foreign_run = self._make_run_with_schema(team=other_team)
+        SignalScoutStructuredOutput.objects.create(
+            team=other_team,
+            scout_run=foreign_run,
+            skill_name="signals-scout-general",
+            subject="foreign",
+            payload={"verdict": "bad", "reason": "leak"},
+        )
+        for subject, skill in (("report-1", "signals-scout-general"), ("report-2", "signals-scout-judge")):
+            SignalScoutStructuredOutput.objects.create(
+                team=self.team,
+                scout_run=run,
+                skill_name=skill,
+                subject=subject,
+                payload={"verdict": "good", "reason": subject},
+            )
+        response = self.client.get(self._recent_url())
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["subject"] for row in response.json()} == {"report-1", "report-2"}
+
+        filtered = self.client.get(self._recent_url(), {"skill_name": "signals-scout-judge"})
+        assert [row["subject"] for row in filtered.json()] == ["report-2"]
+
+        by_subject = self.client.get(self._recent_url(), {"subject": "report-1"})
+        assert [row["subject"] for row in by_subject.json()] == ["report-1"]
+
+
+class TestStructuredOutputSchemaValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("valid_schema", _STRUCTURED_OUTPUT_SCHEMA, True),
+            ("null_clears", None, True),
+            ("non_object_root", {"type": "array", "items": {"type": "string"}}, False),
+            ("empty_object", {}, False),
+            ("not_a_valid_json_schema", {"type": "object", "properties": {"x": {"type": 42}}}, False),
+        ]
+    )
+    def test_config_schema_validation(self, _name: str, schema: dict | None, valid: bool) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"structured_output_schema": schema}, partial=True)
+        assert serializer.is_valid() is valid, serializer.errors
+        if not valid:
+            assert "structured_output_schema" in serializer.errors
+
+
+class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
+    def _detail_url(self, config_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/"
+
+    def test_patch_persists_schema_and_read_surfaces_it(self) -> None:
+        # Wiring guard for the SimpleTestCase matrix above: the viewset actually routes
+        # `structured_output_schema` through the update serializer and the read shape returns it.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"structured_output_schema": _STRUCTURED_OUTPUT_SCHEMA},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["structured_output_schema"] == _STRUCTURED_OUTPUT_SCHEMA
+        config.refresh_from_db()
+        assert config.structured_output_schema == _STRUCTURED_OUTPUT_SCHEMA
+
+    def test_patch_rejects_invalid_schema(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"structured_output_schema": {"type": "array"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.structured_output_schema is None
 
 
 class TestScoutHarnessScratchpadAPI(APIBaseTest):

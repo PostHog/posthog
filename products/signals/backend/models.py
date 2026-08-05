@@ -1269,6 +1269,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # config columns. A Slack destination is active only when both its integration and channel
     # are present; the UI may persist the integration first while the user chooses a channel.
     output_destinations = models.JSONField(default=dict, db_default={})
+    # Optional JSON Schema (draft 2020-12, object-rooted) describing one structured record this
+    # scout produces via `scout-record-output`. Null = the channel is off: the record endpoint
+    # fails closed and the run prompt renders no structured-output section. Serializer-validated
+    # (must compile as a schema, bounded size) — this field is only written through the config API.
+    # The schema describes ONE record; cardinality is the scout's call (one record per run, one
+    # per judged entity, ...), so no separate mode enum is stored.
+    structured_output_schema = models.JSONField(null=True, blank=True)
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -1668,6 +1675,66 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "scout_run"], name="signal_scout_emission_run_idx"),
+        ]
+
+
+class SignalScoutStructuredOutput(TeamScopedRootMixin, UUIDModel):
+    """One schema-validated record a scout run produced via `scout-record-output`.
+
+    The typed counterpart to the prose channels: when a scout's config carries a
+    `structured_output_schema`, each record the run submits is validated against it and
+    persisted here — one row per record, in submission order. That makes the output
+    queryable per record ("all `verdict=bad` judgments this week") without parsing the run
+    `summary` or the inbox, which is the whole point of the channel: a scout whose job is a
+    recurring measurement (judging, scoring, classifying) needs rows, not reports.
+
+    Parallel to `SignalScoutEmission` (one row per finding emit) and, like it, written by
+    the harness at submission time, never scout-mutated after the fact. `payload` is
+    scout-authored but schema-constrained; everything else is server-stamped. Records also
+    fire a `signals_scout_structured_output` analytics event at write time, so the same
+    data is chartable in PostHog without a Postgres export.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale: writes happen from sandbox-driven view
+    # calls where the caller already validated team/run ownership.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # Denormalised tenant boundary, matching `SignalScoutEmission`. `db_constraint=False`
+    # so creating this table takes no lock on the hot posthog_team parent.
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="signal_scout_structured_outputs",
+    )
+    # CASCADE: a record is meaningless without its run; purging the run (or the TaskRun it
+    # bridges) takes the rows with it.
+    scout_run = models.ForeignKey(
+        SignalScoutRun,
+        on_delete=models.CASCADE,
+        related_name="structured_outputs",
+    )
+    # Denormalised from the run so "all records this scout ever produced" is one indexed
+    # filter, not a join through the runs table.
+    skill_name = models.CharField(max_length=200)
+    # Optional scout-chosen key naming what the record is about (a report id, a URL, an
+    # account key). Kept as a real column so per-entity lookups ("every judgment of report
+    # X") don't need a jsonb query into `payload`. Blank when the record is run-level.
+    subject = models.CharField(max_length=200, blank=True, default="", db_default="")
+    # The record itself, validated against the config's `structured_output_schema` at
+    # submission time. The schema active at submission governs; editing the config schema
+    # later does not rewrite historical rows.
+    payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal scout structured output"
+        verbose_name_plural = "Signal scout structured outputs"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "scout_run"], name="signal_scout_so_run_idx"),
+            # Cross-run listing path: "recent records for this scout", newest first.
+            models.Index(fields=["team", "skill_name", "-created_at"], name="signal_scout_so_recent_idx"),
         ]
 
 

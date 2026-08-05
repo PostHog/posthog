@@ -1854,6 +1854,12 @@ export const ScoutConfigNetworkAccessEnumApi = {
 } as const
 
 /**
+ * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off.
+ * @nullable
+ */
+export type SignalScoutConfigOptionsApiStructuredOutputSchema = { [key: string]: unknown } | null
+
+/**
  * Schedule, enablement, and delivery options accepted while creating a scout.
  */
 export interface SignalScoutConfigOptionsApi {
@@ -1882,6 +1888,11 @@ export interface SignalScoutConfigOptionsApi {
      * @nullable
      */
     run_cron_schedule?: string | null
+    /**
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off.
+     * @nullable
+     */
+    structured_output_schema?: SignalScoutConfigOptionsApiStructuredOutputSchema
 }
 
 /**
@@ -1952,6 +1963,12 @@ export const ScoutConfigPauseReasonEnumApi = {
 } as const
 
 /**
+ * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off.
+ * @nullable
+ */
+export type SignalScoutConfigApiStructuredOutputSchema = { [key: string]: unknown } | null
+
+/**
  * Read shape for a per-(team, skill) scout config.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
@@ -1995,6 +2012,11 @@ export interface SignalScoutConfigApi {
     readonly run_cron_schedule: string | null
     /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
     readonly output_destinations: SignalScoutOutputDestinationsApi
+    /**
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off.
+     * @nullable
+     */
+    readonly structured_output_schema: SignalScoutConfigApiStructuredOutputSchema
     /** What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `full` lets the scout reach any site, for skills that read external sources such as documentation or papers.
      *
      * * `trusted` - Trusted domains only
@@ -2023,6 +2045,12 @@ export interface SignalScoutCreateResponseApi {
     skill: SignalScoutSkillSummaryApi
     config: SignalScoutConfigApi
 }
+
+/**
+ * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off.
+ * @nullable
+ */
+export type SignalScoutConfigCreateApiStructuredOutputSchema = { [key: string]: unknown } | null
 
 /**
  * Request body for registering a scout config without waiting for the coordinator tick.
@@ -2057,11 +2085,22 @@ export interface SignalScoutConfigCreateApi {
      */
     run_cron_schedule?: string | null
     /**
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off.
+     * @nullable
+     */
+    structured_output_schema?: SignalScoutConfigCreateApiStructuredOutputSchema
+    /**
      * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
      * @maxLength 200
      */
     skill_name: string
 }
+
+/**
+ * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off.
+ * @nullable
+ */
+export type PatchedSignalScoutConfigUpdateApiStructuredOutputSchema = { [key: string]: unknown } | null
 
 /**
  * Editable schedule, enablement, and emit posture for one scout config.
@@ -2085,6 +2124,11 @@ export interface PatchedSignalScoutConfigUpdateApi {
     run_cron_schedule?: string | null
     /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
     output_destinations?: SignalScoutOutputDestinationsApi
+    /**
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off.
+     * @nullable
+     */
+    structured_output_schema?: PatchedSignalScoutConfigUpdateApiStructuredOutputSchema
     /** What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers. Applies from the scout's next run.
      *
      * * `trusted` - Trusted domains only
@@ -2891,6 +2935,7 @@ export type SignalScoutRunSummaryApiMetadataDerived = {
     has_self_improvement: boolean
     has_chart: boolean
     has_self_validation: boolean
+    has_structured_output: boolean
 }
 
 /**
@@ -3003,6 +3048,7 @@ export type SignalScoutRunDetailApiMetadataDerived = {
     has_self_improvement: boolean
     has_chart: boolean
     has_self_validation: boolean
+    has_structured_output: boolean
 }
 
 /**
@@ -3463,6 +3509,68 @@ export interface EmitFindingResponseApi {
      * @nullable
      */
     remediation: string | null
+}
+
+/**
+ * The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written.
+ */
+export type StructuredOutputRecordApiPayload = { [key: string]: unknown }
+
+/**
+ * One record submitted through `scout-record-output`.
+ */
+export interface StructuredOutputRecordApi {
+    /** The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written. */
+    payload: StructuredOutputRecordApiPayload
+    /**
+     * Optional key naming what this record is about — a report id, URL, account key — so per-entity lookups don't need to parse `payload`. Omit for a run-level record.
+     * @maxLength 200
+     * @nullable
+     */
+    subject?: string | null
+}
+
+/**
+ * Request body for `scout-record-output`: a batch of schema-validated records.
+ */
+export interface RecordStructuredOutputRequestApi {
+    /**
+     * Records to persist, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record.
+     * @maxItems 100
+     */
+    records: StructuredOutputRecordApi[]
+}
+
+/**
+ * Outcome of an accepted `scout-record-output` call.
+ */
+export interface RecordStructuredOutputResponseApi {
+    /** How many records were persisted (all of them, or none). */
+    recorded_count: number
+    /** Row ids of the persisted records, in submission order. */
+    record_ids: string[]
+}
+
+/**
+ * The record, validated at submission time against the `structured_output_schema` the scout's config carried then. Editing the schema later does not rewrite historical rows.
+ */
+export type SignalScoutStructuredOutputApiPayload = { [key: string]: unknown }
+
+/**
+ * One persisted structured-output record, returned by the structured-output read endpoints.
+ */
+export interface SignalScoutStructuredOutputApi {
+    readonly id: string
+    /** UUID of the `SignalScoutRun` that recorded this record. */
+    run_id: string
+    /** The scout (`signals-scout-*` skill) whose run recorded this record. */
+    skill_name: string
+    /** Scout-chosen key naming what the record is about (a report id, URL, account key). Empty string for a run-level record. */
+    subject: string
+    /** The record, validated at submission time against the `structured_output_schema` the scout's config carried then. Editing the schema later does not rewrite historical rows. */
+    payload: SignalScoutStructuredOutputApiPayload
+    /** ISO-8601 timestamp the record was persisted. */
+    created_at: string
 }
 
 /**
@@ -3984,6 +4092,34 @@ export type SignalsScoutRunsFindingsSummaryParams = {
      * @maximum 168
      */
     window_hours?: number
+}
+
+export type SignalsScoutRunsRecentStructuredOutputsParams = {
+    /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest record from the prior page).
+     */
+    date_to?: string
+    /**
+     * Max rows to return (default 100, hard cap 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Exact-match filter on the recording scout's skill (e.g. `signals-scout-grouping-judge`). Omit to span every scout on the team.
+     * @minLength 1
+     */
+    skill_name?: string
+    /**
+     * Exact-match filter on `subject` — every record about one entity, across runs.
+     * @minLength 1
+     * @maxLength 200
+     */
+    subject?: string
 }
 
 export type SignalsScoutScratchpadSearchParams = {

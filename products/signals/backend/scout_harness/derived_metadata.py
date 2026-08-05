@@ -24,7 +24,7 @@ from typing import Any
 
 from django.db import transaction
 
-from products.signals.backend.models import SignalReport, SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalScoutStructuredOutput, SignalScratchpad
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 
@@ -41,6 +41,7 @@ DERIVED_FLAG_KEYS = (
     "has_self_improvement",
     "has_chart",
     "has_self_validation",
+    "has_structured_output",
 )
 
 
@@ -68,6 +69,11 @@ def build_derived_flags(*, run: SignalScoutRun, team_id: int) -> dict[str, bool]
         "has_self_improvement": any(is_self_improvement_title(title) for title in authored_titles),
         "has_chart": any(charts for charts in authored_charts),
         "has_self_validation": _touched_followup_queue(run=run, team_id=team_id),
+        # Rows are written by the record endpoint with run attribution, so existence is the
+        # direct observation — no scout self-report involved.
+        "has_structured_output": SignalScoutStructuredOutput.objects.for_team(team_id)
+        .filter(scout_run_id=run.pk)
+        .exists(),
     }
 
 

@@ -523,7 +523,14 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
     )
     prompt = build_run_prompt(
-        skill, run_id=str(run_id), team_id=team.id, started_at=started_at, github_read_access=github_guidance
+        skill,
+        run_id=str(run_id),
+        team_id=team.id,
+        started_at=started_at,
+        github_read_access=github_guidance,
+        # Renders the structured-output section (schema + `scout-record-output` contract) only
+        # when the config carries a schema; the record endpoint fails closed without one.
+        structured_output_schema=config.structured_output_schema,
     )
     logger.info(
         "signals_scout: spawning sandbox",

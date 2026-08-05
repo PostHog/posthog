@@ -26,7 +26,7 @@ from posthog.models.integration import Integration
 from posthog.permissions import get_authenticator_scopes
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutStructuredOutput
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -39,6 +39,12 @@ from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
 from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
+from products.signals.backend.scout_harness.tools.structured_output import (
+    MAX_RECORDS_PER_CALL,
+    MAX_SUBJECT_LENGTH,
+    StructuredOutputSchemaError,
+    validate_structured_output_schema,
+)
 from products.signals.backend.serializers import ReportChartSerializer
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
@@ -364,6 +370,134 @@ class RecentEmissionsQuerySerializer(serializers.Serializer):
         min_value=1,
         max_value=200,
         help_text="Max rows to return (default 50, hard cap 200).",
+    )
+
+
+# --- Structured outputs ----------------------------------------------------
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class StructuredOutputPayloadField(serializers.JSONField):
+    """One structured record as a JSON object. Its real shape is the scout config's
+    `structured_output_schema`, which is per-team data — so the OpenAPI type stays a
+    generic object rather than a fixed schema."""
+
+
+class StructuredOutputRecordSerializer(serializers.Serializer):
+    """One record submitted through `scout-record-output`."""
+
+    payload = StructuredOutputPayloadField(
+        help_text=(
+            "The record itself, as a JSON object. Must validate against the scout config's "
+            "`structured_output_schema` (shown in the run prompt); any invalid record fails the whole "
+            "call with nothing written."
+        ),
+    )
+    subject = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=MAX_SUBJECT_LENGTH,
+        help_text=(
+            "Optional key naming what this record is about — a report id, URL, account key — so "
+            "per-entity lookups don't need to parse `payload`. Omit for a run-level record."
+        ),
+    )
+
+
+class RecordStructuredOutputRequestSerializer(serializers.Serializer):
+    """Request body for `scout-record-output`: a batch of schema-validated records."""
+
+    records = serializers.ListField(
+        child=StructuredOutputRecordSerializer(),
+        allow_empty=False,
+        max_length=MAX_RECORDS_PER_CALL,
+        help_text=(
+            "Records to persist, each validated against the scout config's `structured_output_schema`. "
+            "All-or-nothing: if any record fails validation, nothing is written and the error names the "
+            f"failing records. Capped at {MAX_RECORDS_PER_CALL} per call; batch per-entity judgments "
+            "rather than calling once per record."
+        ),
+    )
+
+
+class RecordStructuredOutputResponseSerializer(serializers.Serializer):
+    """Outcome of an accepted `scout-record-output` call."""
+
+    recorded_count = serializers.IntegerField(help_text="How many records were persisted (all of them, or none).")
+    record_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="Row ids of the persisted records, in submission order.",
+    )
+
+
+class SignalScoutStructuredOutputSerializer(serializers.ModelSerializer):
+    """One persisted structured-output record, returned by the structured-output read endpoints."""
+
+    run_id = serializers.CharField(
+        source="scout_run_id",
+        help_text="UUID of the `SignalScoutRun` that recorded this record.",
+    )
+    skill_name = serializers.CharField(
+        help_text="The scout (`signals-scout-*` skill) whose run recorded this record.",
+    )
+    subject = serializers.CharField(
+        help_text=(
+            "Scout-chosen key naming what the record is about (a report id, URL, account key). "
+            "Empty string for a run-level record."
+        ),
+    )
+    payload = StructuredOutputPayloadField(
+        help_text=(
+            "The record, validated at submission time against the `structured_output_schema` the scout's "
+            "config carried then. Editing the schema later does not rewrite historical rows."
+        ),
+    )
+    created_at = serializers.DateTimeField(help_text="ISO-8601 timestamp the record was persisted.")
+
+    class Meta:
+        model = SignalScoutStructuredOutput
+        fields = ["id", "run_id", "skill_name", "subject", "payload", "created_at"]
+        read_only_fields = fields
+
+
+class RecentStructuredOutputsQuerySerializer(serializers.Serializer):
+    """Query parameters for `recent-structured-outputs` — records across every run on the team.
+
+    The cross-run counterpart to the per-run `structured-outputs` action, mirroring
+    `recent-emissions`: newest-first, optionally scoped to one scout, one subject, or a
+    time window. Pure Postgres.
+    """
+
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap "
+            "on subsequent calls (cursor-style: set to the `created_at` of the oldest record from "
+            "the prior page)."
+        ),
+    )
+    skill_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "Exact-match filter on the recording scout's skill (e.g. `signals-scout-grouping-judge`). "
+            "Omit to span every scout on the team."
+        ),
+    )
+    subject = serializers.CharField(
+        required=False,
+        max_length=MAX_SUBJECT_LENGTH,
+        help_text="Exact-match filter on `subject` — every record about one entity, across runs.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=500,
+        help_text="Max rows to return (default 100, hard cap 500).",
     )
 
 
@@ -1876,6 +2010,34 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     return {"slack": slack}
 
 
+@extend_schema_field(OpenApiTypes.OBJECT)
+class StructuredOutputSchemaField(serializers.JSONField):
+    """A JSON Schema (draft 2020-12) as a JSON object. Free-form at the OpenAPI layer —
+    it's a schema-about-data, so its own shape is only bounded by JSON Schema itself."""
+
+
+_STRUCTURED_OUTPUT_SCHEMA_HELP = (
+    "Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces "
+    "via `scout-record-output` — e.g. a per-report quality judgment "
+    '(`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, '
+    '"reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). '
+    'The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: '
+    "the run prompt renders the schema and every submitted record is validated against it, persisted "
+    "as a queryable row, and mirrored into the project as a `$scout_structured_output` event. "
+    "Cardinality is the scout's call (one record per run, one per judged entity, ...). "
+    "Null = channel off."
+)
+
+
+def _validate_structured_output_schema(value: dict | None) -> dict | None:
+    if value is None:
+        return None
+    try:
+        return validate_structured_output_schema(value)
+    except StructuredOutputSchemaError as exc:
+        raise serializers.ValidationError(str(exc))
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -1953,6 +2115,11 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Destinations that receive each finding or report this scout emits. Empty when none is configured.",
     )
+    structured_output_schema = StructuredOutputSchemaField(
+        read_only=True,
+        allow_null=True,
+        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
+    )
     network_access = serializers.ChoiceField(
         choices=SignalScoutConfig.NetworkAccess.choices,
         read_only=True,
@@ -2025,6 +2192,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "run_interval_minutes",
             "run_cron_schedule",
             "output_destinations",
+            "structured_output_schema",
             "network_access",
             "last_run_at",
             "consecutive_failure_count",
@@ -2154,12 +2322,20 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "`no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet."
         ),
     )
+    structured_output_schema = StructuredOutputSchemaField(
+        required=False,
+        allow_null=True,
+        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
+    )
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
 
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
+
+    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
+        return _validate_structured_output_schema(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
@@ -2234,6 +2410,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "run_interval_minutes",
             "run_cron_schedule",
             "output_destinations",
+            "structured_output_schema",
             "network_access",
             "auto_pause_exempt",
         ]
@@ -2291,6 +2468,11 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
         ),
     )
+    structured_output_schema = StructuredOutputSchemaField(
+        required=False,
+        allow_null=True,
+        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
+    )
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
@@ -2301,6 +2483,9 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             team = context.get("team")
             context = {**context, "project_id": getattr(team, "project_id", None)}
         return _validate_output_destinations(value, context)
+
+    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
+        return _validate_structured_output_schema(value)
 
 
 class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
