@@ -621,6 +621,16 @@ def _read_next_batch(reader: pa.RecordBatchReader) -> pa.RecordBatch | None:
         return None
 
 
+def _format_scheme(target: RepartitionTarget) -> str:
+    """`datetime/month`, `md5/64`, `numerical/1000000` — the scheme in one readable token."""
+    knob = target.partition_format or target.partition_count or target.partition_size
+    return f"{target.partition_mode or 'auto'}/{knob}" if knob else (target.partition_mode or "auto")
+
+
+def _format_fields(fields: dict[str, Any]) -> str:
+    return " ".join(f"{key}={value}" for key, value in fields.items() if value is not None)
+
+
 async def _rewrite_into_temp(
     *,
     old_delta: deltalake.DeltaTable,
@@ -632,6 +642,7 @@ async def _rewrite_into_temp(
     ensure_claim: Callable[[], Awaitable[None]] | None = None,
     claim_recheck_interval_seconds: float = CLAIM_RECHECK_INTERVAL_SECONDS,
     deadline: float | None = None,
+    total_rows: int | None = None,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a fresh temp table under the new partition scheme.
 
@@ -643,7 +654,18 @@ async def _rewrite_into_temp(
 
     `deadline` is a `time.monotonic()` value past which the rewrite gives up with
     `RepartitionBudgetExceededError` rather than run until Temporal kills it. None runs unbounded.
+
+    `total_rows` is the source row count, used only to report progress as a percentage and an ETA.
     """
+    await logger.ainfo(
+        f"repartition: rewrite starting target_scheme={_format_scheme(target)} total_rows={total_rows} "
+        f"batch_size={batch_size} temp_uri={temp_uri}",
+        target_scheme=_format_scheme(target),
+        total_rows=total_rows,
+        batch_size=batch_size,
+        temp_uri=temp_uri,
+    )
+
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
     reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
     live_schema = await asyncio.to_thread(old_delta.schema)
@@ -655,11 +677,31 @@ async def _rewrite_into_temp(
     buffered_rows = 0
     buffered_bytes = 0
 
-    async def flush() -> int:
-        """Write the buffered batches as one Delta commit and return the rows written."""
-        nonlocal buffered, buffered_rows, buffered_bytes
+    started_at = time.monotonic()
+    commits = 0
+
+    def progress() -> dict[str, Any]:
+        """Structured rewrite progress. One of these per commit is the whole story of a rewrite."""
+        elapsed = max(time.monotonic() - started_at, 1e-6)
+        rate = rows_written / elapsed
+        fields: dict[str, Any] = {
+            "rows_written": rows_written,
+            "commits": commits,
+            "elapsed_seconds": round(elapsed),
+            "rows_per_second": round(rate),
+        }
+        if total_rows:
+            fields["total_rows"] = total_rows
+            fields["percent_complete"] = round(100 * rows_written / total_rows, 1)
+            # Only meaningful once a commit has landed; before that there is no rate to project from.
+            fields["eta_seconds"] = round(max(total_rows - rows_written, 0) / rate) if rate else None
+        return fields
+
+    async def flush() -> None:
+        """Write the buffered batches as one Delta commit, then report progress."""
+        nonlocal buffered, buffered_rows, buffered_bytes, rows_written, commits
         if not buffered:
-            return 0
+            return
         # Every buffered table was already aligned to `live_schema`, so they concat without promotion.
         combined = buffered[0] if len(buffered) == 1 else pa.concat_tables(buffered)
         buffered = []
@@ -674,7 +716,10 @@ async def _rewrite_into_temp(
             schema_mode="merge",
             storage_options=storage_options,
         )
-        return combined.num_rows
+        rows_written += combined.num_rows
+        commits += 1
+        fields = progress()
+        await logger.ainfo(f"repartition: rewrite progress {_format_fields(fields)}", **fields)
 
     last_claim_check: float | None = None
 
@@ -748,16 +793,22 @@ async def _rewrite_into_temp(
             buffered_rows + partitioned_table.num_rows > batch_size
             or buffered_bytes + table_bytes > REWRITE_BUFFER_MAX_BYTES
         ):
-            rows_written += await flush()
+            await flush()
         buffered.append(partitioned_table)
         buffered_rows += partitioned_table.num_rows
         buffered_bytes += table_bytes
 
-    rows_written += await flush()
+    await flush()
 
     if resolved is None:
         # Empty source table — nothing to rewrite.
         resolved = target
+    fields = progress()
+    await logger.ainfo(
+        f"repartition: rewrite complete scheme={_format_scheme(resolved)} {_format_fields(fields)}",
+        scheme=_format_scheme(resolved),
+        **fields,
+    )
     return rows_written, resolved
 
 
@@ -884,6 +935,7 @@ async def repartition_table_in_place(
                 logger=logger,
                 ensure_claim=ensure_claim,
                 deadline=deadline,
+                total_rows=old_row_count,
             )
         except (RepartitionSupersededError, RepartitionUnpartitionableError, RepartitionBudgetExceededError):
             raise
