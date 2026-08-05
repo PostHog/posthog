@@ -16,9 +16,17 @@
 # Re-run that measurement before loosening anything below.
 set -euo pipefail
 
-# A content-bearing key holding a substantial string, or a message constructor
-# wrapping one. Short values ("role": "human", "text": []) are structure, not prose.
-readonly PATTERN='^\+.*("(content|message|body|text|prompt)"[[:space:]]*:[[:space:]]*"[^"]{25,}|(Human|Assistant|User|System)Message\([^)]*"[^"]{25,})'
+# A content-bearing key holding a substantial string, in the four shapes fixtures
+# use here: a message dict, a message constructor, a Python keyword argument, and
+# the multiline `body=(` concatenation that ticket fixtures are written in.
+# Short values ("role": "human", "text": []) are structure, not prose.
+#
+# The keyword-argument arm covers `content` and `body` only, deliberately. Those
+# name what a person said or wrote. `prompt` and `text` name what we send a model,
+# and including them fires on roughly one in eight eval edits, which trains the
+# warning out. Measured: `content|body` fires on 3 of 265 files, adding all five
+# keys fires on 35.
+readonly PATTERN='^\+.*("(content|message|body|text|prompt)"[[:space:]]*:[[:space:]]*"[^"]{25,}|(Human|Assistant|User|System)Message\([^)]*"[^"]{25,}|(body|content)[[:space:]]*=[[:space:]]*(\(|"""|"[^"]{25,}))'
 readonly THRESHOLD=2
 
 [ $# -gt 0 ] || exit 0
