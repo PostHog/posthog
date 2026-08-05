@@ -65,7 +65,11 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     except InternalCHQueryError as e:
         if e.code not in _VALUE_PARSE_CH_ERROR_CODES:
             raise
-        raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
+        # Unlike ExposedCHQueryError, InternalCHQueryError's str() keeps the raw server message.
+        # Rewrap so ExposedCHQueryError.__str__ strips the DB::Exception framing and any stack
+        # trace tail before the message is echoed back to the caller.
+        sanitized = str(ExposedCHQueryError(e.message, code=e.code, code_name=e.code_name))
+        raise ValidationError({"filters": sanitized or "These filters cannot be evaluated."}) from e
 
 
 def _normalize_property_value(prop: Property) -> None:
