@@ -1,4 +1,5 @@
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,13 +9,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    NON_RETRYABLE_ERROR_RETRY_LIMIT,
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
@@ -479,3 +484,47 @@ class TestValidateIncrementalSync:
         # run is retried on every schedule even though only the user can resolve it.
         message = str(MissingPrimaryKeysException())
         assert [key for key in Any_Source_Errors if key in message]
+
+
+class TestHandleNonRetryableError:
+    def _fake_get_redis(self, incr_return: int):
+        redis_client = MagicMock(incr=AsyncMock(return_value=incr_return), expire=AsyncMock())
+
+        @asynccontextmanager
+        async def _get_redis():
+            yield redis_client
+
+        return _get_redis
+
+    def test_retry_attempt_is_not_reported_to_error_tracking(self):
+        # `handle_non_retryable_error` only runs once a source has already classified `error` as
+        # a known non-retryable condition (e.g. Meta Ads' "Ad account owner has NOT granted
+        # ads_read permission"). Re-raising the raw `error` on a below-limit attempt reported that
+        # already-understood error to error tracking on every retry; it must come back as a
+        # NonReportableError so the activity interceptor skips capturing it.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+
+        with patch(f"{_EXTRACT_MODULE}._get_redis", self._fake_get_redis(incr_return=1)):
+            with pytest.raises(NonReportableError) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert not isinstance(exc_info.value, NonRetryableException)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_gives_up_after_retry_limit_without_reporting(self):
+        # Past the retry budget, the give-up exception is the exact same already-classified
+        # condition and must stay out of error tracking too.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+
+        with patch(
+            f"{_EXTRACT_MODULE}._get_redis", self._fake_get_redis(incr_return=NON_RETRYABLE_ERROR_RETRY_LIMIT + 1)
+        ):
+            with pytest.raises(NonRetryableException) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert isinstance(exc_info.value, NonReportableError)
+        assert exc_info.value.__cause__ is original_error
