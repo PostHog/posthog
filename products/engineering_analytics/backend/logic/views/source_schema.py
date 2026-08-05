@@ -106,12 +106,12 @@ TEAM_MEMBERS_COLUMNS: dict[str, dict[str, str]] = {
     "team_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
-# Contract for the Trunk.io ``UnhealthyTests`` warehouse source (Trunk's current flaky/broken
-# verdict per test). Identity fields are Trunk's JUnit-derived (name, parent, classname,
-# file_path); ``status`` is its ``{value, timestamp}`` object, landed as JSON on newer syncs
-# and read through ``toString`` in the builder so String-landed rows behave identically. Same
-# Nullable discipline as above.
-TRUNK_IO_UNHEALTHY_TESTS_COLUMNS: dict[str, dict[str, str]] = {
+# Contract for the Trunk.io ``FailingTests`` warehouse source (Trunk's verdict per test, over the
+# whole corpus rather than only its unhealthy slice — the builder filters). Identity fields are
+# Trunk's JUnit-derived (name, parent, classname, file_path); ``status`` is its ``{value, timestamp}``
+# object, landed as JSON on newer syncs and read through ``toString`` in the builder so
+# String-landed rows behave identically. Same Nullable discipline as above.
+TRUNK_IO_FAILING_TESTS_COLUMNS: dict[str, dict[str, str]] = {
     "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "parent": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
@@ -122,4 +122,8 @@ TRUNK_IO_UNHEALTHY_TESTS_COLUMNS: dict[str, dict[str, str]] = {
     "quarantined": {"clickhouse": "Nullable(Bool)", "hogql": "BooleanDatabaseField"},
     "html_url": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "pull_requests_impacted_last_7d": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    # Trunk's own failure rates, 0..1. See TrunkIoTestAnnotation for why these are the only rates
+    # this product reports.
+    "failure_rate_last_7d": {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField"},
+    "failure_rate_last_24h": {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField"},
 }

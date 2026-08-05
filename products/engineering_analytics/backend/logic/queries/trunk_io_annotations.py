@@ -17,7 +17,12 @@ _SELECT = """
         nodeid,
         argMax(trunk_status, trunk_status = 'broken') AS collapsed_status,
         max(trunk_quarantined) AS collapsed_quarantined,
-        argMax(trunk_url, trunk_status = 'broken') AS collapsed_url
+        argMax(trunk_url, trunk_status = 'broken') AS collapsed_url,
+        -- Worst variant, not an average: averaging one leg that fails 40% of the time against
+        -- healthy legs hides it. max skips NULLs, so the result is NULL only when no variant
+        -- has a rate.
+        max(trunk_failure_rate_7d) AS collapsed_rate_7d,
+        max(trunk_failure_rate_24h) AS collapsed_rate_24h
     FROM __TRUNK_IO_SOURCE__
     WHERE nodeid IN {nodeids}
     GROUP BY runner, nodeid
@@ -31,8 +36,8 @@ def fetch_trunk_io_annotations(
     Trunk.io doesn't currently call that test unhealthy.
 
     Trunk.io tracks variants (matrix legs) as separate rows, so one nodeid collapses to a
-    single verdict: 'broken' outranks 'flaky' because it is the stronger claim, and
-    ``quarantined`` is true when any variant is quarantined.
+    single verdict: 'broken' outranks 'flaky' because it is the stronger claim, ``quarantined``
+    is true when any variant is quarantined, and each rate is its worst variant.
     """
     if not nodeids:
         return {}
@@ -43,7 +48,11 @@ def fetch_trunk_io_annotations(
     )
     return {
         (runner, nodeid): TrunkIoTestAnnotation(
-            status=TrunkIoTestStatus(status), quarantined=bool(quarantined), url=url
+            status=TrunkIoTestStatus(status),
+            quarantined=bool(quarantined),
+            url=url,
+            failure_rate_7d=rate_7d,
+            failure_rate_24h=rate_24h,
         )
-        for runner, nodeid, status, quarantined, url in (response.results or [])
+        for runner, nodeid, status, quarantined, url, rate_7d, rate_24h in (response.results or [])
     }

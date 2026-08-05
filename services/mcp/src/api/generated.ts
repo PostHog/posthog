@@ -33729,6 +33729,16 @@ export namespace Schemas {
       quarantined: boolean;
       /** Trunk.io's detail page for the test. */
       url: string;
+      /**
+         * Trunk.io's failure rate over 7 days, 0..1, taking the worst matrix variant. This is a true rate because Trunk.io observes every run; every count this endpoint derives itself is absolute, since sub-threshold passes are never emitted. Null means Trunk.io has no rate for the test, never a 0% failure rate.
+         * @nullable
+         */
+      failure_rate_7d?: number | null;
+      /**
+         * Trunk.io's failure rate over 24 hours, on the same terms as failure_rate_7d.
+         * @nullable
+         */
+      failure_rate_24h?: number | null;
     }
 
     /**

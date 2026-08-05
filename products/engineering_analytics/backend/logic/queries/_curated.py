@@ -39,7 +39,7 @@ from products.engineering_analytics.backend.logic.views import (
     job_costs,
     pull_requests,
     team_members,
-    trunk_io_unhealthy_tests,
+    trunk_io_failing_tests,
     workflow_jobs,
     workflow_runs,
 )
@@ -135,7 +135,7 @@ class CuratedGitHubSource:
         """
         if self._trunk_io_tables is None:
             return None
-        return f"({trunk_io_unhealthy_tests.build_query(self._trunk_io_tables.unhealthy_tests)})"
+        return f"({trunk_io_failing_tests.build_query(self._trunk_io_tables.failing_tests)})"
 
     @cached_property
     def _trunk_io_tables(self) -> TrunkIoTables | None:

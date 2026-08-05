@@ -61,10 +61,11 @@ _CURATED_ENDPOINTS = frozenset(
     {PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, TEAM_MEMBERS_SCHEMA, ISSUE_EVENTS_SCHEMA}
 )
 
-# Trunk.io source endpoint (``ExternalDataSchema.name``) behind the flaky-test enrichment:
-# Trunk's current flaky/broken verdict per test, with its own quarantine bit. The source's
-# other endpoints (QuarantinedTests, FailingTests) stay unresolved until a read needs them.
-TRUNK_IO_UNHEALTHY_TESTS_SCHEMA = "UnhealthyTests"
+# Trunk.io source endpoint (``ExternalDataSchema.name``) behind the flaky-test enrichment: Trunk's
+# verdict per test, with its own quarantine bit and its failure rates. See the builder for why this
+# endpoint and not the narrower ``UnhealthyTests``. ``QuarantinedTests`` stays unresolved until a
+# read needs the quarantine reason and timestamp it alone carries.
+TRUNK_IO_FAILING_TESTS_SCHEMA = "FailingTests"
 
 # Resolved names are interpolated into HogQL ``FROM`` clauses. Warehouse table names are
 # always plain identifiers (the prefix is validated to ``[A-Za-z0-9_]`` at connect time and
@@ -72,7 +73,7 @@ TRUNK_IO_UNHEALTHY_TESTS_SCHEMA = "UnhealthyTests"
 # rather than trust an unexpected name into SQL.
 _IDENTIFIER = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
 # Trunk.io tables additionally allow the namespaced shape newer warehouse syncs land
-# (e.g. ``posthog_data_imports_team_2.trunkio_unhealthy_tests``): dot-joined identifier
+# (e.g. ``posthog_data_imports_team_2.trunkio_failing_tests``): dot-joined identifier
 # segments, still nothing else.
 _DOTTED_IDENTIFIER = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*\Z")
 
@@ -207,7 +208,7 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
 class TrunkIoTables:
     """The optional Trunk.io flaky-test warehouse tables the curated layer reads."""
 
-    unhealthy_tests: str
+    failing_tests: str
 
 
 def resolve_trunk_io_tables(
@@ -235,7 +236,7 @@ def resolve_trunk_io_tables(
             continue
         schemas = (
             ExternalDataSchema.objects.filter(
-                team_id=team.pk, source_id=source.id, name=TRUNK_IO_UNHEALTHY_TESTS_SCHEMA, should_sync=True
+                team_id=team.pk, source_id=source.id, name=TRUNK_IO_FAILING_TESTS_SCHEMA, should_sync=True
             )
             .exclude(deleted=True)
             .select_related("table")
@@ -243,7 +244,7 @@ def resolve_trunk_io_tables(
         for schema in schemas:
             table = schema.table
             if table is not None and not table.deleted and _DOTTED_IDENTIFIER.match(table.name):
-                return TrunkIoTables(unhealthy_tests=table.name)
+                return TrunkIoTables(failing_tests=table.name)
     return None
 
 

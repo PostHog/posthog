@@ -154,7 +154,7 @@ Warehouse tables (GitHub source):
 
 Warehouse tables (Trunk.io source, optional):
 
-- `UnhealthyTests`: Trunk.io's current flaky/broken verdict per test, with its own quarantine bit. Joined onto the span-derived test-health queue by `(runner, nodeid)`, the same JUnit-derived identity the CI span emitter builds, and resolved per team and repo via `logic/sources.py` like every other table. Absence is a value, not an error: no source (or a disconnected one) means `has_trunk_io_data: false` and null `trunk_io` annotations, and nothing else changes.
+- `FailingTests`: Trunk.io's verdict per test, with its own quarantine bit and its 7d/24h failure rates. The snapshot is the whole corpus, so the builder filters to flaky/broken; the sibling `UnhealthyTests` endpoint is that slice pre-filtered but carries no rates, and every row of it appears here. Joined onto the span-derived test-health queue by `(runner, nodeid)`, the same JUnit-derived identity the CI span emitter builds, and resolved per team and repo via `logic/sources.py` like every other table. Trunk's rates are true rates (it observes every run) while this product's own reads stay absolute counts, so they are named and documented as Trunk's throughout. Absence is a value, not an error: no source (or a disconnected one) means `has_trunk_io_data: false` and null `trunk_io` annotations, and nothing else changes.
 
 Other products read as sources:
 

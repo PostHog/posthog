@@ -14,8 +14,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 from products.engineering_analytics.backend.logic.queries._test_spans import selector_from_nodeid
-from products.engineering_analytics.backend.logic.sources import TRUNK_IO_UNHEALTHY_TESTS_SCHEMA
-from products.engineering_analytics.backend.logic.views.source_schema import TRUNK_IO_UNHEALTHY_TESTS_COLUMNS
+from products.engineering_analytics.backend.logic.sources import TRUNK_IO_FAILING_TESTS_SCHEMA
+from products.engineering_analytics.backend.logic.views.source_schema import TRUNK_IO_FAILING_TESTS_COLUMNS
 from products.engineering_analytics.backend.tests._github_fixtures import (
     connect_github_source_without_data,
     create_trunk_io_source,
@@ -398,7 +398,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
 
     def _seed_trunk_io_table(self, rows: list[dict]) -> None:
         source = create_trunk_io_source(self.team, repository="PostHog/posthog")
-        df = pd.DataFrame(rows, columns=list(TRUNK_IO_UNHEALTHY_TESTS_COLUMNS.keys()))
+        df = pd.DataFrame(rows, columns=list(TRUNK_IO_FAILING_TESTS_COLUMNS.keys()))
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         df.to_csv(tmp.name, index=False)
         tmp.close()
@@ -406,8 +406,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         try:
             table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
-                table_name="trunkio_unhealthytests",
-                table_columns=TRUNK_IO_UNHEALTHY_TESTS_COLUMNS,
+                table_name="trunkio_failingtests",
+                table_columns=TRUNK_IO_FAILING_TESTS_COLUMNS,
                 test_bucket="test_storage_bucket-posthog.products.engineering_analytics.trunk_io",
                 team=self.team,
                 source=source,
@@ -415,7 +415,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         except PermissionError as err:
             self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
-        link_schema(self.team, source, name=TRUNK_IO_UNHEALTHY_TESTS_SCHEMA, table=table)
+        link_schema(self.team, source, name=TRUNK_IO_FAILING_TESTS_SCHEMA, table=table)
 
     @staticmethod
     def _trunk_row(
@@ -428,6 +428,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         quarantined: int,
         url: str,
         variant: str = "",
+        failure_rate_7d: float | None = None,
+        failure_rate_24h: float | None = None,
     ) -> dict:
         return {
             "id": f"trunk-{name}:{variant}",
@@ -440,6 +442,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             "quarantined": quarantined,
             "html_url": url,
             "pull_requests_impacted_last_7d": 0,
+            "failure_rate_last_7d": failure_rate_7d,
+            "failure_rate_last_24h": failure_rate_24h,
         }
 
     def test_trunk_io_annotations_ride_matching_items(self) -> None:
@@ -460,6 +464,9 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                     status="FLAKY",
                     quarantined=0,
                     url="https://app.trunk.io/t/flaky-variant",
+                    # Higher 7d rate than the variant that wins the status, so the collapse is proven
+                    # to take the worst rate rather than whichever variant won.
+                    failure_rate_7d=0.42,
                 ),
                 self._trunk_row(
                     "test_green_on_attempt_2",
@@ -470,6 +477,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                     quarantined=1,
                     url="https://app.trunk.io/t/broken-variant",
                     variant="ee",
+                    failure_rate_7d=0.10,
+                    failure_rate_24h=0.25,
                 ),
                 # Jest identity: Trunk records the frontend-working-directory JUnit path.
                 self._trunk_row(
@@ -497,15 +506,22 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         data = self._get()
         assert data["has_trunk_io_data"] is True
         rows = {item["nodeid"]: item for item in data["items"]}
+        # Rates collapse to the worst variant, independently of which variant won the status: the
+        # 7d rate comes from the flaky variant, the 24h rate from the broken one (max skips the NULL).
         assert rows[T_RERUN_RECOVERY]["trunk_io"] == {
             "status": "broken",
             "quarantined": True,
             "url": "https://app.trunk.io/t/broken-variant",
+            "failure_rate_7d": 0.42,
+            "failure_rate_24h": 0.25,
         }
+        # Trunk carries no rate for this one, which must stay null rather than read as 0% failures.
         assert rows[T_JEST_RECOVERY]["trunk_io"] == {
             "status": "flaky",
             "quarantined": False,
             "url": "https://app.trunk.io/t/jest",
+            "failure_rate_7d": None,
+            "failure_rate_24h": None,
         }
         # In the queue but not flagged by Trunk: annotation stays null while has_trunk_io_data is true.
         assert rows[T_MASTER]["trunk_io"] is None

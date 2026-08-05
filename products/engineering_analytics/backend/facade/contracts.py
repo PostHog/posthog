@@ -599,6 +599,12 @@ class TrunkIoTestAnnotation:
     quarantined: bool
     # Trunk.io's own detail page for the test.
     url: str
+    # Trunk.io's failure rates, 0..1, each taken from the worst matrix variant. The only rates this
+    # product reports: Trunk sees every run, while the CI span emitter drops sub-threshold passes,
+    # so our own denominators are biased and our own reads stay absolute counts (SPEC §5). None
+    # means Trunk has no rate for the test, never a 0% failure rate.
+    failure_rate_7d: float | None = None
+    failure_rate_24h: float | None = None
 
 
 @dataclass(frozen=True)

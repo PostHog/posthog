@@ -10,7 +10,7 @@ from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
-    TRUNK_IO_UNHEALTHY_TESTS_SCHEMA,
+    TRUNK_IO_FAILING_TESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
@@ -163,9 +163,9 @@ class TestResolveTrunkIoTables(BaseTest):
         self,
         *,
         repository: str = "PostHog/posthog",
-        table_name: str | None = "trunkio_unhealthytests",
+        table_name: str | None = "trunkio_failingtests",
         should_sync: bool = True,
-        schema_name: str = TRUNK_IO_UNHEALTHY_TESTS_SCHEMA,
+        schema_name: str = TRUNK_IO_FAILING_TESTS_SCHEMA,
     ) -> ExternalDataSource:
         source = create_trunk_io_source(self.team, repository=repository)
         table = create_warehouse_table_row(self.team, name=table_name, source=source) if table_name else None
@@ -173,9 +173,9 @@ class TestResolveTrunkIoTables(BaseTest):
         return source
 
     def test_resolves_matching_repo_case_insensitively(self) -> None:
-        self._connect(repository="PostHog/posthog", table_name="posthog_data_imports.trunkio_unhealthy_tests")
+        self._connect(repository="PostHog/posthog", table_name="posthog_data_imports.trunkio_failing_tests")
         tables = resolve_trunk_io_tables(team=self.team, repository="posthog/POSTHOG")
-        assert tables == TrunkIoTables(unhealthy_tests="posthog_data_imports.trunkio_unhealthy_tests")
+        assert tables == TrunkIoTables(failing_tests="posthog_data_imports.trunkio_failing_tests")
 
     @parameterized.expand(
         [
@@ -183,7 +183,7 @@ class TestResolveTrunkIoTables(BaseTest):
             ("repo_mismatch", {"repository": "PostHog/posthog.com"}),
             ("schema_not_synced", {"should_sync": False}),
             ("schema_without_table", {"table_name": None}),
-            ("other_schema_only", {"schema_name": "FailingTests"}),
+            ("other_schema_only", {"schema_name": "UnhealthyTests"}),
         ]
     )
     def test_returns_none_when_nothing_to_read(self, _name: str, connect_kwargs: dict[str, Any] | None) -> None:
