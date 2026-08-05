@@ -5131,6 +5131,12 @@ class PostgreSQLServerIntegration:
     integration_kind: ClassVar[_PostgreSQLServerKindType]
 
     def __init__(self, integration: Integration) -> None:
+        if integration.kind != self.integration_kind:
+            raise IntegrationError(
+                "Integration provided is not the expected PostgreSQL server integration"
+                f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
+            )
+
         self.integration = integration
 
     @classmethod
@@ -5146,7 +5152,7 @@ class PostgreSQLServerIntegration:
         try:
             resolve_and_validate_host(host)
         except ValueError:
-            raise IntegrationError("Provided host '{host}' is not valid")
+            raise IntegrationError(f"Provided host '{host}' is not valid")
 
         port = config.get("port", None)
         try:
@@ -5155,7 +5161,7 @@ class PostgreSQLServerIntegration:
             raise IntegrationError("Port must be an integer")
 
         if port > 65535 or port < 0:
-            raise IntegrationError("A valid port is required for an {self.integration_kind} integration")
+            raise IntegrationError(f"A valid port is required for an {cls.integration_kind} integration")
 
         user = _return_non_empty_str_from_config(
             config,

@@ -819,6 +819,9 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         elif validated_data["kind"] == "postgresql":
             config = validated_data.get("config", {})
 
+            for key in ("team_id", "created_by", "organization_id"):
+                _ = config.pop(key, None)
+
             try:
                 instance = PostgreSQLIntegration.integration_from_config(
                     team_id=team_id,
