@@ -10,14 +10,21 @@
 
 use-default-rules = true
 
-# Cargo.lock: the determinator diffs resolved package graphs but does NOT
-# detect per-crate feature narrowing as a change — a crate whose enabled
-# feature set shrinks (or grows) only shows up in Cargo.lock, not in the
-# determinator's affected set. Force rebuild-all whenever Cargo.lock changes.
-# This overrides the default determinator rule (mark-changed = []).
-[[path-rule]]
-globs = ["Cargo.lock"]
-mark-changed = "all"
+# Cargo.lock deliberately has no rule here — the default (mark-changed = [])
+# is correct. The determinator's own graph diff already covers it: whenever a
+# resolved dependency changes, `process_build_summaries` re-simulates each
+# workspace member's none/default/all feature sets against the old graph and
+# marks every dependent changed. A lockfile-only `cargo update` of a widely
+# used crate still fans out to all its dependents.
+#
+# A blanket mark-changed = "all" was tried here and reverted: it fired on every
+# lockfile touch, so adding one dev-dependency edge rebuilt all 68 crates and
+# blew the build job's timeout. Cargo.lock does not record features at all —
+# narrowing surfaces as a removed dependency edge, which the graph diff sees.
+#
+# The one case the graph diff cannot cover is when the old graph fails to
+# build, leaving nothing to diff against. compute_affected() handles that in
+# code by forcing rebuild-all, and that fallback is the real safety net.
 
 # Dockerfiles and CI image config — cross-cutting build changes.
 [[path-rule]]
