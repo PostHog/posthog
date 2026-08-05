@@ -390,12 +390,14 @@ class RemoteConfig(UUIDTModel):
                             f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
                         )
                     )
-                except Exception:
-                    # TODO: Should we track this to somewhere?
+                except Exception as e:
+                    # Caught exceptions never reach error tracking on their own, and degrading
+                    # silently here hides a broken site function from everyone.
                     logger.exception(f"Failed to build JS for site function {site_function.id}")
-                    pass
-        except Exception:
+                    capture_exception(e)
+        except Exception as e:
             logger.exception(f"Failed to fetch site functions for team {self.team.id}")
+            capture_exception(e)
 
         return site_apps_js + site_functions_js
 
