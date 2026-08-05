@@ -1506,6 +1506,8 @@ export interface ExperimentWriteApi {
     readonly is_legacy: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure: boolean
+    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    readonly resolved_exposure_event: string
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1641,6 +1643,8 @@ export interface ExperimentApi {
     readonly is_legacy: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure: boolean
+    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    readonly resolved_exposure_event: string
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1772,6 +1776,8 @@ export interface PatchedExperimentWriteApi {
     readonly is_legacy?: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure?: boolean
+    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    readonly resolved_exposure_event?: string
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -2175,7 +2181,7 @@ export const ExperimentSessionBucketEnumApi = {
  * Request body for the session-bucket endpoint.
  */
 export interface ExperimentSessionBucketRequestApi {
-    /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and never reached its last one. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.
+    /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the experiment analysis. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.
      *
      * * `fired_any` - fired_any
      * * `no_metric_activity` - no_metric_activity

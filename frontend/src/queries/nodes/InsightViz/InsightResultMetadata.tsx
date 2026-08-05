@@ -47,7 +47,7 @@ export const InsightResultMetadata = ({
                     Excluding {excludedText}
                 </span>
             ) : null}
-            {trendsFilter?.hideWeekends && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS] ? (
+            {trendsFilter?.hideWeekends ? (
                 <span className="text-secondary">
                     <span className="mx-1">•</span>
                     Weekends hidden

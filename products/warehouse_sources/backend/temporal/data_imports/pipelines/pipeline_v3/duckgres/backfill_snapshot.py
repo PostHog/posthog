@@ -16,6 +16,7 @@ from urllib.parse import unquote
 
 from django.conf import settings
 
+from products.data_warehouse.backend.facade.api import delta_proxy_storage_options
 from products.warehouse_sources.backend.models import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
@@ -74,8 +75,9 @@ def _delta_table_folder(schema: ExternalDataSchema) -> str:
 def _delta_storage_options() -> dict[str, str]:
     """Storage options for metadata-only Delta log reads from the consumer pod.
 
-    Prod: empty — deltalake's object_store resolves the pod's ambient AWS
-    credential chain (IRSA/env) itself. Local dev: MinIO endpoint + keys.
+    Production credentials come from the pod's ambient AWS chain (IRSA/env), which
+    deltalake's object_store resolves itself. The only production option is the scoped
+    proxy bypass for the warehouse bucket. Local development uses MinIO endpoint and keys.
     (products.managed_warehouse.backend.storage.get_deltalake_storage_options is NOT usable
     here: it requires DuckLake RDS env that consumer pods do not carry.)
     """
@@ -87,7 +89,7 @@ def _delta_storage_options() -> dict[str, str]:
             "AWS_ALLOW_HTTP": "true",
             "AWS_REGION": "us-east-1",
         }
-    return {}
+    return dict(delta_proxy_storage_options())
 
 
 def resolve_snapshot_chunks(schema: ExternalDataSchema, version: int | None = None) -> tuple[int, list[BackfillChunk]]:

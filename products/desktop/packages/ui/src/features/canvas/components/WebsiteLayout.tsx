@@ -41,13 +41,8 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { Box, Flex } from "@radix-ui/themes";
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
-import {
-  Outlet,
-  useNavigate,
-  useParams,
-  useRouterState,
-} from "@tanstack/react-router";
-import { type ReactNode, useMemo, useState } from "react";
+import { Outlet, useParams, useRouterState } from "@tanstack/react-router";
+import { type ReactNode, useMemo } from "react";
 
 // Edit toggle + autosave status for a canvas. Source is server-versioned now —
 // version browsing and revert live in the canvas view's own toolbar — so the

@@ -69,6 +69,8 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(first_job["saved_query_id"], str(self.saved_query.id))
         self.assertEqual(first_job["rows_materialized"], 0)
         self.assertEqual(first_job["error"], "Something went wrong")
+        # The frontend derives failed-run duration and the log-search window from updated_at.
+        self.assertIsNotNone(first_job["updated_at"])
 
     def test_retrieve_data_modeling_job(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/{self.job1.id}/")

@@ -22,8 +22,7 @@ import { useCallback, useMemo, useState } from "react";
 
 // A channel's "New task" view. Reuses /code's TaskInput, but routes the created
 // task into the channel (/website/$channelId/tasks/$id) instead of /code, and
-// files the task to the channel by creating an extra `task` row under the
-// channel folder on the project's desktop_file_system surface.
+// files the task to the channel (the task's `channel` field on the tasks API).
 export function WebsiteNewTask({ channelId }: { channelId: string }) {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
@@ -131,11 +130,15 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
       <div className="min-w-0 flex-1">
         <TaskInput
           // Beside the Cloud/Local chip: which space the task files into.
-          // Arriving from a space's own "+" this is pre-filled; the sidebar's
-          // global New session lands on #me.
-          spaceSelector={
-            <SpaceSelect value={channelId} onChange={handleSpaceChange} />
-          }
+          // Arriving from a space's own "+" this is pre-filled; the global
+          // new-task entry points land on #me.
+          spaceSelector={({ disabled }) => (
+            <SpaceSelect
+              value={channelId}
+              onChange={handleSpaceChange}
+              disabled={disabled}
+            />
+          )}
           onTaskCreated={onTaskCreated}
           channelContext={channelContext}
           channelName={channelName}

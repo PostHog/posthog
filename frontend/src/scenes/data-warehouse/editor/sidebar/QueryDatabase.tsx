@@ -74,6 +74,20 @@ export function getSidebarAddJoinSourceTableName(
 }
 
 /**
+ * The text a column row inserts at the cursor, or null when there is nothing to insert.
+ *
+ * The name has to be checked rather than assumed: escaping an undefined one throws, and a throw
+ * escapes the tree row's `<a>` click handler before it can preventDefault, so the browser follows
+ * the row's placeholder href and leaves the scene the tree is embedded in.
+ */
+export function getColumnInsertText(record: Record<string, any> | undefined): string | null {
+    if (record?.type !== 'column' || !record.columnName) {
+        return null
+    }
+    return escapeDottedHogQLIdentifier(record.columnName)
+}
+
+/**
  * Keep a section whose folder, or any of its children, matches the search term — the same
  * name-and-field matching the database tree does for its own tables.
  */
@@ -403,8 +417,9 @@ export const QueryDatabase = ({
                 }
 
                 // Insert the column at the cursor, preserving the rest of the query the user has typed
-                if (item && item.record?.type === 'column') {
-                    insertTextAtCursor(escapeDottedHogQLIdentifier(item.record.columnName))
+                const columnInsertText = getColumnInsertText(item?.record)
+                if (columnInsertText) {
+                    insertTextAtCursor(columnInsertText)
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {

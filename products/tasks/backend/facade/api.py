@@ -18,7 +18,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import re
 import hashlib
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -74,6 +74,7 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskAutomation,
+    TaskClientProvenance,
     TaskPin,
     TaskRun,
     TaskSession,
@@ -958,6 +959,13 @@ def create_and_run_task(
     An id the creator can't file into (see ``_visible_channel``) is ignored rather than
     raising — feed placement must never break task creation.
     """
+    # create_pr=False sessions (research, repo selection, custom agents) can never open the
+    # billable PR, so the quota gate must not block them.
+    if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
+        # Distinct stage from create_task's `manual_create`: the main caller here is the
+        # auto-start pipeline, whose over-quota hits must not pollute the manual-path
+        # dark-launch bucket.
+        enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     task = Task.create_and_run(
         team=team,
@@ -2162,6 +2170,73 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
     transaction.on_commit(lambda: send_wizard_pr_ready_email.delay(str(run.id)))
 
 
+def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> None:
+    """Queue an org-level self-driving quota re-evaluation when a self-driving-origin run records its first
+    PR URL. That write is the report's billable moment (products/signals/backend/billing.py), so
+    re-evaluating now lets the quota limiter flag the org within seconds of the PR that crosses
+    its limit (for runs created the same UTC day; `refresh_org_self_driving_quota` documents the
+    cross-midnight gap); the 15-minute quota cron only re-reads usage on its next tick. Dispatched
+    on commit so the task reads the committed pr_url; best-effort because the cron is the backstop.
+    Never raises: the callers signal workflow completion and run other PR side effects right after,
+    and a refresh hiccup must not abort those or turn an already-committed run write into a 500.
+    """
+    try:
+        if old_pr_url:
+            return
+        new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+        if not new_pr_url or run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+            return
+        # Billing only ever counts GitHub PR URLs (billing.py validates the same prefix), so a
+        # recompute for any other output.pr_url string is a guaranteed no-op; don't let arbitrary
+        # client-written values enqueue org-wide refreshes. Literal kept local because tasks code
+        # must not import signals internals.
+        if not new_pr_url.startswith("https://github.com/"):
+            return
+        organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
+        if organization_id is None:
+            return
+        from ee.tasks.quota_limiting import (
+            refresh_org_self_driving_quota_task,  # noqa: PLC0415 — keep billing deps off the api import path
+        )
+
+        def _dispatch() -> None:
+            try:
+                refresh_org_self_driving_quota_task.delay(str(organization_id))
+            except Exception:
+                logger.warning(
+                    "self_driving_quota_refresh_dispatch_failed", extra={"run_id": str(run.id)}, exc_info=True
+                )
+
+        transaction.on_commit(_dispatch)
+    except Exception:
+        logger.warning("self_driving_quota_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+
+def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
+    """Refuse to create a PR-opening self-driving task while the team's org is over its self-driving
+    credits quota with enforcement on. The implementation task is the step that leads to the
+    billable PR, so the manual create-from-report path must respect the same limit as the pipeline
+    auto-start gate (products/signals/backend/auto_start.py). Emits `signal_report_quota_paused`
+    at ``stage`` whenever the org is limited, so each caller's gate stays measurable during the
+    dark launch like every other gate. Raises ``QuotaLimitExceeded`` (402).
+    """
+    from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
+
+    from products.signals.backend.quota import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        capture_signal_report_quota_paused,
+        self_driving_quota_gate,
+    )
+
+    gate = self_driving_quota_gate(team)
+    if gate.limited:
+        capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=gate.enforced)
+    if gate.enforced:
+        raise QuotaLimitExceeded(
+            "Your organization reached its self-driving pull request limit. "
+            "Increase the limit from the Inbox usage widget, or ask an org admin to do so."
+        )
+
+
 def update_task_run(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -2291,6 +2366,7 @@ def update_task_run(
 
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
+        _refresh_self_driving_quota_for_pr(run, old_pr_url)
         _post_slack_update_for_pr(run)
         _send_wizard_pr_ready_email_for_pr(run)
         post_pr_created_thread_update(run, new_pr_url)
@@ -2337,6 +2413,7 @@ def set_task_run_output(
     merged = merge_pr_output(existing, output)
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
+    _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
@@ -4104,7 +4181,13 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
-def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> contracts.TaskDetailDTO:
+def create_task(
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    client_provenance: TaskClientProvenance | None = None,
+) -> contracts.TaskDetailDTO:
     """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
 
     Absorbs the cross-product ``SignalReportTask`` linkage, ``generate_task_title``, and
@@ -4126,6 +4209,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     validated_data = dict(validated_data)
     validated_data["team"] = team
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
+    validated_data["client_provenance"] = client_provenance
     warm_branch_provided = "branch" in validated_data
     warm_branch = validated_data.pop("branch", None)
     warm_runtime_adapter = validated_data.pop("runtime_adapter", None)
@@ -4204,6 +4288,11 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
                 update_fields.append("channel")
             if update_fields:
                 warm_task.save(update_fields=[*update_fields, "updated_at"])
+            if warm_task.client_provenance is None and client_provenance is not None:
+                Task.objects.filter(id=warm_task.id, client_provenance__isnull=True).update(
+                    client_provenance=client_provenance
+                )
+                warm_task.client_provenance = client_provenance
             _activate_warm_run(
                 warm_run,
                 warm_task,
@@ -4279,6 +4368,14 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         validated_data.setdefault("title_manually_set", False)
     elif title:
         validated_data.setdefault("title_manually_set", True)
+
+    # The write serializer binds the report as `signal_report` (a PK field); direct callers may
+    # pass `signal_report_id`. Either way this is the manual "start work from a report" path.
+    # Gated regardless of the relationship label: the label is client-selected and manually
+    # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
+    report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
+    if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT:
+        enforce_self_driving_pr_quota(team, report_id=str(getattr(report_ref, "id", report_ref)))
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
@@ -4683,6 +4780,7 @@ def warm_task_sandbox(
     reasoning_effort: str | None = None,
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
+    client_provenance: TaskClientProvenance | None = None,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a Code-app cloud task while the user composes.
 
@@ -4762,6 +4860,7 @@ def warm_task_sandbox(
         origin_product=Task.OriginProduct.USER_CREATED,
         user_id=user_id,
         repository=repository,
+        client_provenance=client_provenance,
     )
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
@@ -5883,23 +5982,30 @@ def create_thread_message(
     except Exception:
         logger.exception("Failed to project thread message activity", extra={"message_id": str(message.id)})
     try:
-        _index_thread_message_mentions(message)
+        mentioned_user_ids = resolve_mentioned_user_ids(
+            User, message.content, team_id=message.team_id, author_id=message.author_id
+        )
     except Exception:
-        # Mentions are best-effort: an indexing failure must never fail message creation.
+        mentioned_user_ids = []
+        logger.exception("Failed to resolve thread message mentions", extra={"message_id": str(message.id)})
+    try:
+        _index_thread_message_mentions(message, mentioned_user_ids)
+    except Exception:
+        # Mention indexing is best-effort: a failure must never fail message creation or discard resolved recipients.
         logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
+    from products.tasks.backend.push_dispatcher import notify_task_thread_message  # noqa: PLC0415
+
+    notify_task_thread_message(message, mentioned_user_ids)
     # Fresh message: forwarded_by is None (no query) and author lazy-loads once.
     return _thread_message_to_dto(message)
 
 
-def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
+def _index_thread_message_mentions(message: TaskThreadMessage, mentioned_user_ids: Collection[int]) -> None:
     """Create mention index rows for @[Name](email) tokens in the message content.
 
     Emails resolve case-insensitively, only to members of the team's organization;
     self-mentions are skipped (they are never notifications).
     """
-    mentioned_user_ids = resolve_mentioned_user_ids(
-        User, message.content, team_id=message.team_id, author_id=message.author_id
-    )
     mentions = [
         TaskThreadMessageMention(
             team_id=message.team_id,
@@ -6165,7 +6271,10 @@ def _create_agent_thread_message(task: Task, content: str, *, event: str, payloa
     )
     project_thread_message_activity(message)
     try:
-        _index_thread_message_mentions(message)
+        mentioned_user_ids = resolve_mentioned_user_ids(
+            User, message.content, team_id=message.team_id, author_id=message.author_id
+        )
+        _index_thread_message_mentions(message, mentioned_user_ids)
     except Exception:
         logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
 

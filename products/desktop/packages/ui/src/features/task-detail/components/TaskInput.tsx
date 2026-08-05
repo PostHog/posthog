@@ -80,12 +80,10 @@ import type { EditorHandle } from "../../message-editor/types";
 import { useAutoFocusOnTyping } from "../../message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "../../message-editor/utils/persistFile";
 import { usePanelLayoutStore } from "../../panels/panelLayoutStore";
-import {
-  PiModelSelector,
-  PiThinkingLevelSelector,
-} from "../../pi-sessions/PiSessionControls";
+import { PiModelSelector } from "../../pi-sessions/PiSessionControls";
 import { usePiModelCatalog } from "../../pi-sessions/usePiModelCatalog";
 import { DropZoneOverlay } from "../../sessions/components/DropZoneOverlay";
+import type { AgentHarness } from "../../sessions/components/HarnessSubmenu";
 import { ReasoningLevelSelector } from "../../sessions/components/ReasoningLevelSelector";
 import { getCurrentModeFromConfigOptions } from "../../sessions/sessionStore";
 import {
@@ -103,7 +101,6 @@ import { usePreviewConfig } from "../hooks/usePreviewConfig";
 import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
 import { resolveWorkspaceModePreference } from "../hooks/workspaceModePreference";
-import { AgentRuntimeSelect } from "./AgentRuntimeSelect";
 import { ChannelContextChip } from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
@@ -162,9 +159,10 @@ interface TaskInputProps {
   /**
    * A space picker chip rendered first in the selector row above the composer
    * (beside the workspace-mode chip). Channels new-task screen only — /code
-   * has no spaces to pick.
+   * has no spaces to pick. Called with the composer's in-flight state so the
+   * picker can hold shut mid-submit, like every other chip in the row.
    */
-  spaceSelector?: ReactNode;
+  spaceSelector?: (props: { disabled: boolean }) => ReactNode;
 }
 
 export function TaskInput({
@@ -364,8 +362,12 @@ export function TaskInput({
     }
   }, [mostRecentRepo?.path, selectedDirectory, setSelectedDirectory]);
 
-  const setAdapter = (newAdapter: AgentAdapter) =>
-    setLastUsedAdapter(newAdapter);
+  const setAdapter = useCallback(
+    (newAdapter: AgentAdapter) => {
+      setLastUsedAdapter(newAdapter);
+    },
+    [setLastUsedAdapter],
+  );
 
   const {
     repositories,
@@ -777,6 +779,7 @@ export function TaskInput({
   const currentPiModel =
     piModelCatalog.find((model) => model.id === selectedPiModelId) ??
     piModelCatalog.find((model) => model.id === lastUsedPiModel) ??
+    piModelCatalog.find((model) => model.isDefault) ??
     piModelCatalog[0];
   const piThinkingLevels = currentPiModel?.thinkingLevels ?? [];
   const currentPiThinkingLevel = piThinkingLevels.includes(
@@ -1083,6 +1086,19 @@ export function TaskInput({
     [sessionId, setLastUsedAgentRuntime],
   );
 
+  const handleHarnessChange = useCallback(
+    (harness: AgentHarness) => {
+      if (harness === "pi") {
+        handleRuntimeChange("pi");
+        return;
+      }
+
+      handleRuntimeChange("acp");
+      setAdapter(harness);
+    },
+    [handleRuntimeChange, setAdapter],
+  );
+
   const handlePiModelChange = useCallback(
     (model: PiModelSelection) => {
       setSelectedPiModelId(model.id);
@@ -1107,7 +1123,6 @@ export function TaskInput({
       useDraftStore.getState().actions.clearCommands(promptSessionId);
     };
   }, [promptSessionId, skills]);
-  const hasHistory = useTaskInputHistoryStore((s) => s.entries.length > 0);
   const getPromptHistory = useCallback(
     () => useTaskInputHistoryStore.getState().entries.map((e) => e.text),
     [],
@@ -1120,13 +1135,6 @@ export function TaskInput({
     () => !(editorRef.current?.isEmpty() ?? true),
     [],
   );
-  const hints = [
-    "@ to add files",
-    "/ for skills",
-    hasHistory ? "\u2191\u2193 for history" : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
 
   useAutoFocusOnTyping(editorRef, isCreatingTask);
 
@@ -1214,21 +1222,14 @@ export function TaskInput({
                 top: suggestions && suggestions.length > 0 ? "38%" : "50%",
                 transform: "translate(-50%, -50%)",
               }}
-              className="absolute left-1/2 z-[1] flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
+              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
               <Flex
                 gap="2"
                 align="center"
-                className="absolute bottom-full left-0 mb-2 min-w-0"
+                className="absolute bottom-full left-0 mb-1 min-w-0 gap-1"
               >
-                {spaceSelector}
-                {piHarnessEnabled && (
-                  <AgentRuntimeSelect
-                    value={runtime}
-                    onChange={handleRuntimeChange}
-                    disabled={isCreatingTask}
-                  />
-                )}
+                {spaceSelector?.({ disabled: isCreatingTask })}
                 <WorkspaceModeSelect
                   value={workspaceMode}
                   onChange={setWorkspaceMode}
@@ -1388,7 +1389,7 @@ export function TaskInput({
                   placeholder={
                     autoresearchDraft
                       ? "Example: Reduce memory usage measured by `pnpm bench:memory` without changing behavior."
-                      : `What do you want to ship? ${hints}`
+                      : `What do you want to ship?`
                   }
                   editorHeight="large"
                   disabled={isCreatingTask}
@@ -1403,7 +1404,7 @@ export function TaskInput({
                     (runtime === "pi" && !currentPiModel)
                   }
                   tourTarget="task-input"
-                  attachmentsPrefix={
+                  submitAdornment={
                     includeChannelContext ? (
                       <ChannelContextChip
                         channelName={channelName}
@@ -1433,8 +1434,16 @@ export function TaskInput({
                       <PiModelSelector
                         models={piModelCatalog}
                         currentModel={currentPiModel}
+                        thinkingLevel={
+                          supportsPiThinking
+                            ? currentPiThinkingLevel
+                            : undefined
+                        }
+                        thinkingLevels={piThinkingLevels}
                         disabled={isCreatingTask || isPiConfigLoading}
                         onChange={handlePiModelChange}
+                        onThinkingLevelChange={handlePiThinkingLevelChange}
+                        onHarnessChange={handleHarnessChange}
                       />
                     ) : null
                   }
@@ -1446,16 +1455,7 @@ export function TaskInput({
                     />
                   }
                   reasoningSelector={
-                    autoresearchDraft ? null : runtime === "pi" ? (
-                      currentPiThinkingLevel && supportsPiThinking ? (
-                        <PiThinkingLevelSelector
-                          level={currentPiThinkingLevel}
-                          levels={piThinkingLevels}
-                          disabled={isCreatingTask || isPiConfigLoading}
-                          onChange={handlePiThinkingLevelChange}
-                        />
-                      ) : null
-                    ) : (
+                    autoresearchDraft || runtime === "pi" ? null : (
                       <ReasoningLevelSelector
                         thoughtOption={thoughtOption}
                         modelOption={modelOption}
@@ -1465,6 +1465,10 @@ export function TaskInput({
                         onChange={handleThoughtChange}
                         onModelChange={handleModelChange}
                         onAdapterChange={setAdapter}
+                        onHarnessChange={
+                          piHarnessEnabled ? handleHarnessChange : undefined
+                        }
+                        includePiHarness={piHarnessEnabled}
                         onConfigOptionChange={setConfigOption}
                         disabled={isCreatingTask}
                         isLoading={isPreviewLoading}

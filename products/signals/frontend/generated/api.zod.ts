@@ -48,6 +48,27 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Record a note left with the thumbs rating at the end of a report. The rating itself is a product-analytics event; this endpoint exists to carry the note into the scout steering channel. For a report authored by a scout, the note is forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer and the call is a no-op success. The report's state is never changed.
+ * @summary Leave feedback on a report
+ */
+export const signalsReportsFeedbackCreateBodyNoteMax = 4000
+
+export const SignalsReportsFeedbackCreateBody = /* @__PURE__ */ zod.object({
+    sentiment: zod
+        .enum(['positive', 'negative'])
+        .describe('\* `positive` - positive\n\* `negative` - negative')
+        .describe(
+            "The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).\n\n\* `positive` - positive\n\* `negative` - negative"
+        ),
+    note: zod
+        .string()
+        .max(signalsReportsFeedbackCreateBodyNoteMax)
+        .describe(
+            'Free-form note explaining the rating. Capped at 4000 characters. Only submitted alongside a note — a bare thumb carries none — and, for a report authored by a scout, forwarded to that scout as a steering note.'
+        ),
+})
+
+/**
  * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
  * @summary Post an inline review comment on a report's implementation PR
  */

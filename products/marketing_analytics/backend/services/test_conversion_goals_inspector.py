@@ -348,6 +348,33 @@ class TestCountDwGoalSafety:
         assert reason is not None
         p_exec.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_casts_the_timestamp_column_before_comparing(self):
+        # Regression: warehouse timestamp columns routinely land as String (CSV and
+        # several DLT sources do it), and ClickHouse refuses `String >= DateTime64`.
+        # An uncast health check reported "DW table or column not queryable" for a
+        # goal that the dashboard queries perfectly well — a false alarm that also
+        # blocked ROAS and cost-per-customer in the setup plan.
+        from posthog.hogql import ast
+
+        from products.marketing_analytics.backend.services.conversion_goals_inspector import _count_dw_goal
+
+        team = MagicMock()
+        goal = {"table_name": "demo_stripe_invoices", "timestamp_field": "created_at"}
+        with patch(
+            "products.marketing_analytics.backend.services.conversion_goals_inspector.execute_hogql_query",
+        ) as p_exec:
+            p_exec.return_value = MagicMock(results=[[7]])
+            count, reason = await _count_dw_goal(team, goal)
+
+        assert (count, reason) == (7, None)
+        where = p_exec.call_args.args[0].where
+        assert isinstance(where.left, ast.Call) and where.left.name == "toDateTime"
+        timestamp_field = where.left.args[0]
+        assert isinstance(timestamp_field, ast.Field) and timestamp_field.chain == ["created_at"]
+        # Both sides, or ClickHouse still has two types to reconcile.
+        assert isinstance(where.right, ast.Call) and where.right.name == "toDateTime"
+
 
 def _make_events_goal(goal_id: str, event: str | None) -> dict:
     return {
