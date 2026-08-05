@@ -330,6 +330,12 @@ def _metric_merge_view(metric: dict) -> dict:
     return {k: v for k, v in metric.items() if k != "fingerprint"}
 
 
+def _metric_list_view(metrics: list | None) -> list:
+    """A whole metric array as compared for concurrency resolution: per-item merge views,
+    order-sensitive."""
+    return [_metric_merge_view(m) if isinstance(m, dict) else m for m in (metrics or [])]
+
+
 def _metrics_by_uuid(metrics: list | None) -> dict[str, dict]:
     return {m["uuid"]: m for m in (metrics or []) if isinstance(m, dict) and m.get("uuid")}
 
@@ -3106,14 +3112,14 @@ class ExperimentService:
         experiment: Experiment,
         *,
         request: Any | None,
-        resolution: Literal["merged", "rejected"],
+        resolution: Literal["merged", "rejected", "noop"],
         versions_behind: int,
         base_snapshot_sent: bool,
         merged_fields: list[str] | None = None,
         conflict: ExperimentVersionConflict | None = None,
     ) -> None:
         """Post-deploy telemetry for stale writes: chart "experiment update concurrency"
-        broken down by ``resolution`` to watch the merge/409 ratio; ``conflicting_fields``
+        broken down by ``resolution`` to watch the merged/noop/409 ratio; ``conflicting_fields``
         shows what users trip on."""
         if request is None:
             return
@@ -3150,6 +3156,39 @@ class ExperimentService:
             for field in update_data
             if field not in CONCURRENCY_MERGEABLE_FIELDS and field != "get_feature_flag_key"
         }
+
+    def _update_is_noop(
+        self,
+        experiment: Experiment,
+        update_data: Mapping,
+        saved_metrics_data: list[dict] | None,
+    ) -> bool:
+        """Whether applying the update to ``experiment``'s current (freshly re-read) state
+        would change nothing.
+
+        Comparisons reuse the concurrency merge views so server-derived churn does not read
+        as a difference: metric ``fingerprint``s are recomputed on every write and stripped
+        by ``_metric_merge_view``, and ``parameters`` is compared flag-stripped by
+        ``_scalar_merge_view``. ``saved_metrics_data`` carries the payload's saved-metric
+        links when the update includes them (the caller pops them out of ``update_data``);
+        pass ``None`` when the update does not touch them.
+        """
+        for field, stored_value in self._current_scalar_values(experiment, update_data).items():
+            if _scalar_merge_view(field, update_data[field]) != _scalar_merge_view(field, stored_value):
+                return False
+        for field in ("metrics", "metrics_secondary"):
+            if field in update_data and _metric_list_view(update_data[field]) != _metric_list_view(
+                getattr(experiment, field)
+            ):
+                return False
+        for field in ("primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"):
+            if field in update_data and update_data[field] != getattr(experiment, field):
+                return False
+        if saved_metrics_data is not None and _links_by_id(saved_metrics_data) != _links_by_id(
+            self._current_saved_metric_link_dicts(experiment)
+        ):
+            return False
+        return True
 
     def _resolve_concurrent_update(
         self,
@@ -3252,7 +3291,10 @@ class ExperimentService:
         ``update_data`` may carry two opt-in concurrency keys, ``version`` (the version the client
         last read) and ``original_experiment`` (the state it last saw): a stale write is then merged
         per metric uuid where safe and rejected with ``ExperimentVersionConflict`` (409) otherwise.
-        Without them the write applies as-is; either way the stored ``version`` is bumped.
+        A versioned write that races the row lock but would change nothing against the committed
+        state (a duplicate dispatch, or a retry of a request that landed) succeeds as a no-op
+        without bumping ``version``. Without the keys the write applies as-is; ``version`` is
+        bumped on every save.
         """
         update_feature_flag_params = update_data.pop("update_feature_flag_params", False)
         client_version = update_data.pop("version", None)
@@ -3264,7 +3306,8 @@ class ExperimentService:
         # side effect, so it can neither silently clobber concurrent changes nor
         # persist a flag change ahead of a conflict. The refresh is unlocked; the
         # row lock inside the transaction below re-checks the version, so a writer
-        # racing this window still conflicts instead of interleaving.
+        # racing this window still conflicts (or no-ops, when the surviving update
+        # matches what the racer committed) instead of interleaving.
         resolution_version: int | None = None
         if client_version is not None:
             experiment.refresh_from_db()
@@ -3497,6 +3540,24 @@ class ExperimentService:
                 or 0
             )
             if resolution_version is not None and locked_version != resolution_version:
+                # A writer committed in the window between the unlocked resolution read and
+                # this lock. The dominant case is a duplicate of this very request (the UI
+                # dispatching one save twice, or an API client retrying after a timeout), so
+                # re-read the row (stable under the lock) and skip the save when the surviving
+                # update would change nothing: succeeding is honest, because the requested
+                # state is exactly what is stored, and the flag sync above wrote the same flag
+                # config the winning twin synced. No version bump either, since a second bump
+                # for one logical change would re-stale every other open tab.
+                experiment.refresh_from_db()
+                if self._update_is_noop(experiment, update_data, saved_metrics_data if update_saved_metrics else None):
+                    self._report_update_conflict(
+                        experiment,
+                        request=report_request,
+                        resolution="noop",
+                        versions_behind=locked_version - client_version,
+                        base_snapshot_sent=original_experiment is not None,
+                    )
+                    return experiment
                 locked_conflict = ExperimentVersionConflict(current_version=locked_version)
                 if client_version is not None:
                     self._report_update_conflict(
