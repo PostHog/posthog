@@ -1,9 +1,9 @@
-import { LemonCard, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
+import { LemonCard, LemonCollapse, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
-import { type Ticket, priorityOptions } from '../../types'
+import { type MergedTicketSummary, type Ticket, priorityOptions } from '../../types'
 
 function customerName(ticket: Ticket): string {
     return (
@@ -109,6 +109,33 @@ export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?
                     },
                 ]}
             />
+        </LemonCard>
+    )
+}
+
+/** Placeholder shown while a merged ticket's full details + messages are loading. The identity
+ * (number, color) is known from the summary, so only the body fields are skeletons. */
+export function MergedTicketInfoCardSkeleton({
+    ticket,
+    color,
+}: {
+    ticket: MergedTicketSummary
+    color?: string
+}): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="p-3">
+            <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-semibold flex items-center gap-2 mb-0">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                    Merged ticket #{ticket.ticket_number}
+                </h3>
+                <LemonSkeleton className="h-4 w-16" />
+            </div>
+            <div className="space-y-2">
+                <LemonSkeleton className="h-3 w-full" />
+                <LemonSkeleton className="h-3 w-4/5" />
+                <LemonSkeleton className="h-3 w-3/5" />
+            </div>
         </LemonCard>
     )
 }

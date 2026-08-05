@@ -33,7 +33,7 @@ import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
-import { MergedTicketInfoCard } from './MergedTicketInfoCard'
+import { MergedTicketInfoCard, MergedTicketInfoCardSkeleton } from './MergedTicketInfoCard'
 import { MergedTicketsBar } from './MergedTicketsBar'
 import { TicketActions } from './MergeTicketModal'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -91,6 +91,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         tags,
         chatMessages,
         showSourcePills,
+        mergedTickets,
         mergedConversations,
         visibleMergedTicketIds,
         ticketColorById,
@@ -570,16 +571,26 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         </div>
                     </LemonCard>
 
-                    {/* Info for each merged ticket currently shown in the conversation */}
-                    {mergedConversations
-                        .filter(({ ticket: mergedTicket }) => visibleMergedTicketIds.includes(mergedTicket.id))
-                        .map(({ ticket: mergedTicket }) => (
-                            <MergedTicketInfoCard
-                                key={mergedTicket.id}
-                                ticket={mergedTicket}
-                                color={ticketColorById[mergedTicket.id]}
-                            />
-                        ))}
+                    {/* Info for each merged ticket currently shown in the conversation. Full details
+                        arrive via loadMergedConversations; show a skeleton until each ticket lands. */}
+                    {mergedTickets
+                        .filter((summary) => visibleMergedTicketIds.includes(summary.id))
+                        .map((summary) => {
+                            const loaded = mergedConversations.find(({ ticket: t }) => t.id === summary.id)
+                            return loaded ? (
+                                <MergedTicketInfoCard
+                                    key={summary.id}
+                                    ticket={loaded.ticket}
+                                    color={ticketColorById[summary.id]}
+                                />
+                            ) : (
+                                <MergedTicketInfoCardSkeleton
+                                    key={summary.id}
+                                    ticket={summary}
+                                    color={ticketColorById[summary.id]}
+                                />
+                            )
+                        })}
 
                     {/* Related Groups Panel */}
                     {(person?.uuid || ticket?.organization_id) && (
