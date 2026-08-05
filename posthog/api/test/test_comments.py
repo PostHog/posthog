@@ -66,7 +66,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
     def test_task_artifact_comments_reject_mismatched_and_private_targets(self) -> None:
         other = User.objects.create_and_join(self.organization, "private-task-owner@posthog.com", "password")
         task = self._task_artifact_target(public=False, creator=other)
-        payload = {
+        payload: dict[str, Any] = {
             "content": "Should not land",
             "scope": "task_artifact",
             "item_id": "artifact-1",
