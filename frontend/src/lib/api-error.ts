@@ -6,6 +6,11 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/** A 401 - the request carried no valid credentials at all, distinct from a 403 permission denial. */
+export function isUnauthorizedError(error: { status?: number }): boolean {
+    return error.status === 401
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
