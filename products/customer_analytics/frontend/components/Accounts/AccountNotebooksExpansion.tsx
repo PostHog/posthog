@@ -1,7 +1,16 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCloud, IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
+import {
+    IconCloud,
+    IconCopy,
+    IconDatabase,
+    IconGraph,
+    IconPencil,
+    IconPeople,
+    IconPiggyBank,
+    IconReceipt,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -18,6 +27,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
@@ -36,6 +46,10 @@ import { accountRelatedUsersLogic } from './accountRelatedUsersLogic'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
+import { AccountSummariesExpansion } from './AccountSummariesExpansion'
+import { accountSummariesLogic } from './accountSummariesLogic'
+import { AccountSupportTicketsExpansion } from './AccountSupportTicketsExpansion'
+import { accountSupportTicketsLogic } from './accountSupportTicketsLogic'
 import { AccountsEvents } from './constants'
 import { EditAccountLinksButton } from './EditAccountLinksButton'
 
@@ -54,6 +68,7 @@ const LINK_ICONS: Record<string, JSX.Element> = {
     organization: <IconPeople />,
     revenue: <IconPiggyBank />,
     'usage-dashboard': <IconGraph />,
+    metabase: <IconDatabase />,
     slack: <IconSlack />,
     'billing-admin': <IconReceipt />,
     salesforce: <IconCloud />,
@@ -122,6 +137,24 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
                     </LemonButton>
                 ))
             )}
+            <LemonButton
+                type="tertiary"
+                size="small"
+                fullWidth
+                icon={<IconCopy />}
+                onClick={() => {
+                    void copyToClipboard(
+                        urls.absolute(urls.currentProject(urls.customerAnalyticsAccount(accountId))),
+                        'link to this account'
+                    )
+                    posthog.capture(AccountsEvents.LinkClicked, {
+                        link_key: 'copy-account-link',
+                        has_destination: true,
+                    })
+                }}
+            >
+                Copy link to account
+            </LemonButton>
         </div>
     )
 }
@@ -143,6 +176,8 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
     useMountedLogic(accountOpportunitiesLogic({ accountId }))
+    useMountedLogic(accountSummariesLogic({ accountId }))
+    useMountedLogic(accountSupportTicketsLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
@@ -308,6 +343,16 @@ export function AccountNotebooksExpansion({
                                 key: 'opportunities',
                                 label: 'Opportunities',
                                 content: <AccountOpportunitiesExpansion accountId={accountId} />,
+                            },
+                            {
+                                key: 'summaries',
+                                label: 'Summaries',
+                                content: <AccountSummariesExpansion accountId={accountId} />,
+                            },
+                            {
+                                key: 'support_tickets',
+                                label: 'Support tickets',
+                                content: <AccountSupportTicketsExpansion accountId={accountId} />,
                             },
                             // Flag-gated here (not just inside the component) so the tab label hides too.
                             !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {

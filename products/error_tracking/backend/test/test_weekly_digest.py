@@ -599,7 +599,15 @@ class TestSourceMapsRecommendationForDigest(APIBaseTest):
         assert get_source_maps_recommendation_for_team(other_team) is None
 
 
+@override_settings(CLOUD_DEPLOYMENT="US")
 class TestSendDigestToWorkflow(SimpleTestCase):
+    @override_settings(CLOUD_DEPLOYMENT=None)
+    def test_refuses_to_send_from_a_self_hosted_deployment(self):
+        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+            with pytest.raises(RuntimeError, match="self-hosted"):
+                send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
+            assert mock_post.call_count == 0
+
     def test_raises_on_non_2xx_so_failures_are_not_marked_sent(self):
         with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
             mock_post.return_value.raise_for_status.side_effect = requests.HTTPError(
@@ -615,6 +623,7 @@ class TestSendDigestToWorkflow(SimpleTestCase):
             assert mock_post.call_args.kwargs["headers"] == {"Authorization": "Bearer test-token"}
 
 
+@override_settings(CLOUD_DEPLOYMENT="US")
 class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):

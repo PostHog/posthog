@@ -73,8 +73,8 @@ describe('buildDataframeTreeSection', () => {
     })
 
     it('collapses duplicate names, keeping the last', () => {
-        // Python names are deliberately not disambiguated and default to `df`, so two un-run
-        // Python cells is enough to emit `df` twice — duplicate ids in a virtualized tree.
+        // Python names are deliberately not disambiguated (they are the kernel variables), so
+        // two cells sharing a name emit it twice — duplicate ids in a virtualized tree.
         const section = buildDataframeTreeSection([pythonNode('df'), pythonNode('df')], [])
         expect(children(section)).toHaveLength(1)
         const ids = (section[0].children ?? []).map((c) => c.id)
@@ -108,6 +108,13 @@ describe('buildDataframeTreeSection', () => {
         expect(children(buildDataframeTreeSection([ranEmpty], []))).toEqual([
             ['new-df', "The last run of the cell that creates it didn't produce a dataframe"],
         ])
+    })
+
+    it('gives each column the name QueryDatabase inserts at the cursor', () => {
+        // Without it, the click handler throws before the tree item's link can preventDefault and
+        // the browser follows the placeholder href, dropping the user on the project home page.
+        const column = buildDataframeTreeSection([sqlNode('events_df')], [])[0].children?.[0].children?.[0]
+        expect(column?.record).toMatchObject({ type: 'column', columnName: 'id' })
     })
 
     it('still lists a written cell that has not run', () => {

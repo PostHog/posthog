@@ -18,7 +18,7 @@
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -88,7 +88,7 @@
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -153,7 +153,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -313,7 +313,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -366,7 +366,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -419,7 +419,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -472,7 +472,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -525,7 +525,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -645,7 +645,7 @@
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -710,7 +710,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -763,7 +763,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -816,7 +816,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -874,7 +874,7 @@
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -939,7 +939,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -999,7 +999,7 @@
          argMaxMerge(ev.source_state) AS source,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -1074,7 +1074,7 @@
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -1154,7 +1154,7 @@
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -1234,7 +1234,7 @@
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 4))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
@@ -1304,7 +1304,7 @@
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 3))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
-    (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,

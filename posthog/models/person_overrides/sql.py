@@ -148,7 +148,9 @@ GROUP BY
 """
 
 # ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
-CLICKHOUSE_DICT_READER_USER, CLICKHOUSE_DICT_READER_PASSWORD = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+_dict_reader_creds = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+CLICKHOUSE_DICT_READER_USER = _dict_reader_creds.user
+CLICKHOUSE_DICT_READER_PASSWORD = _dict_reader_creds.password
 PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
     CREATE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
     {ON_CLUSTER_CLAUSE()} (

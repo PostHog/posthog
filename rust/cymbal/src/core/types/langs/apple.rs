@@ -94,43 +94,24 @@ impl RawAppleFrame {
     where
         C: SymbolCatalog<OrChunkId<AppleRef>, ParsedNativeSymbols>,
     {
-        tracing::debug!(
-            "[apple-debug] resolve() called: instruction_addr={:?}, module={:?}, function={:?}, debug_images_count={}",
-            self.instruction_addr, self.module, self.function, debug_images.len()
-        );
-
         match self
             .resolve_impl(team_id, catalog, debug_images, context_lines)
             .await
         {
-            Ok(frames) => {
-                tracing::debug!(
-                    "[apple-debug] resolve() SUCCESS: {} frame(s), first resolved_name={:?}",
-                    frames.len(),
-                    frames.first().and_then(|f| f.resolved_name.as_deref())
-                );
-                Ok(frames)
-            }
+            Ok(frames) => Ok(frames),
             Err(ResolveError::ResolutionError(FrameError::Apple(e))) => {
-                tracing::debug!("[apple-debug] resolve() Apple error: {:?}", e);
                 Ok(vec![self.handle_resolution_error(e)])
             }
-            Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
-                tracing::debug!("[apple-debug] resolve() MissingChunkIdData: {}", chunk_id);
-                Ok(vec![self.handle_resolution_error(AppleError::MissingDsym(
-                    chunk_id,
-                ))])
-            }
+            Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => Ok(
+                vec![self.handle_resolution_error(AppleError::MissingDsym(chunk_id))],
+            ),
             Err(ResolveError::ResolutionError(e)) => {
-                tracing::warn!("Unexpected Apple symbol resolution error: {:?}", e);
+                tracing::warn!(team_id, "Unexpected Apple symbol resolution error: {:?}", e);
                 Ok(vec![self.handle_resolution_error(AppleError::ParseError(
                     e.to_string(),
                 ))])
             }
-            Err(ResolveError::UnhandledError(e)) => {
-                tracing::error!("[apple-debug] resolve() unhandled error: {:?}", e);
-                Err(e)
-            }
+            Err(ResolveError::UnhandledError(e)) => Err(e),
         }
     }
 
@@ -153,19 +134,10 @@ impl RawAppleFrame {
 
         let instruction_addr =
             native::parse_hex_address(instruction_addr).map_err(AppleError::from)?;
-        tracing::debug!(
-            "[apple-debug] resolve_impl: parsed instruction_addr=0x{:x}",
-            instruction_addr
-        );
 
         let debug_image =
             native::find_debug_image(instruction_addr, self.image_addr.as_deref(), debug_images)
                 .map_err(AppleError::from)?;
-        tracing::debug!(
-            "[apple-debug] resolve_impl: matched debug_image debug_id={}, image_addr={}",
-            debug_image.debug_id,
-            debug_image.image_addr
-        );
 
         let relative_addr = native::calculate_relative_addr(instruction_addr, debug_image)
             .map_err(AppleError::from)?;
@@ -175,29 +147,15 @@ impl RawAppleFrame {
         // This is safe for top (crash-site) frames too: addr-1 still falls within the
         // same function body, so the function and line resolve correctly.
         let lookup_addr = relative_addr.saturating_sub(1);
-        tracing::debug!(
-            "[apple-debug] resolve_impl: relative_addr=0x{:x}, lookup_addr=0x{:x}",
-            relative_addr,
-            lookup_addr
-        );
 
-        tracing::debug!(
-            "[apple-debug] resolve_impl: looking up symbols for chunk_id={}",
-            debug_image.debug_id
-        );
         let symbols: Arc<ParsedNativeSymbols> = catalog
             .lookup(team_id, OrChunkId::chunk_id(debug_image.debug_id.clone()))
             .await?;
-        tracing::debug!("[apple-debug] resolve_impl: symbols loaded successfully");
 
         let symbol_infos = symbols.lookup(lookup_addr).map_err(AppleError::from)?;
         if symbol_infos.is_empty() {
             return Err(AppleError::SymbolNotFound(lookup_addr).into());
         }
-        tracing::debug!(
-            "[apple-debug] resolve_impl: found {} logical frame(s) (including inlined)",
-            symbol_infos.len()
-        );
 
         // Build one resolved Frame per logical layer.
         //
@@ -266,7 +224,6 @@ impl RawAppleFrame {
             resolve_failure: None,
 
             junk_drawer: None,
-            release: None,
             synthetic: self.meta.synthetic,
             context: None,
             suspicious: false,
@@ -334,7 +291,6 @@ impl RawAppleFrame {
             resolved: false,
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
-            release: None,
             synthetic: self.meta.synthetic,
             context: None,
             suspicious: false,
@@ -426,7 +382,6 @@ impl From<&RawAppleFrame> for Frame {
             resolve_failure: None,
 
             junk_drawer: None,
-            release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,

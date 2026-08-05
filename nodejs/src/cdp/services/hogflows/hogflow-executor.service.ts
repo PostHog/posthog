@@ -99,6 +99,7 @@ export function createHogFlowInvocation(
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
     private readonly duplicateObserver: HogFlowDuplicateObserverService | null
+    private readonly hogFlowFunctionsService: HogFlowFunctionsService
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
@@ -106,6 +107,7 @@ export class HogFlowExecutorService {
         emailValidationService: EmailValidationService,
         duplicateObserver?: HogFlowDuplicateObserverService
     ) {
+        this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -139,6 +141,11 @@ export class HogFlowExecutorService {
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
         }
+    }
+
+    // Decrypted secret input values across the flow's function actions, for redacting test-run logs.
+    async getSensitiveValues(hogFlow: HogFlow): Promise<string[]> {
+        return this.hogFlowFunctionsService.getSensitiveValues(hogFlow)
     }
 
     async buildHogFlowInvocations(
@@ -207,7 +214,7 @@ export class HogFlowExecutorService {
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
-        const emailAssets: MessageAssetRow[] = []
+        const messageAssets: MessageAssetRow[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation, metrics, capturedPostHogEvents)
         if (earlyExitResult) {
@@ -245,7 +252,7 @@ export class HogFlowExecutorService {
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
             warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
-            emailAssets.push(...result.emailAssets)
+            messageAssets.push(...result.messageAssets)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -256,7 +263,7 @@ export class HogFlowExecutorService {
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
         result.warehouseWebhookPayloads = warehouseWebhookPayloads
-        result.emailAssets = emailAssets
+        result.messageAssets = messageAssets
 
         return result
     }
@@ -473,9 +480,14 @@ export class HogFlowExecutorService {
                     timestamp: DateTime.now(),
                 })
             }
+            // Deliberately an allowlisted context, not the full action/invocation: an action's
+            // config.inputs can hold decrypted secrets (API keys, auth headers) that the encrypted_inputs
+            // split keeps out of storage, and dumping them here would put them straight into worker logs.
             logger.debug('🦔', `[HogFlowActionRunner] Running action ${currentAction.type}`, {
-                action: currentAction,
-                invocation,
+                hogFlowId: invocation.hogFlow.id,
+                invocationId: invocation.id,
+                actionId: currentAction.id,
+                actionType: currentAction.type,
             })
 
             const handler = this.actionHandlers[currentAction.type]

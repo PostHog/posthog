@@ -7,8 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
@@ -52,7 +52,7 @@ class TestVercelSource:
         config = self.source.get_source_config
         assert config.label == "Vercel"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
 
     def test_source_config_fields(self) -> None:
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
@@ -135,6 +135,26 @@ class TestVercelSource:
     def test_retryable_errors_match_known_failures(self, _name: str, observed_error: str) -> None:
         # Matches the message `_fetch_page`/`_open_billing_stream` raise after their internal
         # retry loop exhausts; keeps this benign, self-recovering failure out of error tracking.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
+    @parameterized.expand(
+        [
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='api.vercel.com', port=443): Max retries exceeded with url: "
+                '/v1/billing/charges?teamId=team_abc (Caused by ReadTimeoutError("HTTPSConnectionPool'
+                "(host='api.vercel.com', port=443): Read timed out. (read timeout=120)\"))",
+            ),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.vercel.com', port=443): Read timed out. (read timeout=120)",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_transient_network_failures(self, _name: str, observed_error: str) -> None:
+        # `_fetch_page`/`_open_billing_stream` already retry these in-process; once exhausted, this
+        # keeps the benign, self-recovering failure out of error tracking.
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
 

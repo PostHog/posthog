@@ -24,6 +24,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
@@ -34,6 +35,7 @@ from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
 )
@@ -685,9 +687,9 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
 class TestScannerLifecycleTelemetry(_VisionAPITestCase):
     def test_create_reports_config_choices(self) -> None:
-        # Launch dashboards read these to see whether the 100%/comprehensive defaults get changed;
-        # dropped properties or a silent non-fire makes that read a lie.
-        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+        # Launch dashboards read these config choices, so a dropped property or a silent non-fire
+        # makes that read a lie. Asserted at the capture boundary, where the source tag lands.
+        with patch("posthoganalytics.capture") as capture:
             resp = self.client.post(
                 self.scanners_url,
                 data={
@@ -702,21 +704,27 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
             )
 
         self.assertEqual(resp.status_code, 201, resp.json())
-        report.assert_called_once()
-        event, properties = report.call_args.args[1], report.call_args.args[2]
-        self.assertEqual(event, "replay vision scanner created")
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        self.assertEqual(len(created), 1)
+        properties = created[0].kwargs["properties"]
         self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
+        self.assertTrue(properties["enabled"])
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+        # Session auth resolves to "web" (the app UI), MCP callers to "mcp".
+        self.assertEqual(properties["source"], "web")
 
     @parameterized.expand(
         [
-            ("disable", True, False, "replay vision scanner disabled"),
-            ("enable", False, True, "replay vision scanner enabled"),
+            ("disable", True, False, "replay_vision_scanner_disabled"),
+            ("enable", False, True, "replay_vision_scanner_enabled"),
         ]
     )
     def test_enabled_transition_reports_once(self, _name: str, before: bool, after: bool, event: str) -> None:
+        # A pure enable/disable toggle fires the transition event only, not the config-edit event.
         scanner = self._create_scanner(enabled=before)
         with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
@@ -725,14 +733,33 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], event)
 
-    def test_update_without_enabled_transition_reports_nothing(self) -> None:
-        # A rename must not show up as an enable/disable in the lifecycle funnel.
+    @parameterized.expand(
+        [
+            ("rename", {"name": "renamed"}, ["replay_vision_scanner_edited"]),
+            ("no_op", {}, []),
+        ]
+    )
+    def test_full_body_save_reports_only_actually_changed_fields(
+        self, _name: str, mutation: dict[str, Any], expected_events: list[str]
+    ) -> None:
+        # The UI PATCHes the entire form on save, so submitted-but-unchanged fields must not be
+        # reported as edits and a save that changes nothing must not fire at all.
         scanner = self._create_scanner(enabled=True)
+        body = {
+            "name": scanner.name,
+            "scanner_config": scanner.scanner_config,
+            "model": scanner.model,
+            "sampling_rate": scanner.sampling_rate,
+            "enabled": scanner.enabled,
+            **mutation,
+        }
         with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
-            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data=body, format="json")
 
         self.assertEqual(resp.status_code, 200, resp.json())
-        report.assert_not_called()
+        self.assertEqual([call.args[1] for call in report.call_args_list], expected_events)
+        if expected_events:
+            self.assertEqual(report.call_args.args[2]["edited_fields"], sorted(mutation.keys()))
 
 
 class TestScannerDigestProvisioning(_VisionAPITestCase):
@@ -938,6 +965,24 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["old"])
 
+    def test_list_date_range_bounds_use_project_timezone(self) -> None:
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        # 05:00 UTC is 21:00 the previous day in Pacific; 20:00 UTC is 12:00 the same day.
+        previous_day = self._create_observation(session_id="pacific-previous-day")
+        ReplayObservation.objects.filter(pk=previous_day.pk).update(created_at=datetime(2026, 3, 3, 5, 0, tzinfo=UTC))
+        same_day = self._create_observation(session_id="pacific-same-day")
+        ReplayObservation.objects.filter(pk=same_day.pk).update(created_at=datetime(2026, 3, 3, 20, 0, tzinfo=UTC))
+
+        base_url = self.observations_url(str(self.scanner.id))
+        resp = self.client.get(f"{base_url}?date_from=2026-03-03&date_to=2026-03-03")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["pacific-same-day"])
+
+        resp = self.client.get(f"{base_url}?date_from=2026-03-02&date_to=2026-03-02")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["pacific-previous-day"])
+
     def test_retrieve_with_filters_resolves_object_and_scopes_neighbors_only(self) -> None:
         observation = self._create_observation(session_id="s-pending")
         self._create_observation(session_id="s-other")
@@ -949,6 +994,24 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(body["id"], str(observation.id))
         self.assertIsNone(body["previous_observation_id"])
         self.assertIsNone(body["next_observation_id"])
+
+    @parameterized.expand(
+        [
+            ("in_flight_poll_tick", ObservationStatus.PENDING, []),
+            ("terminal_result", ObservationStatus.SUCCEEDED, ["replay_vision_observation_viewed"]),
+        ]
+    )
+    def test_retrieve_reports_viewed_only_for_terminal_observations(
+        self, _name: str, status_value: ObservationStatus, expected_events: list[str]
+    ) -> None:
+        # An in-flight fetch is a poll tick (the scene polls every few seconds), not a person viewing results.
+        completed_at = timezone.now() if status_value == ObservationStatus.SUCCEEDED else None
+        observation = self._create_observation(session_id="viewed", status=status_value, completed_at=completed_at)
+        with patch("products.replay_vision.backend.api.observations.report_user_action") as report:
+            resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}{observation.id}/")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([call.args[1] for call in report.call_args_list], expected_events)
 
     def test_list_observations_for_scanner(self) -> None:
         self._create_observation(session_id="s1")
@@ -1266,6 +1329,57 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(sorted(body["available_tags"]), ["onboarding", "support", "surprise"])
         self.assertIsNone(body["monitor"])
         self.assertIsNone(body["scorer"])
+        self.assertIsNone(body["summarizer"])
+
+    def test_stats_summarizer_facet_rankings(self) -> None:
+        summarizer = self._create_scanner(
+            name="journeys",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "medium"},
+        )
+        for idx, (friction, keywords) in enumerate(
+            [
+                # Stored rows can repeat a term within one summary; rankings must count it once.
+                (["checkout stalls", "checkout stalls"], ["checkout", "checkout"]),
+                (["checkout stalls", "filter reset"], ["checkout", "filters"]),
+                # Keywords without friction: the friction rate's numerator and denominator must differ here.
+                ([], ["browsing"]),
+                ([], []),
+            ]
+        ):
+            ReplayObservation.objects.create(
+                scanner=summarizer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(summarizer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "summarizer",
+                        "title": "t",
+                        "summary": "s",
+                        "friction_points": friction,
+                        "keywords": keywords,
+                        "confidence": 0.5,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(summarizer.id))}stats/")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["summarizer"]["total_with_facets"], 3)
+        self.assertEqual(body["summarizer"]["total_with_friction"], 2)
+        self.assertEqual(
+            body["summarizer"]["friction_ranked"],
+            [{"term": "checkout stalls", "count": 2}, {"term": "filter reset", "count": 1}],
+        )
+        self.assertEqual(
+            body["summarizer"]["keyword_ranked"],
+            [{"term": "checkout", "count": 2}, {"term": "browsing", "count": 1}, {"term": "filters", "count": 1}],
+        )
+        self.assertIsNone(body["classifier"])
 
     def test_filterset_status_multi_value(self) -> None:
         self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
@@ -1575,7 +1689,7 @@ class TestObserveAction(_VisionAPITestCase):
         args, kwargs = start_workflow.call_args
         self.assertEqual(args[0], APPLY_SCANNER_WORKFLOW_NAME)
         self.assertEqual(kwargs["id"], expected_workflow_id)
-        self.assertEqual(kwargs["execution_timeout"], timedelta(hours=1))
+        self.assertEqual(kwargs["execution_timeout"], APPLY_SCANNER_EXECUTION_TIMEOUT)
         inputs = args[1]
         self.assertEqual(inputs.scanner_id, self.scanner.id)
         self.assertEqual(inputs.session_id, "sess-42")
@@ -1704,6 +1818,25 @@ class TestObserveAction(_VisionAPITestCase):
         start_workflow.assert_not_called()
         self.assertFalse(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-capped").exists())
 
+    def test_quota_blocked_observe_reports_exhaustion(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A quota-blocked 402 must still report the exhaustion event.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        exhausted = MagicMock(credit_limit=500, period_end=timezone.now())
+        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+            with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+                resp = self.client.post(
+                    self.observe_url(str(self.scanner.id)), data={"session_id": "sess-quota"}, format="json"
+                )
+
+        self.assertEqual(resp.status_code, 402, resp.json())
+        report.assert_called_once()
+        self.assertEqual(report.call_args.args[1], "replay_vision_quota_exhausted")
+        self.assertEqual(report.call_args.args[2]["trigger"], "on_demand")
+
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
 @patch("products.replay_vision.backend.api.trigger.sync_connect")
@@ -1780,13 +1913,41 @@ class TestBulkObserveAction(_VisionAPITestCase):
         # binding limit, so the skip reason must say quota, not in-flight.
         cost = observation_credits_for_model(self.scanner.model)
         with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", cost):
-            resp = self.client.post(
-                self.bulk_url(str(self.scanner.id)), data={"session_ids": ["p", "q"]}, format="json"
-            )
+            with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+                resp = self.client.post(
+                    self.bulk_url(str(self.scanner.id)), data={"session_ids": ["p", "q"]}, format="json"
+                )
         self.assertEqual(resp.status_code, 202, resp.json())
         body = resp.json()
         self.assertEqual(body["started"], 1)
         self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "skipped_quota"])
+        events = [call.args[1] for call in report.call_args_list]
+        self.assertEqual(events, ["replay_vision_bulk_scan_started", "replay_vision_quota_exhausted"])
+        self.assertEqual(report.call_args.args[2]["trigger"], "bulk")
+
+    def test_quota_bound_batch_that_fits_does_not_report_exhaustion(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+
+        def _start(*args: Any, **kwargs: Any) -> None:
+            if kwargs["id"] == build_apply_scanner_workflow_id(self.scanner.id, "already"):
+                raise WorkflowAlreadyStartedError(workflow_id=kwargs["id"], workflow_type=APPLY_SCANNER_WORKFLOW_NAME)
+
+        mock_async_to_sync.return_value = MagicMock(side_effect=_start)
+        # Claims left by earlier tests' mocked starts would shrink the in-flight headroom below the quota.
+        get_client().delete(_team_key(self.team.id), _scanner_key(self.scanner.id))
+        # Quota is the tighter limit, but the whole batch fits under it: one session is merely
+        # already running, so no exhaustion should be reported.
+        cost = observation_credits_for_model(self.scanner.model)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 2 * cost):
+            with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+                resp = self.client.post(
+                    self.bulk_url(str(self.scanner.id)), data={"session_ids": ["already", "b"]}, format="json"
+                )
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertEqual([r["scan_outcome"] for r in resp.json()["results"]], ["already_running", "started"])
+        self.assertEqual([call.args[1] for call in report.call_args_list], ["replay_vision_bulk_scan_started"])
 
     def test_concurrent_claim_exhaustion_maps_to_skipped_limit(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1908,7 +2069,47 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertEqual(inputs.triggered_by, ObservationTrigger.RETRY)
         self.assertEqual(inputs.triggered_by_user_id, self.user.id)
 
-    def test_retry_rejects_non_failed_statuses(
+    def test_retry_accepts_ineligible_observation(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Ineligibility can be a timing artifact (snapshots that finished ingesting after the scan), and the
+        # UNIQUE(scanner, session_id) row would otherwise lock the session out of this scanner forever.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id="sess-ineligible",
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.INELIGIBLE,
+            error_reason="no_snapshots:No snapshots after processing",
+            completed_at=timezone.now(),
+        )
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+        args, _kwargs = start_workflow.call_args
+        self.assertEqual(args[1].triggered_by, ObservationTrigger.RETRY)
+
+    def test_retry_keeps_row_when_ai_consent_is_off(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The replacement workflow fails closed at create time when consent is off, so letting the retry
+        # delete the row first would leave the recording looking unscanned with no way to get a row back.
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = self._create_failed("sess-no-consent")
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
+        start_workflow.assert_not_called()
+
+    def test_retry_rejects_non_terminal_statuses(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
         # Plain loop, not @parameterized: class-level @patch mis-orders expanded args.
@@ -1916,8 +2117,8 @@ class TestRetryActions(_VisionAPITestCase):
         mock_async_to_sync.return_value = start_workflow
         cases = [
             (ObservationStatus.SUCCEEDED, timezone.now()),
-            (ObservationStatus.INELIGIBLE, timezone.now()),
             (ObservationStatus.PENDING, None),
+            (ObservationStatus.RUNNING, None),
         ]
         for status_value, completed_at in cases:
             with self.subTest(status=status_value):
@@ -1927,7 +2128,7 @@ class TestRetryActions(_VisionAPITestCase):
                     scanner_snapshot=_snapshot_for(self.scanner),
                     triggered_by=ObservationTrigger.SCHEDULE,
                     status=status_value,
-                    error_reason="kind:msg" if status_value == ObservationStatus.INELIGIBLE else "",
+                    error_reason="",
                     completed_at=completed_at,
                 )
 
@@ -1950,15 +2151,20 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
         start_workflow.assert_not_called()
 
-    def test_retry_dispatch_failure_returns_503_with_row_restored(
+    def test_retry_dispatch_failure_returns_503_with_row_and_label_restored(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
         # The replacement run never started, so the failed row must come back instead of leaving the
-        # recording looking unscanned while the usage ledger still counts the failed attempt.
+        # recording looking unscanned while the usage ledger still counts the failed attempt. The delete
+        # cascades the shared rating away, so restoring only the row silently loses the team's feedback
+        # while the response claims the observation was kept.
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock(side_effect=RuntimeError("temporal unavailable"))
         observation = self._create_failed("sess-broken")
         original_created_at = observation.created_at
+        label = ReplayObservationLabel.objects.create(
+            observation=observation, team=self.team, is_correct=False, feedback="missed the error banner"
+        )
 
         resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 503)
@@ -1967,17 +2173,26 @@ class TestRetryActions(_VisionAPITestCase):
         restored = ReplayObservation.objects.get(id=observation.id)
         self.assertEqual(restored.status, ObservationStatus.FAILED)
         self.assertEqual(restored.created_at, original_created_at)
+        restored_label = ReplayObservationLabel.objects.get(observation_id=observation.id)
+        self.assertEqual(restored_label.id, label.id)
+        self.assertFalse(restored_label.is_correct)
+        self.assertEqual(restored_label.feedback, "missed the error banner")
+        self.assertEqual(restored_label.created_at, label.created_at)
 
-    def test_retry_returns_429_and_restores_row_when_the_atomic_claim_is_refused(
+    def test_retry_returns_429_and_keeps_row_and_label_when_the_atomic_claim_is_refused(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        # The claim can refuse after the snapshot pre-check passed; the retry must 429 and bring the
-        # failed row back rather than deleting it while no replacement run started.
+        # The claim can refuse after the snapshot pre-check passed. Claiming before the delete keeps a
+        # capped retry a pure no-op: deleting first would cascade away the team's rating on a request
+        # that changes nothing.
         mock_sync_connect.return_value = MagicMock()
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
         observation = self._create_failed("sess-capped")
         original_created_at = observation.created_at
+        ReplayObservationLabel.objects.create(
+            observation=observation, team=self.team, is_correct=False, feedback="missed the error banner"
+        )
 
         with patch("products.replay_vision.backend.api.trigger.try_claim_enqueue_slot", return_value=False):
             resp = self.client.post(self.retry_url(str(observation.id)))
@@ -1987,6 +2202,35 @@ class TestRetryActions(_VisionAPITestCase):
         restored = ReplayObservation.objects.get(id=observation.id)
         self.assertEqual(restored.status, ObservationStatus.FAILED)
         self.assertEqual(restored.created_at, original_created_at)
+        self.assertEqual(
+            ReplayObservationLabel.objects.get(observation_id=observation.id).feedback, "missed the error banner"
+        )
+
+    def test_retry_reports_409_when_the_replacement_run_already_holds_the_session(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A start we couldn't confirm may still have persisted its own row for this (scanner, session).
+        # Restoring on top of it violates the unique constraint, which used to surface as a 500.
+        observation = self._create_failed("sess-raced")
+
+        def start_and_take_the_slot(*args, **kwargs):
+            ReplayObservation.objects.create(
+                scanner=self.scanner,
+                session_id="sess-raced",
+                scanner_snapshot=_snapshot_for(self.scanner),
+                triggered_by=ObservationTrigger.RETRY,
+                status=ObservationStatus.PENDING,
+            )
+            raise RuntimeError("temporal unavailable")
+
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock(side_effect=start_and_take_the_slot)
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+
+        self.assertEqual(resp.status_code, 409, resp.json())
+        self.assertIn("still finishing", resp.json()["detail"])
+        self.assertEqual(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-raced").count(), 1)
 
     def _personal_api_key(self, scopes: list[str]) -> str:
         value = generate_random_token_personal()
@@ -2234,18 +2478,19 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     def test_estimate_counts_only_in_window_sessions(self) -> None:
         for index in range(3):
             self._ingest_session(days_ago=index + 1)
-        self._ingest_session(days_ago=40)
+        # Inside the earliest probe but outside the 7-day scan window, clamping window_days to a deterministic 7.
+        self._ingest_session(days_ago=7)
 
         resp = self.client.post(self.estimate_url, data={}, format="json")
         self.assertEqual(resp.status_code, 200)
 
         body = resp.json()
         self.assertEqual(body["matched_sessions_in_window"], 3)
-        self.assertEqual(body["window_days"], 30)
-        self.assertEqual(body["estimated_observations_per_month"], 3)
+        self.assertEqual(body["window_days"], 7)
+        self.assertEqual(body["estimated_observations_per_month"], round(3 / 7 * 30))
         # Defaults to gemini-3-flash-preview (5 credits) when the request names no model.
         self.assertEqual(body["credits_per_observation"], 5)
-        self.assertEqual(body["estimated_credits_per_month"], 15)
+        self.assertEqual(body["estimated_credits_per_month"], round(3 / 7 * 30) * 5)
 
     def test_estimate_prices_credits_at_proposed_model(self) -> None:
         for index in range(3):
@@ -2262,17 +2507,17 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     def test_estimate_applies_sampling(self) -> None:
         for index in range(4):
             self._ingest_session(days_ago=index + 1)
-        # Anchor 40 days back so `window_days` clamps to a deterministic 30, not the recent data span.
-        self._ingest_session(days_ago=40)
+        # Inside the earliest probe but outside the 7-day scan window, clamping window_days to a deterministic 7.
+        self._ingest_session(days_ago=7)
 
         resp = self.client.post(self.estimate_url, data={"sampling_rate": 0.5}, format="json")
         self.assertEqual(resp.status_code, 200)
 
         body = resp.json()
         self.assertEqual(body["matched_sessions_in_window"], 4)
-        self.assertEqual(body["window_days"], 30)
+        self.assertEqual(body["window_days"], 7)
         self.assertEqual(body["sampling_rate"], 0.5)
-        self.assertEqual(body["estimated_observations_per_month"], 2)
+        self.assertEqual(body["estimated_observations_per_month"], round(4 / 7 * 30 * 0.5))
 
     def test_estimate_others_sum_is_enabled_only_and_excludes_the_edited_scanner(self) -> None:
         self._ingest_session(days_ago=1)

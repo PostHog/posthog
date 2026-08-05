@@ -18,6 +18,9 @@ import {
 const pollOnlyAdvanceCount = async (): Promise<number> =>
     (await counterHogflowWaitPollOnlyAdvance.get()).values[0]?.value ?? 0
 
+const pollOnlyAdvanceLabels = async (): Promise<Record<string, string | number> | undefined> =>
+    (await counterHogflowWaitPollOnlyAdvance.get()).values[0]?.labels
+
 const rekeyWakeCount = async (outcome: 'advanced' | 'reparked'): Promise<number> =>
     (await counterHogflowRekeyWake.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
 
@@ -311,6 +314,11 @@ describe('action.conditional_branch', () => {
 
             expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
             expect(await pollOnlyAdvanceCount()).toBe(1)
+            // Must name the flow, not the run: attributing the residual is the counter's whole job.
+            expect(await pollOnlyAdvanceLabels()).toEqual({
+                team_id: waitInvocation.hogFlow.team_id,
+                hog_flow_id: waitInvocation.hogFlow.id,
+            })
         })
 
         it('does not count an evaluate-on-entry match (the wait never re-parked)', async () => {

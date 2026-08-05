@@ -1291,6 +1291,38 @@ class ExternalDataSourceType(models.TextChoices):
     MELTWATER = "Meltwater", "Meltwater"
     USERCOM = "UserCom", "UserCom"
     LATITUDE = "Latitude", "Latitude"
+    WORKATO = "Workato", "Workato"
+    SIDESHIFT = "SideShift", "SideShift"
+    DUCKLAKE = "DuckLake", "DuckLake"
+    STARBURST = "Starburst", "Starburst"
+    EASYBILL = "Easybill", "Easybill"
+    BEXIO = "Bexio", "Bexio"
+    UMAMI = "Umami", "Umami"
+    MANYCHAT = "Manychat", "Manychat"
+    KICKSTARTER = "Kickstarter", "Kickstarter"
+    TYPESENSE = "Typesense", "Typesense"
+    FIRSTPROMOTER = "FirstPromoter", "FirstPromoter"
+    ZERO = "Zero", "Zero"
+    INTH = "Inth", "Inth"
+    BCMS = "BCMS", "BCMS"
+    CONVONITE = "Convonite", "Convonite"
+    HOOKDECK = "Hookdeck", "Hookdeck"
+    BILLIT = "Billit", "Billit"
+    MOXIE = "Moxie", "Moxie"
+    TRIPLEWHALE = "TripleWhale", "TripleWhale"
+    DIRECTUS = "Directus", "Directus"
+    CLAY = "Clay", "Clay"
+    TRADABLEBITS = "TradableBits", "TradableBits"
+    SWAN = "Swan", "Swan"
+    HYROS = "Hyros", "Hyros"
+    ODOO = "Odoo", "Odoo"
+    AIRBRIDGE = "Airbridge", "Airbridge"
+    SNOVIO = "Snovio", "Snovio"
+    GOOGLEMERCHANTCENTER = "GoogleMerchantCenter", "GoogleMerchantCenter"
+    RAISELY = "Raisely", "Raisely"
+    WINDSORAI = "WindsorAi", "WindsorAi"
+    WIX = "Wix", "Wix"
+    SEVALLA = "Sevalla", "Sevalla"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
@@ -1301,6 +1333,8 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.MYSQL: "mysql",
     ExternalDataSourceType.SNOWFLAKE: "snowflake",
     ExternalDataSourceType.REDSHIFT: "redshift",
+    ExternalDataSourceType.CLICKHOUSE: "clickhouse",
+    ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
 }
 
 

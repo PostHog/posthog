@@ -127,7 +127,8 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
             self.run_parallel_chunks(chunks).await
         };
 
-        histogram!("personhog_writer_flush_duration_seconds").record(start.elapsed().as_secs_f64());
+        histogram!("personhog_writer_flush_duration_ms")
+            .record(start.elapsed().as_secs_f64() * 1000.0);
         histogram!("personhog_writer_flush_rows").record(total as f64);
         outcome
     }
@@ -157,8 +158,8 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
             .buffer_unordered(concurrency)
             .collect()
             .await;
-        histogram!("personhog_writer_row_fallback_duration_seconds")
-            .record(start.elapsed().as_secs_f64());
+        histogram!("personhog_writer_row_fallback_duration_ms")
+            .record(start.elapsed().as_secs_f64() * 1000.0);
 
         let mut outcome = RowFallbackOutcome::default();
         for (person, result) in results {

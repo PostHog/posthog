@@ -60,7 +60,7 @@ impl RawJSFrame {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
             Err(ResolveError::ResolutionError(e)) => {
-                warn!("Unexpected JS symbol resolution error: {:?}", e);
+                warn!(team_id, "Unexpected JS symbol resolution error: {:?}", e);
                 Ok(self.handle_resolution_error(JsResolveErr::InvalidSourceMap(e.to_string())))
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
@@ -235,7 +235,6 @@ impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: get_sourcelocation_context(&token, context_lines),
-            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious,
             module: None,
@@ -294,7 +293,6 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: None,
@@ -334,7 +332,6 @@ impl From<&RawJSFrame> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: None,

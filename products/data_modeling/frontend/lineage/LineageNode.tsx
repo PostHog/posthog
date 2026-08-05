@@ -33,8 +33,6 @@ export type LineageNodeShape = Pick<
 export interface LineageNodeState {
     isCurrent?: boolean
     isRunning?: boolean
-    /** Dimmed when a search is active and this node is not a match */
-    isDimmed?: boolean
     /** Ringed when a search or type filter highlights this node */
     isHighlighted?: boolean
 }
@@ -194,7 +192,6 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                opacity: state.isDimmed ? 0.5 : 1,
                 borderColor: state.isCurrent ? color : undefined,
             }}
             onMouseEnter={handleMouseEnter}

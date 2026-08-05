@@ -134,8 +134,10 @@ import {
     encodeURLFilters,
     encodeURLVariables,
     getDashboardWidgetType,
+    getInsightQueryError,
     getInsightWithRetry,
     isLayoutEditEventSource,
+    isRefreshRejectionStub,
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
@@ -715,6 +717,9 @@ export interface dashboardLogicActions {
             source: DashboardEventSource
         }
     }
+    setDashboardStreamFailed: () => {
+        value: true
+    }
     setDataColorThemeId: (dataColorThemeId: number | null) => {
         dataColorThemeId: number | null
     }
@@ -1168,6 +1173,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         tileStreamingComplete: true,
         /** Tile streaming failed. */
         tileStreamingFailure: (error: any) => ({ error }),
+        /** A non-404 stream failure left no dashboard to render — show a load error, not "not found". */
+        setDashboardStreamFailed: true,
         /** Expose additional information about the current dashboard load in dashboardLoadData. */
         loadingDashboardItemsStarted: (action: DashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
@@ -1538,12 +1545,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         values.dashboard?.tiles
                     ) {
                         // layout changes were discarded so need to reset to original state
-                        const restoredTiles = values.dashboard?.tiles?.map((tile) => ({
-                            ...tile,
-                            layouts: values.dashboardLayouts?.[tile.id],
-                        }))
-
-                        values.dashboard.tiles = restoredTiles
+                        // (as a new object — selectors only recompute when the reference changes)
+                        return {
+                            ...values.dashboard,
+                            tiles: values.dashboard.tiles.map((tile) => ({
+                                ...tile,
+                                layouts: values.dashboardLayouts?.[tile.id],
+                            })),
+                        }
                     }
 
                     return values.dashboard
@@ -1766,8 +1775,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboardFailedToLoad: [
             false,
             {
+                loadDashboardStreaming: () => false,
                 loadDashboardSuccess: () => false,
+                // The stream auto-retries after transient errors; delivered metadata means it recovered,
+                // so clear the load-error state instead of leaving it latched over a loaded dashboard.
+                loadDashboardMetadataSuccess: () => false,
                 loadDashboardFailure: () => true,
+                setDashboardStreamFailed: () => true,
             },
         ],
         dashboardLayouts: [
@@ -3149,14 +3163,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         tileStreamingFailure: ({ error }) => {
-            if (error?.message?.includes('404') || error?.status === 404) {
+            // Only a genuine HTTP status from the stream's initial response should flip the scene.
+            // Transient network/stream errors carry no status, so a blip no longer masquerades as a
+            // missing dashboard — it surfaces as a toast instead of a hard "Dashboard not found".
+            if (error?.status === 404) {
                 actions.dashboardNotFound()
-            } else if (error?.message?.includes('403') || error?.status === 403) {
+            } else if (error?.status === 403) {
                 actions.setAccessDeniedToDashboard()
             } else {
                 // Show error toast for other errors (500s, network issues, etc.)
                 const errorMessage = error?.message || 'Dashboard streaming failed'
                 lemonToast.error(`Failed to load dashboard: ${errorMessage}`)
+                // If the stream died before any metadata arrived there is no dashboard to render.
+                // The empty-state gate would otherwise fall through to the "Dashboard not found" screen,
+                // so mark the load as failed to show a load-error state instead.
+                if (!values.dashboard) {
+                    actions.setDashboardStreamFailed()
+                }
             }
         },
 
@@ -3525,9 +3548,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     true
                 )
 
-                if (refreshedInsight) {
-                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                    actions.setRefreshStatus(insight.short_id)
+                if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
+                    const queryError = getInsightQueryError(refreshedInsight)
+                    if (queryError) {
+                        actions.setRefreshError(insight.short_id, queryError)
+                    } else {
+                        dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                        actions.setRefreshStatus(insight.short_id)
+                    }
                 } else {
                     actions.setRefreshError(insight.short_id)
                 }
@@ -3594,7 +3622,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     urlFilters,
                     urlVariables,
                     dashboardLoadData,
-                    dashboard,
                     lastDashboardRefresh,
                 } = values
 
@@ -3621,22 +3648,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tile.filters_overrides
                         )
 
-                        if (refreshedInsight) {
-                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                            actions.setRefreshStatus(insight.short_id)
-                            tilesRefreshedCount++
-                            if (refreshedInsight.is_cached) {
-                                tilesRefreshedCachedCount++
+                        if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
+                            const queryError = getInsightQueryError(refreshedInsight)
+                            if (queryError) {
+                                actions.setRefreshError(insight.short_id, queryError)
+                                tilesErroredCount++
+                            } else {
+                                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                                actions.setRefreshStatus(insight.short_id)
+                                tilesRefreshedCount++
+                                if (refreshedInsight.is_cached) {
+                                    tilesRefreshedCachedCount++
+                                }
+                                eventUsageLogic.actions.reportDashboardTileRefreshed(
+                                    dashboardId,
+                                    tile,
+                                    urlFilters,
+                                    urlVariables,
+                                    Math.floor(performance.now() - insightRefreshStartTime),
+                                    false
+                                )
                             }
-
-                            eventUsageLogic.actions.reportDashboardTileRefreshed(
-                                dashboardId,
-                                tile,
-                                urlFilters,
-                                urlVariables,
-                                Math.floor(performance.now() - insightRefreshStartTime),
-                                false
-                            )
                         } else {
                             actions.setRefreshError(insight.short_id)
                             tilesErroredCount++
@@ -3685,7 +3717,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 eventUsageLogic.actions.reportDashboardRefreshed(
                     dashboardId,
-                    dashboard,
                     urlFilters,
                     urlVariables,
                     lastDashboardRefresh,
@@ -3944,13 +3975,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
-                actions.restoreUrlStateAtEditModeEntry(values.urlSearchParamsAtEditModeEntry)
 
-                // reset tile data by reloading dashboard
-                actions.refreshDashboardItems({
-                    action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
-                })
+                // Previews route filters/variables through the URL before refreshing, so tile data
+                // always matches the current URL state. Restoring the snapshot therefore only
+                // requires a reload when it actually changes that state — if no preview ran during
+                // this edit session, the data on screen is already correct.
+                const snapshot = values.urlSearchParamsAtEditModeEntry
+                const urlStateChangedSinceEditModeEntry =
+                    !equal(values.urlFilters, parseURLFilters({ [SEARCH_PARAM_FILTERS_KEY]: snapshot?.filters })) ||
+                    !equal(
+                        parseURLVariables(router.values.searchParams),
+                        parseURLVariables({ [SEARCH_PARAM_QUERY_VARIABLES_KEY]: snapshot?.variables })
+                    )
+                actions.restoreUrlStateAtEditModeEntry(snapshot)
+
+                if (urlStateChangedSinceEditModeEntry) {
+                    // reset tile data by reloading dashboard
+                    actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                    })
+                }
 
                 // also reset layout to that we stored in dashboardLayouts
                 // this is done in the reducer for dashboard

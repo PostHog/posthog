@@ -136,6 +136,8 @@ export class LegacyPluginExecutorService {
                 url,
                 fetchParams,
                 templateId: invocation.hogFunction.template_id ?? '',
+                teamId: invocation.teamId,
+                hogFunctionId: invocation.hogFunction.id,
             })
 
             if (fetchError || !fetchResponse) {

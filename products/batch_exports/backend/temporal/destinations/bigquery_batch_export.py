@@ -33,7 +33,7 @@ from google.cloud import bigquery, iam_admin_v1
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
@@ -50,10 +50,10 @@ from products.batch_exports.backend.service import (
     BigQueryBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer
@@ -450,9 +450,11 @@ def _make_requests_session() -> "requests.Session":
     from urllib3.util.retry import Retry
 
     retry = Retry(
-        total=5,
-        connect=5,  # Redundant to set this + total, but just being explicit
         backoff_factor=1.0,  # 0s, 2s, 4s, 6s, ...
+        connect=5,  # Retry on connection errors
+        status=5,  # Retry on statuses matching the ones below
+        status_forcelist=[429, 500, 502, 503],
+        allowed_methods=(*Retry.DEFAULT_ALLOWED_METHODS, "POST"),
     )
 
     session = requests.Session()
@@ -1634,8 +1636,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         insert_inputs = BigQueryInsertInputs(
             team_id=inputs.team_id,

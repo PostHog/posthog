@@ -43,7 +43,6 @@ This skill teaches you how to:
   each rule's output feeds the next.
 
 Application is `replaceRegexpAll(pathname, regex, alias)` per rule, chained.
-Source: `posthog/hogql/property.py:613`.
 
 ## Workflow
 
@@ -160,7 +159,6 @@ destroys whatever the team has already configured.
 When the user (or a HogQL query) opts in:
 
 - Web analytics: the **Path cleaning** toggle in the page header
-  (`PathCleaningToggle.tsx`)
 - Paths insights: the path cleaning toggle in the insight filters
 - HogQL: any query that calls `apply_path_cleaning(path_expr, team)`
 

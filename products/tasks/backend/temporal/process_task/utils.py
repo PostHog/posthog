@@ -5,7 +5,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
-from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import transaction
@@ -28,6 +27,7 @@ from products.tasks.backend.constants import (
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
 # logic/services (non-temporal callers import run_actor directly).
@@ -76,11 +76,14 @@ class LLMProvider(StrEnum):
 
 
 class ReasoningEffort(StrEnum):
+    OFF = "off"
+    MINIMAL = "minimal"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     XHIGH = "xhigh"
     MAX = "max"
+    ULTRACODE = "ultracode"
 
 
 PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
@@ -89,7 +92,11 @@ PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.HIGH,
     ReasoningEffort.XHIGH,
     ReasoningEffort.MAX,
+    ReasoningEffort.ULTRACODE,
 )
+
+
+CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 
 RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
@@ -106,6 +113,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.MAX,
     ),
+    "moonshotai/kimi-k3": (),
     "claude-opus-4-5": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
@@ -124,6 +132,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-opus-4-8": (
         ReasoningEffort.LOW,
@@ -131,6 +140,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-opus-5": (
         ReasoningEffort.LOW,
@@ -138,6 +148,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-fable-5": (
         ReasoningEffort.LOW,
@@ -145,6 +156,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-5": (
         ReasoningEffort.LOW,
@@ -152,6 +164,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-4-6": (
         ReasoningEffort.LOW,
@@ -308,6 +321,8 @@ class RunState(BaseModel, extra="allow"):
     provider: LLMProvider | None = None
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
+    context_window: str | None = None
+    fast_mode: bool | None = None
     resume_from_run_id: str | None = None
     handoff_resumed: bool = False
     snapshot_external_id: str | None = None
@@ -500,12 +515,19 @@ def get_user_mcp_server_configs(
     include_personal: bool = True,
     interaction_origin: str | None = None,
     allowed_installation_ids: list[str] | None = None,
+    origin_product: str | None = None,
+    task_agent_key: str | None = None,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
-    Always includes shared (team-wide) installations. When
-    ``include_personal`` is True and a ``user_id`` is provided, the user's
-    personal installations are included too.
+    Unmapped tasks include shared team installations. Built-in agent tasks only
+    include shared installations granted to that agent and never include a
+    member's personal installations. A mapped origin without its persisted
+    agent marker gets no Store installations. Built-in agent handling is
+    gated per team on the ``mcp-gateway`` rollout flag; teams without it
+    resolve mapped origins like unmapped tasks. For unmapped tasks,
+    ``include_personal`` includes the user's personal installations when a
+    ``user_id`` is provided.
 
     ``allowed_installation_ids`` restricts the mounted connectors to a snapshotted allowlist (a
     loop run's selected ``mcp_installation_ids``): ``None`` leaves the set unfiltered (current
@@ -525,6 +547,8 @@ def get_user_mcp_server_configs(
         team_id,
         user_id=user_id,
         include_personal=include_personal,
+        task_origin=origin_product,
+        task_agent_key=task_agent_key,
     )
     if allowed_installation_ids is not None:
         allowed = {str(i) for i in allowed_installation_ids}
@@ -534,15 +558,16 @@ def get_user_mcp_server_configs(
 
     configs: list[McpServerConfig] = []
     for installation in installations:
+        headers = [
+            {"name": "Authorization", "value": f"Bearer {installation.proxy_token or token}"},
+            {"name": "x-posthog-mcp-consumer", "value": consumer},
+        ]
         configs.append(
             McpServerConfig(
                 type="http",
                 name=installation.name,
                 url=f"{api_base}{installation.proxy_path}",
-                headers=[
-                    {"name": "Authorization", "value": f"Bearer {token}"},
-                    {"name": "x-posthog-mcp-consumer", "value": consumer},
-                ],
+                headers=headers,
             )
         )
 
@@ -682,7 +707,7 @@ def get_sandbox_ph_mcp_configs(
     - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
     - Other hosts → empty list (MCP not available)
     """
-    url = _resolve_mcp_url()
+    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL)
     if not url:
         return []
     read_only = not has_write_scopes(scopes)
@@ -696,31 +721,6 @@ def get_sandbox_ph_mcp_configs(
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
-
-
-def _resolve_mcp_url() -> str | None:
-    if settings.SANDBOX_MCP_URL:
-        return settings.SANDBOX_MCP_URL
-
-    site_url = settings.SITE_URL
-    if not site_url:
-        return None
-
-    hostname = urlparse(site_url).hostname or ""
-    if hostname in ("app.posthog.com", "us.posthog.com"):
-        return "https://mcp.posthog.com/mcp"
-    if hostname == "eu.posthog.com":
-        return "https://mcp-eu.posthog.com/mcp"
-    if hostname == "app.dev.posthog.dev":
-        return "https://mcp.dev.posthog.dev/mcp"
-
-    # Local dev: point to the local wrangler dev MCP server via
-    # host.docker.internal, since the sandbox runs in Docker.
-    # On Linux without Docker Desktop, set SANDBOX_MCP_URL instead.
-    if hostname in ("localhost", "127.0.0.1"):
-        return "http://host.docker.internal:8787/mcp"
-
-    return None
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:
@@ -1182,6 +1182,8 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+    env_vars.update(ai_gateway_env_vars())
+
     if otel_telemetry_enabled:
         env_vars.update(get_sandbox_otel_env_vars())
 
@@ -1204,6 +1206,20 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     if settings.SANDBOX_AGENT_OTEL_TRACES_URL:
         env_vars["POSTHOG_AGENT_OTEL_TRACES_URL"] = settings.SANDBOX_AGENT_OTEL_TRACES_URL
     return env_vars
+
+
+def ai_gateway_env_vars() -> dict[str, str]:
+    """Env vars routing listed products to the Go ai-gateway, shared by every
+    injection site so the both-or-nothing guard cannot drift per site. Both
+    settings or nothing: a URL with no product allowlist would route every
+    sandbox caller, and a product list with no URL has nowhere to go.
+    """
+    if settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS:
+        return {
+            "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
+            "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
+        }
+    return {}
 
 
 def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> PrAuthorshipMode:

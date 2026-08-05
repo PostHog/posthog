@@ -113,13 +113,7 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
         '$csp_user_agent',
     ],
     $set: ['$set', '$set_once'],
-    $exception: [
-        '$exception_issue_id',
-        '$exception_functions',
-        '$exception_sources',
-        '$exception_types',
-        '$exception_values',
-    ],
+    $exception: ['$exception_functions', '$exception_sources', '$exception_types', '$exception_values'],
     $mcp_tool_call: [
         '$mcp_tool_name',
         '$mcp_tool_category',

@@ -1,5 +1,6 @@
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, DirectSQLAdapter
 from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_direct_capable
+from posthog.hogql.direct_sql.clickhouse_adapter import ClickHouseAdapter
 from posthog.hogql.direct_sql.mysql_adapter import MySQLAdapter
 from posthog.hogql.direct_sql.postgres_adapter import PostgresAdapter
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
@@ -11,11 +12,13 @@ register_adapter(PostgresAdapter())
 register_adapter(MySQLAdapter())
 register_adapter(SnowflakeAdapter())
 register_adapter(RedshiftAdapter())
+register_adapter(ClickHouseAdapter())
 
 __all__ = [
     "DirectQueryRequest",
     "DirectQueryResult",
     "DirectSQLAdapter",
+    "ClickHouseAdapter",
     "PostgresAdapter",
     "MySQLAdapter",
     "SnowflakeAdapter",
