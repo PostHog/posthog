@@ -33,6 +33,7 @@ from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
+import pydantic
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -45,7 +46,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.serializer_helpers import ReturnDict
 
-from posthog.schema import InsightVizNode
+from posthog.schema import DashboardFilter, InsightVizNode
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
@@ -69,7 +70,7 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
-from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
+from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters
 from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
@@ -1307,11 +1308,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def _validated_filters(request_filters: Any) -> dict:
         """Validate and normalize a raw request `filters` payload before it's persisted.
 
-        `filters` is a read-only SerializerMethodField, so DRF's `validate_filters` never runs —
+        `filters` is a read-only SerializerMethodField, so DRF's `validate_filters` never runs;
         the write paths read `request.data`/`initial_data` directly. `Dashboard.filters` is opaque
-        JSON; this enforces the dict shape and normalizes a `PropertyGroupFilter` dict
-        (`{"type": ..., "values": [...]}`) on `properties` to the flat-list contract
-        (`DashboardFilter.properties`), so the dict form can't be persisted for readers to trip on."""
+        JSON, but readers rebuild the extra="forbid" `DashboardFilter` from it on every tile
+        refresh, so any persisted key or value that model rejects breaks every tile on the
+        dashboard. Normalization maps legacy key aliases (`filter_test_accounts`) onto their
+        modern field, drops keys `DashboardFilter` doesn't know, and flattens a
+        `PropertyGroupFilter` dict on `properties` to the flat-list contract. Constructing
+        `DashboardFilter` afterwards rejects invalid field values with a 400 at write time
+        instead of a broken dashboard at read time."""
         if not isinstance(request_filters, dict):
             raise serializers.ValidationError("Filters must be a dictionary")
         properties = request_filters.get("properties")
@@ -1322,9 +1327,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if properties is not None and not isinstance(properties, (list, dict)):
             raise serializers.ValidationError({"properties": "Must be a list of filters or a property group"})
         try:
-            return normalize_dashboard_filters_properties(request_filters)
+            normalized = normalize_dashboard_filters(request_filters)
         except ValueError as error:
             raise serializers.ValidationError({"properties": str(error)}) from error
+        try:
+            DashboardFilter(**normalized)
+        except pydantic.ValidationError as error:
+            raise serializers.ValidationError({"filters": str(error)}) from error
+        return normalized
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:

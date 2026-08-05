@@ -42,6 +42,18 @@ class TestDashboardFiltersValidation(SimpleTestCase):
             return
         raise AssertionError("expected ValidationError")
 
+    def test_maps_legacy_test_accounts_key_and_drops_unknown_keys(self):
+        # REST clients PATCH the legacy insight-format key, which used to persist opaquely; readers
+        # then rebuilt the extra="forbid" DashboardFilter from the blob and every tile 500ed.
+        result = self._validate(
+            {"filter_test_accounts": True, "breakdown": None, "insight": "TRENDS", "date_from": "-7d"}
+        )
+        assert result == {"filterTestAccounts": True, "date_from": "-7d"}
+
+    def test_rejects_invalid_field_values(self):
+        with self.assertRaises(serializers.ValidationError):
+            self._validate({"interval": "fortnightly"})
+
 
 class TestDashboardTileFiltersOverridesValidation(SimpleTestCase):
     def test_normalizes_property_group_dict_on_tile_filters_overrides(self):

@@ -191,6 +191,34 @@ def normalize_dashboard_filters_properties(filters: dict) -> dict:
     return {**filters, "properties": flattened}
 
 
+# Legacy dashboard-filter keys that map 1:1 onto a modern DashboardFilter field. Persisted
+# `Dashboard.filters` blobs and REST clients built against the legacy insight filter format
+# still use the snake_case spelling.
+_LEGACY_FILTER_KEY_ALIASES = {"filter_test_accounts": "filterTestAccounts"}
+
+
+def normalize_dashboard_filters(filters: dict) -> dict:
+    """Normalize a persisted or client-supplied dashboard filter dict to the DashboardFilter contract.
+
+    `Dashboard.filters` is persisted opaquely and `filters_override` comes straight from clients, so
+    real-world dicts carry legacy keys (snake_case `filter_test_accounts`, top-level `breakdown` /
+    `breakdown_type`) as well as grouped properties. Aliases with a modern equivalent are mapped onto
+    that field, and keys `DashboardFilter` doesn't know are dropped, because its extra="forbid" would
+    otherwise reject the whole filter set and with it every tile on the dashboard. Grouped properties
+    are flattened to the leaf-list contract.
+    """
+    normalized: dict = {}
+    for key, value in filters.items():
+        canonical = _LEGACY_FILTER_KEY_ALIASES.get(key, key)
+        if canonical not in DashboardFilter.model_fields:
+            continue
+        if canonical != key and canonical in filters:
+            # Both spellings are present: the modern one wins regardless of dict order.
+            continue
+        normalized[canonical] = value
+    return normalize_dashboard_filters_properties(normalized)
+
+
 def _without_contradicted(properties: Any, overriding_props: list[dict]) -> Any:
     """Drop leaf property filters that any `overriding_props` filter provably contradicts from a query's
     `properties`, which is either a flat list of leaves or a `PropertyGroupFilter` dict (a group of
@@ -282,14 +310,13 @@ def resolve_effective_dashboard_filters(
 
 
 def dashboard_filter_from_dict(filters: dict) -> DashboardFilter:
-    """Build a dashboard filter while tolerating legacy grouped properties."""
-    # Final guard: callers like Insight.get_effective_query pass client-supplied filter dicts
-    # here without going through the merge functions, and the tile-only flag would trip
-    # DashboardFilter's extra="forbid".
-    filters = _without_ignore_flag(filters)
-    if isinstance(filters.get("properties"), dict):
-        filters = {**filters, "properties": flatten_property_leaves(filters["properties"])}
-    return DashboardFilter(**filters)
+    """Build a dashboard filter from an untrusted dict, tolerating legacy keys and grouped properties.
+
+    Callers like Insight.get_effective_query pass client-supplied filter dicts here without going
+    through the merge functions, so this is the final guard before the extra="forbid" model: the
+    tile-only ignoreDashboardFilters flag and legacy keys are normalized away instead of raising.
+    """
+    return DashboardFilter(**normalize_dashboard_filters(filters))
 
 
 # Apply the filters from the django-style Dashboard object

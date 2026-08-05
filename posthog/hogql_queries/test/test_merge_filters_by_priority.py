@@ -201,6 +201,30 @@ class TestDashboardFilterFromDict(SimpleTestCase):
         ]
         assert built.date_from == "-7d"
 
+    @parameterized.expand(
+        [
+            (
+                "legacy test-accounts alias maps to the modern field",
+                {"filter_test_accounts": True, "date_from": "-7d"},
+                DashboardFilter(filterTestAccounts=True, date_from="-7d"),
+            ),
+            (
+                "unknown legacy keys are dropped",
+                {"breakdown": None, "breakdown_type": None, "insight": "TRENDS", "date_from": "-30d"},
+                DashboardFilter(date_from="-30d"),
+            ),
+            (
+                "modern key wins over its legacy alias",
+                {"filter_test_accounts": True, "filterTestAccounts": False},
+                DashboardFilter(filterTestAccounts=False),
+            ),
+        ]
+    )
+    def test_legacy_keys_are_normalized_instead_of_raising(self, _name, filters, expected):
+        # Persisted `Dashboard.filters` blobs and echoed `filters_override` params carry legacy keys;
+        # DashboardFilter's extra="forbid" used to reject them, breaking every tile on the dashboard.
+        assert dashboard_filter_from_dict(filters) == expected
+
 
 class TestFlattenPropertyLeaves(SimpleTestCase):
     def test_rejects_or_property_group(self):
