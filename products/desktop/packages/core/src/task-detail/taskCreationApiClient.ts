@@ -1,9 +1,9 @@
 import type { TaskSessionStorageAccess } from "@posthog/api-client/posthog-client";
 import type {
   Adapter,
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   CloudRunSource,
+  McpServerConnection,
   PrAuthorshipMode,
 } from "@posthog/shared";
 import type { Task, TaskRun } from "@posthog/shared/domain-types";
@@ -26,7 +26,7 @@ export interface CreateTaskRunClientOptions {
   runSource?: CloudRunSource;
   signalReportId?: string;
   initialPermissionMode?: string;
-  importedMcpServers?: CloudMcpServerImport[];
+  importedMcpServers?: McpServerConnection[];
   relayedMcpServers?: CloudMcpServerRelayDesignation[];
 }
 
