@@ -388,9 +388,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         Only called for sources with `supports_column_selection`, whose discovery is the source of
         truth for the column catalog. Returns schema names this hook soft-deleted (none by
-        default; overridden by the direct-query paths). No-op for everything else — sources whose
-        catalog is captured from the rows a sync actually returned must not have it overwritten
-        with the empty column list their discovery reports.
+        default; overridden by the direct-query paths). No-op for everything else, because a
+        source whose catalog is captured from the rows a sync actually returned would have it
+        overwritten with the empty column list its discovery reports.
         """
         return []
 

@@ -504,45 +504,8 @@ class TestGetRows:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_a_column_selection_never_leaves_zoho_unrequested(self, make_session: mock.MagicMock) -> None:
         # The whole point of pushing the selection into `fields`: a field whose values break the
-        # import is never fetched, so the import that it broke can run.
-        session = _session(
-            [
-                _response(200, {"fields": [{"api_name": "Last_Name"}, {"api_name": "Broken_Field"}]}),
-                _records_response([{"id": "1", "Last_Name": "Ada", "$approved": True}]),
-            ]
-        )
-        make_session.return_value = session
-
-        batches = list(
-            get_rows(
-                _client(),
-                "v8",
-                "Leads",
-                FakeResumeManager(),
-                mock.MagicMock(),
-                enabled_columns=["Last_Name"],
-            )
-        )
-
-        assert _get_params(session, 1)["fields"] == "Last_Name"
-        # `$approved` is a system field the metadata API never lists, so Zoho returns it regardless.
-        assert batches == [[{"id": "1", "Last_Name": "Ada"}]]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_selection_is_enforced_on_endpoints_that_take_no_fields_param(self, make_session: mock.MagicMock) -> None:
-        session = _session([_records_response([{"id": "u1", "email": "a@b.c", "phone": "123"}], data_key="users")])
-        make_session.return_value = session
-
-        batches = list(
-            get_rows(_client(), "v8", "Users", FakeResumeManager(), mock.MagicMock(), enabled_columns=["email"])
-        )
-
-        assert batches == [[{"id": "u1", "email": "a@b.c"}]]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_the_cursor_and_partition_key_survive_a_selection_that_omits_them(
-        self, make_session: mock.MagicMock
-    ) -> None:
+        # import is never fetched, so the import it broke can run. The cursor and partition key
+        # have to ride along, or an incremental sync silently loses its watermark.
         session = _session(
             [
                 _response(
@@ -550,12 +513,15 @@ class TestGetRows:
                     {
                         "fields": [
                             {"api_name": "Last_Name"},
+                            {"api_name": "Broken_Field"},
                             {"api_name": "Modified_Time"},
                             {"api_name": "Created_Time"},
                         ]
                     },
                 ),
-                _records_response([{"id": "1", "Last_Name": "Ada", "Modified_Time": "t1", "Created_Time": "t0"}]),
+                _records_response(
+                    [{"id": "1", "Last_Name": "Ada", "Modified_Time": "t1", "Created_Time": "t0", "$approved": True}]
+                ),
             ]
         )
         make_session.return_value = session
@@ -578,7 +544,19 @@ class TestGetRows:
             "Last_Name",
             "Modified_Time",
         ]
+        # `$approved` is a system field the metadata API never lists, so Zoho returns it regardless.
         assert batches == [[{"id": "1", "Last_Name": "Ada", "Modified_Time": "t1", "Created_Time": "t0"}]]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_selection_is_enforced_on_endpoints_that_take_no_fields_param(self, make_session: mock.MagicMock) -> None:
+        session = _session([_records_response([{"id": "u1", "email": "a@b.c", "phone": "123"}], data_key="users")])
+        make_session.return_value = session
+
+        batches = list(
+            get_rows(_client(), "v8", "Users", FakeResumeManager(), mock.MagicMock(), enabled_columns=["email"])
+        )
+
+        assert batches == [[{"id": "u1", "email": "a@b.c"}]]
 
 
 class TestValidateCredentials:

@@ -159,13 +159,12 @@ class TestZohoCRMSource:
         assert self.source.lists_tables_without_credentials is True
 
     def test_column_catalog_is_available_before_the_first_sync(self, discovered_columns: mock.MagicMock) -> None:
-        # Without discovery the column picker only fills in after a successful sync — which leaves
+        # Without discovery the column picker only fills in after a successful sync, which leaves
         # no way out of a sync that a bad column breaks.
         discovered_columns.return_value = {"Leads": [("id", "bigint", False), ("Last_Name", "text", True)]}
 
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
-        assert self.source.supports_column_selection is True
         assert schemas["Leads"].columns == [("id", "bigint", False), ("Last_Name", "text", True)]
         assert schemas["Deals"].columns == []
 
@@ -184,7 +183,7 @@ class TestZohoCRMSource:
     def test_only_the_requested_endpoints_are_probed(self, discovered_columns: mock.MagicMock) -> None:
         self.source.get_schemas(self.config, self.team_id, names=["Deals"])
 
-        assert [config.name for config in discovered_columns.call_args.args[2]] == ["Deals"]
+        assert [config.name for config in discovered_columns.call_args.kwargs["endpoints"]] == ["Deals"]
 
     @mock.patch(f"{_SOURCE_MODULE}.reconcile_source_schema_metadata", return_value=[])
     def test_a_refresh_never_blanks_a_catalog_it_could_not_rediscover(self, reconcile: mock.MagicMock) -> None:

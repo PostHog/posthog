@@ -214,8 +214,8 @@ def readable_fields(client: ZohoCRMClient, api_version: str, module: str) -> lis
         fields.append(
             ZohoField(
                 api_name=str(api_name),
-                # `data_type` is Zoho's own label (picklist, datetime, currency, lookup) — more
-                # useful in the column picker than the coarser `json_type`, which is the fallback.
+                # `data_type` is Zoho's own label (picklist, datetime, currency, lookup), which is
+                # more useful in the column picker than the coarser `json_type` fallback.
                 data_type=str(field.get("data_type") or field.get("json_type") or "text"),
                 nullable=not (field.get("required") or field.get("system_mandatory")),
             )
@@ -239,10 +239,10 @@ def discover_columns(
     Lets the column picker list a module's fields before the first sync ever runs, so a sync that
     a single incompatible field breaks can still be narrowed down to the fields the user wants.
 
-    Auth failures propagate — a revoked refresh token is the user's to fix, and every caller
-    either validates credentials first or already handles a failed discovery. Per-endpoint
-    failures don't: a module the org's edition never enabled answers with INVALID_MODULE, and
-    losing its columns must not cost the rest of the catalog.
+    Auth failures propagate, because a revoked refresh token is the user's to fix and every caller
+    either validates credentials first or already handles a failed discovery. Per-endpoint failures
+    don't: a module the org's edition never enabled answers with INVALID_MODULE, and losing its
+    columns must not cost the rest of the catalog.
     """
     # Mint up front so a revoked token surfaces once instead of being swallowed per endpoint.
     client.mint_access_token()
@@ -351,8 +351,8 @@ def get_rows(
     if config.is_module:
         names = readable_field_names(client, api_version, config.path)
         if projection is not None:
-            # Push the selection into Get Records so a deselected field never leaves Zoho — the
-            # only way to get past a field whose values break the import.
+            # Push the selection into Get Records so a deselected field never leaves Zoho, which is
+            # the only way to get past a field whose values break the import.
             names = [name for name in names if name.casefold() in projection]
         field_slices = chunk_fields(names)
 

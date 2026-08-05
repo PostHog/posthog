@@ -439,7 +439,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if sql_columns:
                 return sql_columns
         # `schema_metadata` is only written on source creation and explicit schema reload
-        # (`refresh_schemas`) — never by background schema discovery — and only for sources that list
+        # (`refresh_schemas`), never by background schema discovery, and only for sources that list
         # typed columns at discovery. So it's empty for the rest, and for schemas discovered/added
         # later or not yet reloaded. Fall back to the synced table's universal column store so the
         # Descriptions UI can still list columns (and surface their existing annotations) and let

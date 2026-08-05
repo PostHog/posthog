@@ -64,8 +64,8 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
     # column lists that `get_schemas` adds on top are skipped when credentials are absent.
     lists_tables_without_credentials = True
     # Zoho's fields metadata API types a module's columns at discovery time, and Get Records takes
-    # a `fields` projection, so the selection is applied at the source instead of by the generic
-    # pre-write drop — which is too late to save an import that a field's values break.
+    # a `fields` projection, so the selection is applied at the source rather than by the generic
+    # pre-write drop, which runs too late to save an import that a field's values break.
     supports_column_selection = True
     supported_versions = ("v8",)
     default_version = "v8"
@@ -182,7 +182,7 @@ In the [Zoho API console](https://api-console.zoho.com), create a **Self Client*
                 refresh_token=config.refresh_token,
             ),
             self.resolve_api_version(api_version),
-            [ZOHO_CRM_ENDPOINTS[schema.name] for schema in schemas],
+            endpoints=[ZOHO_CRM_ENDPOINTS[schema.name] for schema in schemas],
         )
         for schema in schemas:
             schema.columns = columns_by_endpoint.get(schema.name, [])

@@ -3027,9 +3027,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
             elif source.supports_column_selection:
                 # Every source that lists typed columns at discovery owns its column catalog and
-                # refreshes it here — SQL sources, plus non-SQL ones (ClickHouse, Zoho CRM) that
-                # expose the same capability. Sources without it no-op: their catalog comes from
-                # the rows a sync returned, which a reconcile would overwrite with nothing.
+                # refreshes it here, including the non-SQL ones (ClickHouse, Zoho CRM) that expose
+                # the same capability. Sources without it no-op, because their catalog comes from
+                # the rows a sync returned and a reconcile would overwrite it with nothing.
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
 
         # Outside the atomic block: schedule creation talks to Temporal, which must not run under
