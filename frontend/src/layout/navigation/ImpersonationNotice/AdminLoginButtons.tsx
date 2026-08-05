@@ -27,8 +27,9 @@ export function AdminLoginButtons({
                         key={region}
                         type="secondary"
                         size="small"
-                        tooltip="This currently redirects to the admin login page, but in future will log you in directly."
-                        onClick={() => window.open(url, '_blank')}
+                        tooltip="Opens the Django admin page for this customer, with the login-as reason pre-filled."
+                        to={url}
+                        targetBlank
                     >
                         Login as {ticketContext?.email}
                         {showRegionLabel ? ` (${region})` : ''}
