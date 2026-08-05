@@ -73,6 +73,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE,
+    BlastRadiusResult,
     get_user_blast_radius,
     get_user_blast_radius_persons,
 )
@@ -3442,16 +3443,16 @@ class HogFlowViewSet(
         if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
             total = self.team.persons_seen_so_far
             affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
+            blast_radius = BlastRadiusResult(affected=affected, total=total)
             applied_dedupe_key = dedupe_key
         else:
-            result = get_user_blast_radius(self.team, filters, group_type_index)
-            affected, total = result.affected, result.total
+            blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
 
         return Response(
             BlastRadiusSerializer(
                 {
-                    "affected": affected,
-                    "total": total,
+                    "affected": blast_radius.affected,
+                    "total": blast_radius.total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
                     "dedupe_key": applied_dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
