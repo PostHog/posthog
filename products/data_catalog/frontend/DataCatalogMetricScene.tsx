@@ -15,6 +15,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -32,7 +33,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { InsightShortId } from '~/types'
 
-import { humanizeDefinitionKind } from './common'
+import { humanizeDefinitionKind, validateMetricDescription } from './common'
 import {
     dataCatalogMetricSceneLogic,
     DataCatalogMetricSceneLogicProps,
@@ -208,7 +209,14 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     resourceType={{ type: 'data_warehouse' }}
                     canEdit
                     onNameChange={(value) => updateMetric({ display_name: value })}
-                    onDescriptionChange={(value) => confirmAndUpdate({ description: value })}
+                    onDescriptionChange={(value) => {
+                        const descriptionError = validateMetricDescription(value)
+                        if (descriptionError) {
+                            lemonToast.error(descriptionError)
+                            return
+                        }
+                        confirmAndUpdate({ description: value })
+                    }}
                     renameDebounceMs={0}
                     saveOnBlur
                 />

@@ -5,10 +5,17 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.data_catalog.evals.constants import DEPRECATION_CANONICAL_SOURCE_NAME, DEPRECATION_STALE_SOURCE_NAME
+from products.data_catalog.evals.constants import (
+    DEPRECATION_CANONICAL_SOURCE_NAME,
+    DEPRECATION_STALE_SOURCE_NAME,
+    EVAL_DESCRIPTION_CHAR_LIMIT,
+    METRIC_CREATE_TOOL,
+    METRIC_UPDATE_TOOL,
+)
 from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
     DeprecationProposed,
+    MetricDescriptionConcise,
     MetricsCatalogBeforeDataDiscovery,
     SemanticMetadataQueried,
 )
@@ -404,6 +411,7 @@ def test_deprecation_proposed(
         (MetricsCatalogBeforeDataDiscovery(), "metrics_catalog_before_data_discovery"),
         (CanonicalMetricRun(), "canonical_metric_run"),
         (DeprecationProposed(), "deprecation_proposed"),
+        (MetricDescriptionConcise(), "metric_description_concise"),
     ]
 )
 def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_name: str) -> None:
@@ -411,3 +419,52 @@ def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_na
 
     assert score.name == scorer_name
     assert score.score is None
+
+
+_SHORT_DESCRIPTION = "Canonical MRR over the trailing 30 days, excluding personal/free plans."
+_LONG_DESCRIPTION = "x" * (EVAL_DESCRIPTION_CHAR_LIMIT + 1)
+
+
+@parameterized.expand(
+    [
+        (
+            "short_create_passes",
+            [(METRIC_CREATE_TOOL, {"name": "mrr", "description": _SHORT_DESCRIPTION}, "completed")],
+            1.0,
+        ),
+        (
+            "long_create_fails",
+            [(METRIC_CREATE_TOOL, {"name": "mrr", "description": _LONG_DESCRIPTION}, "completed")],
+            0.0,
+        ),
+        (
+            "short_create_then_long_update_fails",
+            [
+                (METRIC_CREATE_TOOL, {"name": "mrr", "description": _SHORT_DESCRIPTION}, "completed"),
+                (METRIC_UPDATE_TOOL, {"name": "mrr", "description": _LONG_DESCRIPTION}, "completed"),
+            ],
+            0.0,
+        ),
+        (
+            "failed_long_create_ignored",
+            [(METRIC_CREATE_TOOL, {"name": "mrr", "description": _LONG_DESCRIPTION}, "failed")],
+            None,
+        ),
+        (
+            "no_metric_write",
+            [("execute-sql", {"query": CATALOG_QUERY}, "completed")],
+            None,
+        ),
+    ]
+)
+def test_metric_description_concise(
+    _name: str,
+    calls: list[tuple[str, dict[str, Any], str]],
+    expected_score: float | None,
+) -> None:
+    score = MetricDescriptionConcise()._run_eval_sync(
+        {"raw_log": _tool_log(calls)},
+        {"metric_description_concise": {}},
+    )
+
+    assert score.score == expected_score
