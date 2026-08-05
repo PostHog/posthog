@@ -8,8 +8,7 @@ import logging
 from typing import Any, Optional
 
 import requests
-
-from posthog import Posthog
+from posthoganalytics import Posthog
 
 from .utils import get_service_url
 
@@ -195,8 +194,6 @@ class PostHogTestClient:
         _enable_multimodal_capture is required: without it the SDK sanitizer replaces base64
         images with a placeholder, and it is also what selects the AI lane.
         """
-        from posthog import Posthog
-
         client = Posthog(
             api_key,
             host=self.base_url,

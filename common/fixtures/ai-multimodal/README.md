@@ -24,11 +24,12 @@ Run from the repo root:
 
 Both overrides are load-bearing:
 
-- **The interpreter must be the acceptance venv's.** There the SDK is installed under its public
-  name `posthog`; the monorepo's own env installs it as `posthoganalytics`, so a bare `python`
-  fails on `from posthog import Posthog` with `ModuleNotFoundError`. Create the venv with
+- **The interpreter must be the acceptance venv's**, because that is where the `openai` package this
+  script drives is installed. Create it with
   `python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt` in
-  `common/ingestion/acceptance_tests`.
+  `common/ingestion/acceptance_tests`. Both that venv and the monorepo install the PostHog SDK under
+  the same name, `posthoganalytics` — deliberately, since importing it as `posthog` resolves to this
+  repo's own Django app and breaks type checking.
 - **`OPENAI_BASE_URL` must be forced to the real API.** Some local and agent environments set it
   to a proxy that applies its own model allowlist and rejects the request with a misleading
   `403 Model 'gpt-4o-mini' not allowed for product 'posthog_code'` — which looks like a key

@@ -10,11 +10,10 @@ Run from the repo root:
     OPENAI_BASE_URL="https://api.openai.com/v1" \
       ./common/ingestion/acceptance_tests/.venv/bin/python common/fixtures/ai-multimodal/record_fixture.py
 
-Both overrides are load-bearing: only the acceptance venv installs the SDK under its public name
-`posthog` (the monorepo env calls it `posthoganalytics`, so a bare `python` raises
-`ModuleNotFoundError`), and `OPENAI_BASE_URL` must be forced to the real API or a local proxy may
-intercept the call and reject it with a misleading `403 Model 'gpt-4o-mini' not allowed`. See the
-README beside this file for the full details.
+Both parts are load-bearing: the interpreter must be the acceptance venv's, because that is where
+the `openai` package this script drives is installed, and `OPENAI_BASE_URL` must be forced to the
+real API or a local proxy may intercept the call and reject it with a misleading
+`403 Model 'gpt-4o-mini' not allowed`. See the README beside this file for the full details.
 
 The event is intercepted via the SDK's `before_send` hook and never sent anywhere.
 """
@@ -24,8 +23,8 @@ import json
 import base64
 import pathlib
 
-from posthog import Posthog
-from posthog.ai.openai import OpenAI
+from posthoganalytics import Posthog
+from posthoganalytics.ai.openai import OpenAI
 
 HERE = pathlib.Path(__file__).parent
 SCREENSHOT = HERE / "screenshot.png"
