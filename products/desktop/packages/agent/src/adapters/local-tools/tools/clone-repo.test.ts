@@ -169,6 +169,39 @@ describe("clone_repo", () => {
     expect(existsSync(keptCheckout)).toBe(true);
   });
 
+  // Regression: a reuse-path failure used to fail every subsequent call for
+  // the same repo, with no way to force a fresh clone.
+  it("re-clones a wedged checkout that holds no local work", async () => {
+    await mkdir(targetPath, { recursive: true });
+    await git(["init", "."], targetPath);
+
+    const result = await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "PostHog/posthog" },
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(
+      await git(["rev-parse", "--is-shallow-repository"], targetPath),
+    ).toBe("true");
+  });
+
+  // The self-heal above must never cost the agent uncommitted work.
+  it("keeps a wedged checkout that holds local work", async () => {
+    await mkdir(targetPath, { recursive: true });
+    await git(["init", "."], targetPath);
+    const workPath = path.join(targetPath, "work-in-progress.md");
+    await writeFile(workPath, "unsaved edits\n");
+
+    const result = await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "PostHog/posthog" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(existsSync(workPath)).toBe(true);
+  });
+
   it("cleans up the target after a failed clone so a retry starts fresh", async () => {
     const result = await cloneRepoTool.handler(
       { cwd, token: "test-token" },

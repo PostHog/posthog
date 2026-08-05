@@ -1,7 +1,11 @@
 import * as fs from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import * as path from "node:path";
-import { execGit, type GitExecResult } from "@posthog/git/git-exec";
+import {
+  execGit,
+  execGitWithRetry,
+  type GitExecResult,
+} from "@posthog/git/git-exec";
 import { parseGithubUrl } from "@posthog/git/utils";
 import { z } from "zod";
 import { resolveGithubToken } from "../../../utils/github-token";
@@ -125,8 +129,20 @@ export const cloneRepoTool = defineLocalTool({
     const git = (gitArgs: string[], cwd?: string): Promise<GitExecResult> =>
       execGit(gitArgs, { cwd, env, timeoutMs: GIT_TIMEOUT_MS });
 
-    const run = async (gitArgs: string[], cwd?: string): Promise<string> => {
-      const result = await git(gitArgs, cwd);
+    // For the network-touching calls (clone, fetch), so a transient blip
+    // retries with backoff instead of failing the whole tool call.
+    const gitWithRetry = (
+      gitArgs: string[],
+      cwd?: string,
+    ): Promise<GitExecResult> =>
+      execGitWithRetry(gitArgs, { cwd, env, timeoutMs: GIT_TIMEOUT_MS });
+
+    const run = async (
+      gitArgs: string[],
+      cwd?: string,
+      exec: typeof git = git,
+    ): Promise<string> => {
+      const result = await exec(gitArgs, cwd);
       if (result.exitCode !== 0) {
         throw new Error(result.stderr.trim() || result.error || "git failed");
       }
@@ -161,6 +177,7 @@ export const cloneRepoTool = defineLocalTool({
         await run(
           ["fetch", "--depth", "1", "--no-tags", "origin", refspec],
           targetPath,
+          gitWithRetry,
         );
         const configured = await git(
           ["config", "--get-all", "remote.origin.fetch"],
@@ -186,6 +203,49 @@ export const cloneRepoTool = defineLocalTool({
       }
     };
 
+    const freshClone = async (): Promise<LocalToolResult> => {
+      try {
+        await fsPromises.mkdir(path.dirname(targetPath), { recursive: true });
+        const cloneArgs = [
+          "clone",
+          "--depth",
+          "1",
+          "--single-branch",
+          "--no-tags",
+        ];
+        if (branch) {
+          cloneArgs.push("--branch", branch);
+        }
+        await run(
+          [...cloneArgs, cloneUrl, targetPath],
+          undefined,
+          gitWithRetry,
+        );
+        return done();
+      } catch (err) {
+        // A partial clone would make the retry above take the "already cloned"
+        // path against a broken checkout.
+        await fsPromises.rm(targetPath, { recursive: true, force: true });
+        return fail(
+          `clone_repo failed: ${redact(
+            err instanceof Error ? err.message : String(err),
+          )}`,
+        );
+      }
+    };
+
+    // A wedged checkout (stale lock, broken config) would otherwise fail every
+    // future call for this repo, but one holding local work must not be
+    // deleted to recover.
+    const discardIfClean = async (): Promise<boolean> => {
+      const status = await git(["status", "--porcelain"], targetPath);
+      if (status.exitCode !== 0 || status.stdout.trim() !== "") {
+        return false;
+      }
+      await fsPromises.rm(targetPath, { recursive: true, force: true });
+      return true;
+    };
+
     return withCloneLock(targetPath, async () => {
       // Idempotent: a prior clone (retry, reconnected session, LLM loop)
       // leaves the repo in place. Reuse it instead of letting git abort on a
@@ -208,42 +268,26 @@ export const cloneRepoTool = defineLocalTool({
             await run(["remote", "set-url", "origin", cloneUrl], targetPath);
           }
         } catch (err) {
+          if (await discardIfClean()) {
+            return freshClone();
+          }
           return fail(
             `clone_repo couldn't secure the existing origin: ${redact(
               err instanceof Error ? err.message : String(err),
             )}`,
           );
         }
-        return (
-          (await checkout()) ??
-          (await done(`${slug} already cloned at ${targetPath}`))
-        );
+        const checkoutFailure = await checkout();
+        if (checkoutFailure) {
+          if (await discardIfClean()) {
+            return freshClone();
+          }
+          return checkoutFailure;
+        }
+        return done(`${slug} already cloned at ${targetPath}`);
       }
 
-      try {
-        await fsPromises.mkdir(path.dirname(targetPath), { recursive: true });
-        const cloneArgs = [
-          "clone",
-          "--depth",
-          "1",
-          "--single-branch",
-          "--no-tags",
-        ];
-        if (branch) {
-          cloneArgs.push("--branch", branch);
-        }
-        await run([...cloneArgs, cloneUrl, targetPath]);
-        return done();
-      } catch (err) {
-        // A partial clone would make the retry above take the "already cloned"
-        // path against a broken checkout.
-        await fsPromises.rm(targetPath, { recursive: true, force: true });
-        return fail(
-          `clone_repo failed: ${redact(
-            err instanceof Error ? err.message : String(err),
-          )}`,
-        );
-      }
+      return freshClone();
     });
   },
 });
