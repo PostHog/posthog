@@ -76,6 +76,7 @@ Reach for `hog` first, escalate to `llm_judge` if there is no deterministic way 
 | ------------ | ------------------------------------------------------------------------------------------------------------------ |
 | `generation` | Runs once for each matching `$ai_generation`, immediately after ingestion. This is the default.                    |
 | `trace`      | Runs once for the whole trace after the first matching generation and a configurable wait for the trace to finish. |
+| `session`    | Runs once for the whole `$ai_session_id` session, after the session settles.                                       |
 
 For a trace target, send `"target": "trace"` plus a settle config that controls when the trace is
 evaluated, discriminated on `strategy`:
@@ -88,23 +89,57 @@ evaluated, discriminated on `strategy`:
   defaults to 5 minutes). `max_age_seconds` caps the total wait from the first matching generation
   (1 minute to 2 hours, defaults to 2 hours, must be at least the quiet period).
 
+A `session` target takes the same settle config with session-sized bounds, and defaults to
+`inactivity` rather than `fixed_window`:
+
+- `{ "strategy": "inactivity", "quiet_period_seconds": 3600, "max_age_seconds": 86400 }` — evaluate
+  once the session has had no new activity for the quiet period (10 seconds to 24 hours, defaults
+  to 1 hour). `max_age_seconds` caps the total wait from the first matching generation (1 minute to
+  7 days, defaults to 24 hours, must be at least the quiet period).
+- `{ "strategy": "fixed_window", "window_seconds": 1800 }` — evaluate a fixed wait after the first
+  matching generation (10 seconds to 7 days).
+
+A session evaluation only fires for events that carry `$ai_session_id`. Producers either set it on
+every generation or on none, so an SDK that does not set it will never trigger a session
+evaluation. `$ai_session_id` is not `$session_id`: the second is PostHog's product-analytics
+session and is unrelated.
+
+A session evaluation can also come back skipped rather than graded. The emitted `$ai_evaluation`
+event then carries `$ai_evaluation_skipped: true` and an `$ai_evaluation_skip_reason`, and its
+`$ai_evaluation_result` is `false` when the evaluation disallows N/A, so any analysis of pass rates
+has to exclude skipped runs rather than count them as failures. Sessions are skipped when
+they hold more than 2500 events (usually a session id shared across conversations), when nothing
+was found in the evaluation window, and, for an LLM judge, when the transcript is too long to send
+in full.
+
+A session is evaluated at most once per evaluation, for as long as the completed run stays inside
+Temporal's retention window. A session that resumes long after being evaluated may be evaluated
+again, so pick a quiet period long enough that the session is really finished. A longer quiet period
+costs only latency.
+
 Conditions still match the generation that triggers the run; the evaluator itself receives
-the complete trace. Sentiment evaluations support only the generation target.
+the complete trace or session. Sentiment evaluations support only the generation target.
 
-New Hog source should use the globals shared by both targets:
+New Hog source should use the globals shared by all targets:
 
-| Global                                 | Meaning                                                                                           |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `evaluation_events`                    | One generation event for a generation target, or every captured event for a trace target.         |
-| `target`                               | The target's `type`, `id`, `total_cost_usd`, and `total_latency_seconds`.                         |
-| `item.input_text` / `item.output_text` | Best-effort readable projections; use these for length, keyword, and regex checks.                |
-| `item.input` / `item.output`           | Original serialized values; use these when the evaluator needs to parse the captured JSON itself. |
+| Global                                 | Meaning                                                                                              |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `evaluation_events`                    | One generation event for a generation target, or every captured event for a trace or session target. |
+| `target`                               | The target's `type`, `id`, `total_cost_usd`, and `total_latency_seconds`.                            |
+| `item.input_text` / `item.output_text` | Best-effort readable projections; use these for length, keyword, and regex checks.                   |
+| `item.input` / `item.output`           | Original serialized values; use these when the evaluator needs to parse the captured JSON itself.    |
+
+For a session target, `target.id` is the session id, and `target.total_cost_usd` /
+`target.total_latency_seconds` are summed across the session's traces. `total_latency_seconds` is time
+spent on AI work, not session wall-clock; the two can differ by orders of magnitude. Session wall-clock
+is derivable from `evaluation_events` timestamps.
 
 Generation evaluations still expose top-level `input`, `output`, `properties`, and `event`. Trace evaluations
 still expose their original `events` and `trace` globals. Those globals are kept for compatibility with saved
-evaluators. Do not use target-specific globals in new source that needs to work for both targets. The text
-projections recognize common provider payloads but are not authoritative; use `item.input` / `item.output` when
-exact structure matters.
+evaluators. Session evaluations do not carry them: session Hog source only receives `target` and
+`evaluation_events`. Do not use target-specific globals in new source that needs to work across targets. The
+text projections recognize common provider payloads but are not authoritative; use `item.input` / `item.output`
+when exact structure matters.
 
 ### 2.3 — Configure the LLM judge
 

@@ -448,12 +448,18 @@ class DeltaWriter:
             if delta_table is None:
                 storage_options = self._table.get_storage_options()
                 delta_uri = await self._table.get_table_uri()
+                # mode="ignore": a zombie Temporal attempt (heartbeat-timed-out but still running
+                # while its retry starts — see this package's README) or a stale get_delta_table()
+                # check can race another writer that already created this table. "ignore" opens
+                # the winner's table instead of erroring; the write below then applies our data on
+                # top of it, so the race can only change who created the table, never the outcome.
                 delta_table = await asyncio.to_thread(
                     deltalake.DeltaTable.create,
                     table_uri=delta_uri,
                     schema=data.schema,
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="ignore",
                 )
 
             try:
@@ -483,12 +489,14 @@ class DeltaWriter:
             if delta_table is None:
                 storage_options = self._table.get_storage_options()
                 delta_uri = await self._table.get_table_uri()
+                # See the full_refresh branch above for why mode="ignore" is required here.
                 delta_table = await asyncio.to_thread(
                     deltalake.DeltaTable.create,
                     table_uri=delta_uri,
                     schema=data.schema,
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="ignore",
                 )
             else:
                 # An append re-casts each source column to its stored type, same as a merge. A decimal
