@@ -133,12 +133,14 @@ class ErrorTrackingQueryBuilder:
         date_from: datetime.datetime,
         date_to: datetime.datetime,
         candidate_limit: int,
+        candidate_offset: int = 0,
     ):
         self.query = query
         self.team = team
         self.date_from = date_from
         self.date_to = date_to
         self.candidate_limit = candidate_limit
+        self.candidate_offset = candidate_offset
         self.selected_fingerprints: list[int] | None = None
 
     def build_query(self) -> ast.SelectQuery:
@@ -235,7 +237,10 @@ class ErrorTrackingQueryBuilder:
             ),
             where=ast.And(exprs=outer_where_exprs) if outer_where_exprs else None,
             group_by=[ast.Field(chain=["id"])],
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=order_direction(self.query))],
+            order_by=[
+                ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=order_direction(self.query)),
+                ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC"),
+            ],
         )
 
     def _build_inner_query(self) -> ast.SelectQuery:
@@ -296,8 +301,10 @@ class ErrorTrackingQueryBuilder:
                     expr=ast.Call(name="max", args=[ast.Field(chain=["ev", "last_seen_fp"])]),
                     order=order_direction(self.query),
                 ),
+                ast.OrderExpr(expr=ast.Field(chain=["fp_state", "issue_id"]), order="ASC"),
             ],
             limit=ast.Constant(value=self.candidate_limit),
+            offset=ast.Constant(value=self.candidate_offset),
         )
 
     def _inner_select_expressions(self) -> list[ast.Expr]:

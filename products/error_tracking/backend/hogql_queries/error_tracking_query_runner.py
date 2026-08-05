@@ -60,7 +60,8 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             self.team,
             self.date_from,
             self.date_to,
-            candidate_limit=self.paginator.offset + self.paginator.limit + 1,
+            candidate_limit=self.paginator.limit + 1,
+            candidate_offset=self.paginator.offset,
         )
 
     def get_cache_payload(self) -> dict:
@@ -102,6 +103,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     def _calculate(self):
         candidate_query = self._builder.build_candidate_query()
+        result_paginator = self.paginator
         if candidate_query is not None:
             with self.timings.measure("error_tracking_candidate_query_hogql_execute"):
                 candidate_result = execute_hogql_query(
@@ -118,9 +120,16 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             self._builder.selected_fingerprints = [
                 fingerprint for row in candidate_result.results for fingerprint in row[0]
             ]
+            # The candidate query already applied the requested offset. The
+            # enrichment query therefore paginates only within that window.
+            result_paginator = HogQLHasMorePaginator(
+                limit=self.paginator.limit,
+                offset=0,
+                limit_context=LimitContext.QUERY,
+            )
 
         with self.timings.measure("error_tracking_query_hogql_execute"):
-            query_result = self.paginator.execute_hogql_query(
+            query_result = result_paginator.execute_hogql_query(
                 query=self._builder.build_query(),
                 team=self.team,
                 query_type="ErrorTrackingQuery",
@@ -140,7 +149,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
-            **self.paginator.response_params(),
+            **{**result_paginator.response_params(), "offset": self.paginator.offset},
         )
 
     # Aggregation queries return only event uuids for first/last event (reading the
