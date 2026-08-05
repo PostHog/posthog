@@ -464,14 +464,17 @@ export interface supportTicketSceneLogicMeta {
         ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean) => boolean
         mergedTickets: (ticket: Ticket | null) => MergedTicketSummary[]
-        ticketColorById: (ticket: Ticket | null, mergedTickets: any) => Record<string, string>
-        showSourcePills: (visibleMergedTicketIds: any) => boolean
+        ticketColorById: (mergedTickets: MergedTicketSummary[]) => Record<string, string>
+        showSourcePills: (visibleMergedTicketIds: string[]) => boolean
         chatMessages: (
             messages: CommentType[],
             ticket: Ticket | null,
-            mergedConversations: any,
-            ticketColorById: any,
-            showSourcePills: any
+            mergedConversations: {
+                messages: CommentType[]
+                ticket: Ticket
+            }[],
+            ticketColorById: Record<string, string>,
+            showSourcePills: boolean
         ) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
@@ -966,17 +969,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             (s) => [s.ticket],
             (ticket: Ticket | null): MergedTicketSummary[] => ticket?.merged_tickets || [],
         ],
-        // Stable color per ticket: index 0 is the ticket being viewed, then each merged child in
-        // order. Used to tag interleaved messages and the merged-tickets legend consistently.
+        // Stable color per merged ticket. The ticket being viewed is left unmarked (no pill), so
+        // only merged tickets get colors and the legend + message pills stay consistent.
         ticketColorById: [
-            (s) => [s.ticket, s.mergedTickets],
-            (ticket: Ticket | null, mergedTickets: MergedTicketSummary[]): Record<string, string> => {
+            (s) => [s.mergedTickets],
+            (mergedTickets: MergedTicketSummary[]): Record<string, string> => {
                 const colors: Record<string, string> = {}
-                if (ticket) {
-                    colors[ticket.id] = sourceColorForIndex(0)
-                }
                 mergedTickets.forEach((t, i) => {
-                    colors[t.id] = sourceColorForIndex(i + 1)
+                    colors[t.id] = sourceColorForIndex(i)
                 })
                 return colors
             },
@@ -1000,9 +1000,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         ? { ticketId: t.id, ticketNumber: t.ticket_number, color: ticketColorById[t.id] }
                         : undefined
 
-                const base = ticket
-                    ? messages.map((m) => commentToChatMessage(m, ticket, ticket ? tagSource(ticket) : undefined))
-                    : messages.map((m) => commentToChatMessage(m, ticket))
+                // The ticket being viewed is the baseline, so its messages carry no source pill —
+                // only interleaved merged-ticket messages get tagged.
+                const base = messages.map((m) => commentToChatMessage(m, ticket))
 
                 const merged = mergedConversations.flatMap(({ ticket: mergedTicket, messages: mergedMessages }) =>
                     mergedMessages.map((m) => commentToChatMessage(m, mergedTicket, tagSource(mergedTicket)))

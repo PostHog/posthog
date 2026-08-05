@@ -85,10 +85,11 @@ export function Message({
                                 <TZLabel time={message.createdAt} />
                             </span>
                             {showSourcePill && message.sourceTicketNumber != null && (
-                                <span
-                                    className="inline-flex items-center text-xs font-medium text-white px-1.5 py-0.5 rounded"
-                                    style={{ backgroundColor: message.sourceColor }}
-                                >
+                                <span className="inline-flex items-center gap-1 text-xs text-muted-alt border rounded px-1.5 py-0.5">
+                                    <span
+                                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                                        style={{ backgroundColor: message.sourceColor }}
+                                    />
                                     #{message.sourceTicketNumber}
                                 </span>
                             )}
