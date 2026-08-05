@@ -17,10 +17,10 @@ database "posthog" {
     column "distinct_id" {
       type = "String"
     }
-    column "session_id" {
-      type = "String"
+    column "person_id" {
+      type = "UUID"
     }
-    column "device_id" {
+    column "session_id" {
       type = "String"
     }
     column "flag_key" {
@@ -55,30 +55,6 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "lib_version" {
-      type = "LowCardinality(String)"
-    }
-    column "is_server" {
-      type = "Bool"
-    }
-    column "os" {
-      type = "LowCardinality(String)"
-    }
-    column "os_version" {
-      type = "LowCardinality(String)"
-    }
-    column "app_version" {
-      type = "LowCardinality(String)"
-    }
-    column "current_url" {
-      type = "String"
-    }
-    column "pathname" {
-      type = "String"
-    }
-    column "country_code" {
-      type = "LowCardinality(String)"
-    }
-    column "subdivision_1_code" {
       type = "LowCardinality(String)"
     }
     column "group_0" {
@@ -5811,6 +5787,11 @@ database "posthog" {
     extend = "_flag_evaluations_columns"
     index "distinct_id_idx" {
       expr        = "distinct_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "person_id_idx" {
+      expr        = "person_id"
       type        = "bloom_filter(0.01)"
       granularity = 1
     }

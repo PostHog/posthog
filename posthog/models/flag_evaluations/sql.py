@@ -10,7 +10,14 @@ from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, Repli
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
-# table). One row per evaluation, personless, fixed schema, 90-day retention.
+# table). One row per evaluation, fixed schema, 90-day retention.
+#
+# The schema is deliberately minimal: enough to debug an evaluation (who saw
+# which flag, what result, why, from which SDK) and to rebuild the two default
+# per-flag insights — total volume, and unique users (or groups) per variant,
+# which is what person_id and the group keys are for. Segmentation columns
+# (geoip, OS, app version, URL) are intentionally absent: deeper flag analytics
+# belongs to experiments or to full events.
 #
 # Naming convention follows the sharded main-cluster table family (see heatmaps):
 #   * `sharded_flag_evaluations` — sharded replicated MergeTree on DATA nodes.
@@ -36,7 +43,7 @@ FLAG_EVALUATIONS_TTL_DAYS = 90
 FLAG_EVALUATIONS_SHARDING_KEY = "sipHash64(distinct_id)"
 
 # The sort key matches the queries we run: per-flag usage over a date range,
-# uniques by distinct_id. toDate(timestamp) sits inside it because PARTITION BY
+# per-flag uniques. toDate(timestamp) sits inside it because PARTITION BY
 # is monthly — without it, a one-day query for one flag would read that flag's
 # whole month. The trailing hash intentionally differs from the sharding key —
 # cityHash64 is the events table's convention for within-shard ordering — and a
@@ -63,14 +70,18 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(d
 # would otherwise find. Revisit only with measurements, and note that a codec
 # would then belong on the sharded table alone — a Distributed table stores
 # nothing, so one there is inert metadata that invites the lists to drift.
+# person_id carries no DEFAULT: a row written without one (legacy producer,
+# direct insert) zero-fills to the nil UUID, which is the "not stamped"
+# sentinel — person-based uniques treat those rows as one bucket rather than
+# inventing identities.
 _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     team_id Int64,
     uuid UUID,
     timestamp DateTime64(6, 'UTC'),
     inserted_at DateTime64(6, 'UTC'){ts_default},
     distinct_id String,
+    person_id UUID,
     session_id String,
-    device_id String,
     flag_key String,
     response LowCardinality(String),
     flag_id UInt64,
@@ -82,14 +93,6 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     locally_evaluated Bool,
     lib LowCardinality(String),
     lib_version LowCardinality(String),
-    is_server Bool,
-    os LowCardinality(String),
-    os_version LowCardinality(String),
-    app_version LowCardinality(String),
-    current_url String,
-    pathname String,
-    country_code LowCardinality(String),
-    subdivision_1_code LowCardinality(String),
     group_0 String,
     group_1 String,
     group_2 String,
@@ -111,12 +114,12 @@ def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
 # The actual data lives on the sharded main cluster.
 #
 # The bloom filters cover point lookups the sort key can't serve (a specific
-# user, session, or flags-service request). The minmax on inserted_at serves
-# incremental consumers that checkpoint on it: partitioning is on timestamp, so
-# an inserted_at range predicate prunes no partitions on its own and would
-# otherwise read all 90 days. A skip index only covers parts written after it
-# exists, so retrofitting one means a full MATERIALIZE INDEX mutation — much
-# cheaper to declare up front.
+# person, distinct_id, session, or flags-service request). The minmax on
+# inserted_at serves incremental consumers that checkpoint on it: partitioning
+# is on timestamp, so an inserted_at range predicate prunes no partitions on
+# its own and would otherwise read all 90 days. A skip index only covers parts
+# written after it exists, so retrofitting one means a full MATERIALIZE INDEX
+# mutation — much cheaper to declare up front.
 #
 # The DEFAULTs mean a direct insert that omits evaluated_at or inserted_at
 # (tests, the planned events-table backfill) falls back to the row's own
@@ -132,6 +135,7 @@ CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
 (
     {_FLAG_EVALUATIONS_COLUMNS},
     INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX person_id_idx   person_id   TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
@@ -168,14 +172,11 @@ WRITABLE_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(FLAG_EVALUA
 DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(FLAG_EVALUATIONS_TABLE)
 
 
-# `os_name` exists only here: mobile SDKs send $os_name where browser SDKs send
-# $os, and the MV coalesces the two into the single stored `os` column.
 KAFKA_FLAG_EVALUATIONS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {KAFKA_FLAG_EVALUATIONS_TABLE}
 (
-    {FLAG_EVALUATIONS_KAFKA_COLUMNS},
-    os_name LowCardinality(String)
+    {FLAG_EVALUATIONS_KAFKA_COLUMNS}
 )
 ENGINE = {
         kafka_engine(
@@ -208,8 +209,8 @@ AS SELECT
     -- (inserted_at checkpoints the sync_feature_flag_last_called task).
     if(inserted_at = {_EPOCH_DT64}, _timestamp, inserted_at) AS inserted_at,
     distinct_id,
+    person_id,
     session_id,
-    device_id,
     flag_key,
     response,
     flag_id,
@@ -221,14 +222,6 @@ AS SELECT
     locally_evaluated,
     lib,
     lib_version,
-    is_server,
-    if(os = '', os_name, os) AS os,
-    os_version,
-    app_version,
-    current_url,
-    pathname,
-    country_code,
-    subdivision_1_code,
     group_0,
     group_1,
     group_2,
