@@ -1,16 +1,6 @@
-import type { PermissionOption } from "@agentclientprotocol/sdk";
 import type { McpToolPermissionRequest } from "@posthog/shared";
 import { mcpToolKey, posthogToolMeta } from "@posthog/shared";
 import type { PermissionToolCall } from "@posthog/ui/features/permissions/types";
-
-export const PI_MCP_PERMISSION_OPTIONS: PermissionOption[] = [
-  {
-    kind: "allow_always",
-    name: "Always allow",
-    optionId: "allow_always",
-  },
-  { kind: "reject_once", name: "Reject", optionId: "reject" },
-];
 
 export function buildPiMcpPermissionToolCall(
   request: McpToolPermissionRequest,
@@ -30,6 +20,10 @@ export function buildPiMcpPermissionToolCall(
         ]
       : [],
     rawInput: request.arguments,
-    _meta: posthogToolMeta({ toolName: mcpToolKey(mcp), mcp }),
+    _meta: posthogToolMeta({
+      toolName: mcpToolKey(mcp),
+      mcp,
+      mcpInstallationId: request.installationId,
+    }),
   };
 }

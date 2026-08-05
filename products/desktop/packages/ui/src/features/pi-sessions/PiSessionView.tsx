@@ -29,7 +29,10 @@ import {
   EmptyTitle,
   Skeleton,
 } from "@posthog/quill";
-import type { AgentConversationEvent } from "@posthog/shared";
+import {
+  type AgentConversationEvent,
+  MCP_TOOL_PERMISSION_OPTIONS,
+} from "@posthog/shared";
 import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
@@ -64,10 +67,7 @@ import { PiProjectTrustBanner } from "./PiProjectTrustBanner";
 import { PiQueuedMessagesDock } from "./PiQueuedMessagesDock";
 import { PiMessagingModeSelector } from "./PiSessionControls";
 import { PiSessionModelControls } from "./PiSessionModelControls";
-import {
-  buildPiMcpPermissionToolCall,
-  PI_MCP_PERMISSION_OPTIONS,
-} from "./piMcpPermission";
+import { buildPiMcpPermissionToolCall } from "./piMcpPermission";
 import {
   getPiPendingConfig,
   usePiPendingConfigStore,
@@ -738,7 +738,7 @@ export function PiSessionView({
           ) : (
             <PermissionSelector
               toolCall={buildPiMcpPermissionToolCall(mcpPermission)}
-              options={PI_MCP_PERMISSION_OPTIONS}
+              options={[...MCP_TOOL_PERMISSION_OPTIONS]}
               onSelect={(optionId) => {
                 respondMcpPermission(
                   optionId === "allow_always" ? "allow_always" : "reject",

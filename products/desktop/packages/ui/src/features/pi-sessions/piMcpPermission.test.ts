@@ -1,9 +1,10 @@
-import { readMcpToolDescriptor } from "@posthog/shared";
-import { describe, expect, it } from "vitest";
 import {
-  buildPiMcpPermissionToolCall,
-  PI_MCP_PERMISSION_OPTIONS,
-} from "./piMcpPermission";
+  MCP_TOOL_PERMISSION_OPTIONS,
+  readMcpInstallationId,
+  readMcpToolDescriptor,
+} from "@posthog/shared";
+import { describe, expect, it } from "vitest";
+import { buildPiMcpPermissionToolCall } from "./piMcpPermission";
 
 describe("Pi MCP permission", () => {
   it("preserves the MCP descriptor and arguments for permission rendering", () => {
@@ -20,13 +21,13 @@ describe("Pi MCP permission", () => {
       server: "Cloudflare",
       tool: "search",
     });
+    expect(readMcpInstallationId(toolCall._meta)).toBe("installation-1");
     expect(toolCall.rawInput).toEqual({ query: "workers" });
   });
 
   it("does not offer one-time approval when approval must persist", () => {
-    expect(PI_MCP_PERMISSION_OPTIONS.map((option) => option.optionId)).toEqual([
-      "allow_always",
-      "reject",
-    ]);
+    expect(
+      MCP_TOOL_PERMISSION_OPTIONS.map((option) => option.optionId),
+    ).toEqual(["allow_always", "reject"]);
   });
 });

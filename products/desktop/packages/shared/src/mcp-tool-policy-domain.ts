@@ -18,3 +18,12 @@ export interface McpToolPermissionRequest {
 }
 
 export type McpToolPermissionDecision = "allow" | "allow_always" | "reject";
+
+export const MCP_TOOL_PERMISSION_OPTIONS = [
+  {
+    kind: "allow_always",
+    name: "Always allow",
+    optionId: "allow_always",
+  },
+  { kind: "reject_once", name: "Reject", optionId: "reject" },
+] as const;

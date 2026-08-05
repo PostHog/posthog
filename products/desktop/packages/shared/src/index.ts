@@ -219,11 +219,12 @@ export type {
   LocalMcpTransport,
   McpServerConnection,
 } from "./local-mcp-domain";
-export type {
-  McpToolApprovalState,
-  McpToolPermissionDecision,
-  McpToolPermissionRequest,
-  McpToolPolicy,
+export {
+  MCP_TOOL_PERMISSION_OPTIONS,
+  type McpToolApprovalState,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
+  type McpToolPolicy,
 } from "./mcp-tool-policy-domain";
 export {
   formatMention,
@@ -371,6 +372,7 @@ export {
   parseMcpToolName,
   posthogToolMeta,
   readAgentToolName,
+  readMcpInstallationId,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,
