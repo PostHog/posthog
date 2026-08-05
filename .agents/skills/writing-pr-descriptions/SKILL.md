@@ -4,7 +4,7 @@ description: >
   Shapes a PR body into something a reviewer understands at a glance.
   Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve an existing description.
   Puts the effect a person sees in the first line and the mechanism under it, routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), cuts everything a reviewer does not need, then holds what survives to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
-  Keeps only what a reviewer cannot get from the diff, sizes the body to the change so a small PR reads as small, and makes every claim either linked to its evidence or labeled as unchecked.
+  Makes the body stand alone, so a reader who opens no files still knows why the PR is necessary and what it does, sizes the body to the change so a small PR reads as small, and makes every claim either linked to its evidence or labeled as unchecked.
   Ends with a scan test the agent runs over its own draft, reading only the title and the first line of two sections.
   Not for commit messages (see AGENTS.md, "Commit types") or user-facing product copy (see `/writing-user-facing-copy`).
 ---
@@ -13,7 +13,7 @@ description: >
 
 A reviewer scans a description in seconds and decides where to spend attention. The body is a scanning surface, not an essay.
 
-It also has to earn that attention. A body that repeats the diff, or that would fit any PR equally well, teaches its reader to skip the next one.
+It also has to earn that attention, and to stand without the diff. A body that narrates the code, or that would fit any PR equally well, teaches its reader to skip the next one.
 
 Order decides whether they understand the change at all.
 Form and length only decide how fast.
@@ -91,16 +91,26 @@ Assign by role (`class NodeA,NodeB phBlue;`): `phBlue` agents and primary paths,
 
 ## Pass 3: cut
 
-The reviewer is about to read the diff.
-Anything in the body they could get from the diff is a copy at lower fidelity, and enough of those copies is what taught engineers to skip PR descriptions.
+The body has to stand on its own.
+Do not assume the reviewer reads the diff first, or at all, or in the order you wrote it.
+Many go straight to the code and come back only if the body earned it, so write for a reader who has opened no files.
 
-So keep only what the diff cannot tell them: the intent, the alternative you rejected, the blast radius, what to watch after it ships, where to look first.
+Keep:
+
+- Why the change is necessary.
+- What it does, at a level someone who has opened no files can follow.
+- The alternative you rejected, the blast radius, what to watch after it ships, where to look first.
+
+Cut the detail the diff carries better: exact values, per-file narration, the mechanics of code a reviewer reads in context anyway.
+
+The test is not "is this in the diff". A diff holds every detail and none of the point, and reconstructing the point from it costs minutes.
+The test is whether a reader who never opens a file still knows why this exists and what it does.
 
 One fact per bullet makes prose checkable. It does not make it shorter: a dense paragraph exploded into twelve bullets moves the reviewer's cost rather than removing it. Cut first, and shape only what survives.
 
 Delete:
 
-- Anything reconstructable from the diff.
+- Narration of the diff, file by file or line by line. Summarize the change instead.
 - Rationale for a choice nobody would question. Keep the reason only where you rejected an obvious alternative.
 - Restatements of the title, and summaries of the sections above.
 - Process narration. "Then I ran X, then Y" is a fact about your session, not about the change.
@@ -117,6 +127,8 @@ When the diff is six lines, the body has to read as the body of a six-line chang
 - A typical PR: Problem and Changes together fit in about 10 bullets.
 - One line or "None" under every heading that does not apply. That is a complete answer, not a gap.
 - Numbers, file paths and identifiers survive cutting. Adjectives and second explanations do not.
+
+Small does not mean partial. Three bullets still have to carry why the change is necessary and what it does.
 
 ### Claims a reader can check
 
@@ -172,7 +184,7 @@ This governs prose only. A table cell is not a sentence, and a diagram is not pr
 > - The span gets the job key `...:None`.
 > - Re-run recovery cannot join on that key.
 
-The cut removed the glob matching one artifact, which is the mechanism behind "in selective mode" and reachable from the diff. It kept every identifier, and every link in the chain a reviewer has to check.
+The cut removed the glob matching one artifact. That is one level below what a reader needs, and "in selective mode" still names the condition. It kept every identifier, and every link in the chain a reviewer has to check.
 
 Copy the second one. It is shorter, not just flatter.
 
@@ -203,7 +215,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
 2. Does the size of the body track the size of the diff? A six-line change under a full-length body reads as filler, and it costs the next description too.
 3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
-4. Could a reader get this bullet from the diff? Then cut it.
+4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
 5. Read each bullet and name the reader who needs it. Delete the ones you cannot.
 6. Read each bullet alone. Does it state one fact? If it states two, split it.
 7. Count the words in the longest sentence. Over 25, split it.

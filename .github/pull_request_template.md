@@ -1,4 +1,4 @@
-<!-- Length tracks the change: a small diff gets a few bullets, not a full-length body. Keep what a reviewer cannot get from the diff and cut the rest. A section you have nothing for gets one line or "None", and that is a complete answer. -->
+<!-- This has to stand on its own: a reader who opens no files should still know why the PR is necessary and what it does. Length tracks the change, so a small diff gets a few bullets rather than a full-length body, and a section you have nothing for gets one line or "None". -->
 
 ## Problem
 
@@ -74,5 +74,5 @@
 - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
-- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead with the effect a person sees rather than the code path behind it, keep only what a reviewer can't get from the diff, size the body to the change, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
+- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead with the effect a person sees rather than the code path behind it, make the body stand alone for a reader who opens no files, size it to the change, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
 -->
