@@ -318,6 +318,7 @@ the row lists both.
 | hightouch                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | honeybadger                      | HTTP                        | requests                                                        | ✅                          |
 | honeycomb                        | HTTP                        | requests                                                        | ✅                          |
+| hookdeck                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | hoorayhr                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | humanitix                        | HTTP                        | requests                                                        | ✅                          |
 | hubplanner                       | HTTP                        | requests                                                        | ✅                          |
@@ -1044,7 +1045,6 @@ doesn't conflict with concurrent PRs.
 - holded
 - honeybadger
 - honeycomb
-- hookdeck
 - hostaway
 - housecall_pro
 - hubplanner
