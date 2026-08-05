@@ -316,10 +316,14 @@ export interface replayScannerLogicActions {
     }
     draftScannerFromGoalSuccess: (
         goalDraft: DraftScannerResponseApi | null,
-        payload?: any
+        payload?: {
+            goal: string
+        }
     ) => {
         goalDraft: DraftScannerResponseApi | null
-        payload?: any
+        payload?: {
+            goal: string
+        }
     }
     loadObservationStats: () => {
         value: true
