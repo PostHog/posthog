@@ -73,6 +73,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE,
+    BlastRadiusResult,
     get_user_blast_radius,
     get_user_blast_radius_persons,
 )
@@ -467,6 +468,45 @@ def _looks_like_uuid(value: str) -> bool:
         return False
 
 
+def _parse_uuid_or_none(value: Any) -> Optional[uuid_mod.UUID]:
+    try:
+        return uuid_mod.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: str) -> str:
+    """template_id on fixed-template steps is fully determined by the step type, so infer it when
+    omitted instead of rejecting for leaving out a constant, and move a UUID-shaped value (a saved
+    library template reference, the dominant authoring mistake) into config.template_uuid where it
+    belongs. Returns the template_id the step should resolve."""
+    if not template_id:
+        config["template_id"] = fixed_template_id
+        return fixed_template_id
+    if template_id == fixed_template_id:
+        return template_id
+    library_uuid = _parse_uuid_or_none(template_id)
+    if library_uuid is None:
+        return template_id
+    if config.get("template_uuid") and _parse_uuid_or_none(config["template_uuid"]) != library_uuid:
+        raise serializers.ValidationError(
+            {
+                "template_id": (
+                    f"Ambiguous template reference: template_id holds UUID '{template_id}' but "
+                    f"config.template_uuid is already '{config['template_uuid']}'. Set template_id "
+                    f"to the literal '{fixed_template_id}' and keep the saved template's UUID in "
+                    "config.template_uuid."
+                )
+            }
+        )
+    # Persist the canonical hyphenated form: uuid.UUID also accepts 32-hex, braced, and URN
+    # forms, but the CDP worker validates function_push's template_uuid with a strict UUID
+    # schema, so a non-canonical form would save fine and then fail the worker's parse.
+    config["template_uuid"] = str(library_uuid)
+    config["template_id"] = fixed_template_id
+    return fixed_template_id
+
+
 def _describe_unknown_template(action: dict, template_id: str) -> str:
     fixed_id = _FIXED_TEMPLATE_IDS.get(action.get("type", ""))
     if fixed_id and _looks_like_uuid(template_id):
@@ -789,7 +829,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "Max 30d. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
             "random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' "
-            "edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). "
+            "edge with index:N; percentages are relative weights, so they should sum to 100 but a total above "
+            "or below that still splits traffic in the given proportions. "
             "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
             "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
             "delay). Continues when condition.filters match OR any events entry fires; each events entry "
@@ -988,7 +1029,11 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
 
         if "function" in data.get("type", "") or trigger_is_function:
-            template_id = data.get("config", {}).get("template_id", "")
+            config = data.setdefault("config", {})
+            template_id = config.get("template_id", "")
+            fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
+            if fixed_template_id:
+                template_id = _apply_fixed_template_id(config, template_id, fixed_template_id)
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 if strict:
@@ -3442,16 +3487,16 @@ class HogFlowViewSet(
         if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
             total = self.team.persons_seen_so_far
             affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
+            blast_radius = BlastRadiusResult(affected=affected, total=total)
             applied_dedupe_key = dedupe_key
         else:
-            result = get_user_blast_radius(self.team, filters, group_type_index)
-            affected, total = result.affected, result.total
+            blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
 
         return Response(
             BlastRadiusSerializer(
                 {
-                    "affected": affected,
-                    "total": total,
+                    "affected": blast_radius.affected,
+                    "total": blast_radius.total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
                     "dedupe_key": applied_dedupe_key,
                     "confirm_token": mint_audience_confirm_token(

@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_REPARTITION_DURATION_SECONDS,
     DELTA_REPARTITION_TOTAL,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 
 LOGGER = get_logger(__name__)
 
@@ -156,12 +157,15 @@ def _needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -
     read the live partition sizes from the Delta log each run and let `maybe_flag_for_repartition` judge
     against the real, current size. The cost is one metadata-only Delta-log read per sync, bounded to
     flagged schemas; a disabled flag still short-circuits to a zero-I/O no-op.
+
+    A table nominated for coarsening is measured whether or not the rollout flag covers it, since the
+    nomination is the operator asking for exactly this measurement. CDC stays excluded either way.
     """
-    if not enabled:
-        return False
     if schema.sync_type == ExternalDataSchema.SyncType.CDC:
         return False
-    return True
+    if schema.coarsen_requested is not None:
+        return True
+    return enabled
 
 
 def _maybe_flag_pre_extraction(
@@ -297,6 +301,20 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             job_id=inputs.job_id,
         )
         return
+
+    # Attach the same source/schema identity the import activity does, so an exception captured
+    # anywhere below (budget exhaustion, an unexpected rewrite failure) can be attributed to a
+    # connector and table instead of landing in error tracking with no sync context.
+    bind_job_context(
+        team_id=inputs.team_id,
+        source_type=schema.source.source_type,
+        external_data_source_id=inputs.source_id,
+        external_data_schema_id=inputs.schema_id,
+        external_data_job_id=inputs.job_id,
+        schema_name=schema.name,
+        sync_type=schema.sync_type,
+        pipeline_version=job.pipeline_version,
+    )
 
     # `resolved_s3_folder_name` is authoritative for the Delta folder, not the row's own name: a row
     # renamed during the multi-schema migration keeps its folder pinned to the original path (name

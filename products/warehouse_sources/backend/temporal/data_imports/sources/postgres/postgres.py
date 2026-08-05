@@ -392,10 +392,14 @@ def _is_connection_limit_error(error: BaseException) -> bool:
 # database system is starting up"), a server replaying WAL after a crash ("the database system is
 # in recovery mode"), or a hot standby that has accepted the connection attempt but not yet reached
 # a consistent recovery point ("the database system is not yet accepting connections", DETAIL
-# "Consistent recovery state has not been yet reached"). All are transient: the server begins
-# accepting connections within seconds once startup/recovery completes, so a fresh connect after a
-# short backoff succeeds. libpq surfaces these as a bare OperationalError at connect time (no
-# SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
+# "Consistent recovery state has not been yet reached"). The same SQLSTATE also covers the mirror
+# case at the other end of the server's lifecycle: a smart/fast shutdown in progress refuses new
+# connections with "the database system is shutting down" while existing backends are terminated
+# (that termination surfaces separately as "terminating connection due to administrator command",
+# already retried via `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`). All are transient: the server begins
+# accepting connections again within seconds once startup/recovery/restart completes, so a fresh
+# connect after a short backoff succeeds. libpq surfaces these as a bare OperationalError at connect
+# time (no SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
 # hot-standby-disabled refusal — that reads "the database system is not accepting connections"
 # (no "yet") with DETAIL "Hot standby mode is disabled" and stays non-retryable (see source.py's
 # `get_non_retryable_errors`); none of the substrings below appear in it.
@@ -403,6 +407,7 @@ _SERVER_STARTING_UP_ERROR_SUBSTRINGS = (
     "the database system is starting up",
     "the database system is not yet accepting connections",
     "the database system is in recovery mode",
+    "the database system is shutting down",
 )
 
 
@@ -672,12 +677,15 @@ def _get_sslmode(require_ssl: bool) -> str:
 # Transaction-mode connection poolers reject the libpq `options` startup parameter outright:
 # Supabase's Supavisor (port 6543) and PgBouncer in transaction mode report "unsupported startup
 # parameter: options", and AWS RDS Proxy reports "RDS Proxy currently doesn't support command-line
-# options". We only send `options` to pin client_encoding=UTF8 for Redshift's legacy UNICODE alias
-# (see FORCE_UTF8_CLIENT_ENCODING), and Redshift never sits behind these poolers — so when a server
-# rejects `options`, dropping it and retrying is safe (UTF8 is the default client encoding for real
-# Postgres). The RDS Proxy text uses a typographic apostrophe, so match the apostrophe-free tail.
+# options". Neon's pooler names the offending setting instead — "unsupported startup parameter in
+# options: statement_timeout" — so match on the prefix rather than any one parameter name.
+# Beyond client_encoding=UTF8 for Redshift's legacy UNICODE alias (see FORCE_UTF8_CLIENT_ENCODING),
+# `options` only ever carries server-side timeouts that the caller's own deadlines already bound —
+# so when a server rejects it, dropping it and retrying is safe. The RDS Proxy text uses a
+# typographic apostrophe, so match the apostrophe-free tail.
 _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS = (
     "unsupported startup parameter: options",
+    "unsupported startup parameter in options",
     "support command-line options",
 )
 
@@ -3024,6 +3032,12 @@ def postgres_source(
                             logger.debug("Checking if source is a read replica...")
                             using_read_replica = _is_read_replica(cursor)
                             logger.debug(f"using_read_replica = {using_read_replica}")
+                            # DuckDB/duckgres-backed Postgres-wire engines don't implement
+                            # `DECLARE CURSOR` (or the `pg_catalog.pg_cursors` check psycopg's
+                            # ServerCursor runs before it), so `get_rows` must skip the
+                            # server-side cursor read path against them.
+                            is_duckdb = _is_duckdb_connection(cursor)
+                            logger.debug(f"is_duckdb = {is_duckdb}")
                             logger.debug("Getting primary keys...")
                             primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                             if primary_keys:
@@ -3270,7 +3284,7 @@ def postgres_source(
             # the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
             arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
         with _tunnel_with_handshake_translation(tunnel) as (host, port):
-            cursor_factory = psycopg.ServerCursor if not using_read_replica else None
+            cursor_factory = psycopg.ServerCursor if not using_read_replica and not is_duckdb else None
 
             def get_connection():
                 try:
@@ -3527,6 +3541,13 @@ def postgres_source(
                 # and failing the whole activity. Only the connect is retried; a drop mid-fetch still
                 # propagates, so a partially read window/partition is never re-yielded.
                 return _connect_with_dropped_retry(get_connection, logger)
+
+            if is_duckdb:
+                # No server-side cursor support (see `is_duckdb` above), so read with the same
+                # LIMIT/OFFSET fallback a read replica uses on a recovery conflict — a plain client
+                # cursor, no DECLARE required.
+                yield from offset_chunking(0, chunk_size)
+                return
 
             if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
 

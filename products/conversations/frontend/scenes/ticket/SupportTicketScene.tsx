@@ -11,7 +11,7 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -106,6 +106,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         emailReplyBlockedReason,
         latestAiMessage,
         feedbackByMessageId,
+        editingMessageId,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -126,6 +127,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftModeEnabled,
         dismissKnowledgeGap,
         submitAiReplyFeedback,
+        startEditingMessage,
+        cancelEditingMessage,
+        deleteMessage,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -155,6 +159,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
               ),
           }[emailReplyBlockedReason]
         : undefined
+
+    const canEditTicket = accessLevelSatisfied(
+        AccessControlResourceType.Ticket,
+        ticket?.user_access_level ?? AccessControlLevel.None,
+        AccessControlLevel.Editor
+    )
 
     const sendDisabledReason =
         getAccessControlDisabledReason(
@@ -253,6 +263,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         showAiReplyFeedback={aiSuggestionsEnabled}
                         aiReplyFeedbackDisabledReason={sendDisabledReason}
                         onSubmitAiReplyFeedback={submitAiReplyFeedback}
+                        currentUserId={user?.id ?? null}
+                        canEditTicket={canEditTicket}
+                        editingMessageId={editingMessageId}
+                        onEditMessage={startEditingMessage}
+                        onDeleteMessage={deleteMessage}
+                        onCancelEdit={cancelEditingMessage}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
