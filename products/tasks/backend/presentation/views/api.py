@@ -708,9 +708,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
             return _pi_cloud_runtime_disabled_response()
 
-        # Usage limits only, no PostHog Desktop entitlement check: this is the endpoint the
-        # generally-available Inbox runs tasks through (report "Create PR" / "Discuss", scout chat),
-        # so gating it on a product the Inbox doesn't require would 403 a released surface.
+        # Usage limits only, no `has_tasks_access` check: that gate is the Desktop waitlist (the
+        # `tasks` flag or a redeemed invite), and this is the endpoint the generally-available Inbox
+        # runs tasks through (report "Create PR" / "Discuss", scout chat). Waitlisting a released
+        # surface would 403 it; cost is covered by usage-based billing.
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
@@ -1778,7 +1779,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = request.validated_data.get("params")
 
         if method == "user_message":
-            # No PostHog Desktop entitlement check, for the same reason as `TaskViewSet.run`:
+            # No `has_tasks_access` check, for the same reason as `TaskViewSet.run`:
             # the Inbox starts interactive runs and drops the user straight into this composer, so
             # "Discuss" would 403 on its first reply if this required Code access.
             command_params = dict(params or {})

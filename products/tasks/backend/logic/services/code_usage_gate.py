@@ -155,9 +155,9 @@ def code_access_required_response(user) -> Response | None:
 def usage_limit_response(user, team_id: int) -> Response | None:
     """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 
-    Since Desktop moved to usage-based billing, this is the cost backstop on cloud runs — no
-    entitlement is involved. Fails open when the gateway can't be reached, so every check is
-    counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded
+    Since Desktop moved to usage-based billing, this is the whole cost control on cloud runs —
+    no waitlist check is involved. Fails open when the gateway can't be reached, so every check
+    is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded
     gateway silently removing the backstop is visible, not just logged.
     """
     usage = get_posthog_code_usage(user, team_id)
@@ -175,7 +175,7 @@ def usage_limit_response(user, team_id: int) -> Response | None:
 
 
 def cloud_usage_limit_response(user, team_id: int) -> Response | None:
-    """Desktop entitlement first (fails closed), then the usage backstop.
+    """Desktop waitlist access first (fails closed), then the usage backstop.
 
     For background paths that dispatch a cloud run on a user's behalf — a scheduled Loop fire —
     where the creator's Desktop access has to still hold at fire time. Request paths that only

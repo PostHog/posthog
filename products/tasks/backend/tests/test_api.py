@@ -9043,7 +9043,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_user_message_without_code_access_still_sends(self, mock_signal_followup):
         # The Inbox drops users straight into this composer after starting an interactive run,
-        # so replying must not require PostHog Code access.
+        # so replying must not require Desktop waitlist access.
         self.set_tasks_feature_flag(False)
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
@@ -10622,7 +10622,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_without_code_access_still_runs(self, mock_gate, mock_workflow):
         # The generally-available Inbox runs report and scout tasks through this endpoint, so the
-        # PostHog Code (`tasks`) entitlement must not gate it.
+        # Desktop waitlist (`tasks` flag) must not gate it.
         mock_gate.return_value = None
         self.set_tasks_feature_flag(False)
         task = self.create_task()
@@ -10670,7 +10670,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_create_cloud_run_without_code_access_still_runs(self, mock_gate):
-        # Desktop is usage-billed, so cloud runs are metered rather than entitlement-gated.
+        # Desktop is usage-billed, so cloud runs are metered rather than waitlist-gated.
         mock_gate.return_value = None
         self.set_tasks_feature_flag(False)
         task = self.create_task()
