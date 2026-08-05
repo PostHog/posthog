@@ -2312,6 +2312,27 @@ class TestComputationExecutorExecute(BaseTest):
 
         mock_create.assert_not_called()
 
+    def test_a_job_invalidated_mid_insert_is_not_resurrected_by_the_success_path(self):
+        # Invalidation deletes PENDING rows too. If the insert then succeeds, `job.save()` UPDATEs
+        # nothing and falls back to an INSERT, recreating the row as READY with its pre-invalidation
+        # expiry — silently undoing the delete and leaving the stale window authoritative for the
+        # full band TTL. The failure path already went through `_finalize_job` for this reason; the
+        # success path is the common one and did not.
+        query_info, query_hash = self._make_query_info()
+
+        def delete_the_job_mid_insert(team, job):
+            PreaggregationJob.objects.filter(id=job.id).delete()
+
+        LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=delete_the_job_mid_insert,
+        )
+
+        assert PreaggregationJob.objects.filter(team=self.team, query_hash=query_hash).count() == 0
+
     # --- Insert-first ordering ---
 
     def test_inserts_missing_ranges_before_waiting_for_pending(self):

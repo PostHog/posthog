@@ -839,10 +839,15 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             {
                 "requested_range": {"date_from": date_from, "date_to": date_to},
                 "effective_range": (
-                    # `.date()` because the span comes off job time ranges, which are datetimes, while
-                    # the contract here is whole UTC days. DRF's DateField refuses to coerce a datetime
-                    # rather than silently dropping the time, so this has to be explicit.
-                    {"date_from": effective.effective_start.date(), "date_to": effective.effective_end.date()}
+                    # The span comes off job time ranges, which are datetimes, while the contract here
+                    # is whole UTC days — DRF's DateField refuses to coerce rather than silently drop
+                    # the time. `effective_end` is Max(time_range_end), the half-open *exclusive*
+                    # bound, so a job covering the 30th ends at the 31st at midnight; step back a day
+                    # or the response claims a day was invalidated that nothing touched.
+                    {
+                        "date_from": effective.effective_start.date(),
+                        "date_to": (effective.effective_end - timedelta(days=1)).date(),
+                    }
                     if effective.effective_start is not None and effective.effective_end is not None
                     else None
                 ),

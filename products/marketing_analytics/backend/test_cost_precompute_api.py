@@ -125,6 +125,19 @@ class CostPrecomputeInvalidateAPITest(APIBaseTest):
 
     # --- Response contract ---
 
+    def test_effective_range_end_is_the_last_invalidated_day_not_the_exclusive_bound(self):
+        # `effective_end` is Max(time_range_end), which is the half-open exclusive bound: a job
+        # covering July 30 ends at 2026-07-31T00:00. Reporting `.date()` of that claimed July 31
+        # was invalidated when nothing on that day was touched.
+        wide = _invalidation(
+            start=datetime(2026, 7, 1, tzinfo=UTC),
+            end=datetime(2026, 7, 31, tzinfo=UTC),
+        )
+        with patch(_INVALIDATE, return_value=wide), patch(_REBUILD_TASK):
+            body = self._post().json()
+
+        assert body["effective_range"]["date_to"] == "2026-07-30"
+
     def test_reports_effective_range_when_wider_than_requested(self):
         wide = _invalidation(
             start=datetime(2026, 7, 1, tzinfo=UTC),
@@ -133,7 +146,7 @@ class CostPrecomputeInvalidateAPITest(APIBaseTest):
         with patch(_INVALIDATE, return_value=wide), patch(_REBUILD_TASK):
             body = self._post().json()
 
-        assert body["effective_range"] == {"date_from": "2026-07-01", "date_to": "2026-07-31"}
+        assert body["effective_range"] == {"date_from": "2026-07-01", "date_to": "2026-07-30"}
         assert any("wider than requested" in note for note in body["notes"])
 
     def test_effective_range_is_null_when_nothing_matched(self):

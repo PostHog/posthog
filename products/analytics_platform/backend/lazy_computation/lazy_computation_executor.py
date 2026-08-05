@@ -1167,7 +1167,10 @@ class LazyComputationExecutor:
                                 )
                                 if empty_expires_at is not None:
                                     new_job.expires_at = min(new_job.expires_at, empty_expires_at)
-                            new_job.save()
+                            # Filtered UPDATE, not save(): invalidation deletes PENDING rows too, and
+                            # save() would fall back to an INSERT and recreate this one as READY with
+                            # its pre-invalidation expiry. Same reason the failure path below uses it.
+                            self._finalize_job(new_job, ["status", "computed_at", "expires_at"])
                             publish_job_completion(new_job.id, "ready")
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
                                 outcome="ready_empty" if wrote_nothing else "ready",
