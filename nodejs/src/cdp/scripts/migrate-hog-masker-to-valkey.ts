@@ -10,11 +10,16 @@ import {
 
 const KEY_PATTERN = '@posthog/hog-masker/mask/*'
 
-function connectionFromEnv(prefix: 'CDP_REDIS' | 'CDP_VALKEY'): Redis {
+function requiredHost(prefix: 'CDP_REDIS' | 'CDP_VALKEY'): string {
     const host = process.env[`${prefix}_HOST`]
     if (!host) {
         throw new Error(`${prefix}_HOST is required`)
     }
+    return host
+}
+
+function connectionFromEnv(prefix: 'CDP_REDIS' | 'CDP_VALKEY'): Redis {
+    const host = requiredHost(prefix)
     const port = Number(process.env[`${prefix}_PORT`] || '6379')
     const password = process.env[`${prefix}_PASSWORD`] || undefined
     const tls = process.env[`${prefix}_TLS`] === 'true' ? {} : undefined
@@ -66,8 +71,9 @@ Connections come from CDP_REDIS_* (source) and CDP_VALKEY_* (target).`)
 
 async function main(): Promise<void> {
     const options = parseOptions()
-    const sourceHost = process.env.CDP_REDIS_HOST
-    const targetHost = process.env.CDP_VALKEY_HOST
+    // Resolve hosts before comparing them, so a missing host reports itself rather than looking like a duplicate endpoint.
+    const sourceHost = requiredHost('CDP_REDIS')
+    const targetHost = requiredHost('CDP_VALKEY')
     if (
         sourceHost === targetHost &&
         (process.env.CDP_REDIS_PORT || '6379') === (process.env.CDP_VALKEY_PORT || '6379')

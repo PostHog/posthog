@@ -52,7 +52,7 @@ describe('HogMasker Valkey migration', () => {
         await expect(target.get(SOURCE_KEY)).resolves.toBeNull()
     })
 
-    it('copies values while preserving the absolute expiry', async () => {
+    it('copies values while preserving the remaining expiry', async () => {
         await source.set(SOURCE_KEY, '42', 'PX', 60_000)
 
         const summary = await runMaskerMigration(source, target, options())

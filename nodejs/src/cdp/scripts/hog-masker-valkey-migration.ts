@@ -46,14 +46,7 @@ async function* scanBatches(redis: Redis, keyPattern: string, count: number): As
     } while (cursor !== '0')
 }
 
-function sourceTimeMs([seconds, microseconds]: [string, string]): number {
-    return Number(seconds) * 1000 + Math.floor(Number(microseconds) / 1000)
-}
-
-function successfulPipelineRows(
-    rows: [Error | null, unknown][] | null,
-    operation: string
-): [Error | null, unknown][] {
+function successfulPipelineRows(rows: [Error | null, unknown][] | null, operation: string): [Error | null, unknown][] {
     if (!rows) {
         throw new Error(`${operation} returned no results`)
     }
@@ -81,10 +74,8 @@ export async function copyMaskerKeys(
             sourcePipeline.get(key)
             sourcePipeline.pttl(key)
         }
-        const [time, pipelineRows] = await Promise.all([source.time(), sourcePipeline.exec()])
-        const rows = successfulPipelineRows(pipelineRows, 'Source Redis read pipeline')
+        const rows = successfulPipelineRows(await sourcePipeline.exec(), 'Source Redis read pipeline')
 
-        const nowMs = sourceTimeMs(time)
         const targetPipeline = target.pipeline()
         let pendingCopies = 0
         keys.forEach((key, index) => {
@@ -94,7 +85,7 @@ export async function copyMaskerKeys(
                 summary.skippedExpiredKeys++
                 return
             }
-            targetPipeline.set(key, value, 'PXAT', nowMs + ttlMs)
+            targetPipeline.set(key, value, 'PX', ttlMs)
             pendingCopies++
         })
         if (pendingCopies > 0) {
