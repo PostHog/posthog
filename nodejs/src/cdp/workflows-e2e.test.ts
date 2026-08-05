@@ -397,8 +397,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     })
 
     describe('simple workflow: trigger → function → exit', () => {
+        let workflowId: string
+
         beforeEach(async () => {
-            await createWorkflow({
+            workflowId = await createWorkflow({
                 actions: {
                     trigger: trigger(),
                     function_1: fetchAction('https://example.com/webhook'),
@@ -426,7 +428,9 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             // Verify metrics were produced to Kafka
             await waitForExpect(() => {
-                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                const metrics = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                 expect(metrics.length).toBeGreaterThanOrEqual(1)
             }, 5000)
 
@@ -435,6 +439,24 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
                 expect(logs.length).toBeGreaterThanOrEqual(1)
             }, 5000)
+        })
+
+        it('mirrors every metric of the run under the workflow version that produced it', async () => {
+            await triggerWorkflow(globals)
+
+            const namesFor = (appSource: string, appSourceId: string): string[] =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === appSource && m.value.app_source_id === appSourceId)
+                    .map((m: any) => m.value.metric_name)
+                    .sort()
+
+            // The version-scoped series has to carry the whole run, not just the run-level outcome —
+            // a per-version step funnel is only readable if every step's metric is mirrored.
+            await waitForExpect(() => {
+                expect(namesFor('hog_flow', workflowId)).toContain('succeeded')
+                expect(namesFor('hog_flow_version', `${workflowId}/1`)).toEqual(namesFor('hog_flow', workflowId))
+            }, 10000)
         })
     })
 
@@ -742,6 +764,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             await waitForExpect(() => {
                 const metricNames = mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .map((m: any) => m.value.metric_name)
                 expect(metricNames).toContain('exited_workflow_changed')
                 expect(metricNames).not.toContain('failed')
@@ -1671,6 +1694,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             const conversionCount = (): number =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter((m: any) => m.value.metric_name === 'conversion')
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2508,6 +2532,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2579,6 +2604,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2792,6 +2818,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2900,6 +2927,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -3011,6 +3039,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
@@ -3103,6 +3132,7 @@ describe('Workflows E2E (email queue)', () => {
         const emailsSent = () =>
             mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -3212,6 +3242,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(1)
@@ -3318,6 +3349,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(3)
@@ -3464,6 +3496,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(1)
