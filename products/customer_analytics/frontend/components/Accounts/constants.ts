@@ -55,6 +55,8 @@ export const AccountsEvents = {
     SummariesPageChanged: 'customer analytics account summaries page changed',
     SupportTicketClicked: 'customer analytics account support ticket clicked',
     MeetingMatchingSaved: 'customer analytics account meeting matching saved',
+    MeetingsSearched: 'customer analytics account meetings searched',
+    MeetingAttendeeClicked: 'customer analytics account meeting attendee clicked',
     EventStreamMembershipToggled: 'customer analytics account event stream toggled',
     EventStreamConfigSaved: 'customer analytics event stream config saved',
     EventStreamTestMessageSent: 'customer analytics event stream test message sent',

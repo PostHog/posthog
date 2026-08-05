@@ -141,6 +141,7 @@ class MeetingParticipantView:
     display_name: str
     response_status: str
     is_organizer: bool
+    person_id: UUID | None
 
 
 @dataclass(frozen=True)

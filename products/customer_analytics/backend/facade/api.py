@@ -2540,6 +2540,7 @@ def get_account_meetings(
                     display_name=participant.display_name,
                     response_status=participant.response_status,
                     is_organizer=participant.is_organizer,
+                    person_id=participant.person_id,
                 )
                 for participant in meeting.participants.all()
             ],

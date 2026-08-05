@@ -42398,6 +42398,11 @@ export namespace Schemas {
       readonly response_status: string;
       /** Whether this attendee organized the meeting. */
       readonly is_organizer: boolean;
+      /**
+         * UUID of the PostHog person resolved for this attendee, if any.
+         * @nullable
+         */
+      readonly person_id: string | null;
     }
 
     /**
