@@ -1501,6 +1501,24 @@ export interface eventUsageLogicActions {
         isAIFirst: boolean
         itemCount: number
     }
+    reportOnboardingAIReportRemoved: (
+        role: string | null,
+        reportKey: string,
+        experimentArm: string | null
+    ) => {
+        experimentArm: string | null
+        reportKey: string
+        role: string | null
+    }
+    reportOnboardingAIReportSubscribed: (
+        role: string | null,
+        reportKey: string,
+        experimentArm: string | null
+    ) => {
+        experimentArm: string | null
+        reportKey: string
+        role: string | null
+    }
     reportOnboardingCompleted: (productKey: string) => {
         productKey: string
     }
@@ -1529,24 +1547,6 @@ export interface eventUsageLogicActions {
         productKey: string
         recommendationSource: string
         selected: boolean
-    }
-    reportOnboardingAIReportRemoved: (
-        role: string | null,
-        reportKey: string,
-        experimentArm: string | null
-    ) => {
-        experimentArm: string | null
-        reportKey: string
-        role: string | null
-    }
-    reportOnboardingAIReportSubscribed: (
-        role: string | null,
-        reportKey: string,
-        experimentArm: string | null
-    ) => {
-        experimentArm: string | null
-        reportKey: string
-        role: string | null
     }
     reportOnboardingStarted: (entrypoint: string) => {
         entrypoint: string
