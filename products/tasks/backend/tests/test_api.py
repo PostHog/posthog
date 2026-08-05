@@ -9041,7 +9041,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
-    def test_command_user_message_requires_code_access(self, mock_signal_followup):
+    def test_command_user_message_without_code_access_still_sends(self, mock_signal_followup):
+        # The Inbox drops users straight into this composer after starting an interactive run,
+        # so replying must not require PostHog Code access.
         self.set_tasks_feature_flag(False)
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
@@ -9052,9 +9054,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        mock_signal_followup.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_signal_followup.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_without_active_sandbox(self, mock_signal_followup):
@@ -10742,21 +10743,12 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertTrue(TaskRun.objects.filter(task=task).exists())
         mock_workflow.assert_called_once()
 
-    @parameterized.expand(
-        [
-            ("under_limit_runs", CodeUsageStatus(False, None, None, False), status.HTTP_200_OK),
-            ("over_limit_still_blocked", OVER_LIMIT, status.HTTP_429_TOO_MANY_REQUESTS),
-        ]
-    )
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    def test_run_without_code_access_keeps_usage_backstop(
-        self, _name, gate_return, expected_status, mock_gate, _mock_workflow
-    ):
-        # Dropping the entitlement check leaves usage limits as the only cost backstop on this
-        # endpoint, so it has to fire with the `tasks` flag off.
+    def test_run_without_code_access_keeps_usage_backstop(self, mock_gate):
+        # Usage limits are the only cost backstop left on this endpoint, so they have to fire
+        # with the `tasks` flag off.
         self.set_tasks_feature_flag(False)
-        mock_gate.return_value = gate_return
+        mock_gate.return_value = self.OVER_LIMIT
         task = self.create_task()
 
         response = self.client.post(
@@ -10765,9 +10757,8 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, expected_status)
-        mock_gate.assert_called_once()
-        self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
 
 class TestGetPosthogCodeUsage(TestCase):

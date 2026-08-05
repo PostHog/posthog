@@ -712,9 +712,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Inbox runs tasks through (report "Create PR" / "Discuss", scout chat), so gating it on a
         # product the Inbox doesn't require would 403 a released surface. Usage limits still apply
         # as a cost backstop.
-        if (
-            limit_response := cloud_usage_limit_response(request.user, self.team_id, require_tasks_access=False)
-        ) is not None:
+        if limit_response := cloud_usage_limit_response(request.user, self.team_id, require_tasks_access=False):
             return limit_response
 
         result = tasks_facade.run_task(pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data))
@@ -1781,8 +1779,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = request.validated_data.get("params")
 
         if method == "user_message":
-            if access_response := code_access_required_response(request.user):
-                return access_response
+            # No PostHog Code (`tasks`) entitlement check, for the same reason as `TaskViewSet.run`:
+            # the Inbox starts interactive runs and drops the user straight into this composer, so
+            # "Discuss" would 403 on its first reply if this required Code access.
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
             if artifact_ids:
