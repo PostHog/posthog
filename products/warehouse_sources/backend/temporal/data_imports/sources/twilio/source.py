@@ -137,7 +137,10 @@ Create the key in the same Twilio account as the Account SID above, in Twilio's 
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://api.twilio.com": "Invalid Twilio credentials. Please check your Account SID and Auth Token (or API key SID and secret) and reconnect.",
+            # Twilio returns 401 both for a bad secret and for a valid credential that isn't allowed to
+            # read the resource (error 20003), and the two are indistinguishable from the status alone,
+            # so this message has to cover both rather than asserting the credentials are invalid.
+            "401 Client Error: Unauthorized for url: https://api.twilio.com": "Twilio rejected these credentials for this table. Either the Account SID and secret are wrong, or the credential can't read this resource. A Restricted API key needs read access granted for it, and the keys table needs your Auth token or a Main API key. Fix the credential, then reconnect the source.",
             "403 Client Error: Forbidden for url: https://api.twilio.com": "Your Twilio credentials lack permission for this resource. Please check the credential's permissions and try again.",
         }
 

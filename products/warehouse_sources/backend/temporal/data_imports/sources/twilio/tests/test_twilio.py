@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twi
     TwilioResumeConfig,
     _build_initial_params,
     _format_filter_date,
+    _unexpected_status_message,
     twilio_source,
     validate_credentials,
 )
@@ -262,12 +263,21 @@ class TestValidateCredentials:
         assert (is_valid, msg) == (False, expected_message)
 
     @mock.patch(TWILIO_SESSION_PATCH)
-    def test_transport_error_is_not_valid(self, mock_session):
+    def test_chosen_schema_reports_a_server_error_as_such(self, mock_session):
+        # Reporting a Twilio outage on a chosen table as a permission problem would send the user off
+        # to rebuild a working API key.
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=503)
+        is_valid, msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID, "messages")
+        assert (is_valid, msg) == (False, _unexpected_status_message(503))
+
+    @pytest.mark.parametrize("schema_name", [None, "messages"])
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_transport_error_is_not_valid(self, mock_session, schema_name):
         # validate_via_probe swallows the exception; the source must report "not validated".
         getter = mock_session.return_value.get
         getter.side_effect = Exception("boom")
 
-        is_valid, msg = validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID)
+        is_valid, msg = validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID, schema_name)
 
         assert (is_valid, msg) == (False, TWILIO_UNREACHABLE_MESSAGE)
         assert getter.call_count == 1
