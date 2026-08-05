@@ -293,6 +293,74 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
             pass
 
 
+def _fetch_arrow_batches(
+    cursor: psycopg.Cursor,
+    chunk_size: int,
+    arrow_schema: pa.Schema,
+) -> Iterator[pa.Table]:
+    """Yield one Arrow table per `chunk_size` rows drawn from an already-executed `cursor`."""
+    column_names = [column.name for column in cursor.description or []]
+
+    while True:
+        rows = cursor.fetchmany(chunk_size)
+        if not rows:
+            break
+
+        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+
+def _stream_arrow_batches(
+    connection: psycopg.Connection,
+    query: sql.Composed,
+    chunk_size: int,
+    arrow_schema: pa.Schema,
+    cursor_name: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[pa.Table]:
+    """Stream `query` as Arrow tables, holding only `chunk_size` rows in the worker at a time.
+
+    Reads through a server-side cursor (`DECLARE`/`FETCH`), mirroring the sibling Postgres driver.
+    An unnamed psycopg cursor is client-side: `execute()` buffers the *entire* result set into the
+    worker before `fetchmany` returns its first batch, so `chunk_size` bounds nothing and any table
+    larger than the pod's memory kills it during extraction — before a single row is ever written.
+    Redshift instead materializes a cursor's result set on the leader node (spilling to disk when it
+    doesn't fit), which is what keeps the worker's footprint proportional to `chunk_size`.
+
+    Redshift constrains cursors in ways Postgres doesn't: cumulative result sets are capped per node
+    type, and single-node clusters reject a `FETCH FORWARD` above 1000 rows. Both surface before any
+    batch reaches the caller, so a failure there falls back to the client-side read instead of
+    failing the sync — no better than having no server cursor at all, but no worse either. Once a
+    batch has been yielded the fallback is off the table: re-running the query would re-emit rows the
+    pipeline has already consumed, so later errors propagate.
+    """
+    yielded = False
+    try:
+        # `close()` is a no-op while the transaction is aborted (psycopg checks the status first),
+        # so this never masks the original failure with a CLOSE error.
+        with connection.cursor(name=cursor_name) as server_cursor:
+            server_cursor.execute(query)
+            for batch in _fetch_arrow_batches(server_cursor, chunk_size, arrow_schema):
+                yielded = True
+                yield batch
+        return
+    except Exception as e:
+        if yielded:
+            raise
+        logger.debug(
+            f"Server-side cursor unusable ({e}); falling back to a client-side read of the full result set",
+            exc_info=e,
+        )
+
+    # A failed DECLARE/FETCH leaves the transaction aborted, and Redshift has no savepoints to scope
+    # it — roll back so the client-side retry below isn't killed by `InFailedSqlTransaction`.
+    if connection.info.transaction_status == TransactionStatus.INERROR:
+        connection.rollback()
+
+    with connection.cursor() as client_cursor:
+        client_cursor.execute(query)
+        yield from _fetch_arrow_batches(client_cursor, chunk_size, arrow_schema)
+
+
 class RedshiftColumn(Column):
     """Implementation of the `Column` protocol for a Redshift source."""
 
@@ -963,45 +1031,27 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         inner_query_args: Any,
         logger: FilteringBoundLogger,
     ) -> int | None:
-        """Sample the 95th percentile of `pg_column_size(t)` across the filtered query.
+        """Derive the average row size from `svv_table_info`'s reported size and row count.
 
-        `inner_query` is a `psycopg.sql.Composed` whose literals are
-        already bound — no separate `inner_query_args` is interpolated
-        here, mirroring how the rest of the Redshift driver builds
-        queries.
+        Redshift has no portable whole-row size expression — `pg_column_size(t)` (like Postgres'
+        `octet_length(t::text)`) needs a composite whole-row reference that Redshift rejects with
+        `UndefinedColumn: column "t" does not exist in t`, so sampling the rows directly fails on
+        every table and the caller silently fell back to `DEFAULT_CHUNK_SIZE` for all of them. The
+        table's own catalog stats give the same figure without a sample scan.
 
-        Best-effort only: Redshift rejects the `pg_column_size(t)` whole-row reference, so this
-        currently returns None on every table and the caller falls back to the default chunk size.
-        Failures are swallowed rather than reported — see the except block below.
+        `size` is the *compressed* on-disk footprint, so this under-estimates the decompressed
+        working set and the chunk it yields stays larger than the true row size warrants. The caller
+        caps the result at `DEFAULT_CHUNK_SIZE` either way, so an under-estimate is safe: it can
+        only shrink a table's chunk from what it was, never grow it.
+
+        Best-effort, like every other stats probe on this driver: None falls back to the default.
         """
-        try:
-            query = sql.SQL("""
-                SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
-                    SELECT pg_column_size(t) as row_size FROM ({}) as t
-                ) as subquery
-            """).format(inner_query)
-
-            _explain_query(cursor, query, logger)
-            logger.debug(f"Running query: {query.as_string()}")
-            cursor.execute(query)
-            row = cursor.fetchone()
-
-            if row is None or row[0] is None:
-                logger.debug("fetch_average_row_size: no results returning None")
-                return None
-
-            return int(row[0] or 1)
-        except psycopg.errors.QueryCanceled:
-            raise
-        except Exception as e:
-            # Best-effort sampling: any failure falls back to the default chunk size, so it must not
-            # be reported to error tracking. Redshift has no portable whole-row size — `pg_column_size(t)`
-            # (like Postgres' `octet_length(t::text)`) relies on a composite whole-row reference that
-            # Redshift rejects with `UndefinedColumn: column "t" does not exist in t`, so this fails on
-            # every table. Mirrors the sibling Postgres `_get_table_chunk_size` and `_explain_query` here,
-            # both of which treat this as expected, non-actionable noise.
-            logger.debug(f"fetch_average_row_size: Error: {e}", exc_info=e)
+        stats = self.fetch_table_stats(cursor, schema, table_name, logger)
+        if stats is None or stats.row_count <= 0:
+            logger.debug("fetch_average_row_size: no usable table stats, returning None")
             return None
+
+        return max(1, stats.table_size_bytes // stats.row_count)
 
     # ------------------------------------------------------------------
     # Pipeline build — the dlt `SourceResponse` for a single table
@@ -1131,31 +1181,31 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             arrow_schema = table.to_arrow_schema()
             with self.connect(config) as streaming_connection:
                 streaming_connection.adapters.register_loader("json", JsonAsStringLoader)
-                with streaming_connection.cursor() as cursor:
-                    query = _build_query(
-                        schema,
-                        table_name,
-                        should_use_incremental_field,
-                        table.type,
-                        incremental_field,
-                        incremental_field_type,
-                        db_incremental_field_last_value,
-                        enabled_columns=enabled_columns,
-                        primary_keys=primary_keys,
-                        row_filters=row_filters,
-                    )
-                    logger.debug(f"Redshift query: {query.as_string()}")
+                query = _build_query(
+                    schema,
+                    table_name,
+                    should_use_incremental_field,
+                    table.type,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                    enabled_columns=enabled_columns,
+                    primary_keys=primary_keys,
+                    row_filters=row_filters,
+                )
+                logger.debug(f"Redshift query: {query.as_string()}")
 
-                    cursor.execute(query)
-
-                    column_names = [column.name for column in cursor.description or []]
-
-                    while True:
-                        rows = cursor.fetchmany(chunk_size)
-                        if not rows:
-                            break
-
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                # Left in the connection's default (autocommit off) transaction: Redshift only
+                # allows a cursor inside an explicit transaction block, and only one open per
+                # session — this connection is dedicated to the stream, so neither binds.
+                yield from _stream_arrow_batches(
+                    streaming_connection,
+                    query,
+                    chunk_size,
+                    arrow_schema,
+                    f"posthog_{inputs.team_id}_{schema}.{table_name}",
+                    logger,
+                )
 
         return SourceResponse(
             name=location.response_name,
