@@ -312,15 +312,18 @@ def validate_declared_target(
         )
     source_floor = all_source_floors(edges, source_intervals).get(node_id, STREAMING)
     consumer_ceiling = all_consumer_ceilings(edges, declared_targets).get(node_id)
+    # Both messages name the bound itself rather than a direction. Bounds are inclusive, so the
+    # bound is always a legal answer, while "or faster"/"or slower" promises room that may not
+    # exist: a 15min ceiling has nothing faster to offer through the cadence picker.
     if is_finer_than(target, source_floor):
         raise UnsatisfiableFrequencyError(
             f"Can't refresh every {humanize_cadence(target)}: the sources this query reads only deliver new data"
-            f" every {humanize_cadence(source_floor)}. Pick {humanize_cadence(source_floor)} or slower."
+            f" every {humanize_cadence(source_floor)}. Pick {humanize_cadence(source_floor)} instead."
         )
     if consumer_ceiling is not None and is_coarser_than(target, consumer_ceiling):
         raise UnsatisfiableFrequencyError(
             f"Can't refresh every {humanize_cadence(target)}: a view or endpoint built on this one needs data no"
-            f" older than {humanize_cadence(consumer_ceiling)}. Pick {humanize_cadence(consumer_ceiling)} or faster."
+            f" older than {humanize_cadence(consumer_ceiling)}. Pick {humanize_cadence(consumer_ceiling)} instead."
         )
 
 

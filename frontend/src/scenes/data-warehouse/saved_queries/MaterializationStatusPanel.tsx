@@ -80,8 +80,9 @@ const RESYNC_FREQUENCY_OPTIONS = [
     },
 ]
 
-// Only reachable once a view is materialized: materializing is what starts the refreshes, so the
-// server rejects "never" as the cadence to start at.
+// `never` stops an existing schedule, so it only makes sense once a view is materialized. The
+// server refuses it as the cadence to start at, which is why the pre-materialization picker
+// offers RESYNC_FREQUENCY_OPTIONS on its own.
 const SYNC_FREQUENCY_OPTIONS = [{ value: 'never' as OrNever, label: 'No resync' }, ...RESYNC_FREQUENCY_OPTIONS]
 
 function getMaterializationStatusMessage(

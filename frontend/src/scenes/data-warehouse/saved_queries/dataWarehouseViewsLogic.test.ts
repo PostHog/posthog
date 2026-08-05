@@ -13,7 +13,7 @@ import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 const rejection = {
     type: 'validation_error',
     code: 'invalid_input',
-    detail: "Can't refresh every 1 day: a view or endpoint built on this one needs data no older than 15 minutes. Pick 15 minutes or faster.",
+    detail: "Can't refresh every 1 day: a view or endpoint built on this one needs data no older than 15 minutes. Pick 15 minutes instead.",
     attr: null,
 }
 

@@ -154,7 +154,12 @@ class TestValidateFrequencyTarget(TestCase):
             validate_declared_target(
                 node_id="a", target=target, edges=edges, declared_targets=targets, source_intervals=source_intervals
             )
-        assert expected in str(raised.exception)
+        message = str(raised.exception)
+        assert expected in message
+        # A direction promises cadences the picker may not offer: nothing is faster than a 15min
+        # ceiling, and nothing is slower than a 30day floor.
+        assert "or faster" not in message
+        assert "or slower" not in message
 
     def test_supported_targets_are_canonical_sync_frequency_buckets(self):
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415 - keeps Django off this pure test module's import path
