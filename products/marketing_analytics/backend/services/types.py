@@ -48,6 +48,10 @@ class SuggestedAction(StrEnum):
     ADD_CAMPAIGN_NAME_MAPPING = "add_campaign_name_mapping"
 
 
+# Same reason as UTM_ISSUE_KIND_CHOICES above: a stable enum name in the generated schema.
+SUGGESTED_ACTION_CHOICES = [action.value for action in SuggestedAction]
+
+
 class MatchType(StrEnum):
     NONE = "none"
     AUTO = "auto"  # matched directly by name/id
