@@ -3,6 +3,8 @@ import { useCallback, useMemo } from 'react'
 
 import { DefaultTooltip, type TooltipContext } from '@posthog/quill-charts'
 
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { toOpaqueHex } from 'lib/utils/colors'
 import { parseDateInTimezone } from 'lib/utils/datetime'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -89,11 +91,19 @@ function formatRowValue(
 
 // ── SeriesLabel ────────────────────────────────────────────────────────────
 
+/** How rows must identify the series they belong to:
+ *  `none` — single series (or no way to tell them apart), no identifier needed;
+ *  `name` — series names differ, the name alone identifies a row;
+ *  `letter-and-name` — several series share a display name (e.g. the same event added
+ *  twice with different math/filters), so the name is prefixed with the series letter
+ *  (A, B, …) shown in the insight editor. */
+export type SeriesIdentification = 'none' | 'name' | 'letter-and-name'
+
 interface SeriesLabelProps {
     datum: SeriesDatum
     breakdownFilter?: BreakdownFilter
     formatCompareLabel?: (label: string, dateLabel?: string) => string
-    hasMultipleEvents: boolean
+    seriesIdentification: SeriesIdentification
     renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
 }
 
@@ -108,7 +118,7 @@ export function SeriesLabel({
     datum,
     breakdownFilter,
     formatCompareLabel,
-    hasMultipleEvents,
+    seriesIdentification,
     renderSeriesOverride,
 }: SeriesLabelProps): React.ReactNode {
     if (renderSeriesOverride) {
@@ -118,8 +128,27 @@ export function SeriesLabel({
     const hasBreakdown =
         datum.breakdown_value !== undefined && datum.breakdown_value !== null && datum.breakdown_value !== ''
 
+    const seriesLetter =
+        seriesIdentification === 'letter-and-name' ? (
+            <SeriesLetter
+                className="mr-1 shrink-0"
+                hasBreakdown={hasBreakdown}
+                seriesIndex={datum.action?.order ?? datum.order}
+                seriesColor={datum.color ? toOpaqueHex(datum.color) : undefined}
+            />
+        ) : null
+
     if (!hasBreakdown && !datum.compare_label) {
-        return datum.label
+        // A plain row's label already is the series name, so only the letter can add anything.
+        if (!seriesLetter) {
+            return datum.label
+        }
+        return (
+            <span className="inline-flex items-center w-full overflow-hidden">
+                {seriesLetter}
+                <span className="truncate min-w-0 flex-1">{datum.label}</span>
+            </span>
+        )
     }
 
     const comparePeriod = datum.compare_label
@@ -134,16 +163,20 @@ export function SeriesLabel({
         ? getDatumTitle({ ...datum, compare_label: undefined }, breakdownFilter, formatCompareLabel)
         : null
 
-    const eventPrefix = hasMultipleEvents ? (
-        <span className="opacity-50 mr-1 shrink-0">
-            {(datum.action ? getDisplayNameFromEntityFilter(datum.action) : null) ?? datum.label} ·
-        </span>
-    ) : null
+    const seriesPrefix =
+        seriesIdentification !== 'none' ? (
+            <span className="opacity-50 shrink-0 inline-flex items-center">
+                {seriesLetter}
+                <span>
+                    {(datum.action ? getDisplayNameFromEntityFilter(datum.action) : null) ?? datum.label}&nbsp;·&nbsp;
+                </span>
+            </span>
+        ) : null
 
     // inline-flex: breakdown span truncates (flex-1), period label stays visible (shrink-0).
     return (
         <span className="inline-flex items-center w-full overflow-hidden">
-            {eventPrefix}
+            {seriesPrefix}
             <span className="truncate min-w-0 flex-1">{breakdownTitle ?? datum.label}</span>
             {comparePeriod && <span className="shrink-0 opacity-60">&nbsp;·&nbsp;{comparePeriod}</span>}
         </span>
@@ -203,9 +236,20 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         return m
     }, [context.seriesData, context.dataIndex])
 
-    const hasMultipleEvents = useMemo(() => {
-        const events = new Set([...datumByKey.values()].map((d) => d.action?.id ?? d.action?.name))
-        return events.size > 1
+    const seriesIdentification = useMemo((): SeriesIdentification => {
+        // One entry per series entity — breakdown/compare rows of one series share its `order`.
+        const nameByEntity = new Map<number | string, string>()
+        for (const d of datumByKey.values()) {
+            if (!d.action) {
+                continue
+            }
+            const entityKey = d.action.order ?? `${d.action.type}:${d.action.id}`
+            nameByEntity.set(entityKey, getDisplayNameFromEntityFilter(d.action) ?? '')
+        }
+        if (nameByEntity.size <= 1) {
+            return 'none'
+        }
+        return new Set(nameByEntity.values()).size < nameByEntity.size ? 'letter-and-name' : 'name'
     }, [datumByKey])
 
     const valueFormatter = useCallback(
@@ -247,12 +291,12 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
                     datum={datum}
                     breakdownFilter={breakdownFilter}
                     formatCompareLabel={formatCompareLabel}
-                    hasMultipleEvents={hasMultipleEvents}
+                    seriesIdentification={seriesIdentification}
                     renderSeriesOverride={renderSeriesOverride}
                 />
             )
         },
-        [datumByKey, breakdownFilter, formatCompareLabel, hasMultipleEvents, renderSeriesOverride]
+        [datumByKey, breakdownFilter, formatCompareLabel, seriesIdentification, renderSeriesOverride]
     )
 
     const labelFormatter = useCallback((): React.ReactNode => {

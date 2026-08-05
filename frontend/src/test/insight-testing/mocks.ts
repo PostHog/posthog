@@ -81,14 +81,19 @@ export function buildActorsResponse(
 function buildTrendsResponse(series: SeriesData[], opts: { isFormula?: boolean } = {}): TrendsQueryResponse {
     return {
         results: series.map((s, i) => {
-            const seriesOrder = s.compare || s.breakdown_value != null ? 0 : i
+            // Breakdown/compare rows carry their parent series' identity (event name and
+            // order), like the real runner. Plain rows keep their own label as the entity
+            // name so fixtures can model several distinct series under one canned event.
+            const isChildRow = s.compare || s.breakdown_value != null
+            const seriesOrder = isChildRow ? (s.seriesIndex ?? 0) : i
+            const entityName = (isChildRow ? s.eventName : undefined) ?? s.label
             return {
                 action: opts.isFormula
                     ? null
                     : {
-                          id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
+                          id: `$${entityName.toLowerCase().replace(/\s+/g, '_')}`,
                           type: 'events',
-                          name: s.label,
+                          name: entityName,
                           order: seriesOrder,
                       },
                 order: opts.isFormula ? 0 : seriesOrder,
@@ -113,13 +118,15 @@ function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
     return {
         results: series.map((s, i) => {
             const buckets = s.data.length
-            // Compare current/previous share one series identity (order 0), mirroring the real runner.
-            const seriesOrder = s.compare || s.breakdown_value != null ? 0 : i
+            // Compare current/previous and breakdown rows share their series' identity, mirroring the real runner.
+            const isChildRow = s.compare || s.breakdown_value != null
+            const seriesOrder = isChildRow ? (s.seriesIndex ?? 0) : i
+            const entityName = (isChildRow ? s.eventName : undefined) ?? s.label
             return {
                 action: {
-                    id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
+                    id: `$${entityName.toLowerCase().replace(/\s+/g, '_')}`,
                     type: 'events',
-                    name: s.label,
+                    name: entityName,
                     order: seriesOrder,
                 },
                 label: s.label,
@@ -192,15 +199,15 @@ function resolveSeriesData(query: QueryBody): SeriesData[] {
     const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown ?? null
     const isCompare = !!(query as Record<string, unknown>).compareFilter
 
-    return (query.series ?? []).flatMap((s) => {
+    return (query.series ?? []).flatMap((s, seriesIndex) => {
         const eventName = s.event ?? s.name ?? 'Unknown'
         if (isCompare) {
             const compareSeries = lookupCompareSeries(eventName)
             if (compareSeries) {
-                return compareSeries
+                return compareSeries.map((row) => ({ ...row, seriesIndex, eventName }))
             }
         }
-        return lookupSeries(eventName, breakdownProp ?? undefined)
+        return lookupSeries(eventName, breakdownProp ?? undefined).map((row) => ({ ...row, seriesIndex, eventName }))
     })
 }
 
