@@ -1019,6 +1019,7 @@ from .servicem8.source import Servicem8Source
 from .servicenow.source import ServiceNowSource
 from .servicetitan.source import ServicetitanSource
 from .servicetrade.source import ServicetradeSource
+from .sevalla.source import SevallaSource
 from .sevdesk.source import SevdeskSource
 from .sevenshifts.source import SevenShiftsSource
 from .sftp.source import SFTPSource

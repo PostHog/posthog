@@ -222,7 +222,12 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
 
 export interface LemonTreeRef {
     getVisibleItems: () => TreeDataItem[]
-    focusItem: (id: string) => void
+    focusItem: (id: string, options?: LemonTreeFocusOptions) => void
+}
+
+export interface LemonTreeFocusOptions {
+    scrollPosition?: 'top-third'
+    behavior?: ScrollBehavior
 }
 
 type FlattenedTreeItem = {
@@ -721,6 +726,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const [disableKeyboardInput, setDisableKeyboardInput] = useState(false)
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
         const [focusedItemId, setFocusedItemId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+        const [imperativeFocusRequest, setImperativeFocusRequest] = useState<{
+            id: string
+            options: LemonTreeFocusOptions
+        } | null>(null)
         const [virtualWindow, setVirtualWindow] = useState<VirtualWindow>({
             startIndex: 0,
             endIndex: 0,
@@ -878,11 +887,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             return []
         }, [])
 
-        const focusTreeItem = useCallback((id: string): void => {
+        const focusTreeItem = useCallback((id: string, preventScroll = false): void => {
             setFocusedItemId(id)
             setTimeout(() => {
                 const element = containerRef.current?.querySelector(`[data-id="${CSS.escape(id)}"]`) as HTMLElement
-                element?.focus()
+                element?.focus({ preventScroll })
             }, 0)
         }, [])
 
@@ -1335,8 +1344,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         useImperativeHandle(ref, () => ({
             getVisibleItems,
-            focusItem: (id: string) => {
-                focusTreeItem(id)
+            focusItem: (id: string, options: LemonTreeFocusOptions = {}) => {
+                focusTreeItem(id, !!options.scrollPosition)
+                setImperativeFocusRequest({ id, options })
             },
         }))
 
@@ -1461,6 +1471,43 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 setVirtualWindow(nextWindow)
             }
         }, [computeVirtualWindow, focusedItemId, flattenedVisibleItems.length])
+
+        useEffect(() => {
+            if (!imperativeFocusRequest || (isFinishedBuildingTreeData ?? true) === false) {
+                return
+            }
+
+            const element = containerRef.current?.querySelector(
+                `[data-id="${CSS.escape(imperativeFocusRequest.id)}"]`
+            ) as HTMLElement | null
+            if (!element) {
+                return
+            }
+
+            element.focus({ preventScroll: !!imperativeFocusRequest.options.scrollPosition })
+
+            if (imperativeFocusRequest.options.scrollPosition === 'top-third') {
+                const viewport = virtualizationScrollContainerRef?.current ?? scrollViewportRef.current
+                if (viewport) {
+                    const viewportBounds = viewport.getBoundingClientRect()
+                    const elementBounds = element.getBoundingClientRect()
+                    const top = Math.max(
+                        0,
+                        viewport.scrollTop + elementBounds.top - viewportBounds.top - viewport.clientHeight / 3
+                    )
+                    viewport.scrollTo({ top, behavior: imperativeFocusRequest.options.behavior ?? 'auto' })
+                }
+            }
+
+            setImperativeFocusRequest(null)
+        }, [
+            imperativeFocusRequest,
+            isFinishedBuildingTreeData,
+            virtualizationScrollContainerRef,
+            virtualWindow.endIndex,
+            virtualWindow.startIndex,
+            expandedItemIdsState,
+        ])
 
         const virtualizedStartIndex = virtualWindow.startIndex
         const virtualizedEndIndex = virtualWindow.endIndex
