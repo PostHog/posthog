@@ -54,6 +54,7 @@ class EvaluationDirectoryViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "evaluation"
+    requires_resource_level_access = True
     permission_classes = [IsAuthenticated, AccessControlPermission]
     serializer_class = EvaluationDirectorySerializer
     queryset = EvaluationDirectory.objects.unscoped()

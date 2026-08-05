@@ -1,11 +1,19 @@
+import pytest
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
+from posthog.models.organization import OrganizationMembership
 
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 
 class TestEvaluationDirectoriesApi(APIBaseTest):
@@ -86,3 +94,44 @@ class TestEvaluationDirectoriesApi(APIBaseTest):
             Evaluation.objects.filter(id__in=[active_evaluation.id, deleted_evaluation.id], directory=None).count(),
             2,
         )
+
+    @pytest.mark.ee
+    def test_specific_evaluation_access_does_not_authorize_directory_changes(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        limited_user = User.objects.create_and_join(self.organization, "limited@posthog.com", "testpassword123")
+        directory = EvaluationDirectory.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Restricted",
+            created_by=self.user,
+        )
+        evaluation = self._create_evaluation()
+        membership = OrganizationMembership.objects.get(user=limited_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            access_level="none",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=str(evaluation.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.client.force_login(limited_user)
+
+        renamed = self.client.patch(
+            f"/api/projects/{self.team.id}/evaluation_directories/{directory.id}/",
+            {"name": "Renamed"},
+            format="json",
+        )
+        deleted = self.client.delete(f"/api/projects/{self.team.id}/evaluation_directories/{directory.id}/")
+
+        self.assertEqual(renamed.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(deleted.status_code, status.HTTP_403_FORBIDDEN)

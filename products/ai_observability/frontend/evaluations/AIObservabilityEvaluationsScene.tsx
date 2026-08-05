@@ -585,9 +585,15 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         },
     ]
 
+    const showEmptyState =
+        !evaluationsLoading &&
+        !evaluationDirectoriesLoading &&
+        evaluations.length === 0 &&
+        evaluationDirectories.length === 0
+
     return (
         <div className="space-y-4">
-            {unhealthyProviderKeysUsedByEvaluations.length > 0 && (
+            {!showEmptyState && unhealthyProviderKeysUsedByEvaluations.length > 0 && (
                 <LemonBanner type="warning">
                     <div className="space-y-2">
                         <p>Some evaluations are using API keys that need attention.</p>
@@ -605,7 +611,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <div className="flex justify-between items-start gap-3">
+            <div className={showEmptyState ? 'hidden' : 'flex justify-between items-start gap-3'}>
                 <div className="min-w-0 flex-1">
                     {selectedDirectory ? (
                         <div className="flex items-center gap-2">
@@ -629,19 +635,21 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconFolder />}
-                            onClick={() => openCreateDirectory()}
-                            data-attr="create-evaluation-directory-button"
+                    {!selectedDirectoryId && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            New directory
-                        </LemonButton>
-                    </AccessControlAction>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconFolder />}
+                                onClick={() => openCreateDirectory()}
+                                data-attr="create-evaluation-directory-button"
+                            >
+                                New directory
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
                     <AccessControlAction
                         resourceType={AccessControlResourceType.LlmAnalytics}
                         minAccessLevel={AccessControlLevel.Editor}
@@ -659,10 +667,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 </div>
             </div>
 
-            {!evaluationsLoading &&
-            !evaluationDirectoriesLoading &&
-            evaluations.length === 0 &&
-            evaluationDirectories.length === 0 ? (
+            {showEmptyState ? (
                 <EvaluationTemplatesEmptyState />
             ) : (
                 <>

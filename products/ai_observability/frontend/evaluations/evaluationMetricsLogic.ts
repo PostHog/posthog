@@ -129,11 +129,7 @@ export interface evaluationMetricsLogicMeta {
             evaluations: EvaluationConfig[],
             selectedDirectoryId: string | null
         ) => EvaluationConfig[]
-        summaryMetrics: (
-            stats: EvaluationStats[],
-            evaluationsForMetrics: EvaluationConfig[],
-            selectedDirectoryId: string | null
-        ) => SummaryMetrics
+        summaryMetrics: (stats: EvaluationStats[], evaluationsForMetrics: EvaluationConfig[]) => SummaryMetrics
         evaluationsWithMetrics: (
             evaluations: EvaluationConfig[],
             stats: EvaluationStats[]
@@ -233,21 +229,13 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
         evaluationsForMetrics: [
             (s) => [s.evaluations, s.selectedDirectoryId],
             (evaluations: EvaluationConfig[], selectedDirectoryId: string | null): EvaluationConfig[] =>
-                selectedDirectoryId
-                    ? evaluations.filter((evaluation) => evaluation.directory_id === selectedDirectoryId)
-                    : evaluations,
+                evaluations.filter((evaluation) => (evaluation.directory_id ?? null) === selectedDirectoryId),
         ],
         summaryMetrics: [
-            (s) => [s.stats, s.evaluationsForMetrics, s.selectedDirectoryId],
-            (
-                stats: EvaluationStats[],
-                evaluationsForMetrics: EvaluationConfig[],
-                selectedDirectoryId: string | null
-            ): SummaryMetrics => {
+            (s) => [s.stats, s.evaluationsForMetrics],
+            (stats: EvaluationStats[], evaluationsForMetrics: EvaluationConfig[]): SummaryMetrics => {
                 const evaluationIds = new Set(evaluationsForMetrics.map((evaluation) => evaluation.id))
-                const statsForMetrics = selectedDirectoryId
-                    ? stats.filter((stat) => evaluationIds.has(stat.evaluation_id))
-                    : stats
+                const statsForMetrics = stats.filter((stat) => evaluationIds.has(stat.evaluation_id))
                 const total_runs = statsForMetrics.reduce((sum: number, stat) => sum + stat.runs_count, 0)
                 const total_applicable = statsForMetrics.reduce((sum: number, stat) => sum + stat.applicable_count, 0)
                 const total_passes = statsForMetrics.reduce((sum: number, stat) => sum + stat.pass_count, 0)

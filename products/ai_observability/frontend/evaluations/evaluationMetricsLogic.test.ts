@@ -92,8 +92,10 @@ describe('evaluationMetricsLogic', () => {
         evaluationsLogic.actions.loadEvaluationsSuccess([rootEvaluation, directoryEvaluation])
         metricsLogic.actions.loadStatsSuccess([stats(rootEvaluation.id, 4), stats(directoryEvaluation.id, 2)])
 
-        expect(metricsLogic.values.chartQuery?.series).toHaveLength(2)
-        expect(metricsLogic.values.summaryMetrics.total_runs).toBe(6)
+        expect(metricsLogic.values.chartQuery?.series).toEqual([
+            expect.objectContaining({ custom_name: rootEvaluation.name }),
+        ])
+        expect(metricsLogic.values.summaryMetrics.total_runs).toBe(4)
 
         router.actions.push(
             combineUrl(urls.aiObservabilityEvaluations(), {
