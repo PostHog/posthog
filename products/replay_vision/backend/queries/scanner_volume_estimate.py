@@ -175,6 +175,7 @@ def refresh_scanner_estimate(
 def _clamp_window_days(earliest: object) -> int:
     """Clamp the divisor to the team's actual data span so a new team isn't under-estimated."""
     if not isinstance(earliest, dt.datetime):
+        # The probe covers the whole scan window, so no-earliest implies matched == 0 and any divisor projects 0.
         return _ESTIMATE_SCAN_WINDOW_DAYS
     if earliest.tzinfo is None:
         earliest = earliest.replace(tzinfo=dt.UTC)
