@@ -693,30 +693,31 @@ function EditSubscriptionForm({
                                                     const isWeekday =
                                                         value?.length === 5 &&
                                                         value.every((d: string) => WEEKDAYS.has(d))
-                                                    const displayValue = value
-                                                        ? isWeekday
-                                                            ? 'weekday'
-                                                            : value.length === 1
-                                                              ? value[0]
-                                                              : 'day'
-                                                        : null
+                                                    let displayValue = null
+                                                    if (isWeekday) {
+                                                        displayValue = 'weekday'
+                                                    } else if (value?.length === 1) {
+                                                        displayValue = value[0]
+                                                    } else if (value) {
+                                                        displayValue = 'day'
+                                                    }
 
                                                     return (
                                                         <LemonSelect
                                                             dropdownMatchSelectWidth={false}
                                                             options={monthlyWeekdayOptions}
                                                             value={displayValue}
-                                                            onChange={(val) =>
-                                                                onChange(
-                                                                    val === 'day'
-                                                                        ? Object.values(weekdayOptions).map(
-                                                                              (v) => v.value
-                                                                          )
-                                                                        : val === 'weekday'
-                                                                          ? [...WEEKDAYS]
-                                                                          : [val]
-                                                                )
-                                                            }
+                                                            onChange={(val) => {
+                                                                if (val === 'day') {
+                                                                    onChange(weekdayOptions.map(({ value }) => value))
+                                                                    return
+                                                                }
+                                                                if (val === 'weekday') {
+                                                                    onChange([...WEEKDAYS])
+                                                                    return
+                                                                }
+                                                                onChange([val])
+                                                            }}
                                                         />
                                                     )
                                                 }}
