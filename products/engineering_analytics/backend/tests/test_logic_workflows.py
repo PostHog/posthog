@@ -63,14 +63,33 @@ class TestWorkflowEndpointMapping(BaseTest):
         assert health.failing_workflow_names == [f"Low-volume failure {index:02d}" for index in range(20)]
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
-        # Columns: owner, name, workflow, run_count, success_rate, p50, p95, last_failure_at,
-        # completed_count, latest_failed, latest_conclusion, rerun_cycles.
+        # Columns: owner, name, workflow, run_count, successful_run_count, conclusive_run_count,
+        # percentile_run_count, success_rate, p50, p95, last_failure_at, completed_count, latest_failed,
+        # latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles.
         rows = [
-            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00"), 8, 0, "success", 3),
+            (
+                "PostHog",
+                "posthog",
+                "CI",
+                10,
+                9,
+                9,
+                9,
+                0.9,
+                120.0,
+                600.0,
+                _dt("2026-01-20T00:00:00"),
+                8,
+                0,
+                "success",
+                4321,
+                1,
+                3,
+            ),
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None,
             # latest_run_failed is None (the completed_count guard), and latest_run_conclusion is None too
             # despite argMaxIf's '' default.
-            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None, 0, 0, "", 0),
+            ("PostHog", "posthog", "Deploy", 2, 0, 0, 0, None, float("nan"), float("nan"), None, 0, 0, "", 0, 0, 0),
         ]
         # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
         # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
@@ -85,6 +104,8 @@ class TestWorkflowEndpointMapping(BaseTest):
         assert items[0].granularity == "day"
         assert items[0].latest_run_failed is False
         assert items[0].latest_run_conclusion == "success"
+        assert items[0].latest_run_id == 4321 and items[0].latest_run_attempt == 1
+        assert items[1].latest_run_id is None and items[1].latest_run_attempt is None
         assert items[0].rerun_cycles == 3
         assert items[0].success_rate_prev == 0.95
         assert items[1].success_rate_prev is None
@@ -215,22 +236,31 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             [
                 _run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80),
                 _run_row(9501, "CI", "sha81", "completed", "success", _ago(3), _ago(3), pr_number=81, run_attempt=2),
+                # A merge-queue batch run: its job funds the queue slice, and only it.
+                _run_row(
+                    9502, "CI", "sha82q", "completed", "success", _ago(2), _ago(2), head_branch="trunk-merge/gr-1"
+                ),
             ],
         )
         self._create_table(
             "github_workflow_jobs",
             WORKFLOW_JOBS_COLUMNS,
-            [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
+            [
+                _job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(95020, 9502, "build", "success", head_branch="trunk-merge/gr-1"),
+            ],
         )
 
         overview = api.get_repo_overview(team=self.team, include_series=False)
         assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
         assert overview.merged_pr_count_prev == 0
         assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
-        assert overview.run_count == 2
+        assert overview.run_count == 3
         assert overview.rerun_cycles == 1
-        assert overview.billable_minutes == pytest.approx(2.0)  # one 120s job on a billable tier
-        assert overview.estimated_cost_usd == pytest.approx(0.016)  # 2 min x $0.004 x 2 (4-core)
+        assert overview.billable_minutes == pytest.approx(4.0)  # two 120s jobs on a billable tier
+        assert overview.estimated_cost_usd == pytest.approx(0.032)  # 4 min x $0.004 x 2 (4-core)
+        assert overview.merge_queue_billable_minutes == pytest.approx(2.0)  # only the trunk-merge/** job
+        assert overview.merge_queue_billable_minutes_prev is None  # no prev-window jobs, like billable_minutes_prev
         assert overview.cost_series == []
         assert overview.time_to_green_series == []
         assert overview.success_rate_series == []

@@ -1,8 +1,10 @@
 use crate::api::errors::FlagError;
 use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
-use crate::cohorts::cohort_models::{Cohort, CohortId};
-use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
+use crate::cohorts::cohort_models::{Cohort, CohortId, MembershipStampPolicy};
+use crate::cohorts::cohort_operations::{
+    apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
+};
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{
@@ -25,10 +27,11 @@ use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
     FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_COHORT_SOURCE_COUNTER,
-    FLAG_DB_PROPERTIES_FETCH_TIME, FLAG_EVALUATE_ALL_CONDITIONS_TIME,
-    FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME, FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED,
-    FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME,
-    FLAG_GROUP_DB_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_CONDITION_SKIPPED_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
+    FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
+    FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED, FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER,
+    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
+    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
     FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, FLAG_REALTIME_COHORT_QUERY_TIME,
     PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
@@ -45,7 +48,7 @@ use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{error, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
 const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
@@ -333,6 +336,7 @@ pub struct FeatureFlagMatcher {
     /// Whether to enable realtime cohort evaluation.
     /// When false, realtime cohorts are treated as non-members.
     enable_realtime_cohort_evaluation: bool,
+    membership_stamp_policy: MembershipStampPolicy,
     /// Cohort definitions preloaded from the flags hypercache.
     /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
     /// so the matcher skips the CohortCacheManager PG query entirely.
@@ -410,6 +414,7 @@ impl FeatureFlagMatcher {
             skip_writes: false,
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
+            membership_stamp_policy: MembershipStampPolicy::default(),
             preloaded_cohorts: None,
             detailed_analysis: false,
             only_use_override_person_properties: false,
@@ -450,6 +455,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_realtime_cohort_evaluation(mut self, enable: bool) -> Self {
         self.enable_realtime_cohort_evaluation = enable;
+        self
+    }
+
+    pub fn with_membership_stamp_policy(mut self, policy: MembershipStampPolicy) -> Self {
+        self.membership_stamp_policy = policy;
         self
     }
 
@@ -1383,12 +1393,17 @@ impl FeatureFlagMatcher {
                         .as_ref()
                         .is_none_or(|device_id| device_id.is_empty())
                 {
+                    inc(
+                        FLAG_CONDITION_SKIPPED_COUNTER,
+                        &[("reason".to_string(), "missing_device_id".to_string())],
+                        1,
+                    );
                     with_canonical_log(|log| {
-                        tracing::warn!(
+                        tracing::debug!(
                             flag_key = %flag.key,
                             team_id = %flag.team_id,
                             condition_index = %index,
-                            lib = log.lib,
+                            lib = log.lib.as_deref(),
                             lib_version = log.lib_version.as_deref(),
                             "Person condition uses device_id bucketing but no device_id provided, skipping"
                         );
@@ -1425,7 +1440,12 @@ impl FeatureFlagMatcher {
                         _ => false,
                     });
                 if !has_group_key {
-                    warn!(
+                    inc(
+                        FLAG_CONDITION_SKIPPED_COUNTER,
+                        &[("reason".to_string(), "missing_group_type".to_string())],
+                        1,
+                    );
+                    debug!(
                         flag_key = %flag.key,
                         team_id = %flag.team_id,
                         condition_index = %index,
@@ -2043,7 +2063,7 @@ impl FeatureFlagMatcher {
         debug_assert!(
             !cohorts
                 .iter()
-                .any(|c| c.is_static && c.uses_realtime_membership()),
+                .any(|c| c.is_static && self.membership_stamp_policy.uses_realtime_membership(c)),
             "Cohort cannot be both static and realtime"
         );
         let static_cohort_ids: Vec<CohortId> = cohorts
@@ -2099,7 +2119,8 @@ impl FeatureFlagMatcher {
         let realtime_cohort_ids: Vec<CohortId> = if self.enable_realtime_cohort_evaluation {
             cohorts
                 .iter()
-                .filter(|c| c.uses_realtime_membership())
+                .inspect(|c| record_stamp_policy_divergence(c, self.membership_stamp_policy))
+                .filter(|c| self.membership_stamp_policy.uses_realtime_membership(c))
                 .map(|c| c.id)
                 .collect()
         } else {

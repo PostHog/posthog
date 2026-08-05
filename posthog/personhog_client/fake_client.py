@@ -32,6 +32,7 @@ from posthog.personhog_client.proto.generated.personhog.types.v1 import (
     group_pb2,
     person_pb2,
 )
+from posthog.utils import is_anonymous_id
 
 
 @dataclass
@@ -39,6 +40,14 @@ class _Call:
     method: str
     request: Any
     response: Any = None
+
+
+def _order_identified_first(
+    dids: list[person_pb2.DistinctIdWithVersion],
+) -> list[person_pb2.DistinctIdWithVersion]:
+    """Mirror the server-side ordering of limited distinct_id fetches (personhog-replica
+    orders anonymous-shaped ids last before applying LIMIT, so identified ids survive)."""
+    return sorted(dids, key=lambda d: is_anonymous_id(d.distinct_id))
 
 
 class FakePersonHogClient:
@@ -243,7 +252,7 @@ class FakePersonHogClient:
         dids = self._distinct_ids.get((request.team_id, request.person_id), [])
         limit = request.limit if request.HasField("limit") and request.limit > 0 else None
         if limit is not None:
-            dids = dids[:limit]
+            dids = _order_identified_first(dids)[:limit]
         return person_pb2.GetDistinctIdsForPersonResponse(distinct_ids=dids)
 
     def get_distinct_ids_for_persons(
@@ -257,7 +266,7 @@ class FakePersonHogClient:
         for pid in request.person_ids:
             dids = self._distinct_ids.get((request.team_id, pid), [])
             if limit is not None:
-                dids = dids[:limit]
+                dids = _order_identified_first(dids)[:limit]
             results.append(person_pb2.PersonDistinctIds(person_id=pid, distinct_ids=dids))
         return person_pb2.GetDistinctIdsForPersonsResponse(person_distinct_ids=results)
 

@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconChevronLeft } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
+import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -46,7 +47,6 @@ import {
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
-    formatNextDeliveryDate,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     intervalOptions,
@@ -474,7 +474,7 @@ function EditSubscriptionForm({
                             </LemonField>
                             <LemonField name="enabled" className="pb-2">
                                 {({ value, onChange }) => (
-                                    <LemonCheckbox
+                                    <LemonSwitch
                                         checked={value !== false}
                                         onChange={onChange}
                                         data-attr="subscription-enabled"
@@ -738,7 +738,13 @@ function EditSubscriptionForm({
                             </div>
                             {nextDeliveryDate && (
                                 <div className="text-xs text-secondary mt-1">
-                                    Next delivery: {formatNextDeliveryDate(nextDeliveryDate)}
+                                    Next delivery:{' '}
+                                    <TZLabel
+                                        time={dayjs(nextDeliveryDate)}
+                                        formatDate="ddd, MMM D"
+                                        formatTime="HH:mm"
+                                        timestampStyle="absolute"
+                                    />
                                 </div>
                             )}
                         </div>
@@ -822,7 +828,19 @@ function EditSubscriptionForm({
                                 <p className="text-xs text-secondary mt-1 mb-0">
                                     On save we send this report once to the destination above, so you can confirm it
                                     looks right. Turn this off to wait for the next scheduled delivery
-                                    {nextDeliveryDate ? ` (${formatNextDeliveryDate(nextDeliveryDate)})` : ''}.
+                                    {nextDeliveryDate && (
+                                        <>
+                                            {' ('}
+                                            <TZLabel
+                                                time={dayjs(nextDeliveryDate)}
+                                                formatDate="ddd, MMM D"
+                                                formatTime="HH:mm"
+                                                timestampStyle="absolute"
+                                            />
+                                            )
+                                        </>
+                                    )}
+                                    .
                                 </p>
                             </div>
                         </div>

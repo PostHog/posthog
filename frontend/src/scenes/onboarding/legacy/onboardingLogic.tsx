@@ -10,13 +10,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { getRelativeNextPath } from 'lib/utils/url'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { setQuickstartAsDefaultHomepageOnce } from 'scenes/quickstart/quickstartHomepage'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -82,6 +80,7 @@ export interface onboardingLogicValues {
     productKey: ProductKey | null
     secondaryProductKeys: ProductKey[]
     shouldShowBillingStep: boolean
+    showAIReportsStep: boolean
     stepId: string
     subscribedDuringOnboarding: boolean
     totalOnboardingSteps: number
@@ -101,7 +100,7 @@ export interface onboardingLogicActions {
     openGlobalSetup: () => {
         value: true
     } // globalSetupLogic
-    reportContextOnboardingCompleted: (productKey: string) => {
+    reportSelfDrivingOnboardingCompleted: (productKey: string) => {
         productKey: string
     } // onboardingEventUsageLogic
     openSidePanel: (
@@ -125,11 +124,11 @@ export interface onboardingLogicActions {
     clearProductKey: () => {
         value: true
     }
-    completeContextOnboarding: () => {
-        value: true
-    }
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
         redirectUrlOverride: string | undefined
+    }
+    completeSelfDrivingOnboarding: () => {
+        value: true
     }
     goToNextStep: () => {
         value: true
@@ -180,6 +179,7 @@ export interface onboardingLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         onboardingFlowVariant: (featureFlags: FeatureFlagsSet) => string
         canInviteTeammates: (currentOrganization: OrganizationType | null, user: UserType | null) => boolean
+        showAIReportsStep: (featureFlags: FeatureFlagsSet, currentOrganization: OrganizationType | null) => boolean
         billingProduct: (billing: BillingType | null, productKey: ProductKey | null) => BillingProductV2Type | null
         shouldShowBillingStep: (
             subscribedDuringOnboarding: boolean,
@@ -197,7 +197,9 @@ export interface onboardingLogicMeta {
             shouldShowBillingStep: boolean,
             isCloudOrDev: boolean | undefined,
             subscribedDuringOnboarding: boolean,
-            canInviteTeammates: boolean
+            canInviteTeammates: boolean,
+            featureFlags: FeatureFlagsSet,
+            showAIReportsStep: boolean
         ) => OnboardingStepDescriptor[]
         onboardingStepKeys: (flow: OnboardingStepDescriptor[]) => OnboardingStepKey[]
         currentFlowStep: (flow: OnboardingStepDescriptor[], stepId: string) => OnboardingStepDescriptor | null
@@ -217,8 +219,7 @@ export interface onboardingLogicMeta {
         ) => Breadcrumb[]
         onCompleteOnboardingRedirectUrl: (
             productKey: ProductKey | null,
-            onCompleteOnboardingRedirectUrlOverride: string | null,
-            featureFlags: FeatureFlagsSet
+            onCompleteOnboardingRedirectUrlOverride: string | null
         ) => string
     }
 }
@@ -260,7 +261,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             globalSetupLogic,
             ['openGlobalSetup'],
             onboardingEventUsageLogic,
-            ['reportContextOnboardingCompleted'],
+            ['reportSelfDrivingOnboardingCompleted'],
         ],
     })),
     actions({
@@ -275,7 +276,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         }),
         // Completion for the context-first flow, which has no selected product. Marks onboarding done
         // (so sceneLogic stops redirecting here) and credits the sources the user turned on.
-        completeContextOnboarding: true,
+        completeSelfDrivingOnboarding: true,
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
@@ -382,6 +383,26 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return typeof level === 'number' && level >= OrganizationMembershipLevel.Admin
             },
         ],
+        showAIReportsStep: [
+            (s) => [s.featureFlags, s.currentOrganization],
+            (
+                featureFlags: FeatureFlagsSet,
+                currentOrganization: null | import('~/types').OrganizationType
+            ): boolean => {
+                // Eligibility first: reading the experiment flag records exposure, so users who
+                // could never see the step (AI subscriptions unavailable) must not reach that read.
+                // Both gates hold for new users by default — the ai-subscriptions flag is GA at 100%
+                // and new orgs default is_ai_data_processing_approved=true — so this only excludes
+                // orgs that explicitly opted out of AI data processing.
+                if (
+                    !featureFlags[FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT] ||
+                    !currentOrganization?.is_ai_data_processing_approved
+                ) {
+                    return false
+                }
+                return featureFlags[FEATURE_FLAGS.ONBOARDING_AI_REPORTS] === 'test'
+            },
+        ],
         billingProduct: [
             (s) => [s.billing, s.productKey],
             (billing: null | import('~/types').BillingType, productKey: ProductKey | null) =>
@@ -423,6 +444,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 s.isCloudOrDev,
                 s.subscribedDuringOnboarding,
                 s.canInviteTeammates,
+                s.featureFlags,
+                s.showAIReportsStep,
             ],
             (
                 primary: ProductKey | null,
@@ -433,7 +456,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 shouldShowBilling: boolean,
                 isCloudOrDev: boolean | undefined,
                 subscribedDuringOnboarding: boolean,
-                canInviteTeammates: boolean
+                canInviteTeammates: boolean,
+                featureFlags: FeatureFlagsSet,
+                showAIReportsStep: boolean
             ): OnboardingStepDescriptor[] => {
                 if (!primary) {
                     return []
@@ -447,6 +472,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     isCloudOrDev: Boolean(isCloudOrDev),
                     subscribedDuringOnboarding,
                     canInviteTeammates,
+                    featureFlags,
+                    showAIReportsStep,
                 }
                 const productSteps = orderedProducts.flatMap((p, i) => {
                     const provider = onboardingProviderRegistry[p]
@@ -632,17 +659,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride, s.featureFlags],
-            (
-                productKey: ProductKey | null,
-                onCompleteOnboardingRedirectUrlOverride: string | null,
-                featureFlags: Record<string, string | boolean | undefined>
-            ): string => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
+            (productKey: ProductKey | null, onCompleteOnboardingRedirectUrlOverride: string | null): string => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
-                }
-                if (featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test') {
-                    return urls.quickstart()
                 }
                 if (!productKey) {
                     return urls.default()
@@ -784,14 +804,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     tickedTaskIds.add(id)
                 }
             }
-            if (setup && tickedTaskIds.size > 0) {
-                setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
-            }
             for (const productKey of visitedProducts) {
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
             }
-            const previouslyOnboardedMap = values.currentTeam?.has_completed_onboarding_for
-            const completedMap: Record<string, boolean> = { ...previouslyOnboardedMap }
+            const completedMap: Record<string, boolean> = { ...values.currentTeam?.has_completed_onboarding_for }
             for (const productKey of visitedProducts) {
                 completedMap[productKey] = true
             }
@@ -802,13 +818,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     completed_snippet_onboarding: true,
                     has_completed_onboarding_for: completedMap,
                 })
-                setQuickstartAsDefaultHomepageOnce(previouslyOnboardedMap)
+                // Tick setup tasks only after the completion PATCH has committed. Firing this
+                // concurrently raced two team PATCHes against each other, and the stale
+                // onboarding_tasks write could erase the just-saved completion fields.
+                if (setup && tickedTaskIds.size > 0) {
+                    setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
+                }
             } catch {
-                // The completion update failed, so leave the user's homepage untouched
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
             }
         },
-        completeContextOnboarding: async () => {
+        completeSelfDrivingOnboarding: async () => {
             // Idempotency guard — Finish can fire twice on a double-click.
             if (values.isCompleting) {
                 return
@@ -830,7 +850,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of products) {
                 // Same `onboarding completed` event name as the legacy flow, stamped `version: 2`
                 // so dashboards can split the flows without a rename (GROW-89).
-                actions.reportContextOnboardingCompleted(productKey)
+                actions.reportSelfDrivingOnboardingCompleted(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey })
             }
             // Persist both completion signals before navigating. updateCurrentTeam is not optimistic,
@@ -844,13 +864,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     completed_snippet_onboarding: true,
                     has_completed_onboarding_for: completedMap,
                 })
-                setQuickstartAsDefaultHomepageOnce(team?.has_completed_onboarding_for)
-                router.actions.push(
-                    getRelativeNextPath(router.values.searchParams['next'], window.location) ??
-                        (values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test'
-                            ? urls.quickstart()
-                            : urls.default())
-                )
+                // Always the inbox: it is where the wizard's output lands, so it's the only ending
+                // that continues the flow. `next` is deliberately ignored — the onboarding gate
+                // stamps it with whatever page it bounced the user off (sceneLogic), so honouring
+                // it would send most people back to /home instead.
+                router.actions.push(urls.inbox())
             } catch {
                 lemonToast.error("Couldn't finish onboarding. Please try again.")
             } finally {

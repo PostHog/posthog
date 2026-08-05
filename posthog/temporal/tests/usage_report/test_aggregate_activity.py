@@ -112,6 +112,13 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
             "30d": [(team_b_id, 2_000)],
             "90d": [],
         }
+    if query_name == "apm_tracing_usage":
+        # Distinct bytes/spans values so a bytes<->spans mapping swap fails the
+        # assertions instead of passing silently. 2_500_000 bytes floors to 2 MB.
+        return {
+            "bytes": [(team_a_id, 2_500_000)],
+            "spans": [(team_a_id, 42)],
+        }
 
     if query_name == "teams_with_event_count_in_period":
         return [(team_a_id, 100), (team_b_id, 50), *extra_total_rows]
@@ -249,6 +256,15 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     assert by_org[str(org_a.id)]["web_logs_records_in_period"] == 3
     assert by_org[str(org_a.id)]["ios_logs_records_in_period"] == 4
     assert by_org[str(org_a.id)]["ruby_logs_records_in_period"] == 7
+
+    # apm_tracing_usage multi-key fan-out: bytes and spans land in their own
+    # destination counters (a bytes<->spans swap would fail here), and MB is
+    # the floored bytes total.
+    assert by_org[str(org_a.id)]["apm_tracing_bytes_in_period"] == 2_500_000
+    assert by_org[str(org_a.id)]["apm_tracing_spans_in_period"] == 42
+    assert by_org[str(org_a.id)]["apm_tracing_mb_in_period"] == 2
+    assert by_org[str(org_b.id)]["apm_tracing_bytes_in_period"] == 0
+    assert by_org[str(org_b.id)]["apm_tracing_spans_in_period"] == 0
 
     # has_non_zero_usage is computed and present on every line.
     assert by_org[str(org_a.id)]["has_non_zero_usage"] is True

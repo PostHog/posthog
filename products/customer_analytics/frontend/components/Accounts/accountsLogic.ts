@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUUIDLike } from 'lib/utils/guards'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -30,6 +31,7 @@ import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import type { AccountRelationshipDefinitionApi, CustomPropertyDefinitionApi } from '../../generated/api.schemas'
 import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic, isLegacyRoleColumn } from './accountsColumnConfigLogic'
+import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import { customPropertyFiltersToExpressions } from './accountsCustomPropertyFilters'
 import {
     ACCOUNT_EXPANSION_TABS,
@@ -107,6 +109,15 @@ interface AccountQueryFilters {
 // Shared filter clauses for the list-rows query and the overview-metrics query,
 // so both always aggregate/list over the exact same set of accounts.
 function applyAccountFilters(source: AccountsQuery, filters: AccountQueryFilters): void {
+    // A deep link pins the list to one account by its PK, and it has to resolve to that account for
+    // whoever opens it. The viewer's own filters — a restored saved view, the persisted "my accounts"
+    // toggle — would otherwise AND with the id and leave them on an empty list, so the pin wins alone.
+    // The id is only ever a validated UUID (set from the route), so it's injection-safe. Compare it
+    // stringified, matching how the name-cell id is built.
+    if (filters.accountIdFilter) {
+        source.filterExpression = `(toString(id) = '${filters.accountIdFilter}')`
+        return
+    }
     const trimmed = filters.searchQuery.trim()
     if (trimmed) {
         source.search = trimmed
@@ -120,15 +131,9 @@ function applyAccountFilters(source: AccountsQuery, filters: AccountQueryFilters
     if (filters.assignedToFilter.length > 0) {
         source.assignedToUserIds = filters.assignedToFilter
     }
-    // Combine the overview-tile filter with the single-account filter (path route). The
-    // id is the account PK; compare it stringified, matching how the name-cell id is built.
-    // accountIdFilter is only ever a validated UUID (set from the route), so it's injection-safe.
     const filterExpressions: string[] = []
     if (filters.tileFilter) {
         filterExpressions.push(filters.tileFilter.expression)
-    }
-    if (filters.accountIdFilter) {
-        filterExpressions.push(`toString(id) = '${filters.accountIdFilter}'`)
     }
     filterExpressions.push(
         ...customPropertyFiltersToExpressions(filters.customPropertyFilters, filters.customPropertyDefinitionsById)
@@ -139,6 +144,17 @@ function applyAccountFilters(source: AccountsQuery, filters: AccountQueryFilters
 }
 
 export const savingRoleKey = (accountId: string, column: string): string => `${accountId}:${column}`
+
+// Which accounts path the shareable view state gets written back to. It must be the path we are
+// already on: the setters that mirror view state into the URL also fire while state is being
+// restored (the default-column upgrade once relationship definitions load, the auto-restored saved
+// view), so pointing them at the list would bounce a single-account deep link to the unfiltered
+// list moments after it opened. Returns the live pathname so the deep link keeps its `/:tab`.
+function accountsPathToWriteBackTo(accountIdFilter: string | null): string {
+    const pathname = removeProjectIdIfPresent(router.values.location.pathname)
+    const deepLinkPath = accountIdFilter ? urls.customerAnalyticsAccount(accountIdFilter) : null
+    return deepLinkPath && pathname.startsWith(deepLinkPath) ? pathname : urls.customerAnalyticsAccounts()
+}
 
 // Shareable view state encoded into the URL hash (`#view=...`) so a copied URL
 // reproduces the exact accounts list a colleague is looking at. Only non-default
@@ -155,6 +171,7 @@ export interface AccountsViewUrlState {
     mine?: boolean
     sort?: NonNullable<AccountSortOrder>
     columns?: string[]
+    columnDisplay?: AccountColumnDisplayState
     tileFilter?: TileFilter
     customProperties?: AccountCustomPropertyFilter[]
 }
@@ -163,6 +180,7 @@ export interface AccountsViewUrlState {
 export interface accountsLogicValues {
     aliasToDefinition: Record<string, CustomPropertyDefinitionApi> // accountsColumnConfigLogic
     aliasToRelationshipDefinition: Record<string, AccountRelationshipDefinitionApi> // accountsColumnConfigLogic
+    columnDisplay: AccountColumnDisplayState // accountsColumnConfigLogic
     customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi> // accountsColumnConfigLogic
     defaultSelectColumns: string[] // accountsColumnConfigLogic
     querySelectColumns: string[] // accountsColumnConfigLogic
@@ -208,6 +226,16 @@ export interface accountsLogicActions {
     } // accountsColumnConfigLogic
     selectColumn: (column: string) => {
         column: string
+    } // accountsColumnConfigLogic
+    setColumnDisplay: (
+        definitionId: string,
+        config: null | import('./accountsColumnConfigLogic').AccountColumnDisplayConfig
+    ) => {
+        config: null | import('./accountsColumnConfigLogic').AccountColumnDisplayConfig
+        definitionId: string
+    } // accountsColumnConfigLogic
+    setColumnDisplayConfig: (config: AccountColumnDisplayState) => {
+        config: AccountColumnDisplayState
     } // accountsColumnConfigLogic
     setSelectColumns: (columns: string[]) => {
         columns: string[]
@@ -347,7 +375,8 @@ export interface accountsLogicMeta {
             selectColumns: string[],
             defaultSelectColumns: string[],
             tileFilter: TileFilter | null,
-            customPropertyFilters: AccountCustomPropertyFilter[]
+            customPropertyFilters: AccountCustomPropertyFilter[],
+            columnDisplay: AccountColumnDisplayState
         ) => AccountsViewUrlState
         hogqlQuery: (
             searchQuery: string,
@@ -404,6 +433,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 'aliasToDefinition',
                 'relationshipDefinitionsLoaded',
                 'customPropertyDefinitionsById',
+                'columnDisplay',
             ],
             accountsOverviewTilesLogic,
             ['metrics as overviewMetrics', 'tileFilter'],
@@ -412,7 +442,15 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
         actions: [
             accountsColumnConfigLogic,
-            ['setSelectColumns', 'selectColumn', 'unselectColumn', 'moveColumn', 'resetColumns'],
+            [
+                'setSelectColumns',
+                'selectColumn',
+                'unselectColumn',
+                'moveColumn',
+                'resetColumns',
+                'setColumnDisplay',
+                'setColumnDisplayConfig',
+            ],
             accountsOverviewTilesLogic,
             ['setTileFilter'],
             accountsExpansionLogic,
@@ -584,6 +622,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.defaultSelectColumns,
                 s.tileFilter,
                 s.customPropertyFilters,
+                s.columnDisplay,
             ],
             (
                 searchQuery: string,
@@ -594,7 +633,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 selectColumns: string[],
                 defaultSelectColumns: string[],
                 tileFilter: TileFilter | null,
-                customPropertyFilters: AccountCustomPropertyFilter[]
+                customPropertyFilters: AccountCustomPropertyFilter[],
+                columnDisplay: AccountColumnDisplayState
             ): AccountsViewUrlState => {
                 const state: AccountsViewUrlState = {}
                 const trimmedSearch = searchQuery.trim()
@@ -615,6 +655,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (!objectsEqual(selectColumns, defaultSelectColumns)) {
                     state.columns = selectColumns
+                }
+                if (Object.keys(columnDisplay).length > 0) {
+                    state.columnDisplay = columnDisplay
                 }
                 if (tileFilter) {
                     state.tileFilter = tileFilter
@@ -969,7 +1012,7 @@ export const accountsLogic = kea<accountsLogicType>([
         // Mirror the full view into the URL hash so the link is shareable.
         // Search params are preserved untouched — the parent scene owns those.
         const toUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
-            urls.customerAnalyticsAccounts(),
+            accountsPathToWriteBackTo(values.accountIdFilter),
             router.values.searchParams,
             objectsEqual(values.viewUrlState, {}) ? {} : { view: values.viewUrlState },
             { replace: true },
@@ -986,12 +1029,15 @@ export const accountsLogic = kea<accountsLogicType>([
             unselectColumn: toUrl,
             moveColumn: toUrl,
             resetColumns: toUrl,
+            setColumnDisplay: toUrl,
+            setColumnDisplayConfig: toUrl,
             setTileFilter: toUrl,
         }
     }),
     urlToAction(({ actions, values }) => {
         // Path route `/accounts/:accountId/:tab`: filter the list to one account and open the tab.
-        // Neither setter is wired into actionToUrl, so the URL stays on the path (no navigate-away).
+        // The URL stays on the path — neither setter is wired into actionToUrl, and the setters that
+        // are keep the current path (see `accountsPathToWriteBackTo`).
         const openAccountByPath = (accountId: string | undefined, rawTab?: string): void => {
             // Guard the path param before it's interpolated into the HogQL id filter.
             if (!accountId || !isUUIDLike(accountId)) {
@@ -1006,79 +1052,98 @@ export const accountsLogic = kea<accountsLogicType>([
             }
             actions.openAccountTab(accountId, tab)
         }
+        const restoreView = (view: AccountsViewUrlState): void => {
+            const search = view.search ?? ''
+            if (search !== values.searchQuery) {
+                actions.setSearchQuery(search)
+            }
+
+            const tags = view.tags ?? []
+            if (!objectsEqual(tags, values.tagsFilter)) {
+                actions.setTagsFilter(tags)
+            }
+
+            const customProperties = Array.isArray(view.customProperties) ? view.customProperties : []
+            if (!objectsEqual(customProperties, values.customPropertyFilters)) {
+                actions.setCustomPropertyFilters(customProperties)
+            }
+
+            const unassigned = view.unassigned ?? false
+            if (unassigned !== values.allRolesUnassigned) {
+                actions.setAllRolesUnassigned(unassigned)
+            }
+
+            const assignedTo = normalizeRoleFilter(view.assignedTo)
+            // Back-compat: legacy links encoded the viewer-relative `mine: true`;
+            // resolve it to the opener's own id so old shared links still work.
+            const legacyMine =
+                !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
+            // With no explicit assignment in the hash (e.g. arriving via the tab
+            // link), fall back to the shared "mine only" toggle so the choice made
+            // on the Notes tab carries over.
+            const sharedMine =
+                !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId !== null
+                    ? [values.currentUserId]
+                    : []
+            // The persisted "my accounts" intent can't be resolved until the user id is
+            // known. If the user hasn't loaded yet, leave the filter untouched (rather than
+            // writing an empty one, which would cascade to setMineOnly(false) and clobber the
+            // preference) and let the loadUserSuccess listener apply it once the user resolves.
+            const mineRestorePending =
+                !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId === null
+            const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine.length ? legacyMine : sharedMine
+            if (!mineRestorePending && !objectsEqual(nextAssignedTo, values.assignedToFilter)) {
+                actions.setAssignedToFilter(nextAssignedTo)
+            }
+
+            const sort = view.sort ?? null
+            if (!objectsEqual(sort, values.sortOrder)) {
+                actions.setSortOrder(sort)
+            }
+
+            // A shared link's columns win over the per-user saved column config;
+            // accountsColumnConfigLogic enforces this by reading the URL when its
+            // async saved-config load resolves.
+            if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
+                actions.setSelectColumns(view.columns)
+            }
+
+            const columnDisplay = view.columnDisplay && typeof view.columnDisplay === 'object' ? view.columnDisplay : {}
+            if (!objectsEqual(columnDisplay, values.columnDisplay)) {
+                actions.setColumnDisplayConfig(columnDisplay)
+            }
+
+            const tileFilter = view.tileFilter ?? null
+            if (!objectsEqual(tileFilter, values.tileFilter)) {
+                actions.setTileFilter(tileFilter)
+            }
+        }
+        const viewFromHash = (hashParams: Record<string, any> | undefined): AccountsViewUrlState =>
+            hashParams?.view && typeof hashParams.view === 'object' ? hashParams.view : {}
         return {
             [urls.customerAnalyticsAccounts()]: (_, __, hashParams): void => {
-                const view: AccountsViewUrlState =
-                    hashParams?.view && typeof hashParams.view === 'object' ? hashParams.view : {}
-
-                const search = view.search ?? ''
-                if (search !== values.searchQuery) {
-                    actions.setSearchQuery(search)
-                }
-
-                const tags = view.tags ?? []
-                if (!objectsEqual(tags, values.tagsFilter)) {
-                    actions.setTagsFilter(tags)
-                }
-
-                const customProperties = Array.isArray(view.customProperties) ? view.customProperties : []
-                if (!objectsEqual(customProperties, values.customPropertyFilters)) {
-                    actions.setCustomPropertyFilters(customProperties)
-                }
-
-                const unassigned = view.unassigned ?? false
-                if (unassigned !== values.allRolesUnassigned) {
-                    actions.setAllRolesUnassigned(unassigned)
-                }
-
-                const assignedTo = normalizeRoleFilter(view.assignedTo)
-                // Back-compat: legacy links encoded the viewer-relative `mine: true`;
-                // resolve it to the opener's own id so old shared links still work.
-                const legacyMine =
-                    !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
-                // With no explicit assignment in the hash (e.g. arriving via the tab
-                // link), fall back to the shared "mine only" toggle so the choice made
-                // on the Notes tab carries over.
-                const sharedMine =
-                    !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId !== null
-                        ? [values.currentUserId]
-                        : []
-                // The persisted "my accounts" intent can't be resolved until the user id is
-                // known. If the user hasn't loaded yet, leave the filter untouched (rather than
-                // writing an empty one, which would cascade to setMineOnly(false) and clobber the
-                // preference) and let the loadUserSuccess listener apply it once the user resolves.
-                const mineRestorePending =
-                    !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId === null
-                const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine.length ? legacyMine : sharedMine
-                if (!mineRestorePending && !objectsEqual(nextAssignedTo, values.assignedToFilter)) {
-                    actions.setAssignedToFilter(nextAssignedTo)
-                }
-
-                const sort = view.sort ?? null
-                if (!objectsEqual(sort, values.sortOrder)) {
-                    actions.setSortOrder(sort)
-                }
-
-                // A shared link's columns win over the per-user saved column config;
-                // accountsColumnConfigLogic enforces this by reading the URL when its
-                // async saved-config load resolves.
-                if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
-                    actions.setSelectColumns(view.columns)
-                }
-
-                const tileFilter = view.tileFilter ?? null
-                if (!objectsEqual(tileFilter, values.tileFilter)) {
-                    actions.setTileFilter(tileFilter)
-                }
+                restoreView(viewFromHash(hashParams))
 
                 // Back on the bare list — drop any single-account path filter.
                 if (values.accountIdFilter !== null) {
                     actions.setAccountIdFilter(null)
                 }
             },
-            [urls.customerAnalyticsAccount(':accountId')]: ({ accountId }): void => openAccountByPath(accountId),
-            [urls.customerAnalyticsAccount(':accountId', ':tab')]: ({ accountId, tab }): void =>
-                openAccountByPath(accountId, tab),
+            // A deep link carries the same shareable `#view=` hash, but only restore it when it's
+            // actually there — an absent hash on this route means "just open the account", not
+            // "reset the list", so the saved view stays in charge.
+            [urls.customerAnalyticsAccount(':accountId')]: ({ accountId }, __, hashParams): void => {
+                if (hashParams?.view) {
+                    restoreView(viewFromHash(hashParams))
+                }
+                openAccountByPath(accountId)
+            },
+            [urls.customerAnalyticsAccount(':accountId', ':tab')]: ({ accountId, tab }, __, hashParams): void => {
+                if (hashParams?.view) {
+                    restoreView(viewFromHash(hashParams))
+                }
+                openAccountByPath(accountId, tab)
+            },
         }
     }),
 ])

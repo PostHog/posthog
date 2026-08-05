@@ -241,6 +241,14 @@ class BatchConsumerAdapter(Protocol):
         the run's terminal state."""
         ...
 
+    def is_expected_user_error(self, err: Exception) -> bool:
+        """Whether the failure is an expected upstream/customer condition rather than a bug in
+        our pipeline (e.g. a source column whose type changed and no longer fits the stored
+        type — only a reset and full re-sync resolves it). The run still fails with the error's
+        actionable message, but the engine keeps these out of error tracking. Orthogonal to
+        ``is_retryable_error``: an error can be both non-retryable and expected."""
+        ...
+
     async def after_batch_processed(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -352,6 +360,18 @@ class BatchConsumer:
         except TimeoutError:
             pass
 
+    async def _handle_poll_timeout(self, poll_start: float) -> None:
+        # error, not exception: the timeout is the designed recovery
+        # path and its traceback carries no diagnostic value.
+        logger.error(  # noqa: TRY400
+            self._event("poll_timed_out"),
+            timeout_seconds=self._config.poll_timeout_seconds,
+            consecutive_failures=self._consecutive_poll_failures + 1,
+        )
+        self._note_poll_failure("timeout", duration=time.monotonic() - poll_start)
+        await self._drop_conn("_poll_conn")
+        await self._wait_or_shutdown(self._poll_retry_delay())
+
     async def run(self) -> None:
         self._install_signal_handlers()
 
@@ -391,23 +411,26 @@ class BatchConsumer:
                     continue
 
                 poll_start = time.monotonic()
+                poll_timeout_ctx = asyncio.timeout(self._config.poll_timeout_seconds)
                 try:
                     conn = await self._ensure_poll_conn()
-                    async with asyncio.timeout(self._config.poll_timeout_seconds):
+                    async with poll_timeout_ctx:
                         batches = await self._fetch_batches(conn, available=available)
                 except TimeoutError:
-                    # error, not exception: the timeout is the designed recovery
-                    # path and its traceback carries no diagnostic value.
-                    logger.error(  # noqa: TRY400
-                        self._event("poll_timed_out"),
-                        timeout_seconds=self._config.poll_timeout_seconds,
-                        consecutive_failures=self._consecutive_poll_failures + 1,
-                    )
-                    self._note_poll_failure("timeout", duration=time.monotonic() - poll_start)
-                    await self._drop_conn("_poll_conn")
-                    await self._wait_or_shutdown(self._poll_retry_delay())
+                    await self._handle_poll_timeout(poll_start)
                     continue
                 except psycopg.OperationalError as e:
+                    if poll_timeout_ctx.expired():
+                        # asyncio.timeout() cancels the in-flight query on expiry, but
+                        # psycopg's async wait loop can catch that cancellation and
+                        # re-raise it as a generic OperationalError ("consuming input
+                        # failed: server closed the connection unexpectedly") instead
+                        # of letting a bare TimeoutError propagate. Timeout.expired()
+                        # reflects whether this context's own deadline fired regardless
+                        # of the exception type, so this is still the designed timeout
+                        # path above, not a real queue-DB outage.
+                        await self._handle_poll_timeout(poll_start)
+                        continue
                     logger.exception(self._event("poll_failed_queue_db_unreachable"))
                     capture_exception(e)
                     self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
@@ -923,14 +946,25 @@ class BatchConsumer:
         if not self._adapter.is_retryable_error(err):
             # Deterministic failures do not benefit from retrying. Preserve their
             # messages, except for explicitly classified permanent apply errors.
-            logger.exception(
-                self._event("batch_failed_non_retryable"),
-                batch_id=batch.id,
-                run_uuid=batch.run_uuid,
-                attempt=attempt,
-            )
-            capture_exception(err)
             reason = f"permanent apply error: {err}" if isinstance(err, PermanentBatchApplyError) else str(err)
+            if self._adapter.is_expected_user_error(err):
+                # Expected upstream/customer condition — the run fails with an actionable
+                # message; there is nothing for us to fix, so keep it out of error tracking.
+                logger.warning(
+                    self._event("batch_failed_expected_user_error"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                    error=str(err),
+                )
+            else:
+                logger.exception(
+                    self._event("batch_failed_non_retryable"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                )
+                capture_exception(err)
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         elif attempt >= self._config.max_attempts:
             reason = f"max retries exceeded: {err}"

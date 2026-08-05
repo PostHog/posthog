@@ -1,5 +1,8 @@
 import unittest
 
+from parameterized import parameterized
+
+from common.hogvm.python.stl.date import to_hog_datetime
 from common.hogvm.python.utils import unify_comparison_types
 
 
@@ -142,6 +145,33 @@ class TestUnifyComparisonTypes(unittest.TestCase):
         except ValueError as e:
             if "could not convert string to float" in str(e):
                 self.fail(f"Float conversion error should not occur: {e}")
+
+
+class TestUnifyComparisonTypesTemporalOrdering(unittest.TestCase):
+    # Regression: a hand-written SQL trigger filter like `timestamp > toDateTime('2026-06-01')` only
+    # wraps the RHS in toDateTime, so the VM ends up unifying a plain ISO string against a HogDateTime
+    # dict. Before this fix, HogDateTime dicts fell through unify_comparison_types unchanged and the
+    # ordering operators tried to compare a str to a dict, raising a TypeError.
+    later_datetime = to_hog_datetime(1782988689)  # 2026-06-28
+    earlier_datetime = to_hog_datetime(1782518400)  # 2026-06-23 00:00:00 UTC
+    later_iso_timestamp = "2026-06-28T00:00:00.000Z"  # same instant as later_datetime
+    earlier_iso_timestamp = "2026-06-23T00:00:00.000Z"  # same instant as earlier_datetime
+
+    @parameterized.expand(
+        [
+            ("HogDateTime vs HogDateTime", later_datetime, earlier_datetime),
+            ("string vs HogDateTime", later_iso_timestamp, earlier_datetime),
+            ("HogDateTime vs string", later_datetime, earlier_iso_timestamp),
+        ]
+    )
+    def test_orders_chronologically(self, _label, later, earlier):
+        left, right = unify_comparison_types(later, earlier)
+        self.assertGreater(left, right)
+
+    def test_non_date_string_against_temporal_value_falls_through_unchanged(self):
+        left, right = unify_comparison_types("not-a-date", self.later_datetime)
+        self.assertEqual(left, "not-a-date")
+        self.assertEqual(right, self.later_datetime)
 
 
 if __name__ == "__main__":

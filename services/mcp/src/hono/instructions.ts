@@ -140,13 +140,14 @@ export class InstructionsBuilder {
 
     formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
         const dataCatalogEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        // Metric discovery leads the splice so catalog-first routing still precedes
+        // raw schema discovery, without displacing the tool's own intro line.
         const schemaDiscovery = dataCatalogEnabled
-            ? `${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
+            ? `${METRIC_DISCOVERY.trim()}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
             : SCHEMA_DISCOVERY.trim()
-        const description = formatPrompt(EXECUTE_SQL_PROMPT, {
+        return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
             schema_discovery: schemaDiscovery,
         })
-        return dataCatalogEnabled ? `${METRIC_DISCOVERY.trim()}\n\n${description}` : description
     }
 }

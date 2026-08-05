@@ -12,8 +12,10 @@ import {
 } from '@posthog/icons'
 import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
+import { isEntityFilter } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
@@ -24,14 +26,15 @@ import {
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator } from '~/types'
+import { FilterLogicalOperator, UniversalFilterValue } from '~/types'
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { formatCredits } from '../../utils/credits'
+import { formatCreditsMaybeUsd } from '../../utils/credits'
 import { promptUnchangedSince } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { MODEL_OPTIONS, ReplayScanner, SAMPLING_MODE_OPTIONS, ScannerType } from '../types'
@@ -71,6 +74,25 @@ function OptionTags({
                     </LemonTag>
                 )
             })}
+        </div>
+    )
+}
+
+/** One recording filter, read-only. An event or action filter carries its own property filters, which the
+ * editable UI keeps behind a popover — there's nothing to open here, so show them alongside the event. */
+function ReadonlyFilter({ filter }: { filter: UniversalFilterValue }): JSX.Element {
+    const properties = isEntityFilter(filter) ? (filter.properties ?? []) : []
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <UniversalFilterButton filter={filter} />
+            {properties.length > 0 && (
+                <>
+                    <span className="text-xs">where</span>
+                    {properties.map((property, i) => (
+                        <PropertyFilterButton key={i} item={property} compact />
+                    ))}
+                </>
+            )}
         </div>
     )
 }
@@ -243,6 +265,7 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
 
 export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { observationStats, togglingEnabled } = useValues(replayScannerLogic({ id: scanner.id }))
+    const { showUsd } = useValues(visionQuotaLogic)
     const { toggleEnabled } = useActions(replayScannerLogic({ id: scanner.id }))
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
     // Read every filter dimension (events, actions, properties, console logs, …), not just top-level properties.
@@ -321,7 +344,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                                 <span className="text-xs">Match {matchWord} of</span>
                                             )}
                                             {filters.map((filter, i) => (
-                                                <UniversalFilterButton key={i} filter={filter} />
+                                                <ReadonlyFilter key={i} filter={filter} />
                                             ))}
                                         </div>
                                     )}
@@ -385,9 +408,9 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         <LabeledRow label="Estimated monthly cost">
                             {scanner.estimated_monthly_credits != null ? (
                                 <span className="tabular-nums">
-                                    {formatCredits(scanner.estimated_monthly_credits)}{' '}
+                                    {formatCreditsMaybeUsd(scanner.estimated_monthly_credits, showUsd)}{' '}
                                     <span className="text-muted">
-                                        ({(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations)
+                                        · {(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations
                                     </span>
                                 </span>
                             ) : (
@@ -396,13 +419,6 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         </LabeledRow>
                         <LabeledRow label="Total observations">
                             <span className="tabular-nums">{observationStats.total.toLocaleString()}</span>
-                        </LabeledRow>
-                        <LabeledRow label="Success rate">
-                            {observationStats.successRate != null ? (
-                                <span className="tabular-nums">{observationStats.successRate}%</span>
-                            ) : (
-                                <span className="text-muted">—</span>
-                            )}
                         </LabeledRow>
                         <LabeledRow label="Outcomes">
                             <span className="text-sm">

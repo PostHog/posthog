@@ -1,9 +1,12 @@
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
-
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
+import { ActivityScope } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
 import type { Ticket, TicketStatus } from '../../types'
@@ -33,6 +36,10 @@ jest.mock('~/lib/api', () => {
                 update: jest.fn(),
                 list: jest.fn().mockResolvedValue({ results: [] }),
             },
+            tags: {
+                ...actual.default?.tags,
+                list: jest.fn().mockResolvedValue([]),
+            },
         },
     }
 })
@@ -42,7 +49,14 @@ jest.mock('products/business_knowledge/frontend/generated/api', () => ({
     businessKnowledgeGapSuggestionsDismissCreate: jest.fn().mockResolvedValue(undefined),
 }))
 
+jest.mock('products/conversations/frontend/generated/api', () => ({
+    conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
+}))
+
 import api from '~/lib/api'
+
+import { conversationsTicketsNotesPartialUpdate } from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
 
@@ -294,21 +308,16 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     })
 
     // "Send and set status" must persist through the same PATCH as the "Save changes" button,
-    // and auto-assign the current user unless a specific user is already assigned.
-    test.each<[string, TicketAssignee, TicketStatus, TicketAssignee]>([
-        ['auto-assigns the current user when unassigned', null, 'resolved', { type: 'user', id: MOCK_DEFAULT_USER.id }],
-        [
-            'replaces a role assignee with the current user',
-            { type: 'role', id: 'role-1' },
-            'on_hold',
-            { type: 'user', id: MOCK_DEFAULT_USER.id },
-        ],
-        ['keeps an existing user assignee', { type: 'user', id: 999 }, 'pending', { type: 'user', id: 999 }],
-    ])('%s', async (_name, presetAssignee, statusAfterSend, expectedAssignee) => {
+    // and must never change who the ticket is assigned to.
+    test.each<[string, TicketAssignee, TicketStatus]>([
+        ['leaves an unassigned ticket unassigned', null, 'resolved'],
+        ['keeps a role assignee', { type: 'role', id: 'role-1' }, 'on_hold'],
+        ['keeps a user assignee', { type: 'user', id: 999 }, 'pending'],
+    ])('%s', async (_name, presetAssignee, statusAfterSend) => {
         if (presetAssignee) {
             logic.actions.setAssignee(presetAssignee)
         }
-        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), status: statusAfterSend, assignee: expectedAssignee })
+        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), status: statusAfterSend, assignee: presetAssignee })
 
         await expectLogic(logic, () => {
             logic.actions.sendMessage('hello', null, false, undefined, statusAfterSend)
@@ -316,7 +325,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
 
         expect(ticketUpdateMock).toHaveBeenCalledWith(
             '42',
-            expect.objectContaining({ status: statusAfterSend, assignee: expectedAssignee })
+            expect.objectContaining({ status: statusAfterSend, assignee: presetAssignee })
         )
         expect(logic.values.status).toBe(statusAfterSend)
         expect(logic.values.hasUnsavedChanges).toBe(false)
@@ -373,5 +382,342 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(ticketUpdateMock).toHaveBeenLastCalledWith('42', expect.objectContaining({ status: 'pending' }))
         expect(logic.values.status).toBe('pending')
         expect(logic.values.ticketUpdating).toBe(false)
+    })
+})
+
+describe('supportTicketSceneLogic tag pool refresh', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketUpdateMock = api.conversationsTickets.update as jest.Mock
+    const tagsListMock = api.tags.list as jest.Mock
+
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+
+    beforeEach(async () => {
+        initKeaTests()
+        tagsListMock.mockReset().mockResolvedValue(['known'])
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        ticketUpdateMock.mockReset()
+        // Prime the shared lazy-loaded tag pool so availableTags reflects the existing tags.
+        tagsModel.mount()
+        tagsModel.actions.loadTags()
+        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket'])
+        expect(logic.values.availableTags).toEqual(['known'])
+        // Wait out lazyLoaders' deferred refetch, or it lands mid-test and makes the assertions below vacuous.
+        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+        tagsListMock.mockClear()
+    })
+
+    // A newly typed tag is created globally on save, so the shared pool must reload to surface it
+    // on other tickets; an already-known tag needs no reload.
+    it('reloads the shared tag pool when a new tag was saved', async () => {
+        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known', 'brand-new'] })
+        tagsListMock.mockResolvedValue(['known', 'brand-new'])
+
+        logic.actions.setTags(['known', 'brand-new'])
+        await expectLogic(logic, () => {
+            logic.actions.updateTicket()
+        }).toDispatchActions(['setTicket'])
+        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+
+        expect(tagsListMock).toHaveBeenCalledTimes(1)
+        expect(logic.values.availableTags).toEqual(['known', 'brand-new'])
+    })
+
+    it('does not reload the tag pool when all saved tags are already known', async () => {
+        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known'] })
+
+        logic.actions.setTags(['known'])
+        await expectLogic(logic, () => {
+            logic.actions.updateTicket()
+        }).toDispatchActions(['setTicket'])
+
+        expect(tagsListMock).not.toHaveBeenCalled()
+        expect(logic.values.availableTags).toEqual(['known'])
+    })
+})
+
+describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const personsListMock = api.persons.list as jest.Mock
+    const ticketsListMock = api.conversationsTickets.list as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+
+    beforeEach(() => {
+        initKeaTests()
+        // Person carries a customer-controlled properties.email distinct from the ticket's email_from,
+        // so the assertions prove the match uses email_from (when verified) and never properties.email.
+        personsListMock.mockReset().mockResolvedValue({
+            results: [{ id: 'p1', distinct_ids: ['user-1'], properties: { email: 'analytics@example.com' } }],
+        })
+        ticketsListMock.mockReset().mockResolvedValue({ results: [] })
+        ticketGetMock.mockReset()
+    })
+
+    // email_from is attacker-spoofable unless the ticket's identity is positively attested, and
+    // person.properties.email is customer-controlled analytics with no trusted mapping. Only a
+    // verified ticket may widen the match by email — otherwise a spoofed sender pulls another
+    // customer's ticket history into their own view.
+    test.each<[string, boolean | null, Record<string, string>]>([
+        [
+            'verified email ticket matches by email_from',
+            true,
+            { distinct_ids: 'user-1', emails: 'verified@example.com' },
+        ],
+        ['unverified ticket omits emails', false, { distinct_ids: 'user-1' }],
+        ['unknown identity omits emails', null, { distinct_ids: 'user-1' }],
+    ])('%s', async (_name, identity_verified, expectedParams) => {
+        ticketGetMock.mockResolvedValue({
+            ...makeTicket(),
+            distinct_id: 'user-1',
+            channel_source: 'email',
+            email_from: 'verified@example.com',
+            identity_verified,
+        })
+
+        logic = supportTicketSceneLogic({ id: 42 })
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadPreviousTicketsSuccess'])
+
+        expect(ticketsListMock).toHaveBeenLastCalledWith(expectedParams)
+    })
+})
+
+describe('supportTicketSceneLogic private note editing', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const noteUpdateMock = conversationsTicketsNotesPartialUpdate as jest.Mock
+    const commentsCreateMock = api.comments.create as jest.Mock
+
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+
+    beforeEach(async () => {
+        localStorage.clear()
+        initKeaTests()
+        noteUpdateMock.mockReset().mockResolvedValue(undefined)
+        commentsCreateMock.mockReset().mockResolvedValue(undefined)
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        // Wait for ticket + initial message load so a late setMessages([]) can't cancel an edit.
+        await expectLogic(logic).toDispatchActions(['setTicket', 'setMessages'])
+    })
+
+    test('startEditingMessage stashes the in-progress draft and loads the note', async () => {
+        const draft = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'wip' }] }] }
+        logic.actions.setDraftContent(draft)
+        logic.actions.setDraftIsPrivate(false)
+
+        const noteRich = {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'note body' }] }],
+        }
+        logic.actions.startEditingMessage({
+            id: 'note-1',
+            content: 'note body',
+            richContent: noteRich,
+            authorType: 'human',
+            authorName: 'Me',
+            createdBy: { id: 1 },
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+            version: 0,
+        })
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editingMessageId).toBe('note-1')
+        expect(logic.values.draftIsPrivate).toBe(true)
+        expect(logic.values.draftContent).toEqual(noteRich)
+        expect(logic.values.stashedDraftContent).toEqual(draft)
+        expect(logic.values.stashedDraftIsPrivate).toBe(false)
+    })
+
+    test('cancelEditingMessage restores the stashed draft', async () => {
+        const draft = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'wip' }] }] }
+        logic.actions.setDraftContent(draft)
+        logic.actions.setDraftIsPrivate(false)
+        logic.actions.startEditingMessage({
+            id: 'note-1',
+            content: 'note',
+            richContent: { type: 'doc', content: [] },
+            authorType: 'human',
+            authorName: 'Me',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.cancelEditingMessage()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editingMessageId).toBeNull()
+        expect(logic.values.draftContent).toEqual(draft)
+        expect(logic.values.draftIsPrivate).toBe(false)
+        expect(logic.values.stashedDraftContent).toBeNull()
+    })
+
+    test('sendMessage while editing hits the note update endpoint and restores the stashed draft', async () => {
+        const draft = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'wip' }] }] }
+        const updatedRich = {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'updated' }] }],
+        }
+        const commentsListMock = api.comments.list as jest.Mock
+        commentsListMock.mockResolvedValue({
+            results: [
+                {
+                    id: 'note-1',
+                    content: 'updated',
+                    rich_content: updatedRich,
+                    version: 1,
+                    created_at: '2026-01-01T00:00:00Z',
+                    item_context: { author_type: 'support', is_private: true },
+                    created_by: { id: 1, uuid: 'u1', distinct_id: 'd1', first_name: 'Me', email: 'me@posthog.com' },
+                },
+            ],
+        })
+        logic.actions.setMessages([
+            {
+                id: 'note-1',
+                content: 'note',
+                rich_content: { type: 'doc', content: [] },
+                created_at: '2026-01-01T00:00:00Z',
+                item_context: { author_type: 'support', is_private: true },
+                created_by: { id: 1, uuid: 'u1', distinct_id: 'd1', first_name: 'Me', email: 'me@posthog.com' },
+                version: 0,
+            } as any,
+        ])
+        logic.actions.setDraftContent(draft)
+        logic.actions.setDraftIsPrivate(false)
+        logic.actions.startEditingMessage({
+            id: 'note-1',
+            content: 'note',
+            richContent: { type: 'doc', content: [] },
+            authorType: 'human',
+            authorName: 'Me',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        const onSuccess = jest.fn()
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('updated', updatedRich, true, onSuccess)
+        }).toFinishAllListeners()
+
+        expect(noteUpdateMock).toHaveBeenCalledWith(expect.any(String), 'ticket-1', 'note-1', {
+            message: 'updated',
+            rich_content: updatedRich,
+        })
+        expect(commentsCreateMock).not.toHaveBeenCalled()
+        expect(onSuccess).not.toHaveBeenCalled()
+        expect(logic.values.editingMessageId).toBeNull()
+        expect(logic.values.draftContent).toEqual(draft)
+        expect(logic.values.draftIsPrivate).toBe(false)
+        expect(logic.values.stashedDraftContent).toBeNull()
+        const updated = logic.values.chatMessages.find((m) => m.id === 'note-1')
+        expect(updated?.content).toBe('updated')
+        expect(updated?.richContent).toEqual(updatedRich)
+        expect(updated?.version).toBe(1)
+    })
+
+    test('setMessages aborts edit and restores the stashed draft when the note disappears', async () => {
+        const draft = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'wip' }] }] }
+        logic.actions.setDraftContent(draft)
+        logic.actions.setDraftIsPrivate(false)
+        logic.actions.startEditingMessage({
+            id: 'note-1',
+            content: 'note',
+            richContent: { type: 'doc', content: [] },
+            authorType: 'human',
+            authorName: 'Me',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setMessages([])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editingMessageId).toBeNull()
+        expect(logic.values.draftContent).toEqual(draft)
+        expect(logic.values.draftIsPrivate).toBe(false)
+    })
+
+    test('switching notes while editing keeps the original stashed draft', async () => {
+        const draft = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'wip' }] }] }
+        logic.actions.setDraftContent(draft)
+        logic.actions.setDraftIsPrivate(false)
+        logic.actions.startEditingMessage({
+            id: 'note-1',
+            content: 'note one',
+            richContent: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one' }] }] },
+            authorType: 'human',
+            authorName: 'Me',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.startEditingMessage({
+            id: 'note-2',
+            content: 'note two',
+            richContent: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'two' }] }] },
+            authorType: 'human',
+            authorName: 'Me',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editingMessageId).toBe('note-2')
+        expect(logic.values.stashedDraftContent).toEqual(draft)
+
+        logic.actions.cancelEditingMessage()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.draftContent).toEqual(draft)
+    })
+})
+
+describe('supportTicketSceneLogic sidePanelContext', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+    })
+
+    // Access control and discussions are separate consumers of the same selector key. Defining
+    // one selector per concern silently drops all but the last, so assert they coexist.
+    it('exposes access control and discussion context together', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: true })
+
+        expect(logic.values.sidePanelContext).toEqual({
+            access_control_resource: 'ticket',
+            access_control_resource_id: 'ticket-1',
+            activity_scope: ActivityScope.TICKET,
+            activity_item_id: 'ticket-1',
+        })
+    })
+
+    it('keeps access control context when the discussions flag is off', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: false })
+
+        expect(logic.values.sidePanelContext).toEqual({
+            access_control_resource: 'ticket',
+            access_control_resource_id: 'ticket-1',
+        })
     })
 })

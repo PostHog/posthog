@@ -9,9 +9,10 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { useOpenAi } from '~/scenes/max/useOpenAi'
 import { urls } from '~/scenes/urls'
 
+import type { TestHogResultItemApi } from '../../generated/api.schemas'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import type { EvaluationTarget, HogTestResult } from '../types'
+import type { EvaluationTarget } from '../types'
 
 const GLOBAL_NAME_CODE_CLASS = 'font-medium text-sm text-primary bg-fill-highlight-100 px-1.5 py-0.5 rounded'
 const PROPERTY_NAME_CODE_CLASS = 'font-medium text-xs text-primary bg-fill-highlight-100 px-1 py-0.5 rounded'
@@ -46,6 +47,7 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
         description: {
             generation: 'The event for the generation being evaluated.',
             trace: 'Every event in the trace being evaluated.',
+            session: 'Every event in every trace in the session being evaluated, in order.',
         },
         fields: [
             { name: 'uuid', type: 'string', description: 'The event UUID.' },
@@ -76,6 +78,7 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
         description: {
             generation: 'Details about the generation being evaluated.',
             trace: 'Details about the trace being evaluated.',
+            session: 'Details about the session being evaluated.',
         },
         fields: [
             {
@@ -84,6 +87,7 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
                 description: {
                     generation: 'The target type: generation.',
                     trace: 'The target type: trace.',
+                    session: 'The target type: session.',
                 },
             },
             {
@@ -92,6 +96,7 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
                 description: {
                     generation: 'The generation event UUID.',
                     trace: 'The trace ID.',
+                    session: 'The session ID.',
                 },
             },
             {
@@ -100,6 +105,7 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
                 description: {
                     generation: 'The total cost for the generation in USD, when available.',
                     trace: 'The total cost for the trace in USD, when available.',
+                    session: 'The total cost across every trace in the session in USD, when available.',
                 },
             },
             {
@@ -108,6 +114,8 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
                 description: {
                     generation: 'The total latency for the generation in seconds, when available.',
                     trace: 'The total latency for the trace in seconds, when available.',
+                    session:
+                        'The latency of every trace in the session added up, in seconds. This is time spent on AI work, not how long the session lasted.',
                 },
             },
         ],
@@ -139,6 +147,7 @@ function buildMonacoHogGlobals(target: EvaluationTarget): Record<string, MonacoH
 const HOG_EVAL_COMMON_GLOBALS_BY_TARGET = {
     generation: buildMonacoHogGlobals('generation'),
     trace: buildMonacoHogGlobals('trace'),
+    session: buildMonacoHogGlobals('session'),
 }
 
 const HOG_EVAL_GLOBALS_BY_TARGET = {
@@ -172,10 +181,14 @@ const HOG_EVAL_GLOBALS_BY_TARGET = {
             event_count: { type: 'number' },
         },
     },
+    // No compatibility globals: those exist for Hog source saved before `target` and
+    // `evaluation_events` landed, and no session-target source predates them. This mirrors
+    // build_session_hog_globals, which builds the shared globals and nothing else.
+    session: HOG_EVAL_COMMON_GLOBALS_BY_TARGET.session,
 }
 
 function HogTestResultsPanel(): JSX.Element | null {
-    const { hogTestResults, hogTestResultsLoading } = useValues(llmEvaluationLogic)
+    const { hogTestResults, hogTestResultsLoading, hogTestMessage } = useValues(llmEvaluationLogic)
     const { clearHogTestResults } = useActions(llmEvaluationLogic)
 
     if (!hogTestResults && !hogTestResultsLoading) {
@@ -217,7 +230,8 @@ function HogTestResultsPanel(): JSX.Element | null {
                     Clear
                 </LemonButton>
             </div>
-            <LemonTable<HogTestResult>
+            {hogTestMessage && <div className="text-sm text-muted">{hogTestMessage}</div>}
+            <LemonTable<TestHogResultItemApi>
                 columns={[
                     {
                         title: 'Result',
@@ -266,19 +280,25 @@ function HogTestResultsPanel(): JSX.Element | null {
                         title: '',
                         key: 'link',
                         width: 32,
-                        render: (_, row) =>
-                            row.trace_id ? (
-                                <Tooltip title="View generation">
+                        render: (_, row) => {
+                            if (!row.trace_id) {
+                                return null
+                            }
+                            const isTrace = row.sample_type === 'trace'
+                            return (
+                                <Tooltip title={isTrace ? 'View trace' : 'View generation'}>
                                     <Link
-                                        to={urls.aiObservabilityTrace(row.trace_id, {
-                                            event: row.event_uuid,
-                                        })}
+                                        to={urls.aiObservabilityTrace(
+                                            row.trace_id,
+                                            isTrace || !row.event_uuid ? undefined : { event: row.event_uuid }
+                                        )}
                                         target="_blank"
                                     >
                                         <IconExternal className="text-muted text-base" />
                                     </Link>
                                 </Tooltip>
-                            ) : null,
+                            )
+                        },
                     },
                 ]}
                 expandable={{
@@ -291,7 +311,7 @@ function HogTestResultsPanel(): JSX.Element | null {
                 }}
                 dataSource={hogTestResults ?? []}
                 loading={hogTestResultsLoading}
-                rowKey="event_uuid"
+                rowKey="sample_id"
                 size="small"
             />
         </div>
@@ -308,6 +328,7 @@ export function EvaluationCodeEditor(): JSX.Element {
     }
 
     const source = evaluation.evaluation_config.source
+    const isSessionTarget = evaluation.target === 'session'
 
     return (
         <div className="space-y-4">
@@ -333,9 +354,11 @@ export function EvaluationCodeEditor(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <Tooltip
                             title={
-                                evaluation.target === 'trace'
-                                    ? 'Preview this code against up to 5 recent generations. Online runs evaluate the whole trace.'
-                                    : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
+                                isSessionTarget
+                                    ? 'Compile and run your code against up to 3 sessions that have gone quiet, the same way it runs online'
+                                    : evaluation.target === 'trace'
+                                      ? 'Compile and run your code against up to 5 recent traces, the same way it runs online'
+                                      : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
                             }
                         >
                             <LemonButton
@@ -343,7 +366,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 size="xsmall"
                                 loading={hogTestResultsLoading}
                                 disabled={!source.trim()}
-                                onClick={testHogOnSample}
+                                onClick={() => testHogOnSample()}
                                 data-attr="llma-evaluation-test-hog"
                             >
                                 Test on sample

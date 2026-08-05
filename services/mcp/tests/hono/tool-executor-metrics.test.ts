@@ -22,6 +22,7 @@ vi.mock('@/hono/metrics', () => ({
 vi.mock('@/hono/analytics', () => ({
     trackToolCall: vi.fn(),
     trackExecuteSqlGeneration: vi.fn(),
+    trackToolSpan: vi.fn(),
 }))
 
 vi.mock('@/resources/internals', () => ({
@@ -199,6 +200,37 @@ describe('ToolExecutor metrics', () => {
             const extras = trackToolCallExtras('fail-tool')
             expect(extras).toMatchObject({ $mcp_error_type: 'internal' })
             expect(extras).not.toHaveProperty('$mcp_error_message')
+            expect(extras).not.toHaveProperty('$mcp_error_code')
+            expect(extras).not.toHaveProperty('$mcp_error_field')
+        })
+
+        // The code and normalized field path are what make leaf failure modes measurable:
+        // $mcp_error_message is free text, so dashboards can't group on it, and the raw
+        // attr fragments per array index ("actions__0__...", "actions__3__...").
+        it('stamps $mcp_error_code and index-normalized $mcp_error_field for a PostHogValidationError', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new PostHogValidationError({
+                        detail: "Email input must contain a 'from' property",
+                        attr: 'actions__2__inputs__email',
+                        code: 'invalid_input',
+                        extra: undefined,
+                        url: 'https://us.posthog.com/api/environments/2/hog_flows/',
+                        method: 'POST',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_code: 'invalid_input',
+                $mcp_error_field: 'actions__N__inputs__email',
+            })
+            // The detail body echoes caller input, so it must never ride along.
+            expect(JSON.stringify(extras)).not.toContain("'from' property")
         })
 
         it.each([
@@ -431,17 +463,38 @@ describe('ToolExecutor metrics', () => {
             expect(callsFor(mockToolErrorsInc, 'exec')).toHaveLength(0)
         })
 
-        it('emits exec-level error for framework failures before inner dispatch', async () => {
-            await executor.handleToolCall(
-                { name: 'exec', arguments: { command: 'call nonexistent-tool-xyz {}' } },
-                execState()
-            )
+        // Dispatcher rejections are agent mistakes, not server faults: they must not
+        // land in the `internal` bucket the error-rate alert watches, they stay
+        // attributed to `exec` (no inner tool ran), and they must carry a value-free
+        // message so the failure is debuggable from analytics.
+        it.each([
+            ['call nonexistent-tool-xyz {}', 'unknown_tool'],
+            ['frobnicate', 'unknown_command'],
+            ['call docs-search {not json}', 'invalid_json'],
+        ])('classifies %s as validation', async (command, reason) => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
 
-            const execErrors = callsFor(mockToolCallsInc, 'exec')
-            expect(execErrors.length).toBeGreaterThan(0)
-            expect(execErrors[0].status).toBe('error')
+            expect(callsFor(mockToolCallsInc, 'exec')).toEqual([{ tool: 'exec', status: 'validation_error' }])
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_code: reason,
+                $mcp_error_message: `Exec command rejected: ${reason}`,
+            })
+        })
 
-            expect(callsFor(mockToolErrorsInc, 'exec').length).toBeGreaterThan(0)
+        it('classifies a scope-gated tool as permission, not validation', async () => {
+            // The agent can't fix this by sending different input — the connection has
+            // to be reauthorized, which is what the permission-rate alert watches for.
+            const state = execState()
+            state.scopeGatedTools = [{ name: 'gated-tool', missingScopes: ['insight:read'] }] as any
+
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'info gated-tool' } }, state)
+
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'permission' }])
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_message: 'Exec command rejected: missing_scope',
+            })
         })
     })
 })

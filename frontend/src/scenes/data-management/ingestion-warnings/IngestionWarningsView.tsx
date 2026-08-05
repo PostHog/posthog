@@ -32,6 +32,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
     ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
     message_size_too_large: 'Discarded event exceeding 1MB limit',
+    person_properties_size_violation: 'Person properties exceeded the size limit and were trimmed or rejected',
     replay_timestamp_invalid: 'Replay event timestamp is invalid',
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
@@ -44,6 +45,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     event_name_too_long: 'Discarded event whose name exceeds the length limit',
     missing_distinct_id: 'Discarded event with no distinct ID',
     distinct_id_too_large: 'Discarded event whose distinct ID exceeds the size limit',
+    distinct_id_truncated: 'Ingested event after shortening its distinct ID to the 200 character limit',
     invalid_event_timestamp: 'Discarded event with an invalid timestamp',
     malformed_event_properties: 'Discarded event with malformed properties',
     invalid_options: 'Discarded event with invalid capture options',
@@ -52,6 +54,15 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     missing_event_uuid: 'Rejected a batch containing an event with no UUID',
     invalid_event_uuid: 'Rejected a batch containing an event with an invalid UUID',
     duplicate_event_uuid: 'Rejected a batch containing duplicate event UUIDs',
+    high_volume_distinct_id: 'Skipped person profile processing for a high-volume distinct ID',
+    // Emitted by the capture service for its AI endpoints
+    invalid_ai_event: 'Discarded an AI event with an unsupported event name or no $ai_model',
+    invalid_ai_payload: 'Rejected a malformed AI or OpenTelemetry request',
+    no_ai_spans_ingested: 'Accepted an OpenTelemetry export with no AI spans, so nothing was ingested',
+    // Emitted by the capture service for its session replay endpoint
+    missing_session_id: 'Discarded a session replay batch with no $session_id',
+    invalid_session_id: 'Discarded a session replay batch with an invalid $session_id',
+    missing_snapshot_data: 'Discarded a session replay batch with no $snapshot_data',
 }
 
 // Explicit anchor on https://posthog.com/docs/data/ingestion-warnings for each warning type.
@@ -71,6 +82,7 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     replay_timestamp_too_far: 'replay-event-timestamp-was-too-far-in-the-future',
     set_on_exception: 'invalid-set-operations-on-exception-events',
     invalid_heatmap_data: 'invalid-heatmap-data',
+    high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
 }
 
 export const WARNING_TYPE_RENDERER = {

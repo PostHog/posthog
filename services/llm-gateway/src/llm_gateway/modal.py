@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any, Final
+from dataclasses import dataclass
+from typing import Any, Final, Literal
 
 import litellm
 from fastapi import HTTPException
@@ -12,6 +13,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
 
+from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive
 from llm_gateway.anthropic_stream import observe_anthropic_stream
 from llm_gateway.config import Settings, _normalize_cost_key
 
@@ -22,29 +24,48 @@ _MODAL_LITELLM_PREFIX = "openai/"
 # requires a non-empty api_key.
 _MODAL_PLACEHOLDER_API_KEY = "modal-proxy-token-auth"
 
-# Public gateway model id -> the model name Modal's endpoint serves. The public id keeps its
-# `@cf/` form so clients need no changes; every served name must be priced in COST_ALIASES
-# under `openai/<served>` (tests/test_modal.py enforces the pairing).
-MODAL_MODEL_MAP: Final[dict[str, str]] = {
-    "@cf/zai-org/glm-5.2": "zai-org/GLM-5.2-FP8",
+
+@dataclass(frozen=True)
+class ModalModelConfig:
+    served_model: str
+    api_base_setting: Literal["modal_api_base", "modal_kimi_api_base"]
+    has_cloudflare_fallback: bool = False
+
+
+MODAL_MODELS: Final[dict[str, ModalModelConfig]] = {
+    "@cf/zai-org/glm-5.2": ModalModelConfig(
+        served_model="zai-org/GLM-5.2-FP8",
+        api_base_setting="modal_api_base",
+        has_cloudflare_fallback=True,
+    ),
+    "moonshotai/kimi-k3": ModalModelConfig(served_model="moonshotai/kimi-k3", api_base_setting="modal_kimi_api_base"),
 }
 
-MODAL_ALLOWED_MODELS: Final[frozenset[str]] = frozenset(MODAL_MODEL_MAP)
+MODAL_ALLOWED_MODELS: Final[frozenset[str]] = frozenset(MODAL_MODELS)
+MODAL_EXCLUSIVE_MODELS: Final[frozenset[str]] = frozenset(
+    model for model, config in MODAL_MODELS.items() if not config.has_cloudflare_fallback
+)
 
 # Salted so the ramp bucket is independent of other user-hash rollouts.
 _TRAFFIC_BUCKET_SALT = "glm-modal-routing"
 
 
 def is_modal_served_model(model: str) -> bool:
-    return model in MODAL_MODEL_MAP
+    return model in MODAL_MODELS
 
 
 def modal_litellm_model(model: str) -> str:
-    return f"{_MODAL_LITELLM_PREFIX}{MODAL_MODEL_MAP[model]}"
+    return f"{_MODAL_LITELLM_PREFIX}{MODAL_MODELS[model].served_model}"
 
 
 def is_modal_configured(settings: Settings) -> bool:
     return bool(settings.modal_api_base and settings.modal_key and settings.modal_secret)
+
+
+def is_modal_model_configured(model: str, settings: Settings) -> bool:
+    config = MODAL_MODELS.get(model)
+    api_base = getattr(settings, config.api_base_setting) if config else None
+    return bool(api_base and settings.modal_key and settings.modal_secret)
 
 
 def ensure_modal_configured(settings: Settings) -> tuple[str, str, str]:
@@ -55,6 +76,17 @@ def ensure_modal_configured(settings: Settings) -> tuple[str, str, str]:
         )
     assert settings.modal_api_base is not None and settings.modal_key is not None and settings.modal_secret is not None
     return settings.modal_api_base, settings.modal_key, settings.modal_secret
+
+
+def ensure_modal_model_configured(model: str, settings: Settings) -> tuple[str, str, str]:
+    ensure_modal_model_allowed(model)
+    api_base = getattr(settings, MODAL_MODELS[model].api_base_setting)
+    if not api_base or not settings.modal_key or not settings.modal_secret:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"message": "Modal inference not configured", "type": "configuration_error"}},
+        )
+    return api_base, settings.modal_key, settings.modal_secret
 
 
 def ensure_modal_model_allowed(model: str) -> None:
@@ -78,6 +110,10 @@ def _traffic_bucket(user_key: str) -> float:
 def modal_traffic_fraction(product: str, settings: Settings) -> float:
     # Legacy product aliases (twig/array) must read their canonical product's fraction.
     product = _normalize_cost_key(product)
+    # Image scans are server-side calls, but they must move between GLM backends with the Code
+    # runtime they protect so builds do not depend on a backend that Code has already rolled off.
+    if product == "custom_image_scans":
+        product = "posthog_code"
     return settings.glm_modal_product_traffic_fractions.get(product, settings.glm_modal_traffic_fraction)
 
 
@@ -109,6 +145,7 @@ def _inject_modal_params(kwargs: dict[str, Any], api_base: str, modal_key: str, 
 
 def make_modal_anthropic_call(api_base: str, modal_key: str, modal_secret: str) -> Callable[..., Awaitable[Any]]:
     async def llm_call(**kwargs: Any) -> Any:
+        kwargs = convert_enabled_thinking_to_adaptive(kwargs)
         _inject_modal_params(kwargs, api_base, modal_key, modal_secret)
         response = await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
         if isinstance(response, AsyncIterator):

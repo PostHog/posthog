@@ -139,10 +139,70 @@ def test_build_dependent_resource_backwards_compatible_defaults(mock_rest_api_re
     config = mock_rest_api_resources.call_args.args[0]
     parent_resource = config["resources"][0]
     child_resource = config["resources"][1]
-    assert parent_resource["endpoint"]["params"]["limit"] == 3
-    assert child_resource["endpoint"]["params"]["limit"] == 7
+    assert parent_resource["endpoint"]["params"] == {"limit": 3}
+    assert child_resource["endpoint"]["params"] == {
+        "parent_id": {"type": "resolve", "resource": "parents", "field": "id"},
+        "limit": 7,
+    }
     assert "data_selector" not in parent_resource["endpoint"]
     assert "data_selector" not in child_resource["endpoint"]
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_build_dependent_resource_merges_fanout_child_params(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = []
+    try:
+        build_dependent_resource(
+            endpoint_configs=_build_endpoint_configs(),
+            child_endpoint="children",
+            fanout=DependentEndpointConfig(
+                parent_name="parents",
+                resolve_param="parent_id",
+                resolve_field="id",
+                include_from_parent=["id"],
+                child_params={"full": "true"},
+            ),
+            client_config={"base_url": "https://example.com"},
+            path_format_values={},
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+        )
+    except StopIteration:
+        pass
+
+    config = mock_rest_api_resources.call_args.args[0]
+    parent_params = config["resources"][0]["endpoint"]["params"]
+    child_params = config["resources"][1]["endpoint"]["params"]
+    assert child_params == {
+        "parent_id": {"type": "resolve", "resource": "parents", "field": "id"},
+        "limit": 7,
+        "full": "true",
+    }
+    assert parent_params == {"limit": 3}
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_build_dependent_resource_rejects_child_params_clobbering_resolve(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = []
+
+    with pytest.raises(ValueError, match="must not include the resolve param 'parent_id'"):
+        build_dependent_resource(
+            endpoint_configs=_build_endpoint_configs(),
+            child_endpoint="children",
+            fanout=DependentEndpointConfig(
+                parent_name="parents",
+                resolve_param="parent_id",
+                resolve_field="id",
+                include_from_parent=["id"],
+                child_params={"parent_id": "would-clobber-resolve"},
+            ),
+            client_config={"base_url": "https://example.com"},
+            path_format_values={},
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+        )
 
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
@@ -274,6 +334,7 @@ class _FakeResumableClient:
         resume_hook=None,
         initial_paginator_state=None,
         data_selector_required=False,
+        data_selector_empty_ok=False,
     ):
         pages = self.pages_by_path[path]
         start = initial_paginator_state["page"] if initial_paginator_state else 0

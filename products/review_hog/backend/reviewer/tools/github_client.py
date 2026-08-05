@@ -10,12 +10,31 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
+from django.conf import settings
+
 import requests
 
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 
 logger = logging.getLogger(__name__)
+
+
+def is_app_bot_author(user: dict[str, Any] | None) -> bool:
+    """Whether a GitHub review/comment author is OUR app's bot identity.
+
+    Guards the marker-based idempotency scans: on a public repo anyone can paste a marker, and a
+    spoofed match suppresses a publish or gets a stranger's comment PATCHed. `type == "Bot"` blocks
+    human spoofers; when `REVIEWHOG_GITHUB_BOT_LOGIN` is configured (the app's `<slug>[bot]` login),
+    markers pasted by OTHER installed bots are rejected too. Unset fails open to the type check —
+    the app's own login isn't derivable from an installation token without extra API calls.
+    """
+    author = user or {}
+    if author.get("type") != "Bot":
+        return False
+    expected = settings.REVIEWHOG_GITHUB_BOT_LOGIN
+    return author.get("login") == expected if expected else True
+
 
 GITHUB_API_BASE = "https://api.github.com"
 

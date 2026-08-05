@@ -7,8 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
@@ -52,7 +52,7 @@ class TestVercelSource:
         config = self.source.get_source_config
         assert config.label == "Vercel"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
 
     def test_source_config_fields(self) -> None:
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
@@ -65,13 +65,29 @@ class TestVercelSource:
 
     def test_get_schemas_sync_capabilities_per_endpoint(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
-        assert set(schemas) == {"deployments", "projects", "teams", "domains", "aliases", "billing_charges"}
+        assert set(schemas) == {
+            "deployments",
+            "events",
+            "projects",
+            "teams",
+            "domains",
+            "aliases",
+            "billing_charges",
+        }
 
         deployments = schemas["deployments"]
         assert deployments.supports_incremental is True
         assert deployments.supports_append is True
         assert [f["field"] for f in deployments.incremental_fields] == ["created"]
         assert deployments.incremental_fields[0]["field_type"] == IncrementalFieldType.Integer
+
+        # The activity stream cursors on the event's own creation time, which never changes, and
+        # supports append because events are immutable once emitted.
+        events = schemas["events"]
+        assert events.supports_incremental is True
+        assert events.supports_append is True
+        assert [f["field"] for f in events.incremental_fields] == ["createdAt"]
+        assert events.incremental_fields[0]["field_type"] == IncrementalFieldType.Integer
 
         # Billing supports incremental merge but not append (append would duplicate restated charges),
         # cursors on the charge period, and carries a lookback so restatements get re-read and merged.
@@ -125,6 +141,38 @@ class TestVercelSource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("server_error", "Vercel API error (retryable): status=500, url=https://api.vercel.com/v1/billing/charges"),
+            ("rate_limit", "Vercel API error (retryable): status=429, url=https://api.vercel.com/v6/deployments"),
+        ]
+    )
+    def test_retryable_errors_match_known_failures(self, _name: str, observed_error: str) -> None:
+        # Matches the message `_fetch_page`/`_open_billing_stream` raise after their internal
+        # retry loop exhausts; keeps this benign, self-recovering failure out of error tracking.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
+    @parameterized.expand(
+        [
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='api.vercel.com', port=443): Max retries exceeded with url: "
+                '/v1/billing/charges?teamId=team_abc (Caused by ReadTimeoutError("HTTPSConnectionPool'
+                "(host='api.vercel.com', port=443): Read timed out. (read timeout=120)\"))",
+            ),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.vercel.com', port=443): Read timed out. (read timeout=120)",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_transient_network_failures(self, _name: str, observed_error: str) -> None:
+        # `_fetch_page`/`_open_billing_stream` already retry these in-process; once exhausted, this
+        # keeps the benign, self-recovering failure out of error tracking.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
 
     def test_get_resumable_source_manager_binds_data_class(self) -> None:
         manager = self.source.get_resumable_source_manager(_source_inputs("deployments"))

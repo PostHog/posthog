@@ -155,17 +155,17 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "NotebookLM", "ai_assistant", "AI Agent", "Google", documentation_url="https://notebooklm.google.com/"
     ),
     "Shap-User": BotDefinition("Shap", "ai_assistant", "AI Agent", "Shap"),
-    # PostHog Code clients (Electron desktop, React Native mobile, agent CLI, cloud agent server).
+    # PostHog Desktop clients (Electron desktop, React Native mobile, agent CLI, cloud agent server).
     # Dots are escaped because keys are evaluated as re2 regex by the REGEXP_TREE dictionary.
     r"desktop\.hog\.dev": BotDefinition(
-        "PostHog Code Desktop",
+        "PostHog Desktop",
         "ai_assistant",
         "AI Agent",
         "PostHog",
         documentation_url="https://posthog.com/code",
     ),
     r"mobile\.hog\.dev": BotDefinition(
-        "PostHog Code Mobile",
+        "PostHog Mobile",
         "ai_assistant",
         "AI Agent",
         "PostHog",
@@ -627,6 +627,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://github.com/internetarchive/heritrix3",
     ),
     "crawlcrawl-actors": BotDefinition("crawlcrawl", "search_crawler", "Bot", "Unknown"),
+    "crawler_eb_germany": BotDefinition("crawler_eb_germany", "search_crawler", "Bot", "Unknown"),
     # AI / agent crawlers
     "Inkeep-Crawler": BotDefinition(
         "Inkeep", "ai_crawler", "AI Agent", "Inkeep", documentation_url="https://inkeep.com/"

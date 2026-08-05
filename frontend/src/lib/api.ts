@@ -120,8 +120,6 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     DataWarehouseViewLinkValidation,
-    Dataset,
-    DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
@@ -158,9 +156,6 @@ import {
     InsightModel,
     IntegrationType,
     JiraProjectType,
-    LLMPrompt,
-    LLMPromptPublic,
-    LLMPromptResolveResponse,
     LinearTeamType,
     LinkType,
     LinkedInAdsAccountType,
@@ -240,6 +235,7 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { BulkAddOptOutsResultApi, BulkOptOutEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -361,11 +357,64 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
+function isAbortError(error: unknown): boolean {
+    return (error as { name?: string } | null)?.name === 'AbortError'
+}
+
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
-    } catch {
+    } catch (error) {
+        if (isAbortError(error)) {
+            throw error
+        }
         return null
+    }
+}
+
+function apiErrorFallback(response: Response, method: string, url: string): string {
+    const pathname = new URL(url, location.origin).pathname
+    return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
+}
+
+/**
+ * Parse the body of a *successful* response, which is expected to be JSON.
+ *
+ * Unlike getJSONOrNull (best-effort parsing of error bodies, where callers opt into handling
+ * null), a non-empty body that isn't valid JSON is treated as a failure rather than silently
+ * yielding null. Handing null back where callers expect the documented JSON shape is what turns
+ * a transient backend/proxy hiccup (a non-JSON 2xx body) into a
+ * `Cannot read properties of null (reading 'results')` crash deep inside loaders across the app.
+ * An empty body (e.g. 204 No Content) still resolves to null, and aborts propagate as AbortError.
+ *
+ * The body is read as text first so the decision rests on actual content, not on headers —
+ * chunked/compressed responses carry no content-length, and a truncated `application/json` body
+ * must still surface as a failure. The thrown ApiError deliberately carries no `status`: the
+ * HTTP status was 2xx, and recovery paths keyed on `status === undefined || status >= 500`
+ * should classify a garbled body like the fetch-level network failure it effectively is. The
+ * real status stays in the message for triage.
+ */
+async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+    const requestContext = (): string =>
+        `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    let text: string
+    try {
+        text = await response.text()
+    } catch (error) {
+        if (isAbortError(error)) {
+            throw error
+        }
+        // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
+        // the response is unusable, so surface it instead of handing callers a null.
+        throw new ApiError(`Failed to read response body ${requestContext()}`)
+    }
+    if (!text.trim()) {
+        return null
+    }
+    try {
+        return JSON.parse(text)
+    } catch {
+        throw new ApiError(`Malformed JSON response ${requestContext()}`)
     }
 }
 
@@ -1952,6 +2001,20 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
     }
 
+    public messagingPreferencesExportOptOutsCsv(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs_csv')
+    }
+
+    public messagingPreferencesBulkAddOptOuts(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('bulk_add_opt_outs')
+    }
+
     public hogFlows(): ApiRequest {
         return this.environments().current().addPathComponent('hog_flows')
     }
@@ -1970,42 +2033,6 @@ export class ApiRequest {
 
     public wizard(): ApiRequest {
         return this.addPathComponent('wizard')
-    }
-
-    public datasets(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('datasets')
-    }
-
-    public dataset(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('datasets').addPathComponent(id)
-    }
-
-    public datasetItems(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dataset_items')
-    }
-
-    public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
-    }
-
-    public llmPrompts(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('llm_prompts')
-    }
-
-    public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
-    }
-
-    public llmPromptArchiveByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPromptByName(name, teamId).addPathComponent('archive')
-    }
-
-    public llmPromptDuplicateByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPromptByName(name, teamId).addPathComponent('duplicate')
-    }
-
-    public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPrompts(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -2216,6 +2243,9 @@ function captureLivestream401Debug(url: string, authHeader: string | undefined, 
         })
     }
 }
+
+/** `?basic=true` response: the serializer drops these fields (see CohortSerializer.__init__). */
+export type BasicCohortType = Omit<CohortType, 'groups' | 'experiment_set' | 'last_error_message'>
 
 const api = {
     cspReporting: {
@@ -2523,7 +2553,10 @@ const api = {
             if (Object.keys(query).length) {
                 request.withQueryString(query)
             }
-            return await request.get({ signal })
+            const response = await request.get({ signal })
+            // Guard the declared array contract: an edge/error response (or a stale bundle) may
+            // return a non-array, which would break callers that iterate over the result.
+            return Array.isArray(response) ? response : []
         },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
@@ -2674,6 +2707,7 @@ const api = {
                     ActivityScope.COHORT,
                     ActivityScope.OAUTH_APPLICATION,
                     ActivityScope.EXTERNAL_DATA_SCHEMA,
+                    ActivityScope.LLM_PROMPT,
                     ActivityScope.LLM_PROMPT_LABEL,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
@@ -3402,6 +3436,20 @@ const api = {
         ): Promise<CountedPaginatedResponse<CohortType>> {
             return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
         },
+        async listBasic(
+            params: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {}
+        ): Promise<CountedPaginatedResponse<BasicCohortType>> {
+            // `?basic=true` returns a trimmed payload — the narrowed BasicCohortType return type
+            // keeps callers from reading a field the serializer dropped (see CohortSerializer).
+            return await new ApiRequest()
+                .cohorts()
+                .withQueryString(toParams({ ...params, basic: true }))
+                .get()
+        },
         async getCohortPersons(cohortId: CohortType['id']): Promise<PaginatedResponse<PersonType>> {
             return await new ApiRequest()
                 .cohortsDetailPersons(cohortId)
@@ -3500,26 +3548,25 @@ const api = {
                 .assembleFullUrl(true)
 
             const abortController = new AbortController()
+            let streamFinished = false
+            const handleConnectionError = (error: any): void => {
+                if (isAbortError(error)) {
+                    return
+                }
+                apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
+                onError(error)
+            }
 
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
                 openWhenHidden: true,
                 onopen: async (response) => {
-                    if (!response.ok) {
-                        // Get server error message if available
-                        let errorMessage = `HTTP ${response.status}`
-                        try {
-                            const errorText = await response.text()
-                            if (errorText) {
-                                errorMessage = `HTTP ${response.status}: ${errorText}`
-                            }
-                        } catch {
-                            // If we can't read the response, just use the status
-                        }
+                    apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
 
-                        // For any error, call onError and abort to prevent retries
-                        onError(new Error(errorMessage))
+                    if (!response.ok) {
+                        const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
+                        onError(error)
                         abortController.abort()
                         return
                     }
@@ -3528,8 +3575,10 @@ const api = {
                     try {
                         const data = JSON.parse(event.data)
                         if (data.type === 'complete') {
+                            streamFinished = true
                             onComplete()
                         } else if (data.type === 'error') {
+                            streamFinished = true
                             onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
@@ -3539,9 +3588,15 @@ const api = {
                     }
                 },
                 onerror: (error) => {
-                    onError(error)
+                    handleConnectionError(error)
                 },
-            }).catch(onError)
+            }).then(() => {
+                if (!abortController.signal.aborted && !streamFinished) {
+                    handleConnectionError(
+                        new Error('Dashboard stream ended before loading finished. Refresh the page.')
+                    )
+                }
+            }, handleConnectionError)
 
             return () => abortController.abort()
         },
@@ -4905,6 +4960,8 @@ const api = {
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
                 node_type?: 'hogql' | 'python'
                 output_name?: string
+                connection_id?: string | null
+                send_raw_query?: boolean
             }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
@@ -5180,6 +5237,10 @@ const api = {
             has_implementation_pr?: 'true' | 'false'
             /** Comma-separated reviewer user UUIDs (For-you / teammate scope). */
             suggested_reviewers?: string
+            /** Comma-separated scout skill_name slugs. */
+            scout?: string
+            /** Scout skill_name prefix — matches every scout in the family. */
+            scout_prefix?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5214,14 +5275,14 @@ const api = {
                 .get()
             return Object.entries(response).map(([user_uuid, { name, email }]) => ({ user_uuid, name, email }))
         },
-        // PUT replaces the content of a `suggested_reviewers` artefact (only writable type).
-        // Backend: SignalReportArtefactViewSet.update.
-        async updateArtefact(
+        // PUT the report's full suggested-reviewers list (create-or-replace). Addressed by report so a
+        // report with no reviewers yet (and thus no artefact) can still be assigned one.
+        // Backend: SignalReportViewSet.reviewers.
+        async setReviewers(
             reportId: SignalReport['id'],
-            artefactId: string,
             content: Record<string, any>[]
         ): Promise<SignalReportArtefact> {
-            return await new ApiRequest().signalReportArtefact(reportId, artefactId).put({ data: { content } })
+            return await new ApiRequest().signalReport(reportId).withAction('reviewers').put({ data: { content } })
         },
     },
 
@@ -5649,6 +5710,8 @@ const api = {
     dataWarehouseTables: {
         async list(params?: {
             limit?: number
+            offset?: number
+            search?: string
             include_columns?: boolean
         }): Promise<PaginatedResponse<DataWarehouseTable>> {
             return await new ApiRequest()
@@ -6221,8 +6284,8 @@ const api = {
         async get(id: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(id).get()
         },
-        async create(data: Partial<IntegrationType> | FormData): Promise<IntegrationType> {
-            return await new ApiRequest().integrations().create({ data })
+        async create(data: Partial<IntegrationType> | FormData, teamId?: TeamType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integrations(teamId).create({ data })
         },
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(integrationId).delete()
@@ -6230,8 +6293,16 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string }): string {
-            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
+        authorizeUrl(params: { kind: string; next?: string; extraParams?: Record<string, string> }): string {
+            // `kind` and `next` are common to every integration; anything kind-specific (e.g. the
+            // posthog connection's `region`/`scopes`) rides along in `extraParams` rather than
+            // bloating this shared signature.
+            const { extraParams, ...common } = params
+            return new ApiRequest()
+                .integrations()
+                .withAction('authorize')
+                .withQueryString({ ...common, ...extraParams })
+                .assembleFullUrl(true)
         },
         async slackChannels(
             id: IntegrationType['id'],
@@ -6633,10 +6704,28 @@ const api = {
                 data: { identifier, category_key: categoryKey },
             })
         },
+        async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
+            const response = await new ApiRequest()
+                .messagingPreferencesExportOptOutsCsv()
+                .withQueryString({ category_key: categoryKey })
+                .getResponse()
+            return await response.blob()
+        },
+        async bulkAddOptOuts(optOuts: BulkOptOutEntryApi[], categoryKey?: string): Promise<BulkAddOptOutsResultApi> {
+            return await new ApiRequest().messagingPreferencesBulkAddOptOuts().create({
+                data: { opt_outs: optOuts, category_key: categoryKey },
+            })
+        },
     },
     hogFlows: {
-        async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
-            return await new ApiRequest().hogFlows().get()
+        async getHogFlows(params?: {
+            search?: string
+            status?: HogFlow['status']
+            created_by?: string
+            limit?: number
+            offset?: number
+        }): Promise<CountedPaginatedResponse<HogFlow>> {
+            return await new ApiRequest().hogFlows().withQueryString(params).get()
         },
         async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).get()
@@ -6979,39 +7068,6 @@ const api = {
         },
     },
 
-    datasets: {
-        list({
-            ids,
-            ...params
-        }: {
-            search?: string
-            order_by?: string
-            offset?: number
-            limit?: number
-            ids?: string[]
-        }): Promise<CountedPaginatedResponse<Dataset>> {
-            return new ApiRequest()
-                .datasets()
-                .withQueryString({
-                    ...params,
-                    id__in: ids?.join(','),
-                })
-                .get()
-        },
-
-        get(datasetId: string): Promise<Dataset> {
-            return new ApiRequest().dataset(datasetId).get()
-        },
-
-        async create(data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
-            return await new ApiRequest().datasets().create({ data })
-        },
-
-        async update(datasetId: string, data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
-            return await new ApiRequest().dataset(datasetId).update({ data })
-        },
-    },
-
     evaluationRuns: {
         async create(data: {
             evaluation_id: string
@@ -7029,24 +7085,6 @@ const api = {
         },
     },
 
-    datasetItems: {
-        list(data: {
-            dataset: string
-            limit?: number
-            offset?: number
-        }): Promise<CountedPaginatedResponse<DatasetItem>> {
-            return new ApiRequest().datasetItems().withQueryString(data).get()
-        },
-
-        async create(data: Partial<DatasetItem>): Promise<DatasetItem> {
-            return await new ApiRequest().datasetItems().create({ data })
-        },
-
-        async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
-            return await new ApiRequest().datasetItem(datasetItemId).update({ data })
-        },
-    },
-
     conversationsTickets: {
         async list(
             params: {
@@ -7057,6 +7095,7 @@ const api = {
                 assignee?: string
                 tags?: string
                 distinct_ids?: string
+                emails?: string
                 search?: string
                 date_from?: string
                 date_to?: string
@@ -7124,57 +7163,10 @@ const api = {
         },
     },
 
-    llmPrompts: {
-        list(params?: {
-            search?: string
-            order_by?: string
-            offset?: number
-            limit?: number
-        }): Promise<CountedPaginatedResponse<LLMPrompt>> {
-            return new ApiRequest().llmPrompts().withQueryString(params).get()
-        },
-
-        getByName(promptName: string, params?: { version?: number }): Promise<LLMPromptPublic> {
-            return new ApiRequest().llmPromptByName(promptName).withQueryString(params).get()
-        },
-
-        resolveByName(
-            promptName: string,
-            params?: {
-                version?: number
-                version_id?: string
-                offset?: number
-                before_version?: number
-                limit?: number
-            }
-        ): Promise<LLMPromptResolveResponse> {
-            return new ApiRequest().llmPromptResolveByName(promptName).withQueryString(params).get()
-        },
-
-        async update(
-            promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
-        ): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPromptByName(promptName).update({ data })
-        },
-
-        async archiveByName(promptName: string): Promise<void> {
-            await new ApiRequest().llmPromptArchiveByName(promptName).create({ data: {} })
-        },
-
-        async create(data: { name: LLMPrompt['name']; prompt: LLMPrompt['prompt'] }): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPrompts().create({ data })
-        },
-
-        async duplicateByName(promptName: string, newName: string): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPromptDuplicateByName(promptName).create({ data: { new_name: newName } })
-        },
-    },
-
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
-        return await getJSONOrNull(res)
+        return await getJSONFromSuccessResponse(res, 'GET', url)
     },
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
@@ -7227,7 +7219,7 @@ const api = {
             })
         })
 
-        return await getJSONOrNull(response)
+        return await getJSONFromSuccessResponse(response, method, url)
     },
 
     async update<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
@@ -7240,7 +7232,7 @@ const api = {
 
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
         const res = await api.createResponse(url, data, options)
-        return await getJSONOrNull(res)
+        return await getJSONFromSuccessResponse(res, 'POST', url)
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
@@ -7349,12 +7341,8 @@ const api = {
                         abortController.abort()
                     }
                 } else if (!response.ok) {
-                    let errorData: any = {}
-                    try {
-                        errorData = await response.json()
-                    } catch {
-                        // If JSON parsing fails, leave errorData empty
-                    }
+                    const error = await ApiError.fromResponse(response, `Request failed with status ${response.status}`)
+                    const errorData = error.data
                     // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
                     // identify which failure mode is producing the livestream auth baseline.
                     // Remove once root cause is known.
@@ -7367,14 +7355,7 @@ const api = {
                             server_message: errorData?.message || errorData?.error,
                         })
                     }
-                    onError(
-                        new ApiError(
-                            errorData.error || `Request failed with status ${response.status}`,
-                            response.status,
-                            response.headers,
-                            errorData
-                        )
-                    )
+                    onError(error)
                     abortController.abort()
                 } else {
                     onOpen?.()
@@ -7586,28 +7567,7 @@ async function handleFetch(
             }
         }
 
-        const data = await getJSONOrNull(response)
-
-        if (response.status >= 400 && data) {
-            if (typeof data.error === 'string') {
-                throw new ApiError(data.error, response.status, response.headers, data)
-            }
-
-            if (typeof data.detail === 'string') {
-                throw new ApiError(data.detail, response.status, response.headers, data)
-            }
-
-            if (typeof data.message === 'string') {
-                throw new ApiError(data.message, response.status, response.headers, data)
-            }
-        }
-
-        throw new ApiError(
-            `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
-            response.status,
-            response.headers,
-            data
-        )
+        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
     }
 
     return response

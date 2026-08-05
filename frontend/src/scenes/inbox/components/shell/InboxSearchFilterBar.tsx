@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { IconCheck, IconChevronDown, IconFlag, IconRefresh, IconSearch, IconSort, IconTarget } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
+import { IconChevronDown, IconFlag, IconRefresh, IconSearch, IconSort, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import {
     INBOX_PRIORITY_OPTIONS,
@@ -15,76 +15,69 @@ import {
     inboxSourceFilterLabel,
 } from '../../filterOptions'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
+import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
+import { FilterItem, FilterPopover } from './filterControls'
 
-/** A single filter trigger + dropdown overlay, matching desktop's `InboxFilterPopover`. */
-function FilterPopover({
-    label,
-    value,
-    icon,
-    active,
-    children,
+/**
+ * Collapsible per-scout sub-filter nested under the "Scout" source row. Collapsed by default
+ * (fleets can be large); auto-expanded while any scout is selected so active filters stay visible.
+ */
+function ScoutSubFilter({
+    scoutNames,
+    scoutFilter,
+    onToggle,
+    onClear,
 }: {
-    label: string
-    value: string
-    icon: JSX.Element
-    active: boolean
-    children: React.ReactNode
+    scoutNames: string[]
+    scoutFilter: string[]
+    onToggle: (scout: string) => void
+    onClear: () => void
 }): JSX.Element {
-    const [visible, setVisible] = useState(false)
+    const [expanded, setExpanded] = useState(scoutFilter.length > 0)
+    // Auto-expand whenever a scout selection appears — including URL navigation or persisted-state
+    // hydration into an already-mounted popover — so active filters stay visible. Still collapsible
+    // by hand once no scout is selected.
+    useEffect(() => {
+        if (scoutFilter.length > 0) {
+            setExpanded(true)
+        }
+    }, [scoutFilter.length])
     return (
-        <LemonDropdown
-            closeOnClickInside={false}
-            visible={visible}
-            onVisibilityChange={setVisible}
-            matchWidth={false}
-            actionable
-            placement="bottom-start"
-            overlay={<div className="min-w-[200px] max-w-[260px] p-1 deprecated-space-y-px">{children}</div>}
-        >
-            <button
-                type="button"
-                aria-label={`${label}: ${value}`}
-                // Quiet at rest: an unused filter is a muted, borderless chip showing its category
-                // (e.g. "Source"). Once active it gains a solid border and its selected value — so
-                // the bar only draws attention to filters actually in use.
-                className={`flex h-8 shrink-0 items-center gap-1.5 rounded border px-2.5 text-sm transition-colors ${
-                    active
-                        ? 'border-primary bg-surface-primary text-default hover:border-secondary hover:bg-surface-secondary'
-                        : 'border-transparent text-muted hover:border-primary hover:bg-surface-secondary hover:text-default'
-                }`}
-            >
-                <span className="flex shrink-0 items-center text-tertiary [&>svg]:size-3.5">{icon}</span>
-                <span className="max-w-[150px] truncate">{active ? value : label}</span>
-                <IconChevronDown className="shrink-0 text-sm text-tertiary" />
-            </button>
-        </LemonDropdown>
-    )
-}
-
-/** A single multi-select row inside a filter popover: icon/glyph + label, with a check when active. */
-function FilterItem({
-    icon,
-    label,
-    active,
-    onClick,
-}: {
-    icon?: JSX.Element
-    label: React.ReactNode
-    active: boolean
-    onClick: () => void
-}): JSX.Element {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            className="flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left text-sm text-default transition-colors hover:bg-surface-secondary"
-        >
-            <span className="flex min-w-0 items-center gap-1.5">
-                {icon && <span className="flex shrink-0 items-center text-tertiary [&>svg]:size-3.5">{icon}</span>}
-                <span className="truncate">{label}</span>
-            </span>
-            {active && <IconCheck className="shrink-0 text-sm text-default" />}
-        </button>
+        <div className="pl-5">
+            <div className="flex items-center justify-between gap-1">
+                <button
+                    type="button"
+                    onClick={() => setExpanded(!expanded)}
+                    className="flex min-w-0 flex-1 items-center gap-1 rounded px-1.5 py-1 text-left text-xs text-muted transition-colors hover:bg-surface-secondary"
+                >
+                    <IconChevronDown
+                        className={`shrink-0 text-sm transition-transform ${expanded ? '' : '-rotate-90'}`}
+                    />
+                    <span>
+                        Filter by scout
+                        {scoutFilter.length > 0 && <span className="text-default"> · {scoutFilter.length}</span>}
+                    </span>
+                </button>
+                {scoutFilter.length > 0 && (
+                    <LemonButton size="xsmall" type="tertiary" onClick={onClear}>
+                        Clear
+                    </LemonButton>
+                )}
+            </div>
+            {expanded && (
+                <div className="max-h-48 overflow-y-auto deprecated-space-y-px">
+                    {scoutNames.map((skillName) => (
+                        <FilterItem
+                            key={skillName}
+                            label={prettifyScoutSkillName(skillName)}
+                            active={scoutFilter.includes(skillName)}
+                            onClick={() => onToggle(skillName)}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -107,16 +100,24 @@ export function InboxSearchFilterBar({
     onRefresh,
     refreshing,
 }: InboxSearchFilterBarProps): JSX.Element {
-    const { searchQuery, sortField, sortDirection, sourceProductFilter, priorityFilter } = useValues(inboxFiltersLogic)
-    const { setSearchQuery, setSort, toggleSourceProduct, togglePriority } = useActions(inboxFiltersLogic)
+    const { searchQuery, sortField, sortDirection, sourceProductFilter, scoutFilter, priorityFilter } =
+        useValues(inboxFiltersLogic)
+    const { setSearchQuery, setSort, toggleSourceProduct, toggleScout, clearScoutFilter, togglePriority } =
+        useActions(inboxFiltersLogic)
+    const { scoutConfigs } = useValues(scoutFleetLogic)
 
     const activeSort = INBOX_SORT_OPTIONS.find((o) => o.field === sortField && o.direction === sortDirection)
     const activeSortKey = inboxSortOptionKey(sortField, sortDirection)
 
+    // Selected scouts always stay listed (even if their config was since deleted) so they can be untoggled.
+    const scoutNames = [...new Set([...(scoutConfigs ?? []).map((c) => c.skill_name), ...scoutFilter])].sort((a, b) =>
+        prettifyScoutSkillName(a).localeCompare(prettifyScoutSkillName(b))
+    )
+
     return (
         <div className="flex items-center gap-2 flex-wrap w-full">
             <LemonInput
-                className="min-w-[220px] max-w-[420px]"
+                className="min-w-[220px] max-w-[420px] [&_.LemonInput__input]:pr-4"
                 type="search"
                 value={searchQuery}
                 onChange={setSearchQuery}
@@ -148,18 +149,27 @@ export function InboxSearchFilterBar({
 
                 <FilterPopover
                     label="Source"
-                    value={inboxSourceFilterLabel(sourceProductFilter)}
+                    value={inboxSourceFilterLabel(sourceProductFilter, scoutFilter)}
                     icon={<IconTarget />}
-                    active={sourceProductFilter.length > 0}
+                    active={sourceProductFilter.length > 0 || scoutFilter.length > 0}
                 >
                     {INBOX_SOURCE_OPTIONS.map((option) => (
-                        <FilterItem
-                            key={option.value}
-                            icon={option.icon}
-                            label={option.label}
-                            active={sourceProductFilter.includes(option.value)}
-                            onClick={() => toggleSourceProduct(option.value)}
-                        />
+                        <div key={option.value}>
+                            <FilterItem
+                                icon={option.icon}
+                                label={option.label}
+                                active={sourceProductFilter.includes(option.value)}
+                                onClick={() => toggleSourceProduct(option.value)}
+                            />
+                            {option.value === 'signals_scout' && scoutNames.length > 0 && (
+                                <ScoutSubFilter
+                                    scoutNames={scoutNames}
+                                    scoutFilter={scoutFilter}
+                                    onToggle={toggleScout}
+                                    onClear={clearScoutFilter}
+                                />
+                            )}
+                        </div>
                     ))}
                 </FilterPopover>
 

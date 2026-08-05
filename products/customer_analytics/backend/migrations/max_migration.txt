@@ -1,1 +1,1 @@
-0017_announcement_validate_fks
+0029_alter_custompropertysyncrun_trigger
