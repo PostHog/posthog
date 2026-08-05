@@ -309,7 +309,7 @@
         <div class="checkbox-row">
             <label>
                 <input type="checkbox" name="dry_run" checked>
-                Dry run &mdash; preview which recordings would be deleted without actually deleting them
+                Dry run: preview which recordings would be deleted without actually deleting them
             </label>
         </div>
 
@@ -335,7 +335,7 @@
         <div class="checkbox-row">
             <label>
                 <input type="checkbox" name="dry_run" checked>
-                Dry run &mdash; preview which recordings would be deleted without actually deleting them
+                Dry run: preview which recordings would be deleted without actually deleting them
             </label>
         </div>
 
@@ -401,7 +401,7 @@
         <div class="checkbox-row">
             <label>
                 <input type="checkbox" name="dry_run" checked>
-                Dry run &mdash; preview which recordings would be deleted without actually deleting them
+                Dry run: preview which recordings would be deleted without actually deleting them
             </label>
         </div>
 
@@ -432,7 +432,7 @@
         <div class="checkbox-row">
             <label>
                 <input type="checkbox" name="dry_run" checked>
-                Dry run &mdash; preview which recordings would be deleted without actually deleting them
+                Dry run: preview which recordings would be deleted without actually deleting them
             </label>
         </div>
 
@@ -498,7 +498,7 @@
 
         if (dryRun) {
             return window.confirm(
-                "Dry run \u2014 no recordings will be deleted. Preview " + action + " for " + project + "?" + scopeLine
+                "Dry run: no recordings will be deleted. Preview " + action + " for " + project + "?" + scopeLine
             );
         }
 
@@ -515,7 +515,7 @@
                 : "This deletes every recording matching " + (scope || "these filters") + " for " + project + ".";
             var typed = window.prompt(whatItDeletes + "\n\nType the project ID (" + teamId + ") to confirm:");
             if (typed === null || typed.trim() !== teamId) {
-                window.alert("Project ID did not match \u2014 nothing was deleted.");
+                window.alert("Project ID did not match, so nothing was deleted.");
                 return false;
             }
         }
@@ -532,7 +532,7 @@
     function lock(form) {
         // Safe to do synchronously: the submit event has already committed the navigation, and these
         // controls have no `name`, so removing them cannot drop a field from the POST body. Deferring
-        // it to a timeout does NOT work — the pending navigation means the callback never runs.
+        // it to a timeout does NOT work, because the pending navigation means the callback never runs.
         var controls = form.querySelectorAll('input[type="submit"], button[type="submit"]');
         Array.prototype.forEach.call(controls, function(c) { c.disabled = true; });
     }
