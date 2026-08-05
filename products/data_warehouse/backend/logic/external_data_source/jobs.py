@@ -33,7 +33,12 @@ FINALIZE_QUEUE_SWEEP_ERRORS = Counter(
 
 
 def update_external_job_status(
-    job_id: str, team_id: int, status: ExternalDataJob.Status, logger: FilteringBoundLogger, latest_error: str | None
+    job_id: str,
+    team_id: int,
+    status: ExternalDataJob.Status,
+    logger: FilteringBoundLogger,
+    latest_error: str | None,
+    billable: bool | None = None,
 ) -> ExternalDataJob:
     is_first_terminal_transition = False
     with transaction.atomic():
@@ -73,6 +78,9 @@ def update_external_job_status(
             model.finished_at is None or is_takeover_recovery
         )
         update_fields = ["status", "latest_error", "updated_at"]
+        if billable is not None:
+            model.billable = billable
+            update_fields.append("billable")
         if is_first_terminal_transition:
             model.finished_at = dt.datetime.now(dt.UTC)
             update_fields.append("finished_at")

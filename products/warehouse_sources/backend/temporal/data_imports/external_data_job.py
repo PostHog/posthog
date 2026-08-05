@@ -168,6 +168,9 @@ class UpdateExternalDataJobStatusInputs:
     # Run id stamped on the job row by the create-job activity, so finalization can resolve this
     # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
+    # Set when the run was cut short by something on our side (a worker shutdown), so its partial
+    # rows aren't charged — the retriggered run re-extracts them from scratch and bills them once.
+    mark_non_billable: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -281,6 +284,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         latest_error=inputs.latest_error,
         logger=logger,
         team_id=inputs.team_id,
+        billable=False if inputs.mark_non_billable else None,
     )
 
     logger.info(
@@ -826,6 +830,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
+                # This branch neither fails the run nor re-raises, so `update_inputs` keeps the
+                # COMPLETED it was built with and the finally block records the run as a success.
+                # The extraction was cut off mid-stream and the retriggered run starts it over, so
+                # charging for the rows it got through would bill the same rows twice — or, for a
+                # source that never gets to the loader, bill for rows the customer never receives.
+                update_inputs.mark_non_billable = True
             elif (
                 isinstance(e.cause, exceptions.ApplicationError)
                 and e.cause.type == "BillingLimitsWillBeReachedException"
