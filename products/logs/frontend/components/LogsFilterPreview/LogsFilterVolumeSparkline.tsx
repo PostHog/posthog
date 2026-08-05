@@ -50,17 +50,19 @@ export function LogsFilterVolumeSparkline({
     const generatedKey = useId()
     const logic = logsFilterVolumePreviewLogic({ previewKey: previewKey ?? generatedKey })
     const { filterPreview, filterPreviewLoading } = useValues(logic)
-    const { setFilterGroup, refreshFilterPreview } = useActions(logic)
+    const { setPreviewRequest, refreshFilterPreview } = useActions(logic)
 
     const hasFilters = filterGroup.values.length > 0
 
     // Serialized so a re-render handing us a fresh-but-equal object doesn't re-fire the request.
     // Mounting runs this too, which covers the edit-mode case of opening a form with filters already set.
+    // `metric` is a dependency because the backend ranks by it before collapsing the tail, so
+    // switching metric needs a fresh request to get the right top-N back.
     const serializedFilterGroup = useMemo(() => JSON.stringify(filterGroup), [filterGroup])
     useEffect(() => {
-        setFilterGroup(filterGroup)
+        setPreviewRequest(filterGroup, metric)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [serializedFilterGroup])
+    }, [serializedFilterGroup, metric])
 
     const seriesData = useMemo(() => buildSparklineSeries(filterPreview, metric), [filterPreview, metric])
     const renderInfo = useMemo<LogsFilterVolumeSparklineRenderInfo>(

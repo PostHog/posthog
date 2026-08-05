@@ -60,6 +60,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_fingerprint im
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     build_exposure_event_conditions,
     get_exposure_event_and_property,
+    resolve_default_exposure_event,
 )
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
@@ -115,7 +116,7 @@ logger = structlog.get_logger(__name__)
 # experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
 EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
 
-CleanupRepositorySource = Literal["explicit", "single_repo", "ambiguous", "no_integration"]
+CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
 
 class CleanupRepositoryTarget(TypedDict):
@@ -2226,9 +2227,10 @@ class ExperimentService:
         """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.
 
         Runs a synchronous scan of the experiment's exposure events, honoring
-        ``exposure_criteria`` (custom exposure event or action plus its property filters) via the
-        same helpers the metrics pipeline uses, and requiring the exposure to have landed a
-        variant — so the snapshot is the analyzed population, not everyone who fired the event.
+        ``exposure_criteria`` (custom exposure event or action plus its property filters) and the
+        $experiment_exposure rollout resolution via the same helpers the metrics pipeline uses,
+        and requiring the exposure to have landed a variant — so the snapshot is the analyzed
+        population, not everyone who fired the event.
         Capped at FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS and returning at most
         FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1 rows so an over-cap set can be detected and rejected.
 
@@ -2242,7 +2244,13 @@ class ExperimentService:
         assert start_date is not None
         flag_key = experiment.get_feature_flag_key()
 
-        _, variant_property = get_exposure_event_and_property(flag_key, experiment.exposure_criteria)
+        # The same rollout resolution the analysis queries apply: a post-cutoff experiment frozen
+        # off $feature_flag_called would snapshot nobody once the two events stop being emitted
+        # together, and an empty snapshot un-enrolls everyone.
+        default_exposure_event = resolve_default_exposure_event(self.team, start_date)
+        _, variant_property = get_exposure_event_and_property(
+            flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
+        )
         variant_keys = [variant["key"] for variant in experiment.feature_flag.variants]
 
         conditions: list[ast.Expr] = [
@@ -2251,7 +2259,9 @@ class ExperimentService:
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=start_date),
             ),
-            *build_exposure_event_conditions(experiment.exposure_criteria, self.team, flag_key),
+            *build_exposure_event_conditions(
+                experiment.exposure_criteria, self.team, flag_key, default_exposure_event=default_exposure_event
+            ),
         ]
         if variant_keys:
             conditions.append(
@@ -2471,6 +2481,7 @@ class ExperimentService:
         conclusion_comment: str | None = None,
         open_cleanup_pr: bool = False,
         repository: str | None = None,
+        set_repository_as_team_default: bool = False,
         request: Any | None = None,
     ) -> Experiment:
         """End a running experiment: set end_date and mark as stopped.
@@ -2490,7 +2501,11 @@ class ExperimentService:
         self._bump_version_and_save(experiment, update_fields=["end_date", "conclusion", "conclusion_comment"])
 
         self._report_experiment_ended(
-            experiment, request=request, open_cleanup_pr=open_cleanup_pr, repository=repository
+            experiment,
+            request=request,
+            open_cleanup_pr=open_cleanup_pr,
+            repository=repository,
+            set_repository_as_team_default=set_repository_as_team_default,
         )
 
         return experiment
@@ -2511,7 +2526,11 @@ class ExperimentService:
         )
 
     def _maybe_open_cleanup_pr(
-        self, experiment: Experiment, open_cleanup_pr: bool, requested_repository: str | None = None
+        self,
+        experiment: Experiment,
+        open_cleanup_pr: bool,
+        requested_repository: str | None = None,
+        set_repository_as_team_default: bool = False,
     ) -> None:
         """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
         experiment's feature-flag code, via the Tasks engine.
@@ -2538,10 +2557,11 @@ class ExperimentService:
                 )
                 return
 
-            if requested_repository and target["source"] == "explicit":
+            picked_repository = requested_repository if target["source"] == "explicit" else None
+            if picked_repository:
                 # Persist the request's choice only now that it passed the installation check —
                 # a typo'd or stale name must not stick and block the single-repo fallback later.
-                experiment.repository = requested_repository
+                experiment.repository = picked_repository
                 experiment.save(update_fields=["repository"])
 
             plan = cleanup_plan(conclusion, experiment.feature_flag.variants or [])
@@ -2571,6 +2591,12 @@ class ExperimentService:
                     # on_commit runs before the view serializes the response — reflect the id on the
                     # in-memory instance so the end/ship response already carries it.
                     experiment.flag_cleanup_task_id = created.task_id
+                    if picked_repository and set_repository_as_team_default:
+                        # The team default steers other experiments, so save it only once a
+                        # cleanup has actually opened against the picked repo.
+                        config = self._get_team_experiments_config()
+                        config.flag_cleanup_repository = picked_repository
+                        config.save(update_fields=["flag_cleanup_repository"])
                 except Exception:
                     logger.exception("experiment_cleanup_pr_task_failed", experiment_id=experiment_id)
 
@@ -2591,9 +2617,9 @@ class ExperimentService:
         self, experiment: Experiment, requested_repository: str | None = None
     ) -> CleanupRepositoryTarget:
         """Repository the cleanup PR targets: the repository requested on end/ship, else the
-        experiment's saved `repository`, else the team's only cached GitHub repo. Several repos
-        (or no GitHub integration) means there is no safe target and the cleanup is skipped —
-        a wrong-repo PR is worse than none.
+        experiment's saved `repository`, else the team default, else the team's only cached
+        GitHub repo. Several repos (or no GitHub integration) means there is no safe target
+        and the cleanup is skipped — a wrong-repo PR is worse than none.
 
         Returns how the target was determined (`source`) and the team's connected repositories
         (`candidates`) so the end-experiment modal can show the target or offer a picker.
@@ -2631,6 +2657,11 @@ class ExperimentService:
                 # The stored value is lowercased on write; return GitHub's own casing.
                 return {"repository": cached[explicit.lower()], "source": "explicit", "candidates": candidates}
             return {"repository": None, "source": "ambiguous", "candidates": candidates}
+        team_default = self._get_team_experiments_config().flag_cleanup_repository
+        if team_default and team_default.lower() in cached:
+            # A stale default falls through instead of asking: it is a convenience, not
+            # per-experiment intent, so it must not brick the flow when it stops matching.
+            return {"repository": cached[team_default.lower()], "source": "team_default", "candidates": candidates}
         if len(cached) == 1:
             return {"repository": candidates[0], "source": "single_repo", "candidates": candidates}
         return {"repository": None, "source": "ambiguous", "candidates": candidates}
@@ -2642,10 +2673,11 @@ class ExperimentService:
         request: Any | None = None,
         open_cleanup_pr: bool = False,
         repository: str | None = None,
+        set_repository_as_team_default: bool = False,
     ) -> None:
         # The opt-in cleanup PR doesn't depend on the request — run it before the request-gated
         # analytics below so it behaves the same regardless of call context.
-        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr, repository)
+        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr, repository, set_repository_as_team_default)
 
         if request is None:
             return
@@ -2840,6 +2872,7 @@ class ExperimentService:
         conclusion_comment: str | None = None,
         open_cleanup_pr: bool = False,
         repository: str | None = None,
+        set_repository_as_team_default: bool = False,
         request: Any,
     ) -> Experiment:
         """Ship a variant and (optionally) end the experiment.
@@ -2924,7 +2957,11 @@ class ExperimentService:
         )
         if was_running:
             self._report_experiment_ended(
-                experiment, request=request, open_cleanup_pr=open_cleanup_pr, repository=repository
+                experiment,
+                request=request,
+                open_cleanup_pr=open_cleanup_pr,
+                repository=repository,
+                set_repository_as_team_default=set_repository_as_team_default,
             )
 
         return experiment

@@ -1116,7 +1116,17 @@ class EndExperimentSerializer(serializers.Serializer):
             "GitHub repository to open the cleanup pull request in, in `organization/repository` format. "
             "Only used when open_cleanup_pr is true. It must be one of the team's connected repositories "
             "(see the flag_cleanup_target action); it is then saved as the experiment's repository. When "
-            "omitted, the experiment's saved repository or the team's only connected repository is used."
+            "omitted, the experiment's saved repository, the team's default cleanup repository, or the "
+            "team's only connected repository is used."
+        ),
+    )
+    set_repository_as_team_default = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When true, also save `repository` as this environment's default cleanup repository, used for "
+            "experiments that have no repository of their own. Only acts when open_cleanup_pr is true and "
+            "`repository` is provided and belongs to the team's GitHub installation. Requires project admin "
+            "access (403 otherwise)."
         ),
     )
 
@@ -1156,11 +1166,12 @@ class ExperimentFlagCleanupTargetSerializer(serializers.Serializer):
         help_text="Repository a flag-cleanup pull request would be opened in, or null when none can be determined.",
     )
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=["explicit", "single_repo", "ambiguous", "no_integration"],
+        choices=["explicit", "team_default", "single_repo", "ambiguous", "no_integration"],
         help_text=(
-            "How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the "
-            "team's only connected repository), `ambiguous` (several connected repositories and none saved — "
-            "pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no "
+            "How the repository was determined: `explicit` (saved on the experiment), `team_default` (the "
+            "environment's default cleanup repository), `single_repo` (the team's only connected repository), "
+            "`ambiguous` (several connected repositories and none saved — pass one via repository on "
+            "end/ship_variant), or `no_integration` (no GitHub integration or no "
             "connected repositories, so no cleanup PR can be opened)."
         ),
     )
@@ -1745,9 +1756,10 @@ class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
         help_text=(
             "Which question the returned session set answers. 'fired_any': the session fired at least one event "
             "of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the "
-            "session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and "
-            "never reached its last one. All three are session-scoped and goal-free: they say what happened in "
-            "the session, not whether it helped or hurt the metric."
+            "session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the "
+            "funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the "
+            "experiment analysis. All three are session-scoped and goal-free: they say what happened in the "
+            "session, not whether it helped or hurt the metric."
         ),
     )
     metric_uuids = serializers.ListField(

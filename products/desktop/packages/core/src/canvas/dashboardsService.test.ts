@@ -1,7 +1,6 @@
-import { transform } from "esbuild";
 import { describe, expect, it, vi } from "vitest";
 import { DashboardsService } from "./dashboardsService";
-import { type ProjectApiClient, ProjectApiError } from "./projectApiClient";
+import type { ProjectApiClient } from "./projectApiClient";
 
 // A canvas as the PostHog canvases API returns it.
 function apiCanvas(overrides: Record<string, unknown> = {}) {
@@ -13,7 +12,6 @@ function apiCanvas(overrides: Record<string, unknown> = {}) {
     context: "",
     generation_task_id: null,
     pinned_at: null,
-    is_home: false,
     current_version_id: "v1",
     published_build_id: null,
     created_by: { first_name: "Ada", last_name: "L", email: "ada@x.com" },
@@ -71,210 +69,8 @@ describe("DashboardsService.list", () => {
       name: "Revenue board",
       createdBy: "Ada L",
       currentVersionId: "v1",
-      isHome: false,
     });
     expect(rows[0].createdAt).toBe(Date.parse("2026-07-01T00:00:00Z"));
-  });
-});
-
-describe("DashboardsService.ensureHomeCanvas", () => {
-  it("returns an existing seeded home canvas without creating another", async () => {
-    const home = apiCanvas({
-      id: "home-1",
-      is_home: true,
-      current_version_id: "v9",
-    });
-    const { api, calls } = fakeApi({
-      "canvases/?channel=chan-1&is_home=true": [home],
-    });
-    const service = new DashboardsService(api);
-
-    const record = await service.ensureHomeCanvas("chan-1");
-
-    expect(record.id).toBe("home-1");
-    expect(
-      calls.every((call) => !call.init || call.init.method === undefined),
-    ).toBe(true);
-  });
-
-  it("creates and publish-seeds a home canvas when the channel has none", async () => {
-    const created = apiCanvas({
-      id: "home-1",
-      is_home: true,
-      current_version_id: null,
-    });
-    let published: Record<string, unknown> | null = null;
-    const { api } = fakeApi({
-      "canvases/?channel=chan-1&is_home=true": [],
-      "canvases/home-1/publish/": (init?: RequestInit) => {
-        published = JSON.parse(String(init?.body));
-        return { current_version_id: "v1" };
-      },
-      "canvases/home-1/": apiCanvas({
-        id: "home-1",
-        is_home: true,
-        current_version_id: "v1",
-      }),
-      "canvases/": created,
-    });
-    const service = new DashboardsService(api);
-
-    const record = await service.ensureHomeCanvas("chan-1");
-
-    expect(record.currentVersionId).toBe("v1");
-    expect(published).not.toBeNull();
-    const payload = published as unknown as {
-      project: {
-        files: Record<string, string>;
-        capabilities: { posthog: { inlineQueries: boolean } };
-      };
-      expected_current_version_id: string | null;
-    };
-    // The board queries system tables ad hoc, so the capability must be
-    // declared or view mode rejects every data request.
-    expect(payload.project.capabilities.posthog.inlineQueries).toBe(true);
-    expect(payload.expected_current_version_id).toBeNull();
-    expect(payload.project.files["src/canvas.tsx"]).toContain(
-      "system.canvases",
-    );
-    expect(payload.project.files["src/canvas.tsx"]).toContain("system.tasks");
-  });
-
-  it("seeds source that transpiles as valid TSX", async () => {
-    const { api } = fakeApi({
-      "canvases/?channel=chan-1&is_home=true": [],
-      "canvases/home-1/publish/": { current_version_id: "v1" },
-      "canvases/home-1/": apiCanvas({
-        id: "home-1",
-        is_home: true,
-        current_version_id: "v1",
-      }),
-      "canvases/": apiCanvas({
-        id: "home-1",
-        is_home: true,
-        current_version_id: null,
-      }),
-    });
-    const service = new DashboardsService(api);
-
-    await service.ensureHomeCanvas("chan-1");
-
-    const publish = (api.json as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([path]) => String(path).endsWith("/publish/"),
-    );
-    expect(publish).toBeDefined();
-    const body = JSON.parse(String(publish?.[2]?.body)) as {
-      project: { files: Record<string, string> };
-    };
-    await expect(
-      transform(body.project.files["src/canvas.tsx"], { loader: "tsx" }),
-    ).resolves.toBeDefined();
-  });
-});
-
-describe("DashboardsService.ensureHomeCanvas races", () => {
-  it("reuses the winner's canvas when create loses the is_home uniqueness race (409)", async () => {
-    let lookups = 0;
-    const { api } = fakeApi({
-      // First lookup: none. After the 409, the winner's home canvas exists.
-      "canvases/?channel=chan-1&is_home=true": () => {
-        lookups += 1;
-        return lookups === 1
-          ? []
-          : [
-              apiCanvas({
-                id: "home-winner",
-                is_home: true,
-                current_version_id: "v1",
-              }),
-            ];
-      },
-      "canvases/": () => {
-        throw new ProjectApiError("Failed to create canvas (409)", 409);
-      },
-    });
-    const service = new DashboardsService(api);
-
-    const record = await service.ensureHomeCanvas("chan-1");
-
-    expect(record.id).toBe("home-winner");
-  });
-
-  it("rethrows a non-409 create failure instead of masking it as a race", async () => {
-    const { api } = fakeApi({
-      "canvases/?channel=chan-1&is_home=true": [],
-      "canvases/": () => {
-        throw new ProjectApiError("Failed to create canvas (403)", 403);
-      },
-    });
-    const service = new DashboardsService(api);
-
-    await expect(service.ensureHomeCanvas("chan-1")).rejects.toMatchObject({
-      status: 403,
-    });
-  });
-
-  it("retries the seed publish once on a 409 version conflict", async () => {
-    const home = apiCanvas({
-      id: "home-1",
-      is_home: true,
-      current_version_id: null,
-    });
-    let publishCalls = 0;
-    const { api } = fakeApi({
-      "canvases/?channel=chan-1&is_home=true": [home],
-      "canvases/home-1/publish/": (init?: RequestInit) => {
-        publishCalls += 1;
-        if (publishCalls === 1) {
-          throw new ProjectApiError("Failed to seed home canvas (409)", 409);
-        }
-        const body = JSON.parse(String(init?.body));
-        return { current_version_id: body.expected_current_version_id ?? "v1" };
-      },
-      "canvases/home-1/": apiCanvas({
-        id: "home-1",
-        is_home: true,
-        current_version_id: "v-fresh",
-      }),
-    });
-    const service = new DashboardsService(api);
-
-    const record = await service.ensureHomeCanvas("chan-1");
-
-    expect(publishCalls).toBe(2);
-    expect(record.id).toBe("home-1");
-  });
-});
-
-describe("DashboardsService.resetHomeCanvas", () => {
-  it("publishes a fresh default guarded on the current head", async () => {
-    const home = apiCanvas({
-      id: "home-1",
-      is_home: true,
-      current_version_id: "v3",
-    });
-    let published: Record<string, unknown> | null = null;
-    const { api } = fakeApi({
-      "canvases/?channel=chan-1&is_home=true": [home],
-      "canvases/home-1/publish/": (init?: RequestInit) => {
-        published = JSON.parse(String(init?.body));
-        return { current_version_id: "v4" };
-      },
-      "canvases/home-1/": apiCanvas({
-        id: "home-1",
-        is_home: true,
-        current_version_id: "v4",
-      }),
-    });
-    const service = new DashboardsService(api);
-
-    const record = await service.resetHomeCanvas("chan-1");
-
-    expect(record.currentVersionId).toBe("v4");
-    expect(
-      (published as unknown as { expected_current_version_id: string | null })
-        ?.expected_current_version_id,
-    ).toBe("v3");
   });
 });
 
