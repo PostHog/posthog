@@ -34,6 +34,9 @@ from products.marketing_analytics.backend.services.types import (
 from products.marketing_analytics.backend.services.utm_matching import (
     DEFAULT_MATCH_FIELD,
     get_match_field,
+    group_campaigns_by_source,
+    normalize_campaign_name,
+    normalize_source_name,
     resolve_source,
 )
 
@@ -145,7 +148,7 @@ def suggest_campaign_field_preferences(
     collisions_by_source = _collisions_by_source(audit_results or [])
 
     suggestions: list[FieldPreferenceSuggestion] = []
-    for source_name, group in _group_by_source(campaigns).items():
+    for source_name, group in group_campaigns_by_source(campaigns).items():
         suggestion = _suggest_for_integration(
             source_name=source_name,
             group=group,
@@ -186,33 +189,23 @@ def _utm_values_by_source(
 
     values: dict[str, set[str]] = {}
     for (utm_campaign, utm_source), _ in utm_events.items():
-        value = utm_campaign.lower().strip()
+        value = normalize_campaign_name(utm_campaign)
         # A value a manual `campaign_name_mappings` entry already rewrites resolves to its
         # campaign whichever field is preferred — `build_campaign_lookup` keys aliases off the
         # campaign name, not the match field. Counting it credits whichever side it happens to
         # spell like, so it inflates one rate over a hit both sides already get.
         if not value or value in aliased:
             continue
-        primary = resolve_source(utm_source.lower().strip(), mappings)
+        primary = resolve_source(normalize_source_name(utm_source), mappings)
         values.setdefault(primary, set()).add(value)
     return values
-
-
-def _group_by_source(campaigns: list[Campaign]) -> dict[str, list[Campaign]]:
-    grouped: dict[str, list[Campaign]] = {}
-    for campaign in campaigns:
-        source_name = campaign.source_name.lower().strip()
-        if not source_name:
-            continue
-        grouped.setdefault(source_name, []).append(campaign)
-    return grouped
 
 
 def _collisions_by_source(audit_results: list[CampaignAuditResult]) -> dict[str, set[str]]:
     """source_name -> the other platforms it collides with on a campaign name."""
     collisions: dict[str, set[str]] = {}
     for result in audit_results:
-        source_name = result.source_name.lower().strip()
+        source_name = normalize_source_name(result.source_name)
         for issue in result.issues:
             if issue.kind == UtmIssueKind.NAME_COLLISION:
                 collisions.setdefault(source_name, set()).update(issue.shared_with_integrations)
@@ -238,7 +231,7 @@ def _candidate_value(campaign: Campaign, match_field: str) -> str:
     raw = campaign.campaign_id if match_field == "campaign_id" else campaign.campaign_name
     # Empty never matches: `utm_campaign_values` excludes the empty string, but being
     # explicit keeps an empty id from silently counting as a hit if that changes.
-    return raw.lower().strip()
+    return normalize_campaign_name(raw)
 
 
 def _id_coverage(group: list[Campaign]) -> float:
