@@ -10,7 +10,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { ROWS, renderField } from 'scenes/cohorts/CohortFilters/constants'
+import { getRowShape, renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 
@@ -37,10 +37,10 @@ export function CohortCriteriaRowBuilder({
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
-    // Stored criteria can carry a behavioral value that isn't a known ROWS key (legacy or
-    // otherwise unmapped). Fall back to the default event row so the cohort still renders and
-    // stays editable instead of throwing when we later read rowShape.fields.
-    const rowShape = ROWS[type] ?? ROWS[BehavioralEventType.PerformEvent]
+    // An unmapped behavioral value has no fields to render. Substituting another row's fields would
+    // let an edit merge into the unmapped criterion, which cleanCriteria then strips down to
+    // undefined, so leave the row empty and let the type selector be the recovery path.
+    const rowFields = getRowShape(type)?.fields ?? []
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
@@ -107,6 +107,7 @@ export function CohortCriteriaRowBuilder({
                                     {renderField[FilterType.Behavioral]({
                                         fieldKey: 'value',
                                         criteria,
+                                        placeholder: 'Select criteria type',
                                         onChange: (newCriteria) => {
                                             setCriteria(cleanCriteria(newCriteria, true), groupIndex, index)
                                             onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
@@ -124,7 +125,7 @@ export function CohortCriteriaRowBuilder({
                     <div className="flex">
                         <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
                         <div className="flex flex-wrap items-center min-w-0">
-                            {rowShape.fields.map((field, i) => {
+                            {rowFields.map((field, i) => {
                                 return (
                                     !field.hide &&
                                     (field.fieldKey ? (
