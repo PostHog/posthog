@@ -7587,9 +7587,9 @@ snapshots:
     scenes-other-login--sso-error--light:
         hash: v1.k794b7964.dcb9dbd028e9325ec079706aaf108c905d2d6116d8fcbef7482d48f370cda6a1.IpTMqWIuRh6xGrQ4TzU6wCvTIYdToc9T6wkqkOenjSY
     scenes-other-onboarding-legacy--ai-observability-sdk-install--dark:
-        hash: v1.k794b7964.bda729452fe657398c480b5294c7e56e7d3635b19abb4002709522f13f369305.LhnETlVSPxPSo_ngJjnaI12lyQMOsH0FpWWkQEq2KiM
+        hash: v1.k794b7964.0c82a4b8b276a3f51b42dd3a20aed7672fbfb5f096e4bd9da51221b6eb52bbdc.iXUjftr_vTAULjZ_soSDjZ9o_RG2YPlJBCG4ZSuNTS0
     scenes-other-onboarding-legacy--ai-observability-sdk-install--light:
-        hash: v1.k794b7964.46dbb2e71065c10cf633c471fc611f466486f8d0d1d72531ac1aed35bcfbbad1.DdjSNZIoFu_7KeWb1YQt_dX4dlwDGlS7fh2nVl0OXpM
+        hash: v1.k794b7964.c6c5baa13b6d17723b6022b01f3a235df0e49a93c92993eca8d498c2c4dfe9e5.a09diijoUqSgzkc5MHr912Pij2owQlUx5mrdebH4fsU
     scenes-other-onboarding-legacy--alerts--dark:
         hash: v1.k794b7964.c22b202da34ceea01a9dc7162520e35f2366b891dc31dfef3f4cc1c02a732925.NcL-srF2HqgOaQZS2T1bWylckrTCHkBSYe72zVWgpIw
     scenes-other-onboarding-legacy--alerts--light:
@@ -7633,7 +7633,7 @@ snapshots:
     scenes-other-onboarding-legacy--workflows-custom-installation-instructions--dark:
         hash: v1.k794b7964.dd81a223dd76d082e354b4635025f2164f33d40c98ac905328517316e5b35d98.4HihmxNQLrg1bqWk64AX2to8IGHSIeUO2ntT8uD7hV8
     scenes-other-onboarding-legacy--workflows-custom-installation-instructions--light:
-        hash: v1.k794b7964.2e4c7a2a3622c774e52dca6381164f33c47e31e315e4a2809e08721b32bba1c5.PhnLd-CI_Bygrdk5gTu1nVy1chhblwOhJC0fP3ld7TA
+        hash: v1.k794b7964.2094d2c351dde75375b61a60acc049fd4f8552892faa171e95083313ebb0f129.O3jVVJoEuyGgD2yLIdIwb-CdJyvIVne8HULh6y7LdvM
     scenes-other-onboarding-legacy-install-step--cloud-run-in-progress--dark:
         hash: v1.k794b7964.b5ee945088ebf73e06ff4e3a3f0b7f506e20b902df8f50aef779ac3b0e433ecd.xNlLf3OVO2wRHIaGxXcEivkhq2Wbyl1eIag4VtxIru8
     scenes-other-onboarding-legacy-install-step--cloud-run-in-progress--light:
