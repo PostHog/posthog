@@ -37,6 +37,8 @@ You just spent an hour inside the mechanism, so the mechanism comes out first. P
 
 Most of the time you already wrote the effect and put it third. Move it up rather than writing a new sentence.
 
+Line 1 can be a bullet or a standalone sentence, whichever reads faster. One sentence, never a paragraph. What matters is that the effect is the first thing on the page, so a lead sentence followed by supporting bullets is fine and keeps a body from reading like every other body.
+
 A PR with no user-visible effect still has a reader who is blocked: the next agent, the on-call, the team that cannot ship until this lands. Lead with them.
 
 ### Worked example
@@ -235,7 +237,7 @@ Pass 1 rests on three findings.
 Readers scan before they read: 15 of 19 participants in [NN/g's web writing study](https://www.nngroup.com/articles/concise-scannable-and-objective-how-to-write-for-the-web/) approached unfamiliar text by scanning, and a version that was concise, scannable and front-loaded measured 124% higher usability than the original.
 What a scanner sees is the start of each line, so [the first words](https://www.nngroup.com/articles/first-2-words-a-signal-for-scanning/) decide whether the rest gets read at all.
 And review time goes to understanding the change rather than to finding defects ([Bacchelli and Bird, ICSE 2013](https://sback.it/publications/icse2013.pdf)), which makes handing over that understanding the body's first job.
-[Google's CL description guidance](https://google.github.io/eng-practices/review/developer/cl-descriptions.html) says the same thing: the description carries the problem and the reason for this approach, which the source cannot.
+[Google's CL description guidance](https://google.github.io/eng-practices/review/developer/cl-descriptions.html) says the same thing, and grounds pass 3 too: the description carries the problem and the reason for this approach, with enough context for a reader who is not in the code.
 
 Pass 4 adapts a subset of the 53 writing rules in [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org/) (Issue 9, January 2025). The 25-word ceiling is the standard's limit for descriptive text; it caps procedural text at 20, which a PR body rarely contains. Rules 1 and 2 are our own: STE writes "one instruction per sentence" for procedures and "one topic per paragraph" for descriptions, and a bullet sits between the two, while front-loading comes from the scanning research above.
 

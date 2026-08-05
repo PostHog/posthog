@@ -137,13 +137,13 @@ ERROR:  unsupported startup parameter in options: statement_timeout.
 
 Pass 3 cut 100 words:
 
-| Cut                                                                                                    | Why                                                                                    |
-| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| The second line of Neon's error, and the full quoted user-facing message                               | The reviewer needs the phrasing that breaks the match, not the whole string            |
-| `statement_timeout=1800000 -c idle_in_transaction_session_timeout=0`                                   | "Always sends `options`" is the fact. The values are in the diff                       |
-| "There is nothing they can do to make that message go away, because it isn't describing their problem" | Second half of a reason pair. The bullet above it already says the database is healthy |
-| "Neon's pooler serves the `pg_logical_slot_peek_binary_changes` calls the reader uses just fine"       | Supports a claim nobody will dispute                                                   |
-| The start-to-close and heartbeat timeout note                                                          | Belongs in the code comment it describes, and is there                                 |
+| Cut                                                                                                    | Why                                                                                       |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| The second line of Neon's error, and the full quoted user-facing message                               | The reader needs the phrasing that breaks the match, not the whole string                 |
+| `statement_timeout=1800000 -c idle_in_transaction_session_timeout=0`                                   | "Always sends `options`" is the fact. The values themselves change nothing for the reader |
+| "There is nothing they can do to make that message go away, because it isn't describing their problem" | Second half of a reason pair. The bullet above it already says the database is healthy    |
+| "Neon's pooler serves the `pg_logical_slot_peek_binary_changes` calls the reader uses just fine"       | Supports a claim nobody will dispute                                                      |
+| The start-to-close and heartbeat timeout note                                                          | Belongs in the code comment it describes, and is there                                    |
 
 Pass 4 split the 76-word failure chain, which was the densest sentence in the description, into the five links a reviewer checks one at a time.
 
@@ -197,7 +197,7 @@ Pass 3 cut 79 words:
 
 | Cut                                                                          | Why                                                                                  |
 | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `ZSTD(1)` on Strings, `DoubleDelta, ZSTD(1)` on datetimes                    | The reviewer reads migration 0292 in the diff                                        |
+| `ZSTD(1)` on Strings, `DoubleDelta, ZSTD(1)` on datetimes                    | Exact values. The bullet above already says what the codecs were for                 |
 | "That's the wrong call here"                                                 | The next two bullets say why. The verdict adds nothing they don't reach on their own |
 | "instead of improving anything", "so it isn't earning its keep there either" | Restate the claim already made in the same sentence                                  |
 | The three table names, listed in full                                        | "All three tables" is enough. The migration names them                               |
