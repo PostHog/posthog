@@ -57,6 +57,7 @@ import {
 } from './journeyGridModel'
 import {
     journeysChainModalTitle,
+    journeysDropOffEdgeModalTitle,
     journeysDropOffModalTitle,
     journeysEdgeModalTitle,
     journeysNodeModalTitle,
@@ -685,15 +686,32 @@ export const journeysDataLogic = kea<journeysDataLogicType>([
                         journeysOtherModalTitle(stepIndex)
                     )
                 } else if (row.kind === 'dropOff') {
+                    // The drop-off card renders one column after the step its journeys end at.
+                    const endedStepIndex = stepIndex - 1
                     openModalFor(
-                        { elementType: PathsV2ElementType.DropOff, stepIndex },
-                        journeysDropOffModalTitle(stepIndex)
+                        { elementType: PathsV2ElementType.DropOff, stepIndex: endedStepIndex },
+                        journeysDropOffModalTitle(endedStepIndex)
                     )
                 }
             },
             ribbonClicked: ({ ribbon }) => {
                 const source = values.vizQuerySource
                 if (source?.kind !== NodeKind.PathsV2Query) {
+                    return
+                }
+                if (ribbon.isDropOff) {
+                    openPersonsModal({
+                        title: journeysDropOffEdgeModalTitle(ribbon.sourceStep, ribbon.sourceItem),
+                        query: {
+                            kind: NodeKind.PathsV2ActorsQuery,
+                            source: source as PathsV2Query,
+                            element: {
+                                elementType: PathsV2ElementType.DropOffEdge,
+                                stepIndex: ribbon.sourceStep,
+                                source: ribbon.sourceItem ?? undefined,
+                            },
+                        },
+                    })
                     return
                 }
                 openPersonsModal({

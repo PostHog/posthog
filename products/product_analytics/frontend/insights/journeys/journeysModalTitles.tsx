@@ -24,6 +24,11 @@ export function journeysDropOffModalTitle(stepIndex: number): string {
     return `People whose journey ends at step ${stepNumber(stepIndex)}`
 }
 
+export function journeysDropOffEdgeModalTitle(stepIndex: number, sourceItem: PathsV2Item | null): string {
+    const sourceLabel = sourceItem ? journeyItemLabel(sourceItem) : OTHER_LABEL
+    return `People whose journey ends at ${sourceLabel} (step ${stepNumber(stepIndex)})`
+}
+
 export function journeysChainModalTitle(chain: PathsV2Item[], logicProps?: InsightLogicProps): JSX.Element {
     return (
         <div className="flex items-center gap-2">

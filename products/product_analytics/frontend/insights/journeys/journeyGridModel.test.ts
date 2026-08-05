@@ -21,7 +21,7 @@ describe('journeyGridModel', () => {
                 maxRibbonCount: 0,
                 displayedItemKeys: new Set(),
             })
-            expect(buildJourneyGridModel({ steps: [], edges: [], prefixes: [] })).toEqual({
+            expect(buildJourneyGridModel({ steps: [], edges: [], dropOffEdges: [], prefixes: [] })).toEqual({
                 columns: [],
                 ribbons: [],
                 maxRibbonCount: 0,
@@ -29,7 +29,7 @@ describe('journeyGridModel', () => {
             })
         })
 
-        it('orders each column as named rows, then other, then drop-off, with per-step totals', () => {
+        it('orders columns as named rows then other, moving the drop-off card to the next column', () => {
             const results: PathsV2Results = {
                 steps: [
                     {
@@ -43,20 +43,28 @@ describe('journeyGridModel', () => {
                     },
                 ],
                 edges: [],
+                dropOffEdges: [],
                 prefixes: [],
             }
 
             const model = buildJourneyGridModel(results)
 
-            expect(model.columns).toHaveLength(1)
-            const column = model.columns[0]
+            expect(model.columns).toHaveLength(2)
+            const [column, trailing] = model.columns
             // The displayed total is named rows plus the other row; drop-off actors are already in those rows
             expect(column.total).toEqual(100)
+            expect(column.hasStep).toBe(true)
             expect(column.rows.map((row) => [row.kind, row.label, row.count, row.fraction])).toEqual([
                 ['item', '/home', 60, 0.6],
                 ['item', '/pricing', 30, 0.3],
                 ['other', 'Other', 10, 0.1],
-                ['dropOff', 'Ends here', 25, 0.25],
+            ])
+            // Endings at the last step get a trailing slot; the fraction stays relative to the
+            // ended step's total, the population the endings came out of.
+            expect(trailing.stepIndex).toEqual(1)
+            expect(trailing.hasStep).toBe(false)
+            expect(trailing.rows.map((row) => [row.kind, row.label, row.count, row.fraction])).toEqual([
+                ['dropOff', 'Dropped off', 25, 0.25],
             ])
         })
 
@@ -64,8 +72,10 @@ describe('journeyGridModel', () => {
             const model = buildJourneyGridModel({
                 steps: [{ stepIndex: 0, rows: [], otherCount: 0, dropOffCount: 0 }],
                 edges: [],
+                dropOffEdges: [],
                 prefixes: [],
             })
+            expect(model.columns).toHaveLength(1)
             expect(model.columns[0].rows).toEqual([])
             expect(model.columns[0].total).toEqual(0)
         })
@@ -77,6 +87,7 @@ describe('journeyGridModel', () => {
                     { stepIndex: 0, rows: [{ item: item('b', null), count: 2 }], otherCount: 0, dropOffCount: 0 },
                 ],
                 edges: [],
+                dropOffEdges: [],
                 prefixes: [],
             })
             expect(model.columns.map((column) => column.stepIndex)).toEqual([0, 1])
@@ -108,6 +119,7 @@ describe('journeyGridModel', () => {
                     { stepIndex: 0, source: item('$pageview', '/home'), target: null, count: 5 },
                     { stepIndex: 0, source: null, target: item('$pageview', '/pricing'), count: 3 },
                 ],
+                dropOffEdges: [],
                 prefixes: [],
             }
 
@@ -122,6 +134,50 @@ describe('journeyGridModel', () => {
             expect(model.ribbons[0].fractionOfSource).toEqual(0.4)
             expect(model.ribbons[2].fractionOfSource).toEqual(0.6)
             expect(model.maxRibbonCount).toEqual(20)
+        })
+
+        it('builds drop-off ribbons into the next column, mapping bucketed sources to the other row', () => {
+            const results: PathsV2Results = {
+                steps: [
+                    {
+                        stepIndex: 0,
+                        rows: [{ item: item('$pageview', '/home'), count: 50 }],
+                        otherCount: 5,
+                        dropOffCount: 30,
+                    },
+                    {
+                        stepIndex: 1,
+                        rows: [{ item: item('$pageview', '/pricing'), count: 20 }],
+                        otherCount: 0,
+                        dropOffCount: 0,
+                    },
+                ],
+                edges: [
+                    {
+                        stepIndex: 0,
+                        source: item('$pageview', '/home'),
+                        target: item('$pageview', '/pricing'),
+                        count: 20,
+                    },
+                ],
+                dropOffEdges: [
+                    { stepIndex: 0, source: item('$pageview', '/home'), count: 28 },
+                    { stepIndex: 0, source: null, count: 3 },
+                ],
+                prefixes: [],
+            }
+
+            const model = buildJourneyGridModel(results)
+
+            // The drop-off card joins the existing next column after its named rows
+            expect(model.columns[1].rows.map((row) => row.kind)).toEqual(['item', 'dropOff'])
+            const dropOffRibbons = model.ribbons.filter((ribbon) => ribbon.isDropOff)
+            expect(dropOffRibbons.map((ribbon) => [ribbon.sourceKey, ribbon.targetKey, ribbon.count])).toEqual([
+                [journeyItemKey(item('$pageview', '/home')), 'dropOff', 28],
+                [OTHER_ROW_KEY, 'dropOff', 3],
+            ])
+            expect(dropOffRibbons[0].fractionOfSource).toEqual(0.56)
+            expect(model.ribbons.filter((ribbon) => !ribbon.isDropOff)).toHaveLength(1)
         })
 
         it('skips zero-count edges and edges whose endpoints are not in the grid', () => {
@@ -150,6 +206,7 @@ describe('journeyGridModel', () => {
                         count: 0,
                     },
                 ],
+                dropOffEdges: [],
                 prefixes: [],
             })
             expect(model.ribbons).toEqual([])
@@ -166,6 +223,7 @@ describe('journeyGridModel', () => {
                     },
                 ],
                 edges: [],
+                dropOffEdges: [],
                 prefixes: [],
             })
             expect(model.displayedItemKeys).toEqual(new Set([chainCardKey(0, item('$pageview', '/home'))]))

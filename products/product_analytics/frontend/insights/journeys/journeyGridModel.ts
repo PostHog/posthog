@@ -22,6 +22,8 @@ export interface JourneyGridColumn {
     rows: JourneyGridRow[]
     /** The column's displayed unique-actor total: named rows plus the other row. */
     total: number
+    /** False only on the trailing slot that holds the last step's drop-off card. */
+    hasStep: boolean
 }
 
 export interface JourneyGridRibbon {
@@ -40,6 +42,8 @@ export interface JourneyGridRibbon {
     targetItem: PathsV2Item | null
     /** Position-free count of the transition at any step; only on open-mode named-named edges. */
     anyStepCount: number | null
+    /** A drop-off flow into the next column's drop-off card rather than a transition. */
+    isDropOff: boolean
 }
 
 export interface JourneyGridModel {
@@ -145,18 +149,34 @@ export function buildJourneyGridModel(results: PathsV2Results | null): JourneyGr
                 fraction: total > 0 ? step.otherCount / total : 0,
             })
         }
-        if (step.dropOffCount > 0) {
-            rows.push({
-                key: DROP_OFF_ROW_KEY,
-                kind: 'dropOff',
-                item: null,
-                label: 'Ends here',
-                count: step.dropOffCount,
-                fraction: total > 0 ? step.dropOffCount / total : 0,
-            })
-        }
-        return { stepIndex: step.stepIndex, rows, total }
+        return { stepIndex: step.stepIndex, rows, total, hasStep: true }
     })
+
+    // Drop-off cards render funnel-style, one column after the step whose journeys end there: the
+    // first column never shows one, and endings at the last step get a trailing slot. The fraction
+    // stays relative to the ended step's total, the population the endings came out of.
+    for (const step of steps) {
+        if (step.dropOffCount <= 0) {
+            continue
+        }
+        const endedColumn = columns.find((column) => column.stepIndex === step.stepIndex)
+        const endedTotal = endedColumn?.total ?? 0
+        const dropOffRow: JourneyGridRow = {
+            key: DROP_OFF_ROW_KEY,
+            kind: 'dropOff',
+            item: null,
+            label: 'Dropped off',
+            count: step.dropOffCount,
+            fraction: endedTotal > 0 ? step.dropOffCount / endedTotal : 0,
+        }
+        const targetColumn = columns.find((column) => column.stepIndex === step.stepIndex + 1)
+        if (targetColumn) {
+            targetColumn.rows.push(dropOffRow)
+        } else {
+            columns.push({ stepIndex: step.stepIndex + 1, rows: [dropOffRow], total: 0, hasStep: false })
+        }
+    }
+    columns.sort((a, b) => a.stepIndex - b.stepIndex)
 
     const rowByStepAndKey = new Map<string, JourneyGridRow>()
     const displayedItemKeys = new Set<string>()
@@ -195,6 +215,33 @@ export function buildJourneyGridModel(results: PathsV2Results | null): JourneyGr
             sourceItem: edge.source ?? null,
             targetItem: edge.target ?? null,
             anyStepCount: edge.anyStepCount ?? null,
+            isDropOff: false,
+        })
+    }
+    // Cached results from before dropOffEdges shipped may omit the field.
+    for (const dropOffEdge of results.dropOffEdges ?? []) {
+        if (dropOffEdge.count <= 0) {
+            continue
+        }
+        const sourceKey = dropOffEdge.source ? journeyItemKey(dropOffEdge.source) : OTHER_ROW_KEY
+        const sourceRow = rowByStepAndKey.get(`${dropOffEdge.stepIndex}:${sourceKey}`)
+        const targetRow = rowByStepAndKey.get(`${dropOffEdge.stepIndex + 1}:${DROP_OFF_ROW_KEY}`)
+        if (!sourceRow || !targetRow) {
+            continue
+        }
+        ribbons.push({
+            key: journeyRibbonKey(dropOffEdge.stepIndex, sourceKey, DROP_OFF_ROW_KEY),
+            sourceStep: dropOffEdge.stepIndex,
+            sourceKey,
+            targetKey: DROP_OFF_ROW_KEY,
+            count: dropOffEdge.count,
+            fractionOfSource: sourceRow.count > 0 ? dropOffEdge.count / sourceRow.count : 0,
+            sourceLabel: sourceRow.label,
+            targetLabel: targetRow.label,
+            sourceItem: dropOffEdge.source ?? null,
+            targetItem: null,
+            anyStepCount: null,
+            isDropOff: true,
         })
     }
 

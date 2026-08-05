@@ -156,7 +156,9 @@ export function JourneyGrid({
                             title={
                                 <div className="flex flex-col gap-0.5">
                                     <span className="font-semibold">
-                                        {ribbon.sourceLabel} → {ribbon.targetLabel}
+                                        {ribbon.isDropOff
+                                            ? `${ribbon.sourceLabel} → dropped off`
+                                            : `${ribbon.sourceLabel} → ${ribbon.targetLabel}`}
                                     </span>
                                     <span>
                                         {pluralize(ribbon.count, 'person', 'people')} (
@@ -167,7 +169,7 @@ export function JourneyGrid({
                         >
                             <path
                                 d={ribbonPath(fromX, fromY, thickness, toX, toY, thickness)}
-                                fill={nodeColor}
+                                fill={ribbon.isDropOff ? 'var(--danger)' : nodeColor}
                                 opacity={ribbonOpacity(ribbon)}
                                 className={`pointer-events-auto hover:opacity-40 transition-opacity ${
                                     onRibbonClick ? 'cursor-pointer' : ''
@@ -202,21 +204,25 @@ export function JourneyGrid({
                     ))}
                 </svg>
 
-                {model.columns.map((column, columnIndex) => (
-                    <div
-                        key={`header-${column.stepIndex}`}
-                        className="absolute text-xs font-semibold text-secondary"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: columnIndex * (CARD_WIDTH + COLUMN_GAP), top: 0, width: CARD_WIDTH }}
-                    >
-                        {columnHeading(column.stepIndex, anchorType)}
-                    </div>
-                ))}
+                {model.columns.map(
+                    (column, columnIndex) =>
+                        column.hasStep && (
+                            <div
+                                key={`header-${column.stepIndex}`}
+                                className="absolute text-xs font-semibold text-secondary"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ left: columnIndex * (CARD_WIDTH + COLUMN_GAP), top: 0, width: CARD_WIDTH }}
+                            >
+                                {columnHeading(column.stepIndex, anchorType)}
+                            </div>
+                        )
+                )}
 
                 {cards.map(({ row, stepIndex, x, y }) => (
                     <JourneyCard
                         key={cardKey(stepIndex, row.key)}
                         row={row}
+                        stepIndex={stepIndex}
                         x={x}
                         y={y}
                         isAnchored={isAnchored}
@@ -245,12 +251,15 @@ const CARD_STYLES: Record<JourneyGridRowKind, { container: string; text: string;
     dropOff: { container: 'border border-transparent', text: 'text-secondary', dataAttr: 'journey-grid-drop-off-row' },
 }
 
-function dropOffTooltip(isAnchored: boolean): string {
+/** The card renders one column after the step its journeys end at, so the rendered 0-based column
+ * index doubles as the ended step's 1-based display number. */
+function dropOffTooltip(isAnchored: boolean, renderedStepIndex: number): string {
+    const base = `People whose journey ended at step ${renderedStepIndex}.`
     if (isAnchored) {
-        return 'People whose journey ends at this step.'
+        return base
     }
     return (
-        'People whose journey ends at this step. ' +
+        `${base} ` +
         'A pause longer than the inactivity gap starts a new journey, so one person can have several journeys. ' +
         'The same person can appear in several rows and end journeys in more than one column, ' +
         'so percentages can add up to more than 100%.'
@@ -259,6 +268,7 @@ function dropOffTooltip(isAnchored: boolean): string {
 
 function JourneyCard({
     row,
+    stepIndex,
     x,
     y,
     isAnchored,
@@ -270,6 +280,7 @@ function JourneyCard({
     onMouseEnter,
 }: {
     row: JourneyGridRow
+    stepIndex: number
     x: number
     y: number
     isAnchored: boolean
@@ -286,7 +297,7 @@ function JourneyCard({
     const onChain = chainCount !== undefined
     const tooltip =
         row.kind === 'dropOff' ? (
-            dropOffTooltip(isAnchored)
+            dropOffTooltip(isAnchored, stepIndex)
         ) : row.kind === 'other' ? (
             'Less common steps at this position, grouped together.'
         ) : (
