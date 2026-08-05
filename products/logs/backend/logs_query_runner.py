@@ -209,10 +209,17 @@ def _generate_resource_attribute_filters(
 
 
 def _get_property_type(value) -> str:
+    # bool is a subclass of int, so float(True) == 1.0 succeeds — without this check a boolean
+    # filter value would be routed to attributes_map_float, which only ever contains values that
+    # parsed via toFloat64OrNull (see schema.sql); a bool attribute is stored as the string
+    # "true"/"false" in attributes_map_str, so a float-routed comparison 500s in ClickHouse with
+    # a Float64/String type mismatch.
+    if isinstance(value, bool):
+        return "str"
     try:
         float(value)
         return "float"
-    except ValueError:
+    except (ValueError, TypeError):
         pass
     # todo: datetime?
     return "str"

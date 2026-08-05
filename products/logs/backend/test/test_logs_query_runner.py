@@ -5,6 +5,8 @@ from uuid import uuid4
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -29,8 +31,50 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 from posthog.test.persons import create_person
 
-from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.logs_query_runner import LogsQueryRunner, _get_property_type, _map_attribute_filter_type
 from products.logs.backend.models import TeamLogsConfig
+
+
+class TestGetPropertyType(SimpleTestCase):
+    # attributes_map_float (schema.sql) only ever contains values that parsed via toFloat64OrNull;
+    # a bool value is stored as the string "true"/"false" in attributes_map_str instead. float(True)
+    # succeeds (bool is an int subclass), so a naive float() probe misroutes bools to the float map,
+    # producing a Float64/String type-mismatch 500 in ClickHouse once the query actually runs.
+    @parameterized.expand(
+        [
+            ("float_string", "1.5", "float"),
+            ("int_string", "42", "float"),
+            ("non_numeric_string", "web-server", "str"),
+            ("bool_true", True, "str"),
+            ("bool_false", False, "str"),
+        ]
+    )
+    def test_detects_type(self, _name, value, expected_type):
+        assert _get_property_type(value) == expected_type
+
+
+class TestMapAttributeFilterType(SimpleTestCase):
+    def test_bool_value_maps_to_str_key(self):
+        mapped = _map_attribute_filter_type(
+            LogPropertyFilter(
+                key="hasPartialFailure",
+                operator=PropertyOperator.EXACT,
+                type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                value=True,
+            )
+        )
+        assert mapped.key == "hasPartialFailure__str"
+
+    def test_mixed_bool_and_numeric_list_maps_to_str_key(self):
+        mapped = _map_attribute_filter_type(
+            LogPropertyFilter(
+                key="flag",
+                operator=PropertyOperator.EXACT,
+                type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                value=[True, "1"],
+            )
+        )
+        assert mapped.key == "flag__str"
 
 
 class TestAttributeFilters(APIBaseTest):
