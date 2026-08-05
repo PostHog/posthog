@@ -100,6 +100,8 @@ vi.mock("@posthog/ui/features/code-review/hooks/usePrCommentActions", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
+  isOptimisticComment: (comment: ResourceComment) =>
+    comment.id.startsWith("optimistic-"),
   useCommentsQuery: (target: unknown) => {
     if (target) mocks.queriedTargets.push([target]);
     return {
