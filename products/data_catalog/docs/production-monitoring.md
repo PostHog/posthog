@@ -14,6 +14,9 @@ Tile group `7 · Agent behavior` on the "Data catalog usage" dashboard (project 
 - `7 · KPI sessions that skip the catalog`: KPI-intent sessions with raw SQL and no catalog lookup or `data-catalog-metric-run` call, same two series.
 - `7 · Semantic-layer lookups in SQL`: weekly lookups against `information_schema.metrics`, the `certification` column on `information_schema.tables`, and `information_schema.relationships`.
 - `7 · KPI derivations vs agent proposals`: derivations without catalog engagement next to sessions where an agent called a catalog write tool.
+- `7 · Semantic layer judge verdicts`: daily pass/fail/not-applicable counts from the three judge evaluations (matches both the current and pre-rename evaluation names).
+
+Beyond group 7, the dashboard carries curation and quality tiles worth knowing: `2 · Catalog inventory (cumulative)` (running total of metrics, certification marks, accepted relationships), `3 · Review queue backlog (current)` (entities awaiting a human decision, from each entity's latest lifecycle event), and `5 · Canonical share of metric runs` (share of runs returning an approved, non-drifted result - the consumption quality signal).
 
 Data sources: `$mcp_tool_call` events (tool names, ordering per `$session_id`) and the per-`execute-sql` `$ai_generation` events (`$ai_output_choices` carries the SQL text; `posthog.ai_events`, ~30 day retention). Session classification is regex-heuristic: SQL matching `information_schema.metrics` is a catalog lookup, other `information_schema`/`system.` references are schema discovery, everything else is data-bearing; KPI intent is a keyword match on the agent's stated intent. **The keyword match is a known undercount** - the judges below carry the semantic version of the same questions, and comparing the judges' applicability share against the tiles' keyword share over the same catalog-enabled population measures the keyword gate's miss rate.
 
