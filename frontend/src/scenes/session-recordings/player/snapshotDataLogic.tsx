@@ -20,7 +20,8 @@ import posthog from 'posthog-js'
 import { keyForSource } from '@posthog/replay-shared'
 import { SnapshotSourceType, SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
-import api, { RecordingDeletedError } from 'lib/api'
+import api, { ApiError, RecordingDeletedError } from 'lib/api'
+import { isAccessDeniedError } from 'lib/api-error'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -51,6 +52,7 @@ export interface snapshotDataLogicValues {
     getWindowId: (uuid: string | undefined) => number | undefined // windowIdRegistryLogic
     uuidToIndex: Record<string, number> // windowIdRegistryLogic
     allSourcesLoaded: boolean
+    isBlockAccessDenied: boolean
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
@@ -219,6 +221,7 @@ export interface snapshotDataLogicMeta {
         isRecordingDeleted: (snapshotLoadError: Error | null) => boolean
         recordingDeletedAt: (snapshotLoadError: Error | null) => number | null
         recordingDeletedBy: (snapshotLoadError: Error | null) => string | null
+        isBlockAccessDenied: (snapshotLoadError: Error | null) => boolean
     }
 }
 
@@ -726,6 +729,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return snapshotLoadError.deletedBy
                 }
                 return null
+            },
+        ],
+
+        isBlockAccessDenied: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError: Error | null): boolean => {
+                return isAccessDeniedError(snapshotLoadError instanceof ApiError ? snapshotLoadError : {})
             },
         ],
     })),

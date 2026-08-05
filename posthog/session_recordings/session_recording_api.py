@@ -1472,6 +1472,10 @@ class SessionRecordingViewSet(
             return response
         except NotFound:
             raise
+        except exceptions.PermissionDenied:
+            # Let DRF's default handling return the standard 403 body (detail + `permission_denied`
+            # code) instead of the generic `except Exception` branch below flattening it into a 500.
+            raise
         except RecordingDeletedError as e:
             logger.info(
                 "recording_permanently_deleted",
@@ -1849,7 +1853,7 @@ class SessionRecordingViewSet(
         api_client: RecordingApiClient,
         decompress: bool,
     ) -> BlockList:
-        async def fetch_single_block(block_index: int) -> tuple[int, bytes | None]:
+        async def fetch_single_block(block_index: int) -> tuple[int, bytes | None, int | None]:
             try:
                 block = blocks[block_index]
                 content = await api_client.fetch_block(
@@ -1860,32 +1864,38 @@ class SessionRecordingViewSet(
                     self.team.id,
                     decompress=decompress,
                 )
-                return block_index, content
+                return block_index, content, None
             except RecordingDeletedError:
                 # Let this propagate up to return a 410 response
                 raise
-            except BlockFetchError:
+            except BlockFetchError as e:
                 logger.exception(
                     "fetch_block_failed",
                     recording_id=recording.session_id,
                     team_id=self.team.id,
                     block_index=block_index,
+                    status_code=e.status_code,
                 )
-                return block_index, None
+                return block_index, None, e.status_code
 
         tasks = [fetch_single_block(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
         results = await asyncio.gather(*tasks)
 
         blocks_data: list[bytes] = []
-        block_errors = []
+        block_error_statuses: list[int | None] = []
 
-        for block_index, content in results:
+        for _block_index, content, status_code in results:
             if content is None:
-                block_errors.append(block_index)
+                block_error_statuses.append(status_code)
             else:
                 blocks_data.append(content)
 
-        if block_errors:
+        if block_error_statuses:
+            # A 403 from every failing block means the Recording API refused access outright,
+            # not that a block is missing or the upstream is flaky - surface that distinctly so
+            # the player can show a message that matches the real cause.
+            if all(status_code == 403 for status_code in block_error_statuses):
+                raise exceptions.PermissionDenied("You don't have access to part of this recording")
             raise exceptions.APIException("Failed to load recording block")
 
         return blocks_data

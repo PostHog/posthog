@@ -34,7 +34,7 @@ class RecordingApiClient:
         try:
             async with self.session.get(url, params=params) as response:
                 if response.status == 404:
-                    raise BlockFetchError("Block not found")
+                    raise BlockFetchError("Block not found", status_code=404)
                 if response.status == 410:
                     data = await response.json()
                     deleted_at = data.get("deleted_at")
@@ -54,15 +54,19 @@ class RecordingApiClient:
         except (RecordingDeletedError, BlockFetchError):
             raise
         except aiohttp.ClientError as e:
+            # ClientResponseError (raised by raise_for_status()) carries the real upstream
+            # status; a connection/timeout failure has none, which marks it as transient.
+            status_code = getattr(e, "status", None)
             logger.exception(
                 "recording_api_client.fetch_block_failed",
                 url=url,
                 session_id=session_id,
                 team_id=team_id,
                 error=str(e),
+                status_code=status_code,
                 exc_info=False,
             )
-            raise BlockFetchError(f"Failed to fetch block from Recording API: {str(e)}")
+            raise BlockFetchError(f"Failed to fetch block from Recording API: {str(e)}", status_code=status_code)
 
     async def list_blocks(self, session_id: str, team_id: int) -> list[dict]:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/blocks"

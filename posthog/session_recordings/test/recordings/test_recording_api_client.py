@@ -93,7 +93,7 @@ class TestFetchBlock:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        with pytest.raises(BlockFetchError, match="Block not found"):
+        with pytest.raises(BlockFetchError, match="Block not found") as exc_info:
             await client.fetch_block(
                 "key",
                 0,
@@ -101,6 +101,7 @@ class TestFetchBlock:
                 "session-123",
                 1,
             )
+        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("deleted_at", [1700000000, None])
@@ -124,14 +125,15 @@ class TestFetchBlock:
         assert exc_info.value.deleted_at == deleted_at
 
     @pytest.mark.asyncio
-    async def test_client_error_raises_error(self, client, mock_session):
+    @pytest.mark.parametrize("upstream_status", [403, 500])
+    async def test_client_error_preserves_upstream_status(self, client, mock_session, upstream_status):
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.raise_for_status = MagicMock(
             side_effect=aiohttp.ClientResponseError(
                 request_info=MagicMock(),
                 history=(),
-                status=500,
+                status=upstream_status,
             )
         )
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
@@ -139,7 +141,7 @@ class TestFetchBlock:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        with pytest.raises(BlockFetchError, match="Failed to fetch block from Recording API"):
+        with pytest.raises(BlockFetchError, match="Failed to fetch block from Recording API") as exc_info:
             await client.fetch_block(
                 "key",
                 0,
@@ -147,6 +149,27 @@ class TestFetchBlock:
                 "session-123",
                 1,
             )
+        assert exc_info.value.status_code == upstream_status
+
+    @pytest.mark.asyncio
+    async def test_connection_error_has_no_status_code(self, client, mock_session):
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.raise_for_status = MagicMock(side_effect=aiohttp.ClientConnectionError("connection refused"))
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        with pytest.raises(BlockFetchError) as exc_info:
+            await client.fetch_block(
+                "key",
+                0,
+                100,
+                "session-123",
+                1,
+            )
+        assert exc_info.value.status_code is None
 
 
 class TestListBlocks:

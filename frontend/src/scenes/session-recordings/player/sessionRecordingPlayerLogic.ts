@@ -537,6 +537,7 @@ export interface sessionRecordingPlayerLogicValues {
         url: string
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
+    isBlockAccessDenied: boolean // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
@@ -1129,6 +1130,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'snapshotStore',
                 'allSourcesLoaded',
                 'storeVersion',
+                'isBlockAccessDenied',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [
@@ -2537,7 +2539,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError('loadSnapshotsForSourceFailure')
+                // Access is denied outright, so retrying won't help - surface it immediately
+                // instead of waiting out the per-source retry budget.
+                actions.setPlayerError(
+                    values.isBlockAccessDenied ? 'blockAccessDenied' : 'loadSnapshotsForSourceFailure'
+                )
             }
         },
         loadSnapshotSourcesFailure: () => {
@@ -2550,7 +2556,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // data already loaded, because the missing range would otherwise buffer forever with no error.
         snapshotSourceLoadExhausted: () => {
             console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
-            actions.setPlayerError('snapshotSourceLoadExhausted')
+            actions.setPlayerError(values.isBlockAccessDenied ? 'blockAccessDenied' : 'snapshotSourceLoadExhausted')
         },
         snapshotProcessingFailed: () => {
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')

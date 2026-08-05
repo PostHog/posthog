@@ -3,7 +3,7 @@ import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js
 
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
 
-import { RecordingDeletedError } from 'lib/api'
+import { ApiError, RecordingDeletedError } from 'lib/api'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
@@ -70,6 +70,33 @@ describe('snapshotDataLogic', () => {
             expect(logic.values.isRecordingDeleted).toBe(true)
             expect(logic.values.recordingDeletedAt).toBe(null)
             expect(logic.values.recordingDeletedBy).toBe(null)
+        })
+    })
+
+    describe('isBlockAccessDenied', () => {
+        it('is false when no error', () => {
+            expect(logic.values.isBlockAccessDenied).toBe(false)
+        })
+
+        it('is true when the block fetch was refused with a 403', () => {
+            const error = new ApiError('Forbidden', 403, undefined, { code: 'permission_denied' })
+            logic.actions.loadSnapshotsForSourceFailure('Forbidden', error)
+
+            expect(logic.values.isBlockAccessDenied).toBe(true)
+        })
+
+        it('is false for a 403 without the permission_denied code', () => {
+            const error = new ApiError('Forbidden', 403, undefined, { code: 'throttled' })
+            logic.actions.loadSnapshotsForSourceFailure('Forbidden', error)
+
+            expect(logic.values.isBlockAccessDenied).toBe(false)
+        })
+
+        it('is false for a transient failure like a 500', () => {
+            const error = new ApiError('Server error', 500)
+            logic.actions.loadSnapshotsForSourceFailure('Server error', error)
+
+            expect(logic.values.isBlockAccessDenied).toBe(false)
         })
     })
 

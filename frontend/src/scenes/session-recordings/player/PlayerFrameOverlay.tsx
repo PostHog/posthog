@@ -87,6 +87,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
         const isMissingFullSnapshot = playerError === 'noPlayableFullSnapshot'
+        const isAccessDenied = playerError === 'blockAccessDenied'
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
                 <IconWarning className="text-danger text-5xl" />
@@ -94,9 +95,11 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 <div className="text-secondary text-sm text-center">
                     {isMissingFullSnapshot
                         ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
-                        : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
+                        : isAccessDenied
+                          ? "You don't have access to part of this recording. Ask a project admin for access, or contact support if you think this is a mistake."
+                          : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
-                {!isMissingFullSnapshot && (
+                {!isMissingFullSnapshot && !isAccessDenied && (
                     <LemonButton
                         onClick={() => {
                             window.location.reload()

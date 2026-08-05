@@ -10,7 +10,7 @@ from posthog.models import PersonalAPIKey, SessionRecording
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.recordings.errors import RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 
@@ -141,6 +141,58 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert call_args_list[0].kwargs.get("decompress") is True
         assert call_args_list[1].args == ("key1", 101, 200, session_id, self.team.id)
         assert call_args_list[1].kwargs.get("decompress") is True
+
+    @parameterized.expand(
+        [
+            # All blocks refused with 403: the real cause survives as a 403, not a generic 500.
+            ([403, 403], status.HTTP_403_FORBIDDEN),
+            # A block failure with no distinguishing status (e.g. a timeout) stays a generic failure.
+            ([500, 500], status.HTTP_500_INTERNAL_SERVER_ERROR),
+            # Mixed causes: not every block was refused, so don't claim it's a pure access issue.
+            ([403, 500], status.HTTP_500_INTERNAL_SERVER_ERROR),
+        ]
+    )
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
+    def test_blob_v2_block_fetch_failure_status_reflects_cause(
+        self,
+        block_failure_statuses,
+        expected_status,
+        mock_recording_api_client,
+        mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid7())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key=f"key{i}",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+            for i in range(len(block_failure_statuses))
+        ]
+
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = AsyncMock(
+            side_effect=[BlockFetchError("boom", status_code=status_code) for status_code in block_failure_statuses]
+        )
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
+
+        end_blob_key = len(block_failure_statuses) - 1
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key={end_blob_key}"
+
+        response = self.client.get(url)
+        assert response.status_code == expected_status, response.json()
 
     @parameterized.expand(
         [

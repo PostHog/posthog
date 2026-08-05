@@ -1,5 +1,14 @@
 class BlockFetchError(Exception):
-    pass
+    """Raised when a recording block can't be fetched from the Recording API.
+
+    `status_code` carries the upstream HTTP status when known (e.g. 403 for an
+    access refusal), so callers can tell a permission denial from a transient
+    failure instead of treating every cause the same way.
+    """
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class FileFetchError(Exception):
