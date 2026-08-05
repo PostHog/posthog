@@ -13,7 +13,9 @@ The flow: resolve the experiment → derive the recordings query from its exposu
 
 ## Step 1: Resolve the experiment
 
-`experiment-get` returns everything needed: `feature_flag_key`, the linked `feature_flag` (its `filters.multivariate.variants` list is the source of truth for variant keys — `parameters.feature_flag_variants` can be stale), `exposure_criteria`, `start_date`, `end_date`, and `status`. If the user didn't identify the experiment, resolve it via [[finding-experiments]] rather than guessing.
+`experiment-get` returns everything needed: `feature_flag_key`, the linked `feature_flag` (its `filters.multivariate.variants` list is the source of truth for variant keys — `parameters.feature_flag_variants` can be stale), `exposure_criteria`, `resolved_exposure_event`, `start_date`, `end_date`, and `status`. If the user didn't identify the experiment, resolve it via [[finding-experiments]] rather than guessing.
+
+**`resolved_exposure_event` is the event the analysis counts default exposures on**, resolved server-side: historically `$feature_flag_called`, but experiments started at or after the `$experiment_exposure` rollout cutoff on flagged-in teams resolve to the dedicated `$experiment_exposure` event instead (ingestion emits it by duplicating flag events, so during the transition **both events exist side by side** — the analysis counts exactly one, and so must every query derived here). Don't re-derive the cutoff/flag logic and never union the two events; read this field and use it everywhere `<resolved_exposure_event>` appears below. For a draft it reports what the experiment would resolve to if launched now.
 
 Guards before doing anything else:
 
@@ -32,15 +34,15 @@ Set `filter_test_accounts` from the experiment's own `exposure_criteria.filterTe
 
 ### Case A — default exposure (the common case)
 
-`exposure_criteria.exposure_config` is absent, or is an event config for the default `$feature_flag_called` event. The variant lives on `$feature_flag_response`:
+`exposure_criteria.exposure_config` is absent, or is an event config for the default `$feature_flag_called` event. Filter on the experiment's **`resolved_exposure_event`** — never a hardcoded event name. The variant lives on `$feature_flag_response` for both default events:
 
 ```json
 {
   "kind": "RecordingsQuery",
   "events": [
     {
-      "id": "$feature_flag_called",
-      "name": "$feature_flag_called",
+      "id": "<resolved_exposure_event>",
+      "name": "<resolved_exposure_event>",
       "type": "events",
       "properties": [
         { "key": "$feature_flag_response", "type": "event", "operator": "exact", "value": ["control", "test"] },
@@ -52,11 +54,11 @@ Set `filter_test_accounts` from the experiment's own `exposure_criteria.filterTe
 }
 ```
 
-**Never match on the event alone.** The variant property must be IN the experiment's variant keys — `$feature_flag_called` also fires for users who evaluated the flag but were never enrolled (e.g. a `false` response on a partial rollout), and those would silently pollute the population.
+**Never match on the event alone.** Both property predicates are load-bearing whichever event resolved. `$feature_flag` keeps other experiments out — each default event is shared by every flag on the team. The variant property must be IN the experiment's variant keys — `$feature_flag_called` also fires for users who evaluated the flag but were never enrolled (e.g. a `false` response on a partial rollout), and those would silently pollute the population. `$experiment_exposure` carries only enrolled variant responses in practice, but keep the variant filter there too: it is what excludes removed variants and holdouts, and it costs nothing.
 
 **Keep the config's `properties`.** An exposure config can name the default event _and_ carry its own property filters (e.g. exposures only on a specific page). The analysis applies them (`_build_property_filters` in `products/experiments/backend/hogql_queries/exposure_query_logic.py`); the experiment page's own recordings link currently drops them. Mirror the analysis and append them to the filter above — otherwise the scanner watches a wider population than the experiment measures, and pays for it.
 
-**Check Case A's coverage before trusting it — the SDK dedupes this event.** `posthog-js` persists which flag/value pairs it has already reported and by default never re-emits `$feature_flag_called` for the same identity, across page loads _and_ sessions (`advanced_feature_flags_dedup_per_session: true` relaxes that to once per session; server SDKs dedupe per process lifetime — see the empty-experiment reference in [[diagnosing-experiment-results]]). So the event filter skews toward each person's _first-touch_ sessions and can miss returning users entirely — exactly wrong for novelty effects and "did anyone notice" questions — and the linkability check passes cleanly in that situation. Measure it before trusting Case A: group by `person_id` over the window and compare `uniqExactIf($session_id, <the exposure predicate>)` against `uniqExact($session_id)`, keeping only persons who emitted at least one exposure. That isolates the dedup effect, because it asks how many of a _known-exposed_ person's own sessions carry the event — routinely a couple against dozens. Don't measure it by counting `$feature/<flag_key>` sessions instead: on a full rollout that property is stamped on nearly every session, so the gap you'd see mixes dedup with Case B's much broader population. When coverage of ongoing behavior matters more than the enrollment moment, offer Case B as a **deliberate choice**, not a fallback.
+**Check Case A's coverage before trusting it — the SDK dedupes this event.** `posthog-js` persists which flag/value pairs it has already reported and by default never re-emits `$feature_flag_called` for the same identity, across page loads _and_ sessions (`advanced_feature_flags_dedup_per_session: true` relaxes that to once per session; server SDKs dedupe per process lifetime — see the empty-experiment reference in [[diagnosing-experiment-results]]). `$experiment_exposure` inherits the same skew: ingestion emits it by duplicating the already-deduped flag event, not as a fresh capture. So the event filter skews toward each person's _first-touch_ sessions and can miss returning users entirely — exactly wrong for novelty effects and "did anyone notice" questions — and the linkability check passes cleanly in that situation. Measure it before trusting Case A: group by `person_id` over the window and compare `uniqExactIf($session_id, <the exposure predicate>)` against `uniqExact($session_id)`, keeping only persons who emitted at least one exposure. That isolates the dedup effect, because it asks how many of a _known-exposed_ person's own sessions carry the event — routinely a couple against dozens. Don't measure it by counting `$feature/<flag_key>` sessions instead: on a full rollout that property is stamped on nearly every session, so the gap you'd see mixes dedup with Case B's much broader population. When coverage of ongoing behavior matters more than the enrollment moment, offer Case B as a **deliberate choice**, not a fallback.
 
 ### The session-linkability check
 
@@ -68,7 +70,7 @@ SELECT
     countIf(notEmpty(properties.$session_id)) AS with_session_id
 FROM events
 WHERE event = '<exposure event>'
-  AND properties.$feature_flag = '<flag_key>'  -- only for the default event
+  AND properties.$feature_flag = '<flag_key>'  -- for the resolved default event; drop for custom events
   AND timestamp >= '<experiment start_date>'
 ```
 
@@ -192,7 +194,7 @@ FROM (
 JOIN (
     SELECT properties.$session_id AS session_id, any(properties.$feature_flag_response) AS variant
     FROM events
-    WHERE event = '$feature_flag_called'
+    WHERE event = '<resolved_exposure_event>'
       AND properties.$feature_flag = '<flag_key>'
       AND properties.$feature_flag_response IN ('control', 'test')
       AND notEmpty(properties.$session_id)
