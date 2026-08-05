@@ -27,6 +27,7 @@ from products.replay_vision.backend.prompt_evaluation import (
     classify_outcome,
     evaluation_supported,
     in_flight_evaluation_credits,
+    in_flight_evaluation_credits_by_scanner,
     is_preview_evaluation,
     primary_outcome,
     select_evaluation_observations,
@@ -606,6 +607,25 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         scanner.save(update_fields=["model"])
         self.assertEqual(in_flight_evaluation_credits(self.team.organization_id), reserved)
         self.assertEqual(reserved, 3 * observation_credits_for_model(expensive))
+
+    def test_per_scanner_reservation_prices_from_the_frozen_model(self) -> None:
+        # The per-scanner split must price like the org total: from the model frozen at workflow start.
+        expensive, cheap = ScannerModel.GEMINI_3_6_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
+        scanner = self._create_scanner(name="frozen-model-per-scanner", model=expensive)
+        ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="p",
+            status=SuggestionStatus.PENDING,
+            scanner_version=1,
+            evaluation=build_running_evaluation(total=3, labels_fingerprint="", model=expensive),
+        )
+        scanner.model = cheap
+        scanner.save(update_fields=["model"])
+
+        reserved = in_flight_evaluation_credits_by_scanner(self.team.organization_id, [scanner.id])
+
+        self.assertEqual(reserved, {scanner.id: 3 * observation_credits_for_model(expensive)})
 
     @parameterized.expand([("zero", 0), ("above_cap", EVALUATION_SESSION_CAP + 1)])
     def test_evaluate_rejects_out_of_range_session_limit(self, _name: str, limit: int) -> None:

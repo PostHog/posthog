@@ -323,6 +323,13 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
         assert compute_scanner_budget(self.scanner, period).credits_used == 0
         assert compute_scanner_budget(self.scanner).credits_used == 15
 
+    def test_a_caller_supplied_period_scopes_in_flight_reservations_too(self) -> None:
+        self._make_observation(status=ObservationStatus.RUNNING)
+        previous = start_of_month(datetime.now(UTC)) - timedelta(days=1)
+        period = BillingPeriod(start=start_of_month(previous), end=start_of_month(datetime.now(UTC)))
+        assert compute_scanner_budget(self.scanner, period).credits_used == 0
+        assert compute_scanner_budget(self.scanner).credits_used == 15
+
     def test_prices_one_more_observation_from_the_scanners_model(self) -> None:
         ReplayScanner.objects.filter(pk=self.scanner.pk).update(model=ScannerModel.GEMINI_3_5_FLASH_LITE)
         self.scanner.refresh_from_db()
