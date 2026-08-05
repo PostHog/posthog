@@ -305,10 +305,13 @@ const Component = ({
                     type="text"
                     // A dataframe name other SQL nodes reference by table name (`from sql_df`).
                     // Optional: left empty, the cell is display-only and exports nothing.
-                    className="rounded border border-primary px-1.5 py-0.5 text-xs font-mono bg-surface-primary text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                    // Wide enough for the placeholder to sit on one line without clipping. The name
+                    // carries weight through size and a faintly warm near-black rather than a hue —
+                    // a saturated color here competes with the accent the app spends on links.
+                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
                     value={attributes.returnVariable ?? ''}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                    placeholder="Dataframe name (optional)"
+                    placeholder="Output dataframe name"
                     spellCheck={false}
                 />
                 {returnVariableError ? <span className="text-danger">{returnVariableError}</span> : null}
