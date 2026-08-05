@@ -229,7 +229,7 @@ export function InboxScene(): JSX.Element {
                     // In the onboarding takeover the tabs are locked, so keep the overall pitch.
                     description={
                         onboardingMode === 'takeover'
-                            ? 'Self-driving for your product. Look through work done by PostHog agents – code changes and reports.'
+                            ? 'Self-driving for your product. Look through code changes and reports from PostHog agents.'
                             : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}

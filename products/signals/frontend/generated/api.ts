@@ -52,6 +52,8 @@ import type {
     SignalReportArtefactWriteResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
+    SignalReportFeedbackRequestApi,
+    SignalReportFeedbackResponseApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
@@ -224,6 +226,28 @@ export const signalsReportsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalReportContentUpdateApi),
+    })
+}
+
+export const getSignalsReportsFeedbackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/feedback/`
+}
+
+/**
+ * Record a note left with the thumbs rating at the end of a report. The rating itself is a product-analytics event; this endpoint exists to carry the note into the scout steering channel. For a report authored by a scout, the note is forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer and the call is a no-op success. The report's state is never changed.
+ * @summary Leave feedback on a report
+ */
+export const signalsReportsFeedbackCreate = async (
+    projectId: string,
+    id: string,
+    signalReportFeedbackRequestApi: SignalReportFeedbackRequestApi,
+    options?: RequestInit
+): Promise<SignalReportFeedbackResponseApi> => {
+    return apiMutator<SignalReportFeedbackResponseApi>(getSignalsReportsFeedbackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportFeedbackRequestApi),
     })
 }
 

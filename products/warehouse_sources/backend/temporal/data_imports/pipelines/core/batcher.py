@@ -13,7 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.tab
 )
 
 DEFAULT_CHUNK_SIZE_BYTES: int = 200 * 1024 * 1024  # 200 MiB
-DEFAULT_CHUNK_SIZE: int = 5000
+DEFAULT_CHUNK_SIZE: int = 500_000
 
 # string/binary/list use 32-bit offsets and overflow ("Offset overflow error") once a column's
 # offsets cross 2^31 (~2.1 GB); delta-rs hits this when it concatenates merge-source chunks.

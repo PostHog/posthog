@@ -4,7 +4,6 @@ import { Link } from '@posthog/lemon-ui'
 import { IconMicrosoftTeams, IconSlack } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
 import type { ConversationsTicketSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
@@ -110,7 +109,6 @@ export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.
                         </span>
                     </span>
                 </LemonTag>
-                <span>{humanFriendlyDetailedTime(extra.created_at)}</span>
             </div>
             <div className="flex items-center mt-2">
                 <span className="flex-1" />

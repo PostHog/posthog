@@ -573,6 +573,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
+    enforce_verified_domains: boolean | null
     is_ai_data_processing_approved?: boolean
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
@@ -4929,6 +4930,8 @@ export interface Experiment {
     status?: ExperimentStatus | null
     /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
     is_legacy?: boolean
+    /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
+    resolved_exposure_event?: string
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -5181,14 +5184,6 @@ export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
     onRename?: never
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
-
-export enum GraphType {
-    Bar = 'bar',
-    HorizontalBar = 'horizontalBar',
-    Line = 'line',
-    Histogram = 'histogram',
-    Pie = 'doughnut',
-}
 
 export type GraphDataset = ChartDataset<ChartType> &
     Partial<
@@ -5735,6 +5730,7 @@ export const API_SCOPE_OBJECTS = [
     'batch_import',
     'batch_import_support',
     'business_knowledge',
+    'canvas',
     'clickhouse_test_cluster_perf',
     'cohort',
     'comment',
@@ -6337,8 +6333,10 @@ export interface DataModelingJob {
     error: string | null
     created_at: string
     last_run_at: string
+    /** When the job row last changed; for finished jobs this approximates when the run ended. */
+    updated_at?: string
     workflow_id: string
-    workflow_run_id: string
+    workflow_run_id: string | null
 }
 
 export interface SimpleExternalDataSourceSchema {
@@ -7687,6 +7685,11 @@ export type OAuthApplicationPublicMetadata = {
     required_scopes?: string[]
     /** Server-computed read-only form of a `*` grant; the consent page must not derive this client-side. */
     wildcard_read_scopes?: string[]
+    /**
+     * The app's resolved scope ceiling. `/authorize` clamps the request to this set, so a requested
+     * scope missing from it is dropped rather than granted and must not be rendered as a consent row.
+     */
+    grantable_scopes?: string[]
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
@@ -7841,6 +7844,7 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
+    PATH_CLEANING = 'path_cleaning',
 }
 
 // Managed viewset

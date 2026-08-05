@@ -88,7 +88,7 @@ export interface LoopContextOutputsDTOApi {
 export interface LoopContextTargetDTOApi {
     /** What the loop maintains in this context each run. */
     outputs: LoopContextOutputsDTOApi
-    folder_id: string
+    channel_id: string
     name: string
 }
 
@@ -333,10 +333,10 @@ export interface LoopContextOutputsWriteApi {
 }
 
 export interface LoopContextTargetWriteApi {
-    /** Desktop folder id of the context this loop is attached to. */
-    folder_id: string
+    /** Id of the channel (context) this loop is attached to. */
+    channel_id: string
     /**
-     * Context (channel) name, used to file runs into its feed.
+     * Display name of the context, shown in the loop's publish prompt.
      * @maxLength 128
      */
     name: string
@@ -1133,6 +1133,7 @@ export interface ChannelDTOApi {
     repositories: string[]
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
+    starred?: boolean
 }
 
 export interface PaginatedChannelDTOListApi {
@@ -1226,6 +1227,76 @@ export interface PatchedChannelUpdateApi {
 }
 
 /**
+ * The task currently generating this channel's CONTEXT.md, or null.
+ */
+export interface ChannelContextGenerationApi {
+    /** @nullable */
+    task_id: string | null
+}
+
+/**
+ * Response shape for a channel's CONTEXT.md instructions version.
+ */
+export interface ChannelInstructionsDTOApi {
+    channel: string
+    content: string
+    version: number
+    /** @nullable */
+    created_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+}
+
+/**
+ * Request body for publishing a new instructions version.
+ */
+export interface ChannelInstructionsWriteApi {
+    /**
+     * The complete markdown instructions (CONTEXT.md) for the channel.
+     * @maxLength 100000
+     */
+    content: string
+    /**
+     * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+     * @minimum 0
+     * @nullable
+     */
+    base_version?: number | null
+}
+
+/**
+ * Request body for publishing a new instructions version.
+ */
+export interface PatchedChannelInstructionsWriteApi {
+    /**
+     * The complete markdown instructions (CONTEXT.md) for the channel.
+     * @maxLength 100000
+     */
+    content?: string
+    /**
+     * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+     * @minimum 0
+     * @nullable
+     */
+    base_version?: number | null
+}
+
+export interface PaginatedChannelInstructionsDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChannelInstructionsDTOApi[]
+}
+
+/**
+ * Request body for starring/unstarring a channel for the requesting user.
+ */
+export interface ChannelStarWriteApi {
+    starred: boolean
+}
+
+/**
  * Response shape for one @-mention of the requester in a task's thread.
  */
 export interface TaskMentionDTOApi {
@@ -1272,6 +1343,30 @@ export type TaskRunDetailDTOProviderEnumApi =
 export const TaskRunDetailDTOProviderEnumApi = {
     Anthropic: 'anthropic',
     Openai: 'openai',
+} as const
+
+/**
+ * * `off` - off
+ * * `minimal` - minimal
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
+ * * `ultracode` - ultracode
+ */
+export type TaskRunReasoningEffortEnumApi =
+    (typeof TaskRunReasoningEffortEnumApi)[keyof typeof TaskRunReasoningEffortEnumApi]
+
+export const TaskRunReasoningEffortEnumApi = {
+    Off: 'off',
+    Minimal: 'minimal',
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Xhigh: 'xhigh',
+    Max: 'max',
+    Ultracode: 'ultracode',
 } as const
 
 export interface TaskRunArtifactMetadataApi {
@@ -1368,13 +1463,15 @@ export interface TaskRunDetailDTOApi {
     model?: string | null
     /** Configured reasoning effort for this run when the selected model supports it.
      *
+     * * `off` - off
+     * * `minimal` - minimal
      * * `low` - low
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: ReasoningEffortEnumApi | null
+    reasoning_effort?: TaskRunReasoningEffortEnumApi | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
      * @nullable
@@ -2551,13 +2648,15 @@ export interface TaskRunBootstrapCreateRequestApi {
     model?: string
     /** Reasoning effort to request for models that expose an effort control.
      *
+     * * `off` - off
+     * * `minimal` - minimal
      * * `low` - low
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: ReasoningEffortEnumApi
+    reasoning_effort?: TaskRunReasoningEffortEnumApi
     /** Context window size for models that support the 1M window.
      *
      * * `200k` - 200k
