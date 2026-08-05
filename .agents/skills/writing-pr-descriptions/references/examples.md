@@ -6,45 +6,7 @@ Example 1 is a reorder: the same facts, in the order a reviewer needs them.
 Examples 2 and 3 are cuts.
 All three come out shorter, because bullets are how you cut to the facts that matter, not how you restate a paragraph at greater length.
 
-## What the first bodies got wrong
-
-Measured over the 66 PR bodies written with this skill on its first day, August 2026:
-
-| Pattern                                                                    | Bodies     |
-| -------------------------------------------------------------------------- | ---------- |
-| Problem opens with the mechanism rather than the effect                    | about half |
-| Problem opens with a backticked symbol or file path in the first six words | 16 of 66   |
-| Testing and Agent context together longer than Problem and Changes         | 32 of 66   |
-| A test result the reader cannot check ("24 passed", "mypy clean")          | 38 of 66   |
-| No link to any evidence: a run, a permalink, an error tracking issue       | 41 of 66   |
-| A template comment left in place of the Problem section                    | 2 of 66    |
-
-Average section length: Problem 89 words, Changes 110, testing 100, Agent context 119.
-Half of a typical body sat under the half a reviewer reads.
-
-Body length also carried no information about the change: against diff churn it correlates at r=0.17 across the 66.
-A six-line fix drew 327 words, and the median body was 393.
-That is what makes a description read as noise. It looks the same whether the change is a typo or a migration, so the reader stops looking.
-
-Every body in the sample was well formed. Pass 1, the size rule and the claim rules in pass 3 exist because well formed was not enough.
-
-## The same measurements at a week's scale
-
-That first sample covers one day and skews to bug fixes, so the rules were re-checked against 961 merged PRs from the week of 2026-07-29, nearly all written before this skill existed. It is a baseline, not a compliance check.
-
-| Measure                                       | fix (491) | feat (323) | chore (147) |
-| --------------------------------------------- | --------- | ---------- | ----------- |
-| Problem opens on a symbol or a file path      | 26%       | 12%        | 27%         |
-| Testing and Agent context outweigh the top    | 37%       | 24%        | 28%         |
-| Asserts a test result the reader cannot check | 60%       | 57%        | 34%         |
-| Has a Problem section at all                  | 98%       | 98%        | 84%         |
-| Median body                                   | 432 words | 554 words  | 409 words   |
-
-Three things this changed:
-
-- Half of all PRs are not fixes: 51% fix, 34% feature, 15% chore. The one-day sample read 64% fix, which is why pass 1 first described only breakage.
-- The unverifiable-claim rate held at scale, near 58% in both samples. The weight rule was overstated by the day sample: 48% there against about 30% here.
-- Of 70 recent features, 17 touch frontend `.tsx` or `.scss` and 2 carry a screenshot. A mandate at 12% adherence needs a way to be discharged, which is why the screenshot rule now accepts "nothing looks different" as an answer.
+The measurements behind these rules live in the PR that introduced them, reachable from `git log` on `SKILL.md`. They are provenance for whoever edits this skill, not instructions for writing a body.
 
 ---
 

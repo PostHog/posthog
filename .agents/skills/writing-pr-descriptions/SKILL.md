@@ -245,7 +245,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 
 ## Background
 
-`references/examples.md` runs merged PRs through every pass, with a table of what each cut removed and why, and the measurements that put pass 1 first. Read it when you want the rules applied end to end rather than to one sentence.
+`references/examples.md` runs merged PRs through every pass, with a table of what each cut removed and why. Read it when you want the rules applied end to end rather than to one sentence.
 
 Pass 1 rests on three findings.
 Readers scan before they read: 15 of 19 participants in [NN/g's web writing study](https://www.nngroup.com/articles/concise-scannable-and-objective-how-to-write-for-the-web/) approached unfamiliar text by scanning, and a version that was concise, scannable and front-loaded measured 124% higher usability than the original.
