@@ -129,12 +129,12 @@ Pass 4 split the 76-word failure chain, which was the densest sentence in the de
 
 Both fenced blocks survived untouched. Pass 4 governs prose only.
 
-Pass 1 came later than this rewrite, and the rewrite fails it: the lead is a fact about libpq, while the effect sits in bullets 6 and 8. Cutting did not fix that, and no amount of it would. The fix is to open with them:
+Pass 1 came later than this rewrite, and the rewrite fails it. The lead is a fact about libpq, while the effect sits in bullets 6 and 8. Cutting did not fix that, and no amount of it would. Open with them instead:
 
 > - Data warehouse syncs from a Neon pooled endpoint have never worked. One source has failed every extraction run since the day it was created.
 > - The user is told to check a database that is reachable and healthy, because the failure classifies as a retryable `connection_failed`.
 
-That first bullet is also the one claim here the claim rules in pass 3 reach. "Never worked" and "every run" are things the author saw, not behavior a reader can check against the code, so the bullet owes a link to the run or the error tracking issue behind it. Every other bullet in this example describes behavior and needs none.
+That first bullet is also the one claim here the claim rules in pass 3 reach. "Never worked" and "every run" are things the author saw, not behavior a reader can check against the code. The bullet owes a link to the run or the error tracking issue behind it. Every other bullet in this example describes behavior and needs none.
 
 ---
 

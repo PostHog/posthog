@@ -11,9 +11,9 @@ description: >
 
 # Writing PR descriptions
 
-A reviewer scans a description in seconds and decides where to spend attention. The body is a scanning surface, not an essay.
-
-It also has to earn that attention, and to stand without the diff. A body that narrates the code, or that would fit any PR equally well, teaches its reader to skip the next one.
+A reviewer scans a description in seconds and decides where to spend attention.
+The body is a scanning surface, not an essay, and it has to stand without the diff.
+A body that narrates the code, or that would fit any PR equally well, teaches its reader to skip the next one.
 
 Order decides whether they understand the change at all.
 Form and length only decide how fast.
@@ -24,29 +24,22 @@ Work in five passes: lead, route, cut, shape, check. Run all five.
 ## Pass 1: lead with the effect
 
 The first line is the one line you can count on being read.
-Spend it on what a person experiences, not on the code that produces it.
+You just spent an hour inside the mechanism, so the mechanism comes out first. Push it down and spend that line on what a person experiences.
 
-You just spent an hour inside the mechanism, so the mechanism comes out first. Push it down.
-
-- Line 1 of Problem says what is different for a person, and who that person is. Name the surface they were on. Three shapes cover almost every PR:
+- Line 1 of Problem says what is different for a person, and who that person is. Name the surface they were on. Four shapes cover almost every PR:
   - A fix: what breaks, and for whom.
-  - A feature or an improvement: what someone could not do, and now can.
-  - A refactor, a chore or an enabling change: who is blocked today, what it costs them, or what class of failure it removes.
+  - A feature: what someone could not do, and now can. "The SQL editor lets users join tables, but there is no way to attach a computed field to a table."
+  - A refactor, a chore or an enabling change: who is blocked, what it costs them, or what class of failure it removes. Nobody sees it, but somebody is waiting.
   - A follow-up or a layer in a stack: what the earlier PR left undone, and what this one adds. Link that PR and assume nobody read it.
-
-  A feature lead reads like this: "The SQL editor lets users join tables, but there is no way to attach a computed field to a table." It names what a person cannot do before it names anything in the code.
-
 - If line 1 opens with a symbol, a file path, a class, or a setting, you led with the mechanism. Rewrite it.
 - Size the problem in one clause where you know it: how many teams, how often, since when.
 - The mechanism follows, in the order a reviewer has to check it.
 - The first bullet of Changes is the change itself. Renames, regenerated snapshots and comment fixes go last.
-- If one part of the diff is riskier than the rest, name that part and say the rest is mechanical. The reviewer confirms that within a minute, and a body that gets it right is one they read next time.
+- If one part of the diff is riskier than the rest, name that part and say the rest is mechanical.
 
 Most of the time you already wrote the effect and put it third. Move it up rather than writing a new sentence.
 
-Line 1 can be a bullet or a standalone sentence, whichever reads faster. One sentence, never a paragraph. What matters is that the effect is the first thing on the page, so a lead sentence followed by supporting bullets is fine and keeps a body from reading like every other body.
-
-When nothing user-visible changes, someone is still waiting: the next agent, the on-call, the team that cannot ship until this lands. Name them.
+Line 1 can be a bullet or a standalone sentence, whichever reads faster, but one sentence and never a paragraph.
 
 ### Worked example
 
@@ -109,20 +102,18 @@ Many go straight to the code and come back only if the body earned it, so write 
 Keep:
 
 - Why the change is necessary.
-- What it does, at a level someone who has opened no files can follow.
+- What it does, at a level that needs no files open.
 - The alternative you rejected, the blast radius, what to watch after it ships, where to look first.
 - What someone arriving from `git blame` in six months needs. They cannot ask you, and the review thread will not tell them.
 
 Cut the detail the diff carries better: exact values, per-file narration, the mechanics of code a reviewer reads in context anyway.
-
-The test is not "is this in the diff". A diff holds every detail and none of the point, and reconstructing the point from it costs minutes.
-The test is whether a reader who never opens a file still knows why this exists and what it does.
+The test is not "is this in the diff", because a diff holds every detail and none of the point.
 
 One fact per bullet makes prose checkable. It does not make it shorter: a dense paragraph exploded into twelve bullets moves the reviewer's cost rather than removing it. Cut first, and shape only what survives.
 
 Delete:
 
-- Narration of the diff, file by file or line by line. Summarize the change instead.
+- Narration of the diff, file by file or line by line.
 - Rationale for a choice nobody would question. Keep the reason only where you rejected an obvious alternative.
 - Restatements of the title, and summaries of the sections above.
 - Process narration. "Then I ran X, then Y" is a fact about your session, not about the change.
@@ -132,7 +123,7 @@ Delete:
 
 ### Size tracks the change
 
-A body that would fit any PR tells a reader nothing about this one, and a reader who meets a few of those learns to skip all of them.
+A body that would fit any PR tells a reader nothing about this one. A reader who meets a few learns to skip them all.
 When the diff is six lines, the body has to read as the body of a six-line change.
 
 - A one-file fix: 3 to 6 bullets across the whole body.
@@ -144,10 +135,9 @@ Small does not mean partial. Three bullets still have to carry why the change is
 
 ### Claims a reader can check
 
-The description is the only artifact in a PR that nothing validates. The code has CI. This has you.
-So make every claim cheap to disprove, and expect the reader to discount anything that is not.
+The description is the only artifact in a PR that nothing validates. The code has CI. This has you, so make every claim cheap to disprove.
 
-This governs claims about the world: what you ran, what you measured, what you saw in production.
+This governs claims about the world: what you ran, measured, or saw in production.
 A statement about how the code behaves needs no link, because the reader checks it against the code.
 "The fallback never fires" is the second kind. "One source has failed every run since May" is the first.
 
@@ -173,7 +163,7 @@ The test: **the body must come out shorter than your first draft.** Pass 5 check
 The shape is checkable. Tone is not, which is why this skill does not ask for one.
 
 1. One fact per bullet.
-2. Front-load the bullet. A reader scanning down the left edge sees the first few words, so start with the subject that carries the fact, not with the condition it holds under.
+2. Front-load the bullet. A scanner sees the first few words, so start with the subject that carries the fact, not the condition it holds under.
 3. Sentences under 25 words.
 4. Active voice, with a stated subject. Use the passive only where the actor is genuinely unknown or irrelevant.
 5. Simple tenses. No perfect or progressive forms: "the builder took entry 1", not "the builder has been taking entry 1".
@@ -229,14 +219,14 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 ### The line check
 
 1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
-2. Does the size of the body track the size of the diff? A six-line change under a full-length body reads as filler, and it costs the next description too.
+2. Does the size of the body track the size of the diff? A six-line change under a full-length body reads as filler.
 3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
 5. Read each bullet and name the reader who needs it. Delete the ones you cannot.
 6. Read each bullet alone. Does it state one fact? If it states two, split it.
 7. Count the words in the longest sentence. Over 25, split it.
 8. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
-9. Is any fact in the wrong form? A visual change needs a screenshot, a change to a flow needs the before and after diagrams, a comparison across the same dimensions needs a table.
+9. Is any fact in the wrong form? A visual change needs a screenshot. A flow change needs before and after diagrams. A comparison needs a table.
 10. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
 11. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
 12. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
