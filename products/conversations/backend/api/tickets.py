@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -309,7 +310,7 @@ class MergedTicketSummarySerializer(serializers.Serializer):
     merged_at = serializers.DateTimeField(read_only=True, help_text="When it was merged into this ticket.")
 
 
-class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
@@ -375,6 +376,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "merged_into_id",
             "merged_into_ticket_number",
             "merged_tickets",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -463,7 +465,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
     # "create" stays listed so a ticket:write token reaches the create() override below and
     # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "compose",
+        "reply",
+        "ai_feedback",
+        "merge",
+    ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -1295,6 +1306,14 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         target = self.get_queryset().filter(id=target_ticket_id).first()
         if target is None:
             return Response({"detail": "Target ticket not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+        # get_object() already enforced editor access on the source, but the target is fetched
+        # directly, and merging writes a note to it — so it needs the same check.
+        if not self.user_access_control.check_access_level_for_object(target, required_level="editor"):
+            return Response(
+                {"detail": "You don't have edit access to the target ticket."},
+                status=drf_status.HTTP_403_FORBIDDEN,
+            )
 
         # Rule 1: a ticket can only be merged into a top-level (unmerged) ticket. If the target is
         # itself merged, point the user at its root so they can merge there instead.

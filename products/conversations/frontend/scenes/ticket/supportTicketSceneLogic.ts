@@ -194,6 +194,8 @@ export interface supportTicketSceneLogicValues {
     knowledgeGaps: KnowledgeGapSuggestion[]
     knowledgeGapsLoading: boolean
     latestAiMessage: ChatMessage | null
+    linkedReports: SignalReportApi[]
+    linkedReportsLoading: boolean
     mergedConversations: {
         messages: CommentType[]
         ticket: Ticket
@@ -211,6 +213,7 @@ export interface supportTicketSceneLogicValues {
     priority: TicketPriority | null
     replyRecipientDescription: string
     showSourcePills: boolean
+    sidePanelContext: SidePanelSceneContext | null
     snoozedUntil: string | null
     status: TicketStatus | null
     tags: string[]
@@ -254,6 +257,27 @@ export interface supportTicketSceneLogicActions {
         }
     ) => {
         knowledgeGaps: KnowledgeGapSuggestion[]
+        payload?: {
+            value: true
+        }
+    }
+    loadLinkedReports: () => {
+        value: true
+    }
+    loadLinkedReportsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLinkedReportsSuccess: (
+        linkedReports: SignalReportApi[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        linkedReports: SignalReportApi[]
         payload?: {
             value: true
         }

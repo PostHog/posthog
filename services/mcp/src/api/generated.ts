@@ -42739,6 +42739,13 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
+    export interface MemberAccessUpdate {
+      /** Gateway server to toggle for the member. */
+      gateway_server_id: string;
+      /** False turns the server off for the member; true restores it. */
+      enabled: boolean;
+    }
+
     /**
      * Minimal summary of a ticket that was merged into another (output-only).
      */
@@ -49422,6 +49429,11 @@ export namespace Schemas {
       readonly merged_into_ticket_number: number | null;
       /** Tickets that have been merged into this ticket. */
       readonly merged_tickets: readonly MergedTicketSummary[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface PaginatedTicketList {
@@ -57778,6 +57790,11 @@ export namespace Schemas {
       readonly merged_into_ticket_number?: number | null;
       /** Tickets that have been merged into this ticket. */
       readonly merged_tickets?: readonly MergedTicketSummary[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedTicketView {

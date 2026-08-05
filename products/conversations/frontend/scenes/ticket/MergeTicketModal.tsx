@@ -22,6 +22,8 @@ function ticketSummary(ticket: Ticket): string {
 interface TicketActionsProps {
     sourceTicket: Ticket
     onMerged: () => void
+    /** Blocks merging outright, e.g. when the user lacks edit access to the ticket. */
+    disabledReason?: string
 }
 
 function ConversationPane({
@@ -56,17 +58,19 @@ function ConversationPane({
 }
 
 /** "Actions" dropdown shown next to Save changes, plus the merge modal it opens. */
-export function TicketActions({ sourceTicket, onMerged }: TicketActionsProps): JSX.Element {
+export function TicketActions({ sourceTicket, onMerged, disabledReason }: TicketActionsProps): JSX.Element {
     const logic = mergeTicketModalLogic({ sourceTicket, onMerged })
     const { openMergeModal } = useActions(logic)
 
     const alreadyMerged = !!sourceTicket.merged_into_id
     const hasMergedTickets = (sourceTicket.merged_tickets?.length ?? 0) > 0
-    const mergeDisabledReason = alreadyMerged
-        ? `Already merged into #${sourceTicket.merged_into_ticket_number}`
-        : hasMergedTickets
-          ? "Other tickets are merged into this one, so it can't be merged elsewhere"
-          : undefined
+    const mergeDisabledReason =
+        disabledReason ??
+        (alreadyMerged
+            ? `Already merged into #${sourceTicket.merged_into_ticket_number}`
+            : hasMergedTickets
+              ? "Other tickets are merged into this one, so it can't be merged elsewhere"
+              : undefined)
 
     return (
         <>
@@ -84,12 +88,12 @@ export function TicketActions({ sourceTicket, onMerged }: TicketActionsProps): J
                     Actions
                 </LemonButton>
             </LemonMenu>
-            <MergeTicketModal sourceTicket={sourceTicket} onMerged={onMerged} />
+            <MergeTicketModal sourceTicket={sourceTicket} onMerged={onMerged} disabledReason={disabledReason} />
         </>
     )
 }
 
-function MergeTicketModal({ sourceTicket, onMerged }: TicketActionsProps): JSX.Element {
+function MergeTicketModal({ sourceTicket, onMerged, disabledReason }: TicketActionsProps): JSX.Element {
     const logic = mergeTicketModalLogic({ sourceTicket, onMerged })
     const {
         isOpen,
@@ -137,11 +141,13 @@ function MergeTicketModal({ sourceTicket, onMerged }: TicketActionsProps): JSX.E
         ),
     }))
 
-    const submitDisabledReason = !selectedTargetId
-        ? 'Select a ticket to merge into'
-        : isCrossCustomer && !acknowledgedCrossCustomer
-          ? 'Confirm the customers are different'
-          : undefined
+    const submitDisabledReason =
+        disabledReason ??
+        (!selectedTargetId
+            ? 'Select a ticket to merge into'
+            : isCrossCustomer && !acknowledgedCrossCustomer
+              ? 'Confirm the customers are different'
+              : undefined)
 
     return (
         <LemonModal

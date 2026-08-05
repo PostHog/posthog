@@ -544,6 +544,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             {ticket && (
                                 <TicketActions
                                     sourceTicket={ticket}
+                                    disabledReason={sendDisabledReason}
                                     onMerged={() => {
                                         loadTicket()
                                         loadMessages()
@@ -551,12 +552,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     }}
                                 />
                             )}
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => updateTicket()}
-                                loading={ticketUpdating}
-                                disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Ticket}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={ticket?.user_access_level}
                             >
                                 <LemonButton
                                     type="primary"

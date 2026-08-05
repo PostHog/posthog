@@ -178,6 +178,8 @@ export interface Ticket {
     merged_into_id?: string | null
     merged_into_ticket_number?: number | null
     merged_tickets?: MergedTicketSummary[]
+    /** The effective access level the current user has for this ticket. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface MergedTicketSummary {

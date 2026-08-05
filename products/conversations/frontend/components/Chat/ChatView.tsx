@@ -125,6 +125,7 @@ export function ChatView({
                 aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
                 showSourcePills={showSourcePills}
+                extras={threadExtras}
             />
             <div className="border-t pt-3">
                 <MessageInput

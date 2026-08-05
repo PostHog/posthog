@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("conversations", "0054_ticket_sla_snooze_asc_indexes"),
+        ("conversations", "0056_backfill_signing_secret"),
     ]
 
     operations = [

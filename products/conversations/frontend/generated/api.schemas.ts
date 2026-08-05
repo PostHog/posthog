@@ -710,7 +710,7 @@ export interface MergedTicketSummaryApi {
 }
 
 /**
- * Serializer mixin that handles tags for objects.
+ * Mixin for serializers to add user access control fields
  */
 export interface TicketApi {
     readonly id: string
@@ -813,6 +813,11 @@ export interface TicketApi {
     readonly merged_into_ticket_number: number | null
     /** Tickets that have been merged into this ticket. */
     readonly merged_tickets: readonly MergedTicketSummaryApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedTicketListApi {
@@ -928,6 +933,11 @@ export interface PatchedTicketApi {
     readonly merged_into_ticket_number?: number | null
     /** Tickets that have been merged into this ticket. */
     readonly merged_tickets?: readonly MergedTicketSummaryApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**

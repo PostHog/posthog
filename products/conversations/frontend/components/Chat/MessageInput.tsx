@@ -210,6 +210,7 @@ export function MessageInput({
                             <LemonCheckbox
                                 checked={isPrivate}
                                 onChange={setIsPrivate}
+                                disabledReason={sendControlDisabledReason}
                                 label={
                                     <span className="inline-flex items-center gap-1">
                                         <IconLock className="text-sm" />
