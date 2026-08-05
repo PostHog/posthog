@@ -1021,6 +1021,11 @@ class TestRegistry:
             assert isinstance(result, CheckResult)
 
 
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
 class TestCli:
     def test_fanout_over_budget_fails_run(self, tmp_path: Path) -> None:
         _write(

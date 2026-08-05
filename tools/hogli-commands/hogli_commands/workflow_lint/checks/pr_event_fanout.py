@@ -47,14 +47,11 @@ def _trigger_configurations(on: object) -> dict[str, object]:
 
 
 def _configured_actions(config: object) -> frozenset[str]:
-    if not isinstance(config, dict):
-        return DEFAULT_PR_ACTIONS
-    types = config.get("types")
+    types = config.get("types") if isinstance(config, dict) else None
     if isinstance(types, str):
         return frozenset({types})
     if isinstance(types, list):
-        actions = frozenset(str(action) for action in types)
-        return actions or DEFAULT_PR_ACTIONS
+        return frozenset(str(action) for action in types) or DEFAULT_PR_ACTIONS
     return DEFAULT_PR_ACTIONS
 
 
@@ -63,11 +60,9 @@ def _has_paths_filter(config: object) -> bool:
 
 
 def _unscoped_pr_actions(workflow: Workflow) -> Iterator[str]:
-    triggers = _trigger_configurations(workflow.on)
-    for event in PR_TRIGGERS:
-        if event not in triggers:
+    for event, config in _trigger_configurations(workflow.on).items():
+        if event not in PR_TRIGGERS:
             continue
-        config = triggers[event]
         if _has_paths_filter(config):
             continue
         yield from _configured_actions(config)
@@ -89,9 +84,9 @@ class PrEventFanoutCheck(WorkflowCheck):
             "workflow is skippable. If another dispatch is necessary, raise the relevant "
             "`PR_EVENT_FANOUT_BUDGET` ceiling so the cost is explicit in review.\n"
             "\n"
-            "Except for `labeled` / `unlabeled` on a merge gate: AGENTS.md bans re-adding those outright, so "
-            "raise neither ceiling for one. GitHub cannot filter a label trigger by name, so every unrelated "
-            "label re-runs the full matrix against a commit CI already covered."
+            "Never raise the `labeled` / `unlabeled` ceilings for a merge gate. AGENTS.md bans those triggers "
+            "outright: GitHub cannot filter a label trigger by name, so every unrelated label re-runs the "
+            "full matrix against a commit CI already covered."
         )
 
     def run(self, workflows: list[Workflow]) -> CheckResult:
@@ -111,6 +106,3 @@ class PrEventFanoutCheck(WorkflowCheck):
                 )
             )
         return result
-
-
-__all__ = ["PR_EVENT_FANOUT_BUDGET", "PrEventFanoutCheck"]
