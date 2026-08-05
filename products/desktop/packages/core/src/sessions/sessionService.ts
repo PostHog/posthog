@@ -3023,11 +3023,9 @@ export class SessionService {
         ) {
           updates.steering = params.steering;
         }
-        if (
-          params?.conversationClear === true &&
-          session?.conversationClear !== true
-        ) {
-          updates.conversationClear = true;
+        const conversationClear = params?.conversationClear === true;
+        if (Boolean(session?.conversationClear) !== conversationClear) {
+          updates.conversationClear = conversationClear;
         }
         if (session?.isCloud && session.status !== "connected") {
           updates.status = "connected";
