@@ -82,3 +82,65 @@ export function execGit(
     );
   });
 }
+
+// Failures worth retrying: server-side blips (5xx), interrupted transfers,
+// our own timeout, and transport-level network errors. Deterministic failures
+// (auth, missing refs, non-empty destination) are intentionally excluded —
+// retrying them only wastes time.
+const TRANSIENT_GIT_PATTERNS: readonly RegExp[] = [
+  /The requested URL returned error: 5\d\d/,
+  /\btimed out\b/i,
+  /\bETIMEDOUT\b/,
+  /\bECONNRESET\b/,
+  /\bECONNREFUSED\b/,
+  /\bEAI_AGAIN\b/,
+  /connection reset/i,
+  /Could not resolve host/i,
+  /Failed to connect to/i,
+  /early EOF/i,
+  /RPC failed/i,
+  /GnuTLS recv error/i,
+];
+
+export function isTransientGitFailure(res: GitExecResult): boolean {
+  if (res.exitCode === 0) {
+    return false;
+  }
+  const text = `${res.stderr} ${res.error ?? ""} ${res.stdout}`;
+  return TRANSIENT_GIT_PATTERNS.some((re) => re.test(text));
+}
+
+export interface GitRetryOptions {
+  maxAttempts?: number;
+  /** Base backoff; attempt N waits `backoffMs * 2^(N-2)` before retrying. */
+  backoffMs?: number;
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Runs `execGit`, retrying only on transient failures with exponential
+ * backoff, mirroring `execGhWithRetry`. `exec` is injectable for tests;
+ * production callers use the default.
+ */
+export async function execGitWithRetry(
+  args: string[],
+  options: GitExecOptions = {},
+  retry: GitRetryOptions = {},
+  exec: typeof execGit = execGit,
+): Promise<GitExecResult> {
+  const maxAttempts = retry.maxAttempts ?? 3;
+  const backoffMs = retry.backoffMs ?? 500;
+
+  let res = await exec(args, options);
+  for (
+    let attempt = 2;
+    attempt <= maxAttempts && isTransientGitFailure(res);
+    attempt++
+  ) {
+    await sleep(backoffMs * 2 ** (attempt - 2));
+    res = await exec(args, options);
+  }
+  return res;
+}
