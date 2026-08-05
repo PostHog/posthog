@@ -149,6 +149,15 @@ class TestPreamble:
         rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
         assert "<navigation>" not in rendered
 
+    def test_preamble_explains_session_boundary(self) -> None:
+        # A journey still in progress when the recording ends must not read as evidence it failed —
+        # the customer-visible bug this guards against was a monitor confidently answering `no` to
+        # "did the user sign up?" when they signed up in their very next session.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
+        assert "<session_boundary>" in rendered
+        assert "separate recording" in rendered
+        assert "not evidence" in rendered
+
 
 class TestMonitorScanner:
     def test_scanner_from_db_picks_monitor_subclass(self) -> None:
@@ -248,6 +257,21 @@ class TestMonitorScanner:
         assert isinstance(off_scanner, MonitorScanner)
         assert on_scanner.prompt_context()["allow_inconclusive"] is True
         assert off_scanner.prompt_context()["allow_inconclusive"] is False
+
+    def test_core_step_steers_unresolved_journeys_to_inconclusive_not_no(self) -> None:
+        # A journey still in progress when the recording ends must land on `inconclusive`, not `no` —
+        # the recording stopping first is a boundary of what was shown, not evidence the condition failed.
+        scanner = scanner_from_db(_build_replay_scanner(scanner_config={"prompt": "p", "allow_inconclusive": True}))
+        instruction = _core_instruction(scanner)
+        assert "mid-journey" in instruction
+        assert "boundary of what you were shown, not proof of what happened next" in instruction
+
+    def test_core_step_omits_mid_journey_guidance_when_inconclusive_disallowed(self) -> None:
+        # Without allow_inconclusive the model has no third option, so the mid-journey carve-out (which
+        # only makes sense alongside `inconclusive`) must not appear and confuse the yes/no instruction.
+        scanner = scanner_from_db(_build_replay_scanner())
+        instruction = _core_instruction(scanner)
+        assert "mid-journey" not in instruction
 
 
 class TestClassifierScanner:

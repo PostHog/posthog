@@ -16,7 +16,9 @@ MonitorVerdict = Literal["yes", "no", "inconclusive"]
 
 _VERDICT_DESCRIPTION = (
     "Did the condition described in the scanner intent occur during the session? "
-    "`yes` if it did, `no` if it didn't, `inconclusive` only when the session genuinely does not provide enough signal to decide."
+    "`yes` if it did, `no` only when the session shows it clearly not happening (an error, an explicit abandonment, "
+    "the user leaving that flow for good) — not simply because the recording ends before it does, `inconclusive` when "
+    "the session ends mid-journey and genuinely does not provide enough signal to decide either way."
 )
 _REASONING_DESCRIPTION = "One paragraph grounding the verdict in concrete moments from the video and events."
 
