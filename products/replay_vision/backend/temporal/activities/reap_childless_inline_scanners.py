@@ -16,6 +16,7 @@ from temporalio import activity
 
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.enqueue_claims import pending_enqueue_claims_for_scanner
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin
 from products.replay_vision.backend.temporal.constants import INLINE_SCANNER_REAP_BATCH_SIZE, INLINE_SCANNER_REAP_GRACE
@@ -35,11 +36,19 @@ def _reap_childless_inline_scanners() -> int:
     )
     if not candidates:
         return 0
+    # A childless scanner can still have a scan in flight: reuse resolves an old row, starts a workflow,
+    # and the observation only lands once create_observation runs. That gap is what enqueue claims
+    # cover, so a claimed scanner is off limits even though it has nothing to show yet. Without this,
+    # reaping mid-gap deletes the scanner out from under an accepted scan and the workflow fails with
+    # the scanner missing. Candidates are normally empty, so this costs no Redis calls in the common case.
+    unclaimed = [sid for sid in candidates if pending_enqueue_claims_for_scanner(sid) == 0]
+    if not unclaimed:
+        return 0
     # Re-check emptiness in the DELETE itself: an observation can land between the two statements, and
     # the FK cascade would take it with the scanner.
     deleted, _ = (
-        ReplayScanner.all_origins.filter(id__in=candidates)
-        .exclude(id__in=ReplayObservation.objects.filter(scanner_id__in=candidates).values("scanner_id"))
+        ReplayScanner.all_origins.filter(id__in=unclaimed)
+        .exclude(id__in=ReplayObservation.objects.filter(scanner_id__in=unclaimed).values("scanner_id"))
         .delete()
     )
     return deleted

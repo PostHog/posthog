@@ -1387,6 +1387,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         The config resolves to a scanner minted on first use, so asking the same question twice reuses
         the observations it already has, while a different question about the same session gets its own.
         """
+        # This action is `detail=False`, so the generic gate settles for editor access to any one
+        # scanner and there is no object afterwards to narrow that against. An inline scan mints a
+        # scanner and spends credits exactly as `create` does, so hold it to `create`'s bar.
+        if not self.user_access_control.check_access_level_for_resource("replay_scanner", required_level="editor"):
+            raise PermissionDenied("Running an inline scan requires edit access to this project's scanners.")
         # Observation output exposes recording contents, so this requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Running an inline scan requires session_recording read access.")

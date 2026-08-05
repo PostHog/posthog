@@ -20,6 +20,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Organization, Team
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
 
+from products.replay_vision.backend.enqueue_claims import try_claim_enqueue_slot
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -694,6 +695,7 @@ async def test_reap_childless_inline_scanners_activity(org_team) -> None:
     def _setup() -> dict[str, ReplayScanner]:
         rows = {
             "childless_old": _make_inline_scanner(team, key="a", age=grace),
+            "childless_but_claimed": _make_inline_scanner(team, key="d", age=grace),
             "childless_fresh": _make_inline_scanner(team, key="b", age=dt.timedelta(minutes=1)),
             "has_observation": _make_inline_scanner(team, key="c", age=grace),
             "configured": _make_scanner(team, name="kept-scanner"),
@@ -704,6 +706,16 @@ async def test_reap_childless_inline_scanners_activity(org_team) -> None:
             status=ObservationStatus.PENDING,
             workflow_id="wf-inline",
             age=dt.timedelta(0),
+        )
+        # A reused scanner whose scan has started but not yet persisted its row holds a claim, and
+        # nothing else distinguishes it from a dead one. Reaping it deletes the scanner out from under
+        # an accepted scan.
+        try_claim_enqueue_slot(
+            team_id=team.id,
+            scanner_id=rows["childless_but_claimed"].id,
+            workflow_id="wf-inflight",
+            team_in_flight_rows=0,
+            scanner_in_flight_rows=0,
         )
         # A configured scanner with no observations is not the reaper's business at any age.
         ReplayScanner.all_origins.filter(pk=rows["configured"].pk).update(created_at=timezone.now() - grace)
@@ -718,5 +730,5 @@ async def test_reap_childless_inline_scanners_activity(org_team) -> None:
         lambda: set(ReplayScanner.all_origins.values_list("id", flat=True)),
     )()
     assert rows["childless_old"].id not in surviving
-    for key in ("childless_fresh", "has_observation", "configured"):
+    for key in ("childless_fresh", "has_observation", "configured", "childless_but_claimed"):
         assert rows[key].id in surviving, key
