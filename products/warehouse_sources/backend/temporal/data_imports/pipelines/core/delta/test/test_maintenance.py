@@ -242,6 +242,9 @@ class TestVacuum:
         await _make_maintenance(mock_delta)._vacuum(mock_delta)
 
         assert mock_delta.vacuum.call_count == 2
+        # No retention override: a sub-default window with enforcement off deletes files a concurrent
+        # snapshot or an interleaved repartition swap still references (the hollow-table failure).
+        assert mock_delta.vacuum.call_args.kwargs == {"dry_run": False}
         mock_delta.update_incremental.assert_called_once()
 
 

@@ -75,9 +75,15 @@ class DeltaMaintenance:
         await self._logger.adebug("Vacuuming table...")
         # vacuum() commits a REMOVE of tombstoned files, so it's just as subject to delta-rs's
         # conflict checker as merge/optimize.compact — see execute_with_conflict_retry.
+        #
+        # Retention is deliberately left to the table's own `deletedFileRetentionDuration` (a week by
+        # default) with delta-rs's guard enforced. A shorter window with the guard disabled physically
+        # deletes files that a concurrent snapshot, an interleaved repartition swap, or a zombie
+        # activity attempt still references, which hollows the table out: the log keeps pointing at
+        # parquet files S3 404s on, and the only recovery is a full rebuild from source.
         vacuum_stats = await execute_with_conflict_retry(
             table,
-            lambda: table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False),
+            lambda: table.vacuum(dry_run=False),
             "vacuum_table",
             self._logger,
         )
