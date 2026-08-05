@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconCheckCircle, IconGlobe, IconList } from '@posthog/icons'
 import {
@@ -31,16 +31,24 @@ import { getExperimentVariants } from '../utils'
 import { flagCleanupTargetLogic } from './flagCleanupTargetLogic'
 import { VariantTag } from './VariantTag'
 
-function ConclusionForm(): JSX.Element {
+function ConclusionForm({ error }: { error?: boolean }): JSX.Element {
     const { experiment } = useValues(experimentLogic)
     const { setExperiment } = useActions(experimentLogic)
+    const conclusionFieldRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (error) {
+            conclusionFieldRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+    }, [error])
 
     return (
         <div className="space-y-4">
-            <div>
+            <div ref={conclusionFieldRef}>
                 <LemonLabel>Conclusion</LemonLabel>
                 <LemonSelect
                     className="w-full"
+                    status={error ? 'danger' : 'default'}
                     dropdownMaxContentWidth={true}
                     value={experiment.conclusion}
                     options={Object.values(ExperimentConclusion).map((conclusion) => ({
@@ -70,6 +78,7 @@ function ConclusionForm(): JSX.Element {
                         })
                     }}
                 />
+                {error && <div className="text-danger text-xs mt-1">Select a conclusion to continue</div>}
             </div>
             <div>
                 <LemonLabel>Comment (optional)</LemonLabel>
@@ -95,6 +104,25 @@ export function EditConclusionModal(): JSX.Element {
     const { updateExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeEditConclusionModal } = useActions(modalsLogic)
     const { isEditConclusionModalOpen } = useValues(modalsLogic)
+    const [showConclusionError, setShowConclusionError] = useState(false)
+
+    useEffect(() => {
+        if (isEditConclusionModalOpen) {
+            setShowConclusionError(false)
+        }
+    }, [isEditConclusionModalOpen])
+
+    const handleSave = (): void => {
+        if (!experiment.conclusion) {
+            setShowConclusionError(true)
+            return
+        }
+        updateExperiment({
+            conclusion: experiment.conclusion,
+            conclusion_comment: experiment.conclusion_comment,
+        })
+        closeEditConclusionModal()
+    }
 
     return (
         <LemonModal
@@ -113,23 +141,13 @@ export function EditConclusionModal(): JSX.Element {
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        onClick={() => {
-                            updateExperiment({
-                                conclusion: experiment.conclusion,
-                                conclusion_comment: experiment.conclusion_comment,
-                            })
-                            closeEditConclusionModal()
-                        }}
-                        type="primary"
-                        disabledReason={!experiment.conclusion && 'Select a conclusion'}
-                    >
+                    <LemonButton onClick={handleSave} type="primary">
                         Save
                     </LemonButton>
                 </div>
             }
         >
-            <ConclusionForm />
+            <ConclusionForm error={showConclusionError && !experiment.conclusion} />
         </LemonModal>
     )
 }
@@ -224,6 +242,7 @@ export function FinishExperimentModal(): JSX.Element {
     const [openCleanupPr, setOpenCleanupPr] = useState<boolean>(false)
     const [cleanupRepository, setCleanupRepository] = useState<string | null>(null)
     const [setAsTeamDefault, setSetAsTeamDefault] = useState<boolean>(false)
+    const [showConclusionError, setShowConclusionError] = useState<boolean>(false)
 
     // Reset on open, not only on close: a failed end/ship closes the modal through the logic
     // without this component's close handler, which would leave a stale pick for the next open.
@@ -232,6 +251,7 @@ export function FinishExperimentModal(): JSX.Element {
             setOpenCleanupPr(false)
             setCleanupRepository(null)
             setSetAsTeamDefault(false)
+            setShowConclusionError(false)
         }
     }, [isFinishExperimentModalOpen])
 
@@ -264,6 +284,10 @@ export function FinishExperimentModal(): JSX.Element {
     }
 
     const handleEndExperiment = (): void => {
+        if (!experiment.conclusion) {
+            setShowConclusionError(true)
+            return
+        }
         const withCleanupPr = cleanupPrAvailable && openCleanupPr
         const repository = withCleanupPr && cleanupNeedsRepositoryPick ? cleanupRepository : null
         const repositoryAsTeamDefault = !!repository && setAsTeamDefault && !teamDefaultRestrictionReason
@@ -314,7 +338,6 @@ export function FinishExperimentModal(): JSX.Element {
                             type="primary"
                             loading={endExperimentLoading}
                             disabledReason={
-                                (!experiment.conclusion && 'Select a conclusion') ||
                                 // Until the target loads we don't know whether a pick is needed, and
                                 // ending now would silently skip the requested cleanup PR.
                                 (cleanupPrAvailable &&
@@ -437,7 +460,7 @@ export function FinishExperimentModal(): JSX.Element {
                             )}
                         </>
                     )}
-                    <ConclusionForm />
+                    <ConclusionForm error={showConclusionError && !experiment.conclusion} />
                     {cleanupPrAvailable && (
                         <div className="space-y-2">
                             <LemonCheckbox
