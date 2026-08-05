@@ -8,7 +8,7 @@ import { initKeaTests } from '~/test/init'
 
 import { subscriptionsCreate, subscriptionsPartialUpdate } from 'products/subscriptions/frontend/generated/api'
 
-import { onboardingRoleNotificationsLogic } from './onboardingRoleNotificationsLogic'
+import { onboardingAIReportsLogic } from './onboardingAIReportsLogic'
 
 jest.mock('products/subscriptions/frontend/generated/api', () => ({
     subscriptionsCreate: jest.fn(),
@@ -18,8 +18,8 @@ jest.mock('products/subscriptions/frontend/generated/api', () => ({
 const mockedCreate = jest.mocked(subscriptionsCreate)
 const mockedPartialUpdate = jest.mocked(subscriptionsPartialUpdate)
 
-describe('onboardingRoleNotificationsLogic', () => {
-    let logic: ReturnType<typeof onboardingRoleNotificationsLogic.build>
+describe('onboardingAIReportsLogic', () => {
+    let logic: ReturnType<typeof onboardingAIReportsLogic.build>
 
     beforeEach(() => {
         initKeaTests()
@@ -27,7 +27,7 @@ describe('onboardingRoleNotificationsLogic', () => {
         mockedPartialUpdate.mockReset().mockResolvedValue({ id: 123 } as any)
         jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
 
-        logic = onboardingRoleNotificationsLogic()
+        logic = onboardingAIReportsLogic()
         logic.mount()
     })
 
@@ -40,7 +40,7 @@ describe('onboardingRoleNotificationsLogic', () => {
     // `send_test_now` flipping back to its server default of true, which would immediately
     // mail an AI report over a project that likely has no events yet.
     it('creates a weekly email subscription with a start date about a week out', async () => {
-        await expectLogic(logic, () => logic.actions.createRoleSubscription()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.createReportSubscription()).toFinishAllListeners()
 
         expect(mockedCreate).toHaveBeenCalledTimes(1)
         const [, payload] = mockedCreate.mock.calls[0]
@@ -59,8 +59,8 @@ describe('onboardingRoleNotificationsLogic', () => {
     })
 
     it('does not create a second subscription while one exists', async () => {
-        await expectLogic(logic, () => logic.actions.createRoleSubscription()).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.createRoleSubscription()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.createReportSubscription()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.createReportSubscription()).toFinishAllListeners()
 
         expect(mockedCreate).toHaveBeenCalledTimes(1)
     })
@@ -70,7 +70,7 @@ describe('onboardingRoleNotificationsLogic', () => {
     it('resets state and shows a toast when creation fails', async () => {
         mockedCreate.mockRejectedValue(new Error('quota'))
 
-        await expectLogic(logic, () => logic.actions.createRoleSubscription()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.createReportSubscription()).toFinishAllListeners()
 
         expect(logic.values.createdSubscriptionId).toBeNull()
         expect(logic.values.createdSubscriptionIdLoading).toBe(false)
@@ -78,9 +78,9 @@ describe('onboardingRoleNotificationsLogic', () => {
     })
 
     it('undo soft-deletes the created subscription and clears the created state', async () => {
-        await expectLogic(logic, () => logic.actions.createRoleSubscription()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.createReportSubscription()).toFinishAllListeners()
 
-        await expectLogic(logic, () => logic.actions.removeRoleSubscription()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.removeReportSubscription()).toFinishAllListeners()
 
         expect(mockedPartialUpdate).toHaveBeenCalledTimes(1)
         const [, id, payload] = mockedPartialUpdate.mock.calls[0]

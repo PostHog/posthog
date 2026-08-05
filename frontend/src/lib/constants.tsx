@@ -401,6 +401,7 @@ export const FEATURE_FLAGS = {
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     NOTEBOOK_PYTHON: 'notebook-python', // owner: #team-data-tools
     NOTEBOOK_SHARING: 'notebook-sharing', // owner: @reecejones #team-platform-features
+    ONBOARDING_AI_REPORTS: 'onboarding-role-notifications', // owner: @joethreepwood #team-growth multivariate=control,test — offers a role-tailored weekly AI report step at the end of onboarding; code additionally gates on AI subscriptions being available, so keep the flag at 100% rollout (key predates the AI-reports naming; it's bound to the live experiment)
     ONBOARDING_DATA_WAREHOUSE_VALUE_PROP: 'onboarding-data-warehouse-value-prop', // owner: @fercgomes #team-growth multivariate=control,table,query
     ONBOARDING_FLOW_VARIANT: 'onboarding-flow-variant', // owner: @fercgomes #team-growth multivariate=control,self-driving — selects the whole onboarding experience; control is the existing flow (the historical `legacy` value is an alias of control)
     ONBOARDING_HIDE_BREADCRUMBS: 'onboarding-hide-breadcrumbs', // owner: @fercgomes #team-growth, multivariate=true, hides breadcrumbs during onboarding to reduce distractions
@@ -408,7 +409,6 @@ export const FEATURE_FLAGS = {
     ONBOARDING_NAVBAR: 'onboarding-navbar', // owner: @fercgomes #team-growth, hides the navbar during onboarding to reduce distractions multivariate=true
     ONBOARDING_PLATFORM_PACKAGES: 'onboarding-platform-packages', // owner: @mjwarren3 #team-growth multivariate=control,test — surfaces platform packages with a free trial on the plans step after subscribing
     ONBOARDING_PRODUCT_SELECTION_HEADING: 'onboarding-product-selection-heading', // owner: @fercgomes #team-growth, payload overrides the heading copy on the first onboarding page
-    ONBOARDING_ROLE_NOTIFICATIONS: 'onboarding-role-notifications', // owner: @joethreepwood #team-growth multivariate=control,test — offers a role-tailored weekly AI report step at the end of onboarding; code additionally gates on AI subscriptions being available, so keep the flag at 100% rollout
     ONBOARDING_SESSION_REPLAY_MEDIA: 'onboarding-session-replay-media', // owner: @fercgomes #team-growth multivariate=control,screenshot,demo
     ONBOARDING_SOCIAL_PROOF_INFO: 'onboarding-social-proof-info', // owner: @fercgomes #team-growth, payload overrides social proof strings per product
     ONBOARDING_WIZARD_CLOUD_RUN: 'onboarding-wizard-cloud-run', // owner: @fercgomes #team-growth multivariate=control,test — gates the "open a PR for me" cloud wizard option on the install step

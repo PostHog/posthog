@@ -25,10 +25,10 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-05-25',
         featureFlags: {
-            [FEATURE_FLAGS.ONBOARDING_ROLE_NOTIFICATIONS]: 'test',
+            [FEATURE_FLAGS.ONBOARDING_AI_REPORTS]: 'test',
             [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
         },
-        testOptions: { waitForSelector: '[data-attr="onboarding-role-report-subscribe"]' },
+        testOptions: { waitForSelector: '[data-attr="onboarding-ai-report-subscribe"]' },
     },
     decorators: [
         mswDecorator({
@@ -72,7 +72,7 @@ function StepForRole({ role }: { role: UserRole | null }): JSX.Element {
                 productKey: ProductKey.PRODUCT_ANALYTICS,
                 // Namespaced id so currentFlowStep resolves via exact match — the step is
                 // appended by a flag-gated flow rebuild (same race as the billing step).
-                step: `${OnboardingStepKey.ROLE_NOTIFICATIONS}:${ProductKey.PRODUCT_ANALYTICS}`,
+                step: `${OnboardingStepKey.AI_REPORTS}:${ProductKey.PRODUCT_ANALYTICS}`,
             })
         )
     })
@@ -81,7 +81,7 @@ function StepForRole({ role }: { role: UserRole | null }): JSX.Element {
 }
 
 // One story per report family, not per role: founder/engineering share a report, and the
-// remaining roles differ only in card copy drawn from roleReportDefinitions.
+// remaining roles differ only in card copy drawn from aiReportDefinitions.
 
 export const EngineeringReport: Story = {
     render: () => <StepForRole role={UserRole.Engineering} />,

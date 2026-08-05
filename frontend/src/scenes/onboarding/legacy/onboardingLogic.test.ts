@@ -722,7 +722,7 @@ describe('onboardingLogic — flow composition', () => {
 
     // Gate regressions here invalidate the experiment: leaking the step to control users breaks the
     // readout, hiding it from test users ships a dead experiment.
-    describe('role notifications step gating', () => {
+    describe('AI reports step gating', () => {
         const setFlags = (variants: Record<string, string | boolean>): void => {
             featureFlagLogic.findMounted()?.actions.setFeatureFlags(Object.keys(variants), variants)
         }
@@ -730,36 +730,36 @@ describe('onboardingLogic — flow composition', () => {
         it('includes the step last when AI subscriptions are available and the arm is test', () => {
             setFlags({
                 [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
-                [FEATURE_FLAGS.ONBOARDING_ROLE_NOTIFICATIONS]: 'test',
+                [FEATURE_FLAGS.ONBOARDING_AI_REPORTS]: 'test',
             })
             // The org load is async in the test env; the gate needs is_ai_data_processing_approved.
             organizationLogic.findMounted()?.actions.loadCurrentOrganizationSuccess(MOCK_DEFAULT_ORGANIZATION)
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
 
-            expect(flowIds()[flowIds().length - 1]).toBe('role_notifications:product_analytics')
+            expect(flowIds()[flowIds().length - 1]).toBe('ai_reports:product_analytics')
         })
 
         it.each([
-            ['the arm is control', { [FEATURE_FLAGS.ONBOARDING_ROLE_NOTIFICATIONS]: 'control' }],
+            ['the arm is control', { [FEATURE_FLAGS.ONBOARDING_AI_REPORTS]: 'control' }],
             ['the experiment flag is unset', {}],
             [
                 'AI subscriptions are unavailable',
                 {
                     [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: false,
-                    [FEATURE_FLAGS.ONBOARDING_ROLE_NOTIFICATIONS]: 'test',
+                    [FEATURE_FLAGS.ONBOARDING_AI_REPORTS]: 'test',
                 },
             ],
         ])('excludes the step when %s', (_label, extraVariants) => {
             setFlags({ [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true, ...extraVariants })
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
 
-            expect(flowStepKeys()).not.toContain(OnboardingStepKey.ROLE_NOTIFICATIONS)
+            expect(flowStepKeys()).not.toContain(OnboardingStepKey.AI_REPORTS)
         })
 
         it('excludes the step when the organization has not approved AI data processing', async () => {
             setFlags({
                 [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
-                [FEATURE_FLAGS.ONBOARDING_ROLE_NOTIFICATIONS]: 'test',
+                [FEATURE_FLAGS.ONBOARDING_AI_REPORTS]: 'test',
             })
             organizationLogic.findMounted()?.actions.loadCurrentOrganizationSuccess({
                 ...MOCK_DEFAULT_ORGANIZATION,
@@ -767,7 +767,7 @@ describe('onboardingLogic — flow composition', () => {
             })
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
 
-            expect(flowStepKeys()).not.toContain(OnboardingStepKey.ROLE_NOTIFICATIONS)
+            expect(flowStepKeys()).not.toContain(OnboardingStepKey.AI_REPORTS)
         })
     })
 })

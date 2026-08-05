@@ -3,7 +3,7 @@ import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { UserRole } from '~/types'
 
-export interface RoleReportDefinition {
+export interface AIReportDefinition {
     key: string
     headline: string
     lead: string
@@ -19,7 +19,7 @@ export interface RoleReportDefinition {
 
 // Founders and engineers get the same report: per the role mapping decision, both care most
 // about whether the business is growing, not about a role-specific slice.
-const REVENUE_SIGNUPS: RoleReportDefinition = {
+const REVENUE_SIGNUPS: AIReportDefinition = {
     key: 'revenue-signups',
     headline: 'Revenue and sign-up growth',
     lead: 'New sign-ups and revenue movement this week, compared with last week.',
@@ -35,7 +35,7 @@ const REVENUE_SIGNUPS: RoleReportDefinition = {
     ].join(' '),
 }
 
-const GENERIC_USAGE_DIGEST: RoleReportDefinition = {
+const GENERIC_USAGE_DIGEST: AIReportDefinition = {
     key: 'usage-digest',
     headline: 'How your product was used',
     lead: 'Active users, top pages and top events for the week, with what moved.',
@@ -52,7 +52,7 @@ const GENERIC_USAGE_DIGEST: RoleReportDefinition = {
     ].join(' '),
 }
 
-export const ROLE_REPORT_DEFINITIONS: Record<UserRole, RoleReportDefinition> = {
+export const AI_REPORTS_BY_ROLE: Record<UserRole, AIReportDefinition> = {
     [UserRole.Leadership]: {
         key: 'aarrr-funnel',
         headline: 'Your funnel at a glance',
@@ -139,18 +139,18 @@ export const ROLE_REPORT_DEFINITIONS: Record<UserRole, RoleReportDefinition> = {
 }
 
 /** An unset or unrecognized role gets the generic digest, so the step never dead-ends on role. */
-export function reportForRole(role: string | null | undefined): RoleReportDefinition {
-    return ROLE_REPORT_DEFINITIONS[role as UserRole] ?? GENERIC_USAGE_DIGEST
+export function reportForRole(role: string | null | undefined): AIReportDefinition {
+    return AI_REPORTS_BY_ROLE[role as UserRole] ?? GENERIC_USAGE_DIGEST
 }
 
-export type RoleNotificationsExperimentArm = 'control' | 'test'
+export type AIReportsExperimentArm = 'control' | 'test'
 
 /**
  * The user's experiment arm, or null when they are not enrolled: an unset/boolean flag value (not
  * rolled out, targeting excludes them, flags not loaded yet) must NOT be collapsed into `control`,
  * or never-enrolled users pollute the control cohort and bias the readout toward "no effect".
  */
-export function resolveRoleNotificationsArm(featureFlags: FeatureFlagsSet): RoleNotificationsExperimentArm | null {
-    const value = featureFlags[FEATURE_FLAGS.ONBOARDING_ROLE_NOTIFICATIONS]
+export function resolveAIReportsArm(featureFlags: FeatureFlagsSet): AIReportsExperimentArm | null {
+    const value = featureFlags[FEATURE_FLAGS.ONBOARDING_AI_REPORTS]
     return value === 'test' || value === 'control' ? value : null
 }

@@ -71,7 +71,7 @@ export interface OnboardingFlowContext {
      */
     featureFlags: FeatureFlagsSet
     /** Experiment arm + AI-subscription availability — drives the trailing weekly-report step. */
-    showRoleNotificationsStep: boolean
+    showAIReportsStep: boolean
 }
 
 export type StepProvider = (ctx: OnboardingFlowContext) => OnboardingStepDescriptor[]

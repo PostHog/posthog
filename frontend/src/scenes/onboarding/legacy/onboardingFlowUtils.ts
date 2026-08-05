@@ -5,8 +5,8 @@ import { OnboardingStepKey } from '~/types'
 
 const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
     [OnboardingStepKey.LINK_DATA]: 'Import data',
-    // The default derivation would read "Role notifications", which is internal jargon.
-    [OnboardingStepKey.ROLE_NOTIFICATIONS]: 'Weekly reports',
+    // The default derivation would read "Ai reports" — wrong casing, and the step is weekly.
+    [OnboardingStepKey.AI_REPORTS]: 'Weekly reports',
 }
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {

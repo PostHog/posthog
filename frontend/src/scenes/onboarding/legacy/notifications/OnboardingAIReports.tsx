@@ -9,12 +9,12 @@ import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStepComponentType } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { onboardingRoleNotificationsLogic } from './onboardingRoleNotificationsLogic'
+import { onboardingAIReportsLogic } from './onboardingAIReportsLogic'
 
-export const OnboardingRoleNotifications: OnboardingStepComponentType = () => {
+export const OnboardingAIReports: OnboardingStepComponentType = () => {
     const { user } = useValues(userLogic)
-    const { report, createdSubscriptionId, createdSubscriptionIdLoading } = useValues(onboardingRoleNotificationsLogic)
-    const { createRoleSubscription, removeRoleSubscription } = useActions(onboardingRoleNotificationsLogic)
+    const { report, createdSubscriptionId, createdSubscriptionIdLoading } = useValues(onboardingAIReportsLogic)
+    const { createReportSubscription, removeReportSubscription } = useActions(onboardingAIReportsLogic)
 
     const subscribed = createdSubscriptionId !== null
 
@@ -22,7 +22,7 @@ export const OnboardingRoleNotifications: OnboardingStepComponentType = () => {
         <OnboardingStep
             title="Get a weekly report"
             subtitle="We can email you a written summary every week, based on what you told us you do. Reports start once your data is flowing, so it's fine to set this up before you've sent any events."
-            stepKey={OnboardingStepKey.ROLE_NOTIFICATIONS}
+            stepKey={OnboardingStepKey.AI_REPORTS}
             continueText={subscribed ? undefined : 'Skip for now'}
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4">
@@ -34,9 +34,9 @@ export const OnboardingRoleNotifications: OnboardingStepComponentType = () => {
                     {!subscribed && (
                         <LemonButton
                             type="primary"
-                            onClick={() => createRoleSubscription()}
+                            onClick={() => createReportSubscription()}
                             loading={createdSubscriptionIdLoading}
-                            data-attr="onboarding-role-report-subscribe"
+                            data-attr="onboarding-ai-report-subscribe"
                         >
                             Email me this weekly
                         </LemonButton>
@@ -54,9 +54,9 @@ export const OnboardingRoleNotifications: OnboardingStepComponentType = () => {
                         </div>
                         <LemonButton
                             size="small"
-                            onClick={() => removeRoleSubscription()}
+                            onClick={() => removeReportSubscription()}
                             loading={createdSubscriptionIdLoading}
-                            data-attr="onboarding-role-report-undo"
+                            data-attr="onboarding-ai-report-undo"
                         >
                             Undo
                         </LemonButton>
@@ -78,4 +78,4 @@ export const OnboardingRoleNotifications: OnboardingStepComponentType = () => {
     )
 }
 
-OnboardingRoleNotifications.stepKey = OnboardingStepKey.ROLE_NOTIFICATIONS
+OnboardingAIReports.stepKey = OnboardingStepKey.AI_REPORTS
