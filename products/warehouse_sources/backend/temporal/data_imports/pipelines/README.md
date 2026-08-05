@@ -38,4 +38,5 @@ This page is the map; each package's own docstrings and READMEs carry the detail
 - `pipeline_sync.py`, `helpers.py` - table registration and naming.
 
 Dependency rule: `pipeline_v2/` and `pipeline_v3/` import from `core/` and `common/`; `core/` imports from no pipeline.
+One remaining exception: several `core/` modules still import the shared write metrics from `pipeline_v3/load/metrics.py`.
 Cross-product coupling goes through `../external_product_hooks.py` (registration) rather than direct imports.
