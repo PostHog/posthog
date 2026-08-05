@@ -19,10 +19,10 @@ from posthog.utils import render_template
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
+from products.warehouse_sources.backend.models import DataWarehouseTable
 
 from ee.api.rbac.access_control import resources_with_object_access_controls
 from ee.api.test.base import APILicensedTest
@@ -2271,11 +2271,11 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
             team=self.team, resource="insight", resource_id=str(insight.id), access_level="viewer"
         )
         AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="999999", access_level="none")
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="signups_by_week", query={"kind": "HogQLQuery", "query": "select 1"}
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name="events_parquet", format="Parquet", url_pattern="s3://bucket/events/*"
         )
         AccessControl.objects.create(
-            team=self.team, resource="warehouse_view", resource_id=str(saved_query.id), access_level="editor"
+            team=self.team, resource="warehouse_table", resource_id=str(table.id), access_level="editor"
         )
 
         res = self.client.get("/api/projects/@current/access_control_default_objects")
@@ -2285,8 +2285,8 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         # Insight.name is empty, so the derived name shows, with short_id alongside for linking
         assert rows[str(insight.id)]["name"] == "Weekly signups"
         assert rows[str(insight.id)]["short_id"] == insight.short_id
-        # Resolved through the _EXTRA_RESOURCE_MODELS fallback, since search doesn't index warehouse views
-        assert rows[str(saved_query.id)]["name"] == "signups_by_week"
+        # Resolved through the name fallback map, since search doesn't index warehouse tables
+        assert rows[str(table.id)]["name"] == "events_parquet"
         # A rule pointing at a missing object keeps the raw id as its name
         assert rows["999999"]["name"] == "999999"
 

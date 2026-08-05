@@ -199,9 +199,12 @@ class _FallbackResourceModel:
     name_field: str
 
 
-# Resources with object-level rules that universal search doesn't index, so they're absent from its
-# ENTITY_MAP. Unknown resources fall back to showing the raw id.
-_EXTRA_RESOURCE_MODELS: dict[str, _FallbackResourceModel] = {
+# Used only by _resolve_object_names below, which turns a rule's resource_id into a display name.
+# Names come from universal search's ENTITY_MAP first; these entries cover resources search doesn't
+# index, so they have no ENTITY_MAP entry to borrow. Add one when a resource's rules render raw ids
+# instead of names; delete one when search starts indexing the resource, since ENTITY_MAP is
+# consulted first and the entry goes dead. Resources in neither place fall back to the raw id.
+_NAME_RESOLUTION_FALLBACKS: dict[str, _FallbackResourceModel] = {
     "warehouse_view": _FallbackResourceModel(
         app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
     ),
@@ -260,7 +263,7 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
             # The rules list falls back to raw ids, but report the error: it likely affects the whole resource type
             capture_exception(e, {"resource": resource})
             return {}
-    registry = _EXTRA_RESOURCE_MODELS.get(resource)
+    registry = _NAME_RESOLUTION_FALLBACKS.get(resource)
     if not registry:
         return {}
     try:
