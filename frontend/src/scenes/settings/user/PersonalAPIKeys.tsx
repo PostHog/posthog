@@ -538,13 +538,12 @@ function PersonalAPIKeysTable(): JSX.Element {
                 renderMaskValue={(key) =>
                     key.local_dev_value ? (
                         <CopyToClipboardInline
-                            explicitValue={key.local_dev_value}
                             description="personal API key"
-                            tooltipMessage="This is your local development key. Its full value is shown because this instance runs with DEBUG and ALLOW_DEV_API_KEY_REVEAL."
+                            tooltipMessage="Local development key. Its full value is shown because this instance has DEBUG and ALLOW_DEV_API_KEY_REVEAL set."
                             selectable
                             isValueSensitive
                             iconSize="xsmall"
-                            className="font-mono text-xs"
+                            className="font-mono text-xs max-w-60 whitespace-normal"
                         >
                             {key.local_dev_value}
                         </CopyToClipboardInline>

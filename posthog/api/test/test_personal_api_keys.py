@@ -1235,11 +1235,21 @@ class TestLocalDevAPIKeyReveal(APIBaseTest):
             scopes=["*"],
         )
 
+        other_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Some other key",
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
+        )
+
         response = self.client.get("/api/personal_api_keys")
 
         assert response.status_code == 200
-        data = next(k for k in response.json() if k["id"] == key.id)
-        assert data["local_dev_value"] == DEV_KEY_UNDER_TEST
+        by_id = {k["id"]: k for k in response.json()}
+        assert by_id[key.id]["local_dev_value"] == DEV_KEY_UNDER_TEST
+        # Resolving the value once per serializer rather than per instance would hand the dev
+        # plaintext to every key in the list.
+        assert by_id[other_key.id]["local_dev_value"] is None
         # `value` stays the create/roll-only channel that pops the one-time dialog in the UI.
-        assert data["value"] is None
-        assert data["mask_value"] == mask_key_value(DEV_KEY_UNDER_TEST)
+        assert by_id[key.id]["value"] is None
+        assert by_id[key.id]["mask_value"] == mask_key_value(DEV_KEY_UNDER_TEST)
