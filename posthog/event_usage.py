@@ -19,10 +19,22 @@ from posthog.models.activity_logging.model_activity import is_impersonated_sessi
 from posthog.models.team import Team
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
-from posthog.utils import get_instance_realm
+from posthog.utils import get_instance_realm, get_instance_region
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
+
+
+def reports_org_lifecycle() -> bool:
+    """
+    Whether this instance should report org lifecycle events (signup, deletion) to PostHog Cloud.
+
+    The hosted dev environment captures into the same production project as US and EU, and its
+    deploy smoke test signs up a throwaway user and organization on every run. Those accounts are
+    indistinguishable from real growth once they land, so they are not reported at all. Every other
+    kind of dev-env telemetry (exceptions, product usage) is unaffected.
+    """
+    return (get_instance_region() or "").upper() != "DEV"
 
 
 def report_user_signed_up(
@@ -42,7 +54,7 @@ def report_user_signed_up(
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
     joins a new organization, this event is **not** triggered; see `report_user_joined_organization`).
     """
-    if not user.distinct_id:
+    if not user.distinct_id or not reports_org_lifecycle():
         return
 
     props = {
@@ -511,7 +523,7 @@ def report_user_or_team_action(
 
 
 def report_organization_deleted(user: User, organization: Organization):
-    if not user.distinct_id:
+    if not user.distinct_id or not reports_org_lifecycle():
         return
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
@@ -522,7 +534,7 @@ def report_organization_deleted(user: User, organization: Organization):
 
 
 def report_organization_deletion_initiated(user: User, organization: Organization):
-    if not user.distinct_id:
+    if not user.distinct_id or not reports_org_lifecycle():
         return
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
@@ -537,7 +549,7 @@ def report_organization_deletion_completed(user_id: int, organization_id: str) -
     from posthog.ph_client import ph_scoped_capture
 
     user = UserModel.objects.filter(id=user_id).first()
-    if not user or not user.distinct_id:
+    if not user or not user.distinct_id or not reports_org_lifecycle():
         return
     with ph_scoped_capture() as capture_ph_event:
         capture_ph_event(

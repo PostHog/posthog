@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
@@ -13,7 +15,11 @@ from posthog.event_usage import (
     get_event_source,
     get_mcp_properties,
     is_wizard_self_driving_program,
+    report_organization_deleted,
+    report_organization_deletion_initiated,
     report_user_action,
+    report_user_signed_up,
+    reports_org_lifecycle,
     sanitize_header_value,
 )
 
@@ -441,3 +447,39 @@ class TestSanitizeHeaderValue(BaseTest):
     )
     def test_sanitize_header_value(self, _name, input_value, expected):
         assert sanitize_header_value(input_value) == expected
+
+
+class TestReportsOrgLifecycle(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("us", "US", True),
+            ("eu", "EU", True),
+            ("dev", "DEV", False),
+            ("dev_lowercase", "dev", False),
+            ("self_hosted", None, True),
+        ]
+    )
+    def test_reports_org_lifecycle_by_region(self, _name, region, expected):
+        with self.settings(CLOUD_DEPLOYMENT=region):
+            assert reports_org_lifecycle() is expected
+
+
+class TestOrgLifecycleReporting(BaseTest):
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_signup_is_not_reported_from_the_dev_region(self, mock_capture):
+        with self.settings(CLOUD_DEPLOYMENT="DEV"):
+            report_user_signed_up(self.user, is_instance_first_user=True, is_organization_first_user=True)
+        mock_capture.assert_not_called()
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_signup_is_reported_from_a_production_region(self, mock_capture):
+        with self.settings(CLOUD_DEPLOYMENT="US"):
+            report_user_signed_up(self.user, is_instance_first_user=True, is_organization_first_user=True)
+        assert mock_capture.call_args.kwargs["event"] == "user signed up"
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_org_deletion_is_not_reported_from_the_dev_region(self, mock_capture):
+        with self.settings(CLOUD_DEPLOYMENT="DEV"):
+            report_organization_deleted(self.user, self.organization)
+            report_organization_deletion_initiated(self.user, self.organization)
+        mock_capture.assert_not_called()
