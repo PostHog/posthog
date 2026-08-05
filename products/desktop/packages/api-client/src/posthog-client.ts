@@ -3262,10 +3262,11 @@ export class PostHogAPIClient {
     itemId: string,
     taskId: string,
   ): Promise<ResourceComment[]> {
+    const MAX_COMMENT_PAGES = 50;
     const teamId = await this.getTeamId();
     const comments: ResourceComment[] = [];
     let cursor: string | undefined;
-    do {
+    for (let pageIndex = 0; pageIndex < MAX_COMMENT_PAGES; pageIndex++) {
       const page = await this.api.get("/api/projects/{project_id}/comments/", {
         path: { project_id: String(teamId) },
         query: { scope, item_id: itemId, task_id: taskId, cursor },
@@ -3274,7 +3275,12 @@ export class PostHogAPIClient {
       cursor = page.next
         ? (new URL(page.next).searchParams.get("cursor") ?? undefined)
         : undefined;
-    } while (cursor);
+      if (!cursor) return comments;
+    }
+    log.warn(
+      `getResourceComments hit MAX_PAGES (${MAX_COMMENT_PAGES}); returning partial results`,
+      { scope, itemId, returned: comments.length },
+    );
     return comments;
   }
 

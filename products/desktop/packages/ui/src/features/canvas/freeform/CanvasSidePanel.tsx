@@ -19,7 +19,7 @@ import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
-import type { Ref } from "react";
+import { type Ref, useEffect, useRef } from "react";
 
 // The canvas's right-hand dock. While a generation/edit run is in flight it
 // shows that run's live chat (steering/queue included); otherwise it shows the
@@ -61,6 +61,14 @@ export function CanvasSidePanel({
 }) {
   const tab = useCanvasChatPanelStore((state) => state.tab);
   const setTab = useCanvasChatPanelStore((state) => state.setTab);
+  const previousTaskId = useRef(effectiveTaskId);
+
+  useEffect(() => {
+    if (effectiveTaskId && effectiveTaskId !== previousTaskId.current) {
+      setTab("chat");
+    }
+    previousTaskId.current = effectiveTaskId;
+  }, [effectiveTaskId, setTab]);
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">

@@ -19,6 +19,7 @@ import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 import { buildSandboxDocument, type SandboxMode } from "./sandboxRuntime";
 
 const log = logger.scope("freeform-canvas");
+const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
 
 export interface FreeformCanvasProps {
   /** The single-file React source to render. */
@@ -65,7 +66,7 @@ export function FreeformCanvas({
   onNavigate,
   onTextSelection,
   onCommentActivate,
-  commentHighlights = [],
+  commentHighlights = EMPTY_COMMENT_HIGHLIGHTS,
   clearTextSelectionKey = 0,
   analytics,
 }: FreeformCanvasProps) {
@@ -226,6 +227,7 @@ export function FreeformCanvas({
         mode,
         analytics,
         theme: latest.current.theme,
+        highlights: latest.current.commentHighlights,
       },
       "*",
     );

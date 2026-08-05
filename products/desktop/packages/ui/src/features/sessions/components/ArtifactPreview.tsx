@@ -163,6 +163,14 @@ export function ArtifactPreview({
     focus && isSameCommentTarget(focus.target, commentTarget)
       ? focus.threadId
       : null;
+  const annotationComments = useMemo(() => {
+    const focusedResolvedRoot = threads.find(
+      (thread) => thread.resolved && thread.root.id === focusedThreadId,
+    )?.root;
+    return focusedResolvedRoot
+      ? [...openRootComments, focusedResolvedRoot]
+      : openRootComments;
+  }, [focusedThreadId, openRootComments, threads]);
   // The locate request only fires once the thread exists, so it survives the
   // comments arriving after the request — and re-fires when the nonce moves,
   // which is how picking the same thread twice scrolls twice.
@@ -240,7 +248,7 @@ export function ArtifactPreview({
               artifactName={name}
               rootRef={markdownRootRef}
               containerRef={markdownContainerRef}
-              comments={openRootComments}
+              comments={annotationComments}
               activeThreadId={focusedThreadId}
               locateRequest={locateRequest}
               members={members}
@@ -274,7 +282,7 @@ export function ArtifactPreview({
           <AnnotatedArtifactHtml
             html={data.html}
             name={name}
-            comments={openRootComments}
+            comments={annotationComments}
             activeThreadId={focusedThreadId}
             locateRequest={locateRequest}
             members={members}
@@ -313,7 +321,7 @@ export function ArtifactPreview({
           <AnnotatedArtifactImage
             src={previewUrl}
             name={name}
-            comments={openRootComments}
+            comments={annotationComments}
             activeThreadId={focusedThreadId}
             locateRequest={locateRequest}
             commenting={imageCommenting}

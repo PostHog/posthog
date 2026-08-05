@@ -1852,15 +1852,31 @@ class TaskCommentsQuerySerializer(serializers.Serializer):
     artifact_id = serializers.CharField(
         required=False, max_length=72, help_text="Artifact id returned by the artifacts endpoint."
     )
-    include_resolved = serializers.BooleanField(required=False, default=False)
-    limit = serializers.IntegerField(required=False, default=50, min_value=1, max_value=100)
+    include_resolved = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to include resolved comment threads.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of root comments to return.",
+    )
     cursor = serializers.CharField(
         required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
     )
 
 
 class TaskCommentDetailQuerySerializer(serializers.Serializer):
-    limit = serializers.IntegerField(required=False, default=50, min_value=1, max_value=100)
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of comments in the thread to return.",
+    )
     cursor = serializers.CharField(
         required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
     )
@@ -1908,6 +1924,14 @@ class TaskCommentsResponseSerializer(serializers.Serializer):
 class TaskCommentAnchorSerializer(serializers.Serializer):
     kind = serializers.CharField(required=False, help_text="Anchor kind.")
     quote = serializers.CharField(required=False, help_text="Selected text.")
+    prefix = serializers.CharField(required=False, help_text="Text immediately before the selection.")
+    suffix = serializers.CharField(required=False, help_text="Text immediately after the selection.")
+    start = serializers.IntegerField(required=False, min_value=0, help_text="Selection start offset.")
+    end = serializers.IntegerField(required=False, min_value=1, help_text="Selection end offset.")
+    x = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Horizontal region position.")
+    y = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Vertical region position.")
+    width = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Region width.")
+    height = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Region height.")
 
 
 class TaskCommentEntrySerializer(serializers.Serializer):

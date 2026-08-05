@@ -35,10 +35,17 @@ def _bounded_anchor(comment: Comment) -> dict | None:
     anchor = (comment.item_context or {}).get("anchor")
     if not isinstance(anchor, dict):
         return None
-    bounded = {"kind": anchor.get("kind")}
-    quote = anchor.get("quote")
-    if isinstance(quote, str):
-        bounded["quote"] = _content_chunk(quote, limit=ANCHOR_QUOTE_BYTES)[0]
+    kind = anchor.get("kind")
+    bounded = {"kind": kind}
+    allowed_fields = {
+        "text": ("prefix", "suffix", "start", "end"),
+        "region": ("x", "y", "width", "height"),
+    }.get(kind, ())
+    for field in allowed_fields:
+        if field in anchor:
+            bounded[field] = anchor[field]
+    if kind == "text" and isinstance(anchor.get("quote"), str):
+        bounded["quote"] = _content_chunk(anchor["quote"], limit=ANCHOR_QUOTE_BYTES)[0]
     return bounded
 
 

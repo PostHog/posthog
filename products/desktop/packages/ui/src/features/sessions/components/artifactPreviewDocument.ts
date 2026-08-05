@@ -9,10 +9,7 @@ export function artifactHtmlDocument(
   const document = commentBridgeChannel
     ? injectArtifactHtmlCommentBridge(html, commentBridgeChannel)
     : html;
-  // HTML artifacts stay in an opaque-origin sandbox. Allow authored HTTPS
-  // resources so generated reports retain their CSS, fonts, images and static
-  // scripts, while denying API connections, forms, nested frames and objects.
-  return applyCspToHtml(document, { resourceDomains: ["https:"] });
+  return applyCspToHtml(document);
 }
 export async function artifactPreviewBlob(
   blob: Blob,

@@ -2073,6 +2073,44 @@ export interface TaskCommentAnchorApi {
     kind?: string
     /** Selected text. */
     quote?: string
+    /** Text immediately before the selection. */
+    prefix?: string
+    /** Text immediately after the selection. */
+    suffix?: string
+    /**
+     * Selection start offset.
+     * @minimum 0
+     */
+    start?: number
+    /**
+     * Selection end offset.
+     * @minimum 1
+     */
+    end?: number
+    /**
+     * Horizontal region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    x?: number
+    /**
+     * Vertical region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    y?: number
+    /**
+     * Region width.
+     * @minimum 0
+     * @maximum 1
+     */
+    width?: number
+    /**
+     * Region height.
+     * @minimum 0
+     * @maximum 1
+     */
+    height?: number
 }
 
 export interface TaskCommentEntryApi {
@@ -4202,8 +4240,12 @@ export type TasksCommentsListParams = {
      * @maxLength 256
      */
     cursor?: string
+    /**
+     * Whether to include resolved comment threads.
+     */
     include_resolved?: boolean
     /**
+     * Maximum number of root comments to return.
      * @minimum 1
      * @maximum 100
      */
@@ -4227,6 +4269,7 @@ export type TasksCommentsRetrieveParams = {
      */
     cursor?: string
     /**
+     * Maximum number of comments in the thread to return.
      * @minimum 1
      * @maximum 100
      */

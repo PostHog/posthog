@@ -33,6 +33,9 @@ export function usePrCommentsForUrls(prUrls: string[]) {
           ],
       ),
       isLoading: results.some((result) => result.isLoading),
+      isError: results.some(
+        (result, index) => result.isError || results[index]?.data === null,
+      ),
     }),
   });
 }

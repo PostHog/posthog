@@ -223,7 +223,7 @@ export function FreeformCanvasView({
   // Build lifecycle, polled while a build is active or a generation is in
   // flight (the agent's publish queues the build server-side — without the
   // `generating` signal the client would never observe it start).
-  const browsing = interactive && !!browseVersionId;
+  const browsing = !!browseVersionId;
   const {
     lifecycle,
     isLoading: buildsLoading,
@@ -254,9 +254,8 @@ export function FreeformCanvasView({
   });
 
   // Server-side version history (newest first), for the undo/redo navigation.
-  const { versions, isLoading: versionsLoading } = useCanvasVersions(
-    interactive ? dashboardId : undefined,
-  );
+  const { versions, isLoading: versionsLoading } =
+    useCanvasVersions(dashboardId);
   const commentTaskId =
     effectiveTaskId ??
     versions.find((version) => version.taskId)?.taskId ??

@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1286_cleanup_orphaned_identity_provider_configs")]
+    dependencies = [("posthog", "1290_backfill_identity_provider_config_identifiers")]
 
     operations = [
         migrations.AddField(

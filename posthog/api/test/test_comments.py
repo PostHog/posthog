@@ -460,7 +460,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         activity = activity_model.objects.unscoped().get(team=self.team, user=owner, comment_id=created.json()["id"])
         assert activity.kind == "owned_item_comment"
 
-    @mock.patch("products.tasks.backend.tasks.project_task_comment_activity.delay")
+    @mock.patch("products.tasks.backend.tasks.tasks.project_task_comment_activity.delay")
     @mock.patch("products.tasks.backend.facade.api.record_comment_activity", side_effect=RuntimeError("activity down"))
     def test_activity_projection_failure_schedules_recovery(
         self,

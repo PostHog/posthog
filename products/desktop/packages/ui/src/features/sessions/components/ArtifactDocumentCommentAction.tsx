@@ -39,15 +39,13 @@ export function ArtifactDocumentCommentAction({
         <CommentComposer
           value={draft}
           onValueChange={setDraft}
-          onSubmit={(content, mentions) => {
-            createComment.mutate(
-              {
-                content,
-                context: { anchor: { kind: "document" } },
-                mentions,
-              },
-              { onSuccess: (comment) => onCreated?.(comment.id) },
-            );
+          onSubmit={async (content, mentions) => {
+            const comment = await createComment.mutateAsync({
+              content,
+              context: { anchor: { kind: "document" } },
+              mentions,
+            });
+            onCreated?.(comment.id);
             setDraft("");
             setOpen(false);
           }}

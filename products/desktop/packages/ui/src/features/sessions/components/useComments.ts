@@ -92,6 +92,21 @@ function restoreCommentCaches(
   }
 }
 
+function replaceOptimisticComment(
+  queryClient: QueryClient,
+  caches: CommentCacheFilter,
+  optimisticId: string,
+  saved: ResourceComment,
+) {
+  queryClient.setQueriesData<ResourceComment[]>(caches, (current) =>
+    current?.map((comment) => (comment.id === optimisticId ? saved : comment)),
+  );
+}
+
+export function isOptimisticComment(comment: ResourceComment): boolean {
+  return comment.id.startsWith("optimistic-");
+}
+
 export function useCommentsQuery(
   target: CommentTarget | null,
   taskId: string,
@@ -175,7 +190,15 @@ export function useCreateComment(target: CommentTarget, taskId?: string) {
         completed_at: null,
       };
       appendOptimisticComment(queryClient, caches, optimistic);
-      return { previous };
+      return { previous, optimisticId: optimistic.id };
+    },
+    onSuccess: (saved, _request, context) => {
+      replaceOptimisticComment(
+        queryClient,
+        caches,
+        context.optimisticId,
+        saved,
+      );
     },
     onError: (_error, _request, context) => {
       restoreCommentCaches(queryClient, context?.previous);

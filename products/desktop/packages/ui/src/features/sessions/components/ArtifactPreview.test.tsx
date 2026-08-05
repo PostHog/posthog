@@ -750,6 +750,9 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("connect-src &#39;none&#39;");
     expect(document).toContain("frame-src &#39;none&#39;");
     expect(document).toContain("form-action &#39;none&#39;");
-    expect(document).toContain("https:");
+    expect(document).toContain("img-src &#39;self&#39; data:");
+    expect(document).toContain(
+      "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
+    );
   });
 });

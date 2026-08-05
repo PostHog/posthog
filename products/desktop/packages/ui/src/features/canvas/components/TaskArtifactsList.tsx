@@ -199,10 +199,14 @@ function FileRow({
       icon={<FileIcon filename={name} size={14} />}
       title={name}
       detail={
-        <Badge>
-          <ChatCircleIcon />
-          {commentCount}
-        </Badge>
+        commentCount > 0 ? (
+          <Badge>
+            <ChatCircleIcon />
+            {commentCount}
+          </Badge>
+        ) : (
+          "File"
+        )
       }
       onOpen={onOpen}
     />
@@ -254,6 +258,20 @@ export function TaskArtifactsList({
             Pull requests, canvases, and files produced while working on this
             task show up here.
           </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
+  if (commentsQuery.isError) {
+    return (
+      <Empty className="h-full border-0">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <ChatCircleIcon />
+          </EmptyMedia>
+          <EmptyTitle>Couldn't load comment counts</EmptyTitle>
+          <EmptyDescription>Refresh the page to try again.</EmptyDescription>
         </EmptyHeader>
       </Empty>
     );

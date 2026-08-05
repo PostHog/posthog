@@ -7536,10 +7536,11 @@ export class SessionService {
       while (nextIndex < targets.length) {
         const index = nextIndex++;
         const target = targets[index];
-        pages[index] = await client
-          .getResourceComments(target.scope, target.itemId, taskId)
-          // One unreadable resource must not blank the whole pane.
-          .catch(() => [] as ResourceComment[]);
+        pages[index] = await client.getResourceComments(
+          target.scope,
+          target.itemId,
+          taskId,
+        );
       }
     };
     await Promise.all(

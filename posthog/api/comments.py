@@ -71,6 +71,9 @@ def _record_task_comment_activity(
     activity_at: datetime | None = None,
     include_relationship_recipients: bool = True,
 ) -> None:
+    if comment.scope not in {"task", "task_artifact", "desktop_canvas"}:
+        return
+
     try:
         from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product
             record_comment_activity,
@@ -92,7 +95,7 @@ def _record_task_comment_activity(
         )
     except Exception:
         logger.exception("Failed to project task comment activity", extra={"comment_id": str(comment.id)})
-        from products.tasks.backend.tasks import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product
+        from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product
             project_task_comment_activity,
         )
 
@@ -183,7 +186,11 @@ class CommentSerializer(serializers.ModelSerializer):
         return mentions
 
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
-    item_context = serializers.JSONField(required=False, allow_null=True)
+    item_context = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Metadata for the comment target, anchor, thread state, and owning task.",
+    )
     deleted = ClassicBehaviorBooleanFieldSerializer()
     mentions = serializers.ListField(child=serializers.IntegerField(), write_only=True, required=False)
     slug = serializers.CharField(write_only=True, required=False)
@@ -624,9 +631,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         elif self.action in ("list", "count"):
             # Product-owned scopes require their own object-level access checks and must
             # never leak through an unscoped generic comments query.
-            queryset = queryset.exclude(
-                scope__in=[*TICKET_COMMENT_SCOPES, "task", "task_artifact", "desktop_canvas"]
-            )
+            queryset = queryset.exclude(scope__in=[*TICKET_COMMENT_SCOPES, "task", "task_artifact", "desktop_canvas"])
         else:
             self._require_ticket_viewer_access_for_pk()
 

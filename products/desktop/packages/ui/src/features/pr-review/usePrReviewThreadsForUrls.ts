@@ -18,6 +18,7 @@ export function usePrReviewThreadsForUrls(prUrls: string[]) {
           [prUrl, results[index]?.data ?? []] as [string, PrReviewThread[]],
       ),
       isLoading: results.some((result) => result.isLoading),
+      isError: results.some((result) => result.isError),
     }),
   });
 }

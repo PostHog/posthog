@@ -208,12 +208,20 @@ export function ArtifactTextAnnotations({
     const container = containerRef.current;
     const root = rootRef.current;
     if (!container || !root) return;
-    const update = () => recalculateRef.current();
+    let frame = 0;
+    const update = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        recalculateRef.current();
+      });
+    };
     const observer = new ResizeObserver(update);
     observer.observe(root);
     window.addEventListener("resize", update);
     container.addEventListener("scroll", update, { passive: true });
     return () => {
+      cancelAnimationFrame(frame);
       observer.disconnect();
       window.removeEventListener("resize", update);
       container.removeEventListener("scroll", update);

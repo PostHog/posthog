@@ -1231,7 +1231,8 @@ class TaskCommentActivity(TeamScopedRootMixin):
                        kind = EXCLUDED.kind,
                        activity_at = EXCLUDED.activity_at,
                        read_at = CASE
-                           WHEN {cls._meta.db_table}.activity_at = EXCLUDED.activity_at
+                           WHEN {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                                AND {cls._meta.db_table}.kind = EXCLUDED.kind
                            THEN {cls._meta.db_table}.read_at
                            ELSE NULL
                        END

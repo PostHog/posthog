@@ -55,8 +55,8 @@ function ImageCommentCreationLayer({
           const size = 0.035;
           setPendingAnchor({
             kind: "region",
-            x: Math.max(0, x - size / 2),
-            y: Math.max(0, y - size / 2),
+            x: Math.max(0, Math.min(1 - size, x - size / 2)),
+            y: Math.max(0, Math.min(1 - size, y - size / 2)),
             width: size,
             height: size,
           });

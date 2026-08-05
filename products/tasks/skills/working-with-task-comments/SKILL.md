@@ -80,13 +80,15 @@ Both root listing and thread retrieval are cursor-paginated. For either operatio
 
 1. Call without `cursor`.
 2. Process the page.
-3. If `next` is non-null, call the same inner tool again with `"cursor":"<next>"`.
+3. If `next` is non-null, call the same inner tool again with `"cursor":"<next>"` and repeat the original filters.
 4. Stop only when `next` is null.
 
 Example continuation:
 
 ```json
-{ "command": "call tasks-comments-list {\"cursor\":\"<next>\"}" }
+{
+  "command": "call tasks-comments-list {\"artifact_id\":\"<artifact-id>\",\"include_resolved\":true,\"cursor\":\"<next>\"}"
+}
 ```
 
 Start with the root inventory and retrieve only threads relevant to the user's request. Before

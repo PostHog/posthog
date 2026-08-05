@@ -388,7 +388,7 @@ export function buildSandboxDocument(
       commentHighlightTimer = setTimeout(() => {
         commentHighlightTimer = 0;
         renderCommentHighlights(currentCommentHighlights);
-      }, 100);
+      }, 500);
     }).observe(document.body, { childList: true, characterData: true, subtree: true });
     document.addEventListener("click", (event) => {
       const selection = window.getSelection();

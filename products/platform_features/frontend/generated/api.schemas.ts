@@ -763,6 +763,7 @@ export interface ChangeRequestRejectApi {
 export interface CommentApi {
     readonly id: string
     readonly created_by: UserBasicApi | null
+    /** Metadata for the comment target, anchor, thread state, and owning task. */
     item_context?: unknown
     /** @nullable */
     deleted?: boolean | null
@@ -804,6 +805,7 @@ export interface PaginatedCommentListApi {
 export interface PatchedCommentApi {
     readonly id?: string
     readonly created_by?: UserBasicApi | null
+    /** Metadata for the comment target, anchor, thread state, and owning task. */
     item_context?: unknown
     /** @nullable */
     deleted?: boolean | null

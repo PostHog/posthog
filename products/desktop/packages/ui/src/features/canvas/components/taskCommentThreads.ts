@@ -60,7 +60,7 @@ export type TaskCommentThread = {
 
 function resourceAuthorName(comment: ResourceComment): string {
   const user = comment.created_by;
-  if (!user) return "You";
+  if (!user) return "Unknown user";
   return (
     [user.first_name, user.last_name].filter(Boolean).join(" ") || user.email
   );
@@ -124,10 +124,11 @@ export function prCommentThreads(
 ): TaskCommentThread[] {
   const threads: TaskCommentThread[] = reviewThreads.flatMap((thread) => {
     const root = thread.comments[0];
-    if (!root || root.user.isBot) return [];
+    if (!root) return [];
     const humanComments = thread.comments.filter(
       (comment) => !comment.user.isBot,
     );
+    if (humanComments.length === 0) return [];
     return [
       {
         id: `pr-review-${thread.rootId}`,

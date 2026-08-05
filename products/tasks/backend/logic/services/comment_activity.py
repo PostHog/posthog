@@ -93,7 +93,7 @@ def project_comment_activity(
     if include_relationship_recipients:
         if comment.source_comment_id:
             participant_ids = (
-                Comment.objects.filter(team_id=team_id)
+                Comment.objects.filter(team_id=team_id, deleted=False)
                 .filter(Q(id=root_comment_id) | Q(source_comment_id=root_comment_id))
                 .values_list("created_by_id", flat=True)
             )

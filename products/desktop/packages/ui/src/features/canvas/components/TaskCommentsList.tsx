@@ -60,6 +60,7 @@ import { CommentThreadCard } from "@posthog/ui/features/sessions/components/Comm
 import type { HighlightResolution } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { readCommentContext } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import {
+  isOptimisticComment,
   useCommentsForTargetsQuery,
   useCommentsQuery,
   useCreateComment,
@@ -116,7 +117,7 @@ function SourceLabel({ thread }: { thread: TaskCommentThread }) {
   );
 }
 
-function TextCommentReference({
+function CommentReference({
   root,
   versionLabel,
 }: {
@@ -128,13 +129,16 @@ function TextCommentReference({
     ? versionLabel?.(context.canvasVersionId)
     : null;
   const anchor = context?.anchor;
-  if (anchor?.kind !== "text") return null;
+  const quote = anchor?.kind === "text" ? anchor.quote : null;
+  if (!version && !quote) return null;
   return (
     <span className="mb-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
       {version && <span className="shrink-0">{version} ·</span>}
-      <span className="min-w-0 truncate" title={anchor.quote}>
-        “{anchor.quote}”
-      </span>
+      {quote && (
+        <span className="min-w-0 truncate" title={quote}>
+          “{quote}”
+        </span>
+      )}
     </span>
   );
 }
@@ -170,6 +174,7 @@ function ResourceThreadRow({
 }) {
   const createComment = useCreateComment(source.target, taskId);
   const setResolved = useSetCommentResolved(source.target);
+  const rootPending = isOptimisticComment(root);
 
   return (
     <CommentThreadCard
@@ -184,13 +189,12 @@ function ResourceThreadRow({
       source={
         <>
           {showSource && <SourceLabel thread={thread} />}
-          <TextCommentReference
-            root={root}
-            versionLabel={commentVersionLabel}
-          />
+          <CommentReference root={root} versionLabel={commentVersionLabel} />
         </>
       }
       onSelect={onOpen}
+      canReply={!rootPending}
+      canResolve={!rootPending}
       onReply={async (content, mentions) => {
         await createComment.mutateAsync({
           content,
@@ -305,6 +309,16 @@ export function TaskCommentsList({
   const [sourceFilter, setSourceFilter] = useState<string>(ALL_SOURCES);
   const [pulseThreadId, setPulseThreadId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const sourceFilterTouched = useRef(false);
+  const previousTaskId = useRef(task.id);
+
+  useEffect(() => {
+    if (previousTaskId.current === task.id) return;
+    previousTaskId.current = task.id;
+    sourceFilterTouched.current = false;
+    setSourceFilter(ALL_SOURCES);
+    setDraft("");
+  }, [task.id]);
 
   const rows = useMemo(
     () => buildRows(task, timeline, runs),
@@ -383,9 +397,16 @@ export function TaskCommentsList({
     for (const prUrl of prUrls) keys.add(prUrl);
     return keys;
   }, [sources, prUrls]);
+  const stateFilteredThreads = useMemo(
+    () =>
+      threads.filter(
+        (thread) => thread.resolved === (stateFilter === "resolved"),
+      ),
+    [stateFilter, threads],
+  );
   const sourceOptions = useMemo(
     () =>
-      threadSourceOptions(threads, [
+      threadSourceOptions(stateFilteredThreads, [
         ...sources.map((source) => ({
           key: commentTargetKey(source.target),
           label: source.name,
@@ -397,7 +418,7 @@ export function TaskCommentsList({
           kind: "pr" as const,
         })),
       ]),
-    [prTitles, prUrls, sources, threads],
+    [prTitles, prUrls, sources, stateFilteredThreads],
   );
   const effectiveSourceFilter =
     sourceFilter === ALL_SOURCES || knownSourceKeys.has(sourceFilter)
@@ -417,7 +438,6 @@ export function TaskCommentsList({
 
   // Follow the artifact on screen until the reader picks a source themselves;
   // after that the filter is theirs, not the pane's.
-  const sourceFilterTouched = useRef(false);
   useEffect(() => {
     if (onlySource || sourceFilterTouched.current) return;
     setSourceFilter(
@@ -433,8 +453,8 @@ export function TaskCommentsList({
   const scoped = threads.filter(inSource);
   const openCount = scoped.filter((thread) => !thread.resolved).length;
   const resolvedCount = scoped.length - openCount;
-  const visibleThreads = scoped.filter(
-    (thread) => thread.resolved === (stateFilter === "resolved"),
+  const visibleThreads = scoped.filter((thread) =>
+    stateFilteredThreads.includes(thread),
   );
 
   const openThread = useCallback(
@@ -483,13 +503,14 @@ export function TaskCommentsList({
   // filter is hiding it. Each request is honoured once, by nonce: resolving the
   // focused thread later must not drag the filters along with it.
   const focusedThreadId = focus?.threadId ?? null;
-  const handledNonceRef = useRef<number | null>(null);
+  const handledFocusRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!focus || handledNonceRef.current === focus.nonce) return;
+    const focusKey = focus ? `${task.id}:${focus.nonce}` : null;
+    if (!focus || handledFocusRef.current === focusKey) return;
     const focused = threads.find((thread) => thread.id === focus.threadId);
     // The thread may still be loading, so wait rather than guess its filters.
     if (!focused) return;
-    handledNonceRef.current = focus.nonce;
+    handledFocusRef.current = focusKey;
     setStateFilter(focused.resolved ? "resolved" : "open");
     setSourceFilter((current) =>
       current === ALL_SOURCES || current === focused.sourceKey
@@ -505,7 +526,7 @@ export function TaskCommentsList({
         )
         ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
-  }, [focus, openThread, threads]);
+  }, [focus, openThread, threads, task.id]);
   // The pulse fades on its own; owning the timer in its own effect keeps it
   // cleaned up on the next pulse or on unmount, without a stray ref.
   useEffect(() => {
@@ -516,6 +537,8 @@ export function TaskCommentsList({
 
   const loading =
     commentsQuery.isLoading || prConversation.isLoading || prReviews.isLoading;
+  const loadFailed =
+    commentsQuery.isError || prConversation.isError || prReviews.isError;
 
   return (
     // The parent scrolls the middle; the filters and the composer are pinned so
@@ -554,7 +577,7 @@ export function TaskCommentsList({
                   />
                   <span className="min-w-0 truncate">All sources</span>
                   <span className="ml-auto shrink-0 pl-3 text-muted-foreground tabular-nums">
-                    {threads.length}
+                    {stateFilteredThreads.length}
                   </span>
                 </DropdownMenuRadioItem>
                 {sourceOptions.map((option) => (
@@ -600,7 +623,19 @@ export function TaskCommentsList({
         </DropdownMenu>
       </header>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pt-3 pb-2">
-        {loading && threads.length === 0 ? (
+        {loadFailed ? (
+          <Empty className="py-8">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <ChatCircleIcon />
+              </EmptyMedia>
+              <EmptyTitle>Couldn't load comments</EmptyTitle>
+              <EmptyDescription>
+                Refresh the page to try again.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : loading && threads.length === 0 ? (
           <div className="flex justify-center py-8">
             <Spinner />
           </div>
