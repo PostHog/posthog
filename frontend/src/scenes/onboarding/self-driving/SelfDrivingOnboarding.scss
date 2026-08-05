@@ -34,11 +34,11 @@
     }
 }
 
-// Use-case / product cards: a soft warm off-white inset on the white card (light) and the secondary
-// surface in dark. Slightly darker than the card so they read as recessed tiles rather than bright
-// white islands. Not gated by breakpoint: these are content, present at every width.
+// Use-case / product cards: a translucent white wash over the cream card so the rows lift slightly
+// without reading as stark white islands (light); the secondary surface in dark. Not gated by
+// breakpoint: these are content, present at every width.
 .OnboardingProductCard {
-    background-color: #f5f6ee;
+    background-color: rgb(255 255 255 / 55%);
 }
 
 [theme='dark'] .OnboardingProductCard {

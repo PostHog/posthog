@@ -30,7 +30,7 @@ export function GoalsStep({ onContinue, onSkip }: { onContinue: () => void; onSk
                                 selectGoal(goal.key)
                                 onContinue()
                             }}
-                            className="group flex items-center gap-4 p-4 rounded-lg border bg-surface-primary text-left cursor-pointer transition-all hover:shadow-sm"
+                            className="OnboardingProductCard group flex items-center gap-4 p-4 rounded-lg border text-left cursor-pointer transition-all hover:shadow-sm"
                             // Tailwind can't parameterize the product color, so the hover border
                             // tint rides on a CSS variable the class below reads.
                             style={{ ['--goal-color' as string]: colorVar }}
