@@ -1,6 +1,7 @@
 import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities";
 import {
   type CanvasNavIntent,
+  type CanvasTextSelection,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import type { CanvasCapabilities } from "@posthog/shared";
@@ -81,6 +82,7 @@ export interface BuiltCanvasProps {
   onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onTextSelection?: (selection: CanvasTextSelection) => void;
 }
 
 export function BuiltCanvas({
@@ -91,6 +93,7 @@ export function BuiltCanvas({
   onReady,
   onRendered,
   onNavigate,
+  onTextSelection,
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const hostDocument = buildArtifactHostDocument(artifactUrl);
@@ -101,6 +104,7 @@ export function BuiltCanvas({
     onReady,
     onRendered,
     onNavigate,
+    onTextSelection,
   });
   latest.current = {
     capabilities,
@@ -109,6 +113,7 @@ export function BuiltCanvas({
     onReady,
     onRendered,
     onNavigate,
+    onTextSelection,
   };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new host document needs a fresh bridge even though the effect reads it only through the iframe.
@@ -132,6 +137,18 @@ export function BuiltCanvas({
         onReady: () => latest.current.onReady?.(),
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
+        onTextSelection: (selection) => {
+          const frame = iframeRef.current?.getBoundingClientRect();
+          latest.current.onTextSelection?.({
+            ...selection,
+            rect: {
+              top: selection.rect.top + (frame?.top ?? 0),
+              right: selection.rect.right + (frame?.left ?? 0),
+              bottom: selection.rect.bottom + (frame?.top ?? 0),
+              left: selection.rect.left + (frame?.left ?? 0),
+            },
+          });
+        },
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
       // Built artifacts run arbitrary published code, so an external open asks

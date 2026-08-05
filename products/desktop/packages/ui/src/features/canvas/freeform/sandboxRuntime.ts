@@ -276,6 +276,38 @@ export function buildSandboxDocument(
       true,
     );
 
+    document.addEventListener("mouseup", () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      if (!document.body.contains(range.startContainer) || !document.body.contains(range.endContainer)) return;
+      const before = document.createRange();
+      before.selectNodeContents(document.body);
+      before.setEnd(range.startContainer, range.startOffset);
+      const through = document.createRange();
+      through.selectNodeContents(document.body);
+      through.setEnd(range.endContainer, range.endOffset);
+      const whole = document.createRange();
+      whole.selectNodeContents(document.body);
+      const text = whole.toString();
+      const start = before.toString().length;
+      const end = through.toString().length;
+      const quote = text.slice(start, end);
+      if (!quote.trim()) return;
+      const rect = range.getBoundingClientRect();
+      post({
+        type: "text-selection",
+        selection: {
+          quote,
+          prefix: text.slice(Math.max(0, start - 32), start),
+          suffix: text.slice(end, end + 32),
+          start,
+          end,
+          rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
+        },
+      });
+    });
+
     // Boot posthog-js with the PUBLIC key the host passed in (never the read
     // token). Enables session replay so the author/viewer can be watched.
     const bootAnalytics = async (cfg) => {

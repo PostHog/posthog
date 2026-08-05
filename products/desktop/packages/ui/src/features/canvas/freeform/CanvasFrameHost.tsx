@@ -58,6 +58,7 @@ export function CanvasFrameHost() {
                 onError={slot.inputs.onError}
                 onRendered={slot.inputs.onRendered}
                 onNavigate={slot.inputs.onNavigate}
+                onTextSelection={slot.inputs.onTextSelection}
               />
             </ErrorBoundary>
           </div>

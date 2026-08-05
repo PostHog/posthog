@@ -37,6 +37,55 @@ describe("FreeformCanvas", () => {
     );
   });
 
+  it("forwards a validated text selection in viewport coordinates", () => {
+    const onTextSelection = vi.fn();
+    render(
+      <FreeformCanvas
+        code="export default function Canvas() { return null }"
+        mode="edit"
+        onDataRequest={vi.fn()}
+        onTextSelection={onTextSelection}
+      />,
+    );
+    const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
+    vi.spyOn(iframe, "getBoundingClientRect").mockReturnValue({
+      top: 100,
+      left: 200,
+      right: 800,
+      bottom: 700,
+      width: 600,
+      height: 600,
+      x: 200,
+      y: 100,
+      toJSON: () => ({}),
+    });
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: iframe.contentWindow,
+        data: {
+          channel: "posthog-canvas",
+          type: "text-selection",
+          selection: {
+            quote: "selected text",
+            prefix: "before ",
+            suffix: " after",
+            start: 7,
+            end: 20,
+            rect: { top: 10, right: 80, bottom: 30, left: 20 },
+          },
+        },
+      }),
+    );
+
+    expect(onTextSelection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        quote: "selected text",
+        rect: { top: 110, right: 280, bottom: 130, left: 220 },
+      }),
+    );
+  });
+
   describe("open-external", () => {
     let userActivationIsActive = true;
 

@@ -14,9 +14,11 @@ import { useCreateComment } from "./useComments";
 export function ArtifactDocumentCommentAction({
   target,
   taskId,
+  onCreated,
 }: {
   target: CommentTarget;
   taskId: string;
+  onCreated?: (commentId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -38,11 +40,14 @@ export function ArtifactDocumentCommentAction({
           value={draft}
           onValueChange={setDraft}
           onSubmit={(content, mentions) => {
-            createComment.mutate({
-              content,
-              context: { anchor: { kind: "document" } },
-              mentions,
-            });
+            createComment.mutate(
+              {
+                content,
+                context: { anchor: { kind: "document" } },
+                mentions,
+              },
+              { onSuccess: (comment) => onCreated?.(comment.id) },
+            );
             setDraft("");
             setOpen(false);
           }}

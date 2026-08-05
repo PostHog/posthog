@@ -37,11 +37,13 @@ import {
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ArtifactDocumentCommentAction } from "@posthog/ui/features/sessions/components/ArtifactDocumentCommentAction";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
@@ -280,6 +282,7 @@ function CanvasBreadcrumb({
 }) {
   const { dashboard } = useDashboard(dashboardId);
   const { renameDashboard } = useDashboardMutations();
+  const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
 
   return (
@@ -301,6 +304,16 @@ function CanvasBreadcrumb({
             <ArtifactDocumentCommentAction
               target={{ scope: "desktop_canvas", itemId: dashboardId }}
               taskId={dashboard.generationTaskId}
+              onCreated={(commentId) => {
+                openComments();
+                useCommentNavigationStore
+                  .getState()
+                  .requestCommentFocus(
+                    dashboard.generationTaskId as string,
+                    { scope: "desktop_canvas", itemId: dashboardId },
+                    commentId,
+                  );
+              }}
             />
           )}
           {trailing}

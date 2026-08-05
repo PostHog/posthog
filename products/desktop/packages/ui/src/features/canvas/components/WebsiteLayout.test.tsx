@@ -1,6 +1,6 @@
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
@@ -57,8 +57,20 @@ vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
 vi.mock(
   "@posthog/ui/features/sessions/components/ArtifactDocumentCommentAction",
   () => ({
-    ArtifactDocumentCommentAction: ({ taskId }: { taskId: string }) => (
-      <div data-testid="canvas-comment-action">{taskId}</div>
+    ArtifactDocumentCommentAction: ({
+      taskId,
+      onCreated,
+    }: {
+      taskId: string;
+      onCreated?: (commentId: string) => void;
+    }) => (
+      <button
+        type="button"
+        data-testid="canvas-comment-action"
+        onClick={() => onCreated?.("comment-1")}
+      >
+        {taskId}
+      </button>
     ),
   }),
 );
@@ -74,6 +86,7 @@ vi.mock("@posthog/ui/features/canvas/freeform/CanvasFrameHost", () => ({
   CanvasFrameHost: () => null,
 }));
 
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { WebsiteLayout } from "./WebsiteLayout";
 
@@ -127,6 +140,12 @@ describe("WebsiteLayout task header actions", () => {
     expect(screen.getByTestId("canvas-comment-action")).toHaveTextContent(
       "task-1",
     );
+    useCanvasChatPanelStore.setState({ collapsed: true, tab: "chat" });
+    fireEvent.click(screen.getByTestId("canvas-comment-action"));
+    expect(useCanvasChatPanelStore.getState()).toMatchObject({
+      collapsed: false,
+      tab: "comments",
+    });
   });
 
   it("renders the task action row on a channel task detail", () => {

@@ -1,6 +1,7 @@
 import type {
   CanvasAnalyticsConfig,
   CanvasNavIntent,
+  CanvasTextSelection,
 } from "@posthog/core/canvas/freeformSchemas";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { useCanvasFrameStore } from "./canvasFrameStore";
@@ -18,6 +19,7 @@ export function CanvasFramePlaceholder({
   onError,
   onRendered,
   onNavigate,
+  onTextSelection,
 }: {
   dashboardId: string;
   code: string;
@@ -26,6 +28,7 @@ export function CanvasFramePlaceholder({
   onError?: (message: string, stack?: string) => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onTextSelection?: (selection: CanvasTextSelection) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -42,8 +45,17 @@ export function CanvasFramePlaceholder({
       onError,
       onRendered,
       onNavigate,
+      onTextSelection,
     }),
-    [code, analytics, onDataRequest, onError, onRendered, onNavigate],
+    [
+      code,
+      analytics,
+      onDataRequest,
+      onError,
+      onRendered,
+      onNavigate,
+      onTextSelection,
+    ],
   );
 
   // Layout effect (not passive) and declared first, so the slot exists before the

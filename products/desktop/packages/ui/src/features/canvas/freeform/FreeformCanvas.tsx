@@ -1,6 +1,7 @@
 import {
   type CanvasAnalyticsConfig,
   type CanvasNavIntent,
+  type CanvasTextSelection,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import { logger } from "@posthog/ui/shell/logger";
@@ -39,6 +40,7 @@ export interface FreeformCanvasProps {
    * just forwards it — the caller maps it to actual routing.
    */
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onTextSelection?: (selection: CanvasTextSelection) => void;
   /**
    * Bootstrap config for in-iframe posthog-js (analytics + session replay).
    * Absent = no capture/replay. Only the PUBLIC key is here; the private token
@@ -57,6 +59,7 @@ export function FreeformCanvas({
   onError,
   onRendered,
   onNavigate,
+  onTextSelection,
   analytics,
 }: FreeformCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -83,6 +86,7 @@ export function FreeformCanvas({
     onError,
     onRendered,
     onNavigate,
+    onTextSelection,
     code,
     mode,
     analytics,
@@ -93,6 +97,7 @@ export function FreeformCanvas({
     onError,
     onRendered,
     onNavigate,
+    onTextSelection,
     code,
     mode,
     analytics,
@@ -145,6 +150,18 @@ export function FreeformCanvas({
         },
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
+        onTextSelection: (selection) => {
+          const frame = iframeRef.current?.getBoundingClientRect();
+          latest.current.onTextSelection?.({
+            ...selection,
+            rect: {
+              top: selection.rect.top + (frame?.top ?? 0),
+              right: selection.rect.right + (frame?.left ?? 0),
+              bottom: selection.rect.bottom + (frame?.top ?? 0),
+              left: selection.rect.left + (frame?.left ?? 0),
+            },
+          });
+        },
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
       openExternal: openExternalUrl,

@@ -177,6 +177,21 @@ export const canvasNavIntentSchema = z.discriminatedUnion("target", [
 ]);
 export type CanvasNavIntent = z.infer<typeof canvasNavIntentSchema>;
 
+export const canvasTextSelectionSchema = z.object({
+  quote: z.string().min(1).max(10_000),
+  prefix: z.string().max(32),
+  suffix: z.string().max(32),
+  start: z.number().int().nonnegative(),
+  end: z.number().int().positive(),
+  rect: z.object({
+    top: z.number().finite(),
+    right: z.number().finite(),
+    bottom: z.number().finite(),
+    left: z.number().finite(),
+  }),
+});
+export type CanvasTextSelection = z.infer<typeof canvasTextSelectionSchema>;
+
 // iframe -> host
 export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
   // Iframe runtime is mounted and ready to receive `init`.
@@ -222,6 +237,11 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("open-external"),
     url: z.string().refine(isSafePostHogUrl),
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("text-selection"),
+    selection: canvasTextSelectionSchema,
   }),
 ]);
 export type CanvasToHostMessage = z.infer<typeof canvasToHostMessageSchema>;
