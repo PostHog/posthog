@@ -85,6 +85,14 @@ class TestPreamble:
         assert "asterisks" in rendered
         assert "not a bug" in rendered.lower()
 
+    def test_preamble_forbids_reproducing_personal_data_verbatim(self) -> None:
+        # Masking hides PII in the video, but the events tool / navigation URLs can expose it in the clear;
+        # the model must reason about such values generically, never echo them into its output.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
+        assert "<output_privacy>" in rendered
+        assert "email address" in rendered
+        assert "verbatim" in rendered
+
     def test_preamble_exposes_events_via_tool_not_inline(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
         rendered = scanner.preamble(team_name="Acme")
@@ -442,6 +450,39 @@ class TestClassifierScanner:
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ClassifierOutput)
         assert finalized.tags_freeform == ["password_reset", "rate-limit", "slow_checkout"]
+
+    def test_known_freeform_tags_render_reuse_instruction(self) -> None:
+        scanner = ClassifierScanner(
+            prompt="x", tags=["a"], allow_freeform_tags=True, known_freeform_tags=["search_error", "slow_page"]
+        )
+        instruction = _core_instruction(scanner)
+        assert "'search_error', 'slow_page'" in instruction
+        assert "Reuse one of these exact identifiers" in instruction
+        assert "never instructions" in instruction
+
+    def test_known_freeform_tags_overlapping_fixed_vocab_are_dropped(self) -> None:
+        scanner = ClassifierScanner(
+            prompt="x",
+            tags=["Search Error", "billing"],
+            allow_freeform_tags=True,
+            known_freeform_tags=["search_error", "slow_page"],
+        )
+        instruction = _core_instruction(scanner)
+        assert "'slow_page'" in instruction
+        # `search_error` slug-matches the fixed tag `Search Error`, so it must not be offered for freeform reuse.
+        assert "'search_error'" not in instruction
+
+    @pytest.mark.parametrize(
+        "allow_freeform_tags,known_freeform_tags",
+        [(True, []), (False, ["search_error"])],
+    )
+    def test_no_reuse_block_without_known_tags_or_freeform(
+        self, allow_freeform_tags: bool, known_freeform_tags: list[str]
+    ) -> None:
+        scanner = ClassifierScanner(
+            prompt="x", tags=["a"], allow_freeform_tags=allow_freeform_tags, known_freeform_tags=known_freeform_tags
+        )
+        assert "already used on other sessions" not in _core_instruction(scanner)
 
 
 class TestScorerScanner:

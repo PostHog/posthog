@@ -10,7 +10,7 @@ from django.conf import settings
 
 import aioboto3
 from botocore.exceptions import ClientError
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -20,9 +20,9 @@ from posthog.temporal.common.logger import get_logger, get_write_only_logger
 from products.batch_exports.backend.models.batch_export import BatchExportFileDownload
 from products.batch_exports.backend.service import BatchExportInsertInputs, FileDownloadBatchExportInputs
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
@@ -350,8 +350,10 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
                         non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                     ),
                 )
-            except OverBillingLimitError:
-                return FileDownloadBatchExportResult(records_completed=0, bytes_exported=0)
+            except exceptions.ActivityError as e:
+                if is_over_billing_limit_error(e):
+                    return FileDownloadBatchExportResult(records_completed=0, bytes_exported=0)
+                raise
 
         export_inputs = ExportInputs(
             batch_export=BatchExportInsertInputs(

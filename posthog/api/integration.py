@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Q, QuerySet
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -26,6 +27,7 @@ from posthog.api.github_callback.team_services import (
     build_team_oauth_authorize_url,
     create_team_github_integration_from_oauth_code,
     link_existing_team_github_integration,
+    list_org_github_installations,
 )
 from posthog.api.github_callback.types import (
     FlowKind,
@@ -49,6 +51,10 @@ from posthog.models.integration import (
     ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
+    POSTHOG_CONNECT_ALLOWED_REGIONS,
+    POSTHOG_CONNECT_DEFAULT_SCOPES,
+    POSTHOG_CONNECT_GRANTABLE_SCOPES,
+    POSTHOG_CONNECT_KIND,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
@@ -428,8 +434,14 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # still be classified as a create and could land `disabled` over the policy an admin had just
         # written. Omitting the key entirely stays open to members and is what connecting a channel
         # without touching the policy does — that path preserves whatever is already stored.
-        requested_verification = (validated_data.get("config") or {}).get("push_identity_verification")
-        if requested_verification and not github_callback_state.has_team_management_access(
+        config_in = validated_data.get("config") or {}
+        requested_verification = config_in.get("push_identity_verification")
+        # Registering/clearing public keys is a security-policy change (it decides which signer is
+        # trusted), so it carries the same admin bar as the mode. `is not None` covers clearing too.
+        requested_public_keys = config_in.get("push_identity_public_keys")
+        if (
+            requested_verification or requested_public_keys is not None
+        ) and not github_callback_state.has_team_management_access(
             self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Changing push identity verification requires project admin access.")
@@ -494,6 +506,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 team_id,
                 request.user,
                 push_identity_verification=(validated_data.get("config") or {}).get("push_identity_verification"),
+                push_identity_public_keys=(validated_data.get("config") or {}).get("push_identity_public_keys"),
             )
             return instance
 
@@ -707,6 +720,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 created_by=request.user,
                 environment=environment,
                 push_identity_verification=config.get("push_identity_verification"),
+                push_identity_public_keys=config.get("push_identity_public_keys"),
             )
             return instance
 
@@ -901,6 +915,30 @@ class GitHubLinkExistingRequestSerializer(serializers.Serializer):
     )
 
 
+class GitHubAvailableInstallationSerializer(serializers.Serializer):
+    installation_id = serializers.CharField(
+        help_text="GitHub installation ID to pass to github/link_existing when linking this installation."
+    )
+    account_name = serializers.CharField(
+        allow_null=True,
+        help_text="GitHub account (organization or user) the installation belongs to, for display in the picker.",
+    )
+    account_type = serializers.CharField(
+        allow_null=True,
+        help_text="GitHub account type, e.g. 'Organization' or 'User'.",
+    )
+    source_team_id = serializers.IntegerField(
+        help_text="A project in the organization that already has this installation linked.",
+    )
+
+
+class GitHubAvailableInstallationsResponseSerializer(serializers.Serializer):
+    installations = GitHubAvailableInstallationSerializer(
+        many=True,
+        help_text="Distinct GitHub installations in the organization available to link to this project.",
+    )
+
+
 class GitHubOAuthAuthorizeRequestSerializer(serializers.Serializer):
     installation_id = serializers.CharField(
         required=False,
@@ -955,6 +993,7 @@ class IntegrationViewSet(
         "github_repos",
         "github_branches",
         "github_teams",
+        "github_available_installations",
         "jira_projects",
         "linear_teams",
         "anthropic_managed_agents",
@@ -979,6 +1018,14 @@ class IntegrationViewSet(
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        # A `posthog` connection holds the creator's delegated grant into another project plus personal
+        # target metadata (account email, region, scopes) in its config, and is only usable by its
+        # creator. Unlike team-shared integrations, don't expose other members' connections in
+        # list/retrieve — scope `posthog` rows to the requesting user. Other kinds stay team-visible.
+        user_id = getattr(self.request.user, "id", None)
+        return queryset.exclude(Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id))
 
     def handle_exception(self, exc: Exception) -> Response:
         # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);
@@ -1095,8 +1142,26 @@ class IntegrationViewSet(
         token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
+            region: str | None = None
+            scopes: list[str] | None = None
+            if kind == "posthog":
+                region = (request.GET.get("region") or "").upper()
+                if region not in POSTHOG_CONNECT_ALLOWED_REGIONS:
+                    raise ValidationError(f"region must be one of {', '.join(POSTHOG_CONNECT_ALLOWED_REGIONS)}")
+                raw_scopes = (request.GET.get("scopes") or "").strip()
+                if raw_scopes == "full":
+                    scopes = sorted(POSTHOG_CONNECT_GRANTABLE_SCOPES)
+                elif raw_scopes == "read_only":
+                    scopes = sorted(s for s in POSTHOG_CONNECT_GRANTABLE_SCOPES if s.endswith(":read"))
+                else:
+                    scopes = [s for s in re.split(r"[,\s]+", raw_scopes) if s] or list(POSTHOG_CONNECT_DEFAULT_SCOPES)
+                    invalid = [s for s in scopes if s not in POSTHOG_CONNECT_GRANTABLE_SCOPES]
+                    if invalid:
+                        raise ValidationError(f"Unsupported connection scopes: {', '.join(invalid)}")
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token, team_id=self.team_id)
+                auth_url = OauthIntegration.authorize_url(
+                    kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id
+                )
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
@@ -1550,6 +1615,22 @@ class IntegrationViewSet(
             ),
         )
         return Response(status=204)
+
+    @extend_schema(responses={200: GitHubAvailableInstallationsResponseSerializer})
+    @action(methods=["GET"], detail=False, url_path="github/available_installations")
+    def github_available_installations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the org's existing GitHub installations this project can reuse.
+
+        A GitHub App installs once per organization, so a second project links an existing
+        installation rather than reinstalling. This backs the picker: when the org has more than
+        one installation, the client passes the chosen installation_id to github/link_existing.
+        """
+        installations = list_org_github_installations(
+            user=cast(User, request.user),
+            organization=self.organization,
+            exclude_team_id=self.team_id,
+        )
+        return Response({"installations": GitHubAvailableInstallationSerializer(installations, many=True).data})
 
     @extend_schema(
         request=GitHubLinkExistingRequestSerializer,

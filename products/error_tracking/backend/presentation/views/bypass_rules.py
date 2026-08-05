@@ -83,6 +83,7 @@ class ErrorTrackingBypassRuleUpdateRequestSerializer(serializers.Serializer):
 
 class ErrorTrackingBypassRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
     serializer_class = ErrorTrackingBypassRuleSerializer
 
     def list(self, request, *args, **kwargs) -> Response:

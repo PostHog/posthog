@@ -25,6 +25,10 @@ export const PropertyGroupTypeEnumApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -40,6 +44,10 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -75,6 +83,10 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -393,6 +405,7 @@ export interface FeatureFlagConditionGroupSchemaApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -405,6 +418,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -811,6 +825,12 @@ export interface PaginatedExperimentBasicListApi {
 }
 
 /**
+ * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+ * @nullable
+ */
+export type ExperimentWriteApiOriginalExperiment = { [key: string]: unknown } | null
+
+/**
  * A single release-condition group carrying only the overall rollout percentage, the one
  * groups entry the experiment input applies.
  */
@@ -918,6 +938,10 @@ export const PropertyOperatorApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -1466,18 +1490,36 @@ export interface ExperimentWriteApi {
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
+    /**
+     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check.
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * @nullable
+     */
+    original_experiment?: ExperimentWriteApiOriginalExperiment
     /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
     readonly status: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure: boolean
+    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    readonly resolved_exposure_event: string
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level: string | null
 }
+
+/**
+ * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+ * @nullable
+ */
+export type ExperimentApiOriginalExperiment = { [key: string]: unknown } | null
 
 /**
  * Full experiment representation for the detail, create, and update endpoints.
@@ -1585,18 +1627,36 @@ export interface ExperimentApi {
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
+    /**
+     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check.
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * @nullable
+     */
+    original_experiment?: ExperimentApiOriginalExperiment
     /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
     readonly status: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure: boolean
+    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    readonly resolved_exposure_event: string
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level: string | null
 }
+
+/**
+ * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+ * @nullable
+ */
+export type PatchedExperimentWriteApiOriginalExperiment = { [key: string]: unknown } | null
 
 /**
  * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
@@ -1700,12 +1760,24 @@ export interface PatchedExperimentWriteApi {
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
+    /**
+     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check.
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * @nullable
+     */
+    original_experiment?: PatchedExperimentWriteApiOriginalExperiment
     /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
     readonly status?: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy?: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure?: boolean
+    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    readonly resolved_exposure_event?: string
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1811,6 +1883,45 @@ export interface EndExperimentApi {
     conclusion_comment?: string | null
     /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
+    /**
+     * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+}
+
+/**
+ * * `explicit` - explicit
+ * * `single_repo` - single_repo
+ * * `ambiguous` - ambiguous
+ * * `no_integration` - no_integration
+ */
+export type ExperimentFlagCleanupTargetSourceEnumApi =
+    (typeof ExperimentFlagCleanupTargetSourceEnumApi)[keyof typeof ExperimentFlagCleanupTargetSourceEnumApi]
+
+export const ExperimentFlagCleanupTargetSourceEnumApi = {
+    Explicit: 'explicit',
+    SingleRepo: 'single_repo',
+    Ambiguous: 'ambiguous',
+    NoIntegration: 'no_integration',
+} as const
+
+export interface ExperimentFlagCleanupTargetApi {
+    /**
+     * Repository a flag-cleanup pull request would be opened in, or null when none can be determined.
+     * @nullable
+     */
+    repository: string | null
+    /** How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none saved — pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
+     *
+     * * `explicit` - explicit
+     * * `single_repo` - single_repo
+     * * `ambiguous` - ambiguous
+     * * `no_integration` - no_integration */
+    source: ExperimentFlagCleanupTargetSourceEnumApi
+    /** Repositories connected to the team's GitHub integration, to choose a target from. */
+    candidates: string[]
 }
 
 /**
@@ -2052,6 +2163,89 @@ export interface ExperimentMetricsRecalculationApi {
     estimated_rows_total?: number | null
 }
 
+/**
+ * * `fired_any` - fired_any
+ * * `no_metric_activity` - no_metric_activity
+ * * `funnel_dropoff` - funnel_dropoff
+ */
+export type ExperimentSessionBucketEnumApi =
+    (typeof ExperimentSessionBucketEnumApi)[keyof typeof ExperimentSessionBucketEnumApi]
+
+export const ExperimentSessionBucketEnumApi = {
+    FiredAny: 'fired_any',
+    NoMetricActivity: 'no_metric_activity',
+    FunnelDropoff: 'funnel_dropoff',
+} as const
+
+/**
+ * Request body for the session-bucket endpoint.
+ */
+export interface ExperimentSessionBucketRequestApi {
+    /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the experiment analysis. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.
+     *
+     * * `fired_any` - fired_any
+     * * `no_metric_activity` - no_metric_activity
+     * * `funnel_dropoff` - funnel_dropoff */
+    bucket: ExperimentSessionBucketEnumApi
+    /** Metrics the bucket is computed over. Exactly one funnel metric for 'funnel_dropoff'. Omit for the other buckets to use every metric of the experiment that can be matched to recordings. */
+    metric_uuids?: string[]
+    /**
+     * Restrict to sessions that saw this variant. Omit for every variant. A session that saw more than one variant matches each variant it saw.
+     * @nullable
+     */
+    variant?: string | null
+    /**
+     * Maximum session IDs to return, at most 100. The most recently active matching sessions win.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+/**
+ * One metric the bucket was computed over.
+ */
+export interface ExperimentSessionBucketMetricApi {
+    /** UUID of the experiment metric. */
+    metric_uuid: string
+    /** Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed. */
+    metric_name: string
+}
+
+/**
+ * One requested metric the bucket could not be computed over.
+ */
+export interface ExperimentSessionBucketExcludedMetricApi {
+    /** UUID of the experiment metric. */
+    metric_uuid: string
+    /** Display name of the metric. */
+    metric_name: string
+    /** Why the metric can't be matched to recordings: a data-warehouse-only source, a retention window, or events only ever captured server-side. */
+    reason: string
+}
+
+/**
+ * Session recordings of an experiment matching a bucket.
+ */
+export interface ExperimentSessionBucketResponseApi {
+    /** IDs of matching sessions that have a recording, most recently active first. Feed these to a recordings query as session_ids; they are a subset of the experiment's exposed sessions, so the exposure filter can stay in place alongside them. */
+    session_ids: string[]
+    /** True when more sessions matched than the limit returned. Older matches were dropped first. */
+    truncated: boolean
+    /** The metrics the bucket was actually computed over. Load-bearing for 'no_metric_activity': 'fired nothing' only means something next to the list of metrics it was evaluated against. */
+    considered_metrics: ExperimentSessionBucketMetricApi[]
+    /** Requested metrics left out of the bucket because they can never match a recording, with the reason. They are reported rather than silently producing an empty result. */
+    excluded_metrics: ExperimentSessionBucketExcludedMetricApi[]
+    /** Start of the window scanned: the experiment's run window, clamped to its most recent 30 days. Matches outside it are not returned. */
+    date_from: string
+    /** End of the window scanned: the experiment's end date, or now while it runs. */
+    date_to: string
+    /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
+    filter_test_accounts: boolean
+    /** True when the exposed population was matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', not 'the exposure moment was captured'. The variant comes from the flag's value on each event, so a returning user can appear under a variant they were re-bucketed into later. */
+    used_exposure_fallback: boolean
+}
+
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
      *
@@ -2069,6 +2263,12 @@ export interface ShipVariantApi {
     conclusion_comment?: string | null
     /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
+    /**
+     * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     /** The key of the variant to ship. */
     variant_key: string
     /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */

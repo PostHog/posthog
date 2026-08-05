@@ -161,6 +161,12 @@ pub struct UpsertStats {
     pub source_rows: usize,
     #[pyo3(get)]
     pub null_pk_rows: usize,
+    #[pyo3(get)]
+    pub plan_ms: u64,
+    #[pyo3(get)]
+    pub rewrite_ms: u64,
+    #[pyo3(get)]
+    pub commit_ms: u64,
 }
 
 #[pymethods]
@@ -197,6 +203,9 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             rows_copied: s.rows_copied,
             source_rows: s.source_rows,
             null_pk_rows: s.null_pk_rows,
+            plan_ms: s.plan_ms,
+            rewrite_ms: s.rewrite_ms,
+            commit_ms: s.commit_ms,
         }
     }
 }

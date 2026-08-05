@@ -129,6 +129,7 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.Serializer):
 
 class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
     serializer_class = ErrorTrackingAssignmentRuleSerializer
 
     def list(self, request, *args, **kwargs) -> Response:

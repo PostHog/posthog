@@ -90,6 +90,7 @@ class ErrorTrackingSuppressionRuleUpdateRequestSerializer(serializers.Serializer
 
 class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
     serializer_class = ErrorTrackingSuppressionRuleSerializer
 
     def list(self, request, *args, **kwargs) -> Response:

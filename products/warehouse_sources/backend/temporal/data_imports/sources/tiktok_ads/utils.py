@@ -303,6 +303,9 @@ class TikTokReportResource:
                 return cls.transform_entity_reports(reports_list)
             case EndpointType.ACCOUNT:
                 return cls.transform_account_reports(reports_list)
+            case EndpointType.ASSET:
+                # Creative library rows already arrive flat and need no defaulting.
+                return reports_list
             case _:
                 raise ValueError(f"Endpoint type: {endpoint_type} is not implemented")
 

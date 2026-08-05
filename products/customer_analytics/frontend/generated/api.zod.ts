@@ -101,24 +101,6 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -126,10 +108,11 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
             ),
         tags: zod
             .array(zod.string())
@@ -193,24 +176,6 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -218,10 +183,11 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
             ),
         tags: zod
             .array(zod.string())
@@ -261,24 +227,6 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -286,10 +234,11 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
             ),
         tags: zod
             .array(zod.string())

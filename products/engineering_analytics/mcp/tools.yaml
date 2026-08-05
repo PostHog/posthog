@@ -275,9 +275,11 @@ tools:
         title: PR lifecycle timeline
         description: >
             The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus
-            ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer "where is this PR
-            stuck and what happened to it". metric_quality is "partial" — it covers CI events only; review and comment
-            events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.
+            ordered events — opened, ready for review, converted to draft, CI started, CI finished, and merged or
+            closed. Use this to answer "where is this PR stuck and what happened to it". Draft/ready transitions appear
+            only when the issue-events table is synced and cover a bounded recent window. metric_quality is "partial" —
+            review and comment events are not yet available. For aggregate questions use the pull-requests and
+            workflow-health tools.
         feature_flag: engineering-analytics
     pull-requests:
         operation: engineering_analytics_pull_requests
@@ -295,9 +297,12 @@ tools:
             rollup (runs / passing / failing / pending). Use this for "which PRs are stuck", "which open PRs have
             failing or pending CI", and per-author or per-repo PR triage. open_to_merge_seconds is coarse — it is
             merged_at minus created_at and fuses draft and ready-for-review time, so report it as "open to merge", never
-            "cycle time". CI counts come from the latest run per workflow on the head SHA and can lag until the
-            workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft)
-            for throughput questions.
+            "cycle time". ready_to_merge_seconds is the true cycle time: merged_at minus the last observed
+            ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR
+            verifiably never drafted. Null means "not observed" (the issue-events window is bounded), never zero. CI
+            counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook
+            settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput
+            questions.
         param_overrides:
             date_from:
                 description: >
