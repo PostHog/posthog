@@ -7,7 +7,6 @@ export {
 
 import type { PermissionMode as SdkPermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { CodeExecutionMode } from "../../execution-mode";
-import { isMcpToolReadOnly } from "./mcp/tool-metadata";
 
 export const READ_TOOLS: Set<string> = new Set(["Read", "NotebookRead"]);
 
@@ -82,8 +81,11 @@ export function isToolAllowedForMode(
   if (AUTO_ALLOWED_TOOLS[mode]?.has(toolName) === true) {
     return true;
   }
-  if (isMcpToolReadOnly(toolName)) {
-    return true;
-  }
+  // MCP tools are never auto-approved from mode alone. A server supplies its own
+  // `readOnly` annotation, so a malicious or compromised server can mark a
+  // destructive tool read-only, and trusting that here would run it with no
+  // prompt, including in plan mode. MCP tools instead flow through canUseTool's
+  // explicit approval states (do_not_use, needs_approval, user-approved) and
+  // otherwise fall through to the normal permission prompt.
   return false;
 }
