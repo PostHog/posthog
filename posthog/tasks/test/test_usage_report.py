@@ -1628,6 +1628,7 @@ class TestQueryUsageReportSQL:
         assert sponsor_params["backdate_seconds"] == int(GATEWAY_SPONSORSHIP_BACKDATE.total_seconds())
         assert sponsor_params["relayed_team_ids"] == [1]
         assert sponsor_params["sponsor_begin"] == begin - GATEWAY_SPONSORSHIP_LOOKAROUND
+        assert sponsor_params["relay_begin"] == begin - GATEWAY_SPONSORSHIP_LOOKAROUND - GATEWAY_SPONSORSHIP_BACKDATE
         assert sponsor_params["sponsor_end"] == end + GATEWAY_SPONSORSHIP_LOOKAROUND
 
 
@@ -6253,6 +6254,61 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         flush_persons_and_events()
 
         self.assertEqual(ai_count(), baseline_count, "provider-latency backdating keeps the parent span free")
+
+    def test_gateway_sponsorship_counts_grace_relay_before_lookaround(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+            GATEWAY_SPONSORSHIP_BACKDATE,
+            GATEWAY_SPONSORSHIP_LOOKAROUND,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "lookaround-boundary-trace"
+        sponsor_begin = self.begin - GATEWAY_SPONSORSHIP_LOOKAROUND
+        generation_timestamp = sponsor_begin + relativedelta(minutes=1)
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=generation_timestamp,
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "lookaround-boundary-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        _create_event(
+            event="$ai_span",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=generation_timestamp - GATEWAY_SPONSORSHIP_BACKDATE,
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_relay": True,
+                "$ai_trace_id": trace_id,
+                "$ai_span_id": "grace-window-span",
+            },
+        )
+        for index in range(GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE):
+            _create_event(
+                event="$ai_span",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_trace_id": trace_id,
+                    "$ai_span_id": f"period-span-{index}",
+                },
+            )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(), baseline_count + 1, "the grace-window span consumes one trace allowance")
 
     def test_gateway_sponsorship_has_independent_trace_and_evaluation_allowances(self) -> None:
         from posthog.tasks.usage_report import (
