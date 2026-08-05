@@ -47,7 +47,7 @@ def backfill_identity_provider_config_identifiers(apps: Any, schema_editor: Any)
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1286_identityproviderconfig_relay_state_and_scim_slug"),
+        ("posthog", "1289_identityproviderconfig_relay_state_and_scim_slug"),
     ]
 
     operations = [
