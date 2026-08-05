@@ -14,8 +14,9 @@ from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -32,9 +33,25 @@ from products.workflows.backend.api.hog_flow import (
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 
+from ee.models.rbac.access_control import AccessControl
+
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
-_REVISIONS_FLAG_PATH = "products.workflows.backend.api.hog_flow.use_workflows_revisions"
+
+class _StubAccountAudienceProvider:
+    def __init__(self, group_type: str | None):
+        self.group_type = group_type
+
+    def count_accounts(self, team, filters) -> int:
+        return 0
+
+    def list_account_external_ids(self, team, filters, *, cursor, limit) -> list[str]:
+        return []
+
+    def get_account_group_type_name(self, team) -> str | None:
+        return self.group_type
+
+
 _SECRET_TEMPLATE_ID = "template-secret-webhook"
 
 
@@ -1360,17 +1377,6 @@ class TestHogFlowAPI(APIBaseTest):
         assert activate.status_code == 200, activate.json()
         return flow_id
 
-    def test_mcp_cannot_modify_active_workflow(self):
-        # Active workflows are read-only via MCP for now — editing risks breaking already-scheduled runs.
-        flow_id = self._create_active_hog_flow()
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"name": "Renamed via MCP"},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        assert response.status_code == 400, response.json()
-        assert "active workflow isn't supported via MCP" in response.json()["detail"]
-
     @parameterized.expand([("disable_to_draft", "draft"), ("archive", "archived")])
     def test_mcp_can_disable_active_workflow(self, _name, target_status):
         flow_id = self._create_active_hog_flow()
@@ -1592,12 +1598,6 @@ class TestHogFlowAPI(APIBaseTest):
         flow_id = self._create_draft_flow_with_graph()
         response = self._patch_graph(flow_id, [])
         assert response.status_code == 400, response.json()
-
-    def test_graph_mcp_cannot_edit_active_workflow(self):
-        flow_id = self._create_active_hog_flow()
-        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "x"}}])
-        assert response.status_code == 400, response.json()
-        assert "active workflow isn't supported via MCP" in response.json()["detail"]
 
     def test_graph_non_mcp_can_edit_active_workflow(self):
         flow_id = self._create_active_hog_flow()
@@ -2116,6 +2116,169 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
+
+    def _post_batch_flow(self, filters: dict, status: str = "active"):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "batch", "filters": filters},
+        }
+        hog_flow = {"name": "Test Batch Flow", "status": status, "actions": [trigger_action]}
+        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+    def _account_audience_provider(self, group_type: str | None = "account"):
+        return patch(
+            "products.workflows.backend.services.account_audience._provider",
+            _StubAccountAudienceProvider(group_type),
+        )
+
+    def test_hog_flow_batch_trigger_accounts_audience_saves(self):
+        with self._account_audience_provider():
+            response = self._post_batch_flow(
+                {
+                    "audience_type": "accounts",
+                    "properties": [
+                        {
+                            "key": "7b0d4a12-8f0e-4c39-9a5f-52dd8f2f7a11",
+                            "type": "account_custom_property",
+                            "operator": "exact",
+                            "value": ["Enterprise"],
+                        }
+                    ],
+                    "tag_names": ["vip"],
+                }
+            )
+        assert response.status_code == 201, response.json()
+
+    @parameterized.expand(
+        [
+            ("person_property", [{"key": "email", "type": "person", "operator": "icontains", "value": "@x.com"}]),
+            ("cohort", [{"key": "id", "type": "cohort", "value": 1, "operator": "in"}]),
+        ]
+    )
+    def test_hog_flow_batch_trigger_accounts_audience_rejects_non_account_filters(self, _name, properties):
+        with self._account_audience_provider():
+            response = self._post_batch_flow({"audience_type": "accounts", "properties": properties})
+        assert response.status_code == 400, response.json()
+        assert "account custom property" in response.json()["detail"]
+
+    def test_hog_flow_batch_trigger_accounts_audience_rejects_event_filters(self):
+        with self._account_audience_provider():
+            response = self._post_batch_flow(
+                {"audience_type": "accounts", "properties": [], "events": [{"id": "$pageview", "type": "events"}]}
+            )
+        assert response.status_code == 400, response.json()
+        assert "event" in response.json()["detail"].lower()
+
+    def test_hog_flow_batch_trigger_accounts_audience_requires_configured_group_type(self):
+        with self._account_audience_provider(group_type=None):
+            response = self._post_batch_flow({"audience_type": "accounts", "properties": []})
+        assert response.status_code == 400, response.json()
+        assert "account group type" in response.json()["detail"]
+
+    def test_hog_flow_batch_trigger_accounts_audience_requires_account_access(self):
+        # Resolution runs under a service principal, so authoring is where account access is enforced.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        # Resource-level checks on "account" resolve through its parent resource.
+        AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")
+
+        with self._account_audience_provider():
+            response = self._post_batch_flow({"audience_type": "accounts", "properties": []})
+        assert response.status_code == 400, response.json()
+        assert "access" in response.json()["detail"]
+
+    def test_hog_flow_batch_trigger_rejects_unknown_audience_type(self):
+        response = self._post_batch_flow({"audience_type": "bogus", "properties": []})
+        assert response.status_code == 400, response.json()
+        assert "audience_type" in json.dumps(response.json())
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_account_audience_pages_accounts(self):
+        with (
+            self._account_audience_provider(),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_account_audience_page", return_value=["a1", "a2"]
+            ) as mock_page,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+                {"filters": {"audience_type": "accounts", "properties": []}, "cursor": "a0"},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {
+            "accounts": ["a1", "a2"],
+            "cursor": "a2",
+            "has_more": False,
+            "group_type": "account",
+        }
+        mock_page.assert_called_once()
+
+    def test_internal_account_audience_requires_internal_secret(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+            {"filters": {"audience_type": "accounts"}},
+            format="json",
+        )
+        assert response.status_code in (401, 403), response.content
+
+    @parameterized.expand(
+        [
+            ("persons_filters", {"filters": {"properties": []}}),
+            ("missing_filters", {}),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_account_audience_rejects_non_account_filters(self, _name, body):
+        with self._account_audience_provider():
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+                body,
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+        assert response.status_code == 400, response.json()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_account_audience_requires_configured_group_type(self):
+        with self._account_audience_provider(group_type=None):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+                {"filters": {"audience_type": "accounts", "properties": []}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+        assert response.status_code == 400, response.json()
+
+    def test_user_blast_radius_accounts_audience_counts_accounts(self):
+        with (
+            self._account_audience_provider(),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_account_audience_count", side_effect=[3, 10]
+            ) as mock_count,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"audience_type": "accounts", "properties": []}},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["affected"] == 3
+        assert data["total"] == 10
+        assert data["dedupe_key"] is None
+        assert data["confirm_token"]
+        assert mock_count.call_count == 2
 
     def _make_cohort(self, *, behavioral=False, static=False, nested_cohort_id=None) -> Cohort:
         if behavioral:
@@ -3893,8 +4056,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
 
-    @patch(_REVISIONS_FLAG_PATH, return_value=True)
-    def test_publish_promotes_draft_secret_to_live_without_wiping(self, _flag):
+    def test_publish_promotes_draft_secret_to_live_without_wiping(self):
         flow_id = self._create()
         assert (
             self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"}).status_code
@@ -3976,8 +4138,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert res.status_code == 200, res.json()
         return res
 
-    @patch(_REVISIONS_FLAG_PATH, return_value=True)
-    def test_activation_keeps_secret_stripped_from_live_actions(self, _flag):
+    def test_activation_keeps_secret_stripped_from_live_actions(self):
         # Activating a draft re-validates its actions (recovering secrets); the live actions blob must
         # stay stripped, with the secret only in encrypted_inputs.
         flow_id = self._create()
@@ -3990,8 +4151,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert "api_key" not in db_inputs
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
 
-    @patch(_REVISIONS_FLAG_PATH, return_value=True)
-    def test_restore_reattaches_live_secret_not_historical(self, _flag):
+    def test_restore_reattaches_live_secret_not_historical(self):
         flow_id = self._create()
         assert (
             self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"}).status_code
@@ -4059,8 +4219,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Duplicate action id" in str(response.json())
 
-    @patch(_REVISIONS_FLAG_PATH, return_value=True)
-    def test_noop_resave_of_secret_flow_does_not_bump_revision(self, _flag):
+    def test_noop_resave_of_secret_flow_does_not_bump_revision(self):
         # Resending the masked graph a GET returned (api_key as {"secret": true}) must be a true no-op:
         # validation recovers the secret back into actions before the strip, so the version-bump compare
         # has to normalize both sides secret-free or every such save spuriously bumps the version.
@@ -4153,8 +4312,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert row["trigger"]["inputs"]["api_key"] == {"secret": True}
         assert "TRIGGER-SECRET" not in json.dumps(listing)
 
-    @patch(_REVISIONS_FLAG_PATH, return_value=True)
-    def test_legacy_plaintext_secret_stripped_from_revision_snapshot(self, _flag):
+    def test_legacy_plaintext_secret_stripped_from_revision_snapshot(self):
         # A row written before encryption shipped still has a plaintext secret in `actions`. The first
         # tracked live edit bootstraps a revision of that prior state, which must be stripped - not carry
         # the plaintext forward into history.
@@ -4186,7 +4344,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
             edges=[{"from": "trigger_node", "to": "action_1", "type": "continue"}],
         )
 
-        # A web live edit (flag on) bumps the version and bootstraps a revision of the pre-edit state.
+        # A web live edit bumps the version and bootstraps a revision of the pre-edit state.
         changed_action = {
             "id": "action_1",
             "name": "action_1",

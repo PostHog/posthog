@@ -412,6 +412,15 @@ export interface BarsConfig {
     /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
      *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
     bandPadding?: number
+    /** Floor (px) on a bar's thickness along the value axis, so a present-but-tiny value stays
+     *  visible instead of collapsing to a sub-pixel sliver — e.g. a single error in a volume bucket
+     *  whose neighbours are in the thousands. Zero-valued bars are never floored: the point is to
+     *  keep small data readable, not to draw a bar where there is no data. On a stacked chart only
+     *  the outermost segment is floored: flooring an interior one would oversize a rect that the
+     *  segment above immediately overpaints, while still capturing the hover and clicks meant for
+     *  that segment. So a multi-series (breakdown) stack floors only its top segment — this is aimed
+     *  at single-series volume charts and grouped bars. Defaults to 0 (exact heights). */
+    minBarSize?: number
     /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush into
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
