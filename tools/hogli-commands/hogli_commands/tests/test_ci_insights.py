@@ -48,6 +48,8 @@ def _row(test_id: str, *, state: str = "flaky", signature: str = "AssertionError
 
 _ROWS = [
     _row("posthog/api/test/test_capture.py::test_event", state="breaking_master", master_hits=9),
+    # A third of this repo's PR rows are merge-queue gate attempts, so this state is common here.
+    _row("posthog/test/test_migrations.py::test_forward", state="blocking_merge_queue"),
     _row("posthog/hogql/test/test_resolver.py::test_join", state="novel_burst"),
     _row("products/logs/test_query.py::test_severity", state="pr_only"),
 ]
@@ -289,11 +291,11 @@ def test_digest_reports_every_row_state_and_discloses_the_cap(runner: CliRunner)
     result = _invoke(runner, ["--format", "text", "--limit", "2"], recorder)
     assert result.exit_code == 0
     assert "master" in result.output and "2 of 61 workflows failing" in result.output
-    assert "3 distinct failures over 2d" in result.output
-    assert "Showing 2 of 3" in result.output
+    assert "4 distinct failures over 2d" in result.output
+    assert "Showing 2 of 4" in result.output
     assert "PR #77271" in result.output
     # Every state present in the rows is named, so a class of failure can't go unmentioned.
-    for state in ("breaking_master", "novel_burst", "pr_only"):
+    for state in ("breaking_master", "blocking_merge_queue", "novel_burst", "pr_only"):
         assert state in result.output
 
 
@@ -302,7 +304,7 @@ def test_digest_degrades_one_section_without_losing_the_rest(runner: CliRunner) 
     result = _invoke(runner, ["--format", "text"], _Recorder(fail="master_failures"))
     assert result.exit_code == 0
     assert "unavailable" in result.output
-    assert "3 distinct failures" in result.output
+    assert "4 distinct failures" in result.output
 
 
 def test_digest_json_carries_only_the_shown_rows_and_no_sparklines(runner: CliRunner) -> None:
@@ -310,7 +312,7 @@ def test_digest_json_carries_only_the_shown_rows_and_no_sparklines(runner: CliRu
     result = _invoke(runner, ["--json", "--limit", "1"], _Recorder())
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert payload["broken_tests"]["total"] == 3
+    assert payload["broken_tests"]["total"] == 4
     assert len(payload["broken_tests"]["rows"]) == 1
     assert payload["broken_tests"]["state_counts"]["breaking_master"] == 1
     assert "trend_24h" not in payload["broken_tests"]["rows"][0]
@@ -384,7 +386,7 @@ def test_view_resolves_every_accepted_ref_form(runner: CliRunner, ref_of: str) -
 def test_view_lists_candidates_when_a_ref_is_ambiguous(runner: CliRunner) -> None:
     result = _invoke(runner, ["view", "test_", "--format", "text"], _Recorder())
     assert result.exit_code == 1
-    assert "matches 3 failures" in result.output
+    assert "matches 4 failures" in result.output
 
 
 def test_view_points_at_the_digest_for_an_unknown_ref(runner: CliRunner) -> None:

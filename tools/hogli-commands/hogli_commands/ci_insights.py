@@ -67,6 +67,7 @@ _MIN_REF_PREFIX = 4
 # put the classifier's judgement in a second place.
 _STATE_MEANINGS: dict[str, str] = {
     "breaking_master": "failing on the default branch, and that job's latest run is still red",
+    "blocking_merge_queue": "failing only on merge-queue gate branches — holding up landings on a commit the PR's own CI passed",
     "novel_burst": "first seen within a day and already spreading across branches, not on trunk yet",
     "potentially_resolved": "hit the default branch but that job is green again",
     "flaky": "sporadic across two or more branches over more than a day",

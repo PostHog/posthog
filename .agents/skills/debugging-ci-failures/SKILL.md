@@ -80,6 +80,7 @@ Read each row's `state` as the verdict:
 | State                  | Means                                                                 |
 | ---------------------- | --------------------------------------------------------------------- |
 | `breaking_master`      | failing on the default branch and that job's latest run is still red  |
+| `blocking_merge_queue` | failing only on merge-queue gate branches, so it is holding landings  |
 | `novel_burst`          | new within a day, already spreading across branches, not on trunk yet |
 | `potentially_resolved` | hit trunk but that job is green again — weak evidence a fix landed    |
 | `flaky`                | sporadic across two or more branches over more than a day             |
