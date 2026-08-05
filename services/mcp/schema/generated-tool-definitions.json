@@ -10559,6 +10559,21 @@
         },
         "feature_flag": "replay-vision"
     },
+    "vision-scanners-inline-scan-create": {
+        "description": "Answer a one-off question about session recordings you already have in hand, without creating a scanner first. Pass the `session_ids` and a `prompt`; nothing is saved and nothing runs on a schedule. Prefer this over `vision-scanners-create` whenever you have specific sessions and a question about them — a scanner is for a standing watch over future recordings, and creating one to answer a single question leaves a scheduled sweep behind. `scanner_type` defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or `summarizer` with the matching `scanner_config` (`tags`, `scale`, optional `length`) when you want structured output. Results are not returned inline: the response gives a `scan_id`, and you read the observations from `vision-observations-list` with that scanner id, polling until each session's observation leaves `pending`/`running`. Asking the same question again returns the same `scan_id` and reuses the answers it already has, so re-asking is cheap and sessions already scanned come back as `already_scanned` rather than being charged twice. Scans cost credits per session at the same rate a scanner does; check `vision-quota-retrieve` first if the batch is large, since sessions past the monthly limit come back as `skipped_quota` instead of failing the call.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Scan sessions against a prompt",
+        "title": "Scan sessions against a prompt",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
     "vision-scanners-list": {
         "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query` and `sampling_rate`) and runs one of four LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, with facet embeddings for downstream search). Each scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.",
         "category": "Replay vision",
