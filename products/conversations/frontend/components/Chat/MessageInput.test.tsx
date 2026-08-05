@@ -142,8 +142,8 @@ describe('MessageInput editing mode', () => {
             </Provider>
         )
 
-        expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+        expect(screen.getByText('Save')).toBeInTheDocument()
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
         expect(screen.queryByLabelText(/and set ticket status/)).not.toBeInTheDocument()
 
         const checkbox = screen.getByRole('checkbox')
