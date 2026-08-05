@@ -191,6 +191,7 @@ export interface experimentReplayTabLogicValues {
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
     sessionEventDeltasLoading: boolean
+    usingExposureFallback: boolean
     variantKeys: string[]
 }
 
@@ -320,11 +321,11 @@ export interface experimentReplayTabLogicActions {
     reportTabViewed: () => {
         value: true
     }
-    selectWatchCard: (card: ExperimentWatchCardApi | null) => {
-        card: ExperimentWatchCardApi | null
-    }
     scannerCrossSellClicked: () => {
         value: true
+    }
+    selectWatchCard: (card: ExperimentWatchCardApi | null) => {
+        card: ExperimentWatchCardApi | null
     }
     setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => {
         mode: ExperimentReplayMetricFilterMode
@@ -359,6 +360,7 @@ export interface experimentReplayTabLogicMeta {
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
+        usingExposureFallback: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
         metricOptions: (
             linkabilityLoaded: boolean,
             unlinkableEventNames: Set<string>,
