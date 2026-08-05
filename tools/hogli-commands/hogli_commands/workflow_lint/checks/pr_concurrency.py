@@ -17,11 +17,13 @@ push events because every run gets a unique group.
 A bare ``cancel-in-progress: true`` on a push-triggered workflow shares one
 group across every commit on the branch, so each push kills the previous
 commit's run and whatever it was proving. Gate it on the event, or key the
-push arm per-SHA when the workflow publishes on push.
+push arm per-SHA when the workflow publishes on push. Its opt-out is the
+inline marker, not ``SKIP`` — an exemption for one line reads better beside
+that line.
 
-Some workflows are intentionally exempt from cancellation (telemetry / shadow
-measurement, schedule-dominant jobs). Those are listed in ``SKIP`` below with
-a one-line reason each.
+Some workflows are intentionally exempt from *requiring* a block (telemetry /
+shadow measurement, schedule-dominant jobs). Those are listed in ``SKIP``
+below with a one-line reason each.
 """
 
 from __future__ import annotations
@@ -65,6 +67,8 @@ class PrConcurrencyCheck(WorkflowCheck):
             "    cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
             "\n"
             "Or add a `concurrency:` block to every job in the workflow.\n"
+            "Or, if a block would lose data (telemetry, schedule-only PR triggers, etc.),\n"
+            f"add the filename to {type(self).__name__}.SKIP with a one-line reason.\n"
             "\n"
             "Do not use `github.run_id` as the fallback; it creates a unique concurrency group per push run.\n"
             "\n"
@@ -72,9 +76,7 @@ class PrConcurrencyCheck(WorkflowCheck):
             "the previous commit's run. Gate it on the event, or key the push arm per-SHA when it publishes:\n"
             "    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}\n"
             f"Where latest-wins is right (a cache warmer), say so with `# {MASTER_CANCEL_MARKER} -- <reason>`.\n"
-            "\n"
-            "Or, if cancelling stale runs would lose data (telemetry, schedule-only PR triggers, etc.),\n"
-            f"add the filename to {type(self).__name__}.SKIP with a one-line reason."
+            "SKIP does not exempt this one; the marker is its opt-out."
         )
 
     def run(self, workflows: list[Workflow]) -> CheckResult:

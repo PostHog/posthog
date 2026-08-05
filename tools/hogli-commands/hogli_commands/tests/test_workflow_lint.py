@@ -397,31 +397,41 @@ class TestPrConcurrencyCheck:
         assert PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []
 
     @pytest.mark.parametrize(
-        "triggers,group,cancel,flagged",
+        "name,triggers,group,cancel,flagged",
         [
-            ("[pull_request, push]", "${{ github.workflow }}-${{ github.ref }}", "true", True),
-            ("[push]", "${{ github.workflow }}-${{ github.ref }}", "true", True),
-            ("[pull_request]", "${{ github.workflow }}-${{ github.ref }}", "true", False),
+            ("publish.yml", "[pull_request, push]", "${{ github.workflow }}-${{ github.ref }}", "true", True),
+            ("publish.yml", "[push]", "${{ github.workflow }}-${{ github.ref }}", "true", True),
+            ("publish.yml", "[pull_request]", "${{ github.workflow }}-${{ github.ref }}", "true", False),
             (
+                "publish.yml",
                 "[pull_request, push]",
                 "${{ github.workflow }}-${{ github.ref }}",
                 "${{ github.event_name == 'pull_request' }}",
                 False,
             ),
             (
+                "publish.yml",
                 "[pull_request, push]",
                 "${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}",
                 "true",
                 False,
             ),
+            # SKIP exempts a workflow from needing a block, never from cancelling master runs.
+            (
+                next(iter(PrConcurrencyCheck.SKIP)),
+                "[push]",
+                "${{ github.workflow }}-${{ github.ref }}",
+                "true",
+                True,
+            ),
         ],
     )
     def test_bare_cancel_flagged_only_when_it_can_kill_a_push_run(
-        self, tmp_path: Path, triggers: str, group: str, cancel: str, flagged: bool
+        self, tmp_path: Path, name: str, triggers: str, group: str, cancel: str, flagged: bool
     ) -> None:
         _write(
             tmp_path,
-            "publish.yml",
+            name,
             f"""
             name: Publish
             on: {triggers}
