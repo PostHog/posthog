@@ -4,8 +4,9 @@ describe('pathCleaningUtils', () => {
     it.each([
         ['group back-reference', '\\1', '$1'],
         ['whole-match reference', '\\0', '$&'],
-        ['literal dollar is escaped', 'price$', 'price$$'],
-        ['dollar-one stays literal', '/u/$1', '/u/$$1'],
+        ['literal dollar is neutralized', 'price$', 'price$$'],
+        // ClickHouse emits `$1` verbatim, so the preview must not substitute a group for it.
+        ['dollar-one is not a group reference', '/u/$1', '/u/$$1'],
         ['escaped backslash before a digit is literal', '\\\\1', '\\1'],
     ])('aliasToJsReplacement: %s', (_name, alias, expected) => {
         expect(aliasToJsReplacement(alias)).toBe(expected)

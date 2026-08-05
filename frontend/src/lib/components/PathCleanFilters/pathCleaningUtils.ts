@@ -3,11 +3,18 @@ import { isValidRegexp } from 'lib/utils/regexp'
 import { PathCleaningFilter } from '~/types'
 
 /**
- * Translate a path-cleaning alias from ClickHouse `replaceRegexpAll` (re2) replacement syntax into a
- * JavaScript `String.replace` replacement string. The backend substitutes capture groups with re2's
- * `\1`–`\9` (and `\0` for the whole match); JS uses `$1`–`$9` and `$&`. A literal `$` must be escaped
- * to `$$` so JS doesn't read it as its own back-reference. Keeping the tester in step with re2 is the
- * whole point — otherwise a `\1` alias previews literally while the real query substitutes the group.
+ * Adapt a stored alias to the replacement syntax of a JavaScript regex engine, purely so the
+ * in-app preview agrees with the query that actually runs.
+ *
+ * The stored alias is written in ClickHouse `replaceRegexpAll` (re2) syntax, which addresses capture
+ * groups as `\1` to `\9` and the whole match as `\0`. That is the only syntax users need to know, and
+ * the only one the backend understands. No JavaScript engine speaks it: both native `String.replace`
+ * and `re2js` address groups as `$1` and `$&` instead, so an unconverted `\1` previews as the literal
+ * text `\1` (native) or `1` (re2js) rather than the captured value.
+ *
+ * The `$` escaping covers the reverse direction. ClickHouse emits `$` verbatim, so a literal `$1` in
+ * an alias must be neutralized to `$$1` or JavaScript would substitute a group the user never asked
+ * for, and `re2js` would throw when the group does not exist.
  */
 export function aliasToJsReplacement(alias: string): string {
     let out = ''
