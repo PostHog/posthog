@@ -188,6 +188,12 @@
       "captureProduced": false
     },
     {
+      "type": "invalid_session_id",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
       "type": "malformed_event_properties",
       "category": "event",
       "severity": "error",
@@ -232,6 +238,18 @@
     {
       "type": "missing_event_uuid",
       "category": "event",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "missing_session_id",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "missing_snapshot_data",
+      "category": "replay",
       "severity": "error",
       "captureProduced": true
     },

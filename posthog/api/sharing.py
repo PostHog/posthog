@@ -41,6 +41,12 @@ from posthog.models import SessionRecording, SharePassword, SharingConfiguration
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    SharePasswordThrottle,
+    SharePasswordVolumeThrottle,
+    SustainedRateThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import (
     UserAccessControl,
@@ -832,6 +838,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     # Only use sharing-specific authentication, ignore regular PostHog auth
     authentication_classes = [SharingPasswordProtectedAuthentication, SharingAccessTokenAuthentication]
     permission_classes = []
+    # SharePasswordThrottle is deliberately not here - it's charged manually in retrieve(),
+    # only on a wrong password, so a correct one always succeeds regardless of its budget.
+    throttle_classes = [BurstRateThrottle, SustainedRateThrottle, SharePasswordVolumeThrottle]
     serializer_class = SharingConfigurationSerializer  # Required by DRF but not used in practice
 
     # Set by get_object() when the resolved resource is an ExportedAsset whose token carried a purpose claim.
@@ -1003,7 +1012,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # Check if user is already authenticated via JWT token (Bearer or cookie)
             is_jwt_authenticated = isinstance(request.successful_authenticator, SharingPasswordProtectedAuthentication)
 
-            if request.method == "GET" and not is_jwt_authenticated:
+            # Anything that isn't a password submission needs the unlock page unless it already
+            # carries a valid share token - DRF routes HEAD through the same action as GET
+            if request.method != "POST" and not is_jwt_authenticated:
                 exported_data["type"] = "unlock"
 
                 settings_data = getattr(resource, "settings", {}) or {}
@@ -1024,7 +1035,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "add_og_tags": None,
                     },
                 )
-            elif request.method == "GET" and is_jwt_authenticated:
+            elif request.method != "POST":
                 # JWT authenticated (via cookie or Bearer) - render full app context
 
                 # Include the JWT token from the cookie so frontend can use it for API calls
@@ -1038,6 +1049,19 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     validated_password = self._validate_share_password(resource, request.data["password"])
 
                 if not validated_password:
+                    # Charged only on a wrong guess, so a correct password always succeeds even
+                    # if an attacker has driven this link's wrong-guess budget to its cap -
+                    # SharePasswordVolumeThrottle bounds the total POST rate this depends on.
+                    wrong_password_throttle = SharePasswordThrottle()
+                    if not wrong_password_throttle.allow_request(request, self):
+                        # Logged only below the cap, not here: logging every throttled guess too would
+                        # write activity-log rows at SharePasswordVolumeThrottle's rate instead of this one's.
+                        throttle_response = response.Response(
+                            {"error": "Too many attempts on this link. Wait a minute and try again."}, status=429
+                        )
+                        throttle_response["Retry-After"] = str(int(wrong_password_throttle.wait()))
+                        return throttle_response
+
                     _log_share_password_attempt(resource, request, success=False)
                     return response.Response({"error": "Incorrect password"}, status=401)
 
