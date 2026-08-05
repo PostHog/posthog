@@ -1951,6 +1951,9 @@ class TestIntegrationAPIKeyAccess:
             ("invalid_auth", True),
             ("token_revoked", True),
             ("token_expired", True),
+            # Slack's answer when the stored bot token is missing or not sent at all — a broken
+            # install the user reconnects to fix, not a transient failure.
+            ("not_authed", True),
             # A transient/unexpected Slack error must not be masked as an inactive-connection prompt.
             ("ratelimited", False),
         ],

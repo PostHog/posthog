@@ -104,16 +104,13 @@ from posthog.utils import is_relative_url
 
 from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-# Slack API error codes that mean the linked workspace token is no longer usable and the user
-# has to reconnect Slack — as opposed to a transient/unexpected failure we should still surface.
-SLACK_INACTIVE_AUTH_ERRORS = {"account_inactive", "invalid_auth", "token_revoked", "token_expired"}
 
 
 class SlackIntegrationInactiveError(APIException):
@@ -127,9 +124,14 @@ class SlackIntegrationInactiveError(APIException):
 
 
 def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
-    """Translate an inactive-auth Slack error into an actionable 4xx; re-raise everything else."""
+    """Translate an inactive-auth Slack error into an actionable 4xx; re-raise everything else.
+
+    The auth-failure codes come from the Slack auth-state cache, which already decides what
+    counts as an install that can no longer authenticate. A second list here would drift from
+    it — whatever bricks the workspace there is the same thing the user reconnects to fix.
+    """
     error_code = error.response.get("error") if error.response is not None else None
-    if error_code in SLACK_INACTIVE_AUTH_ERRORS:
+    if error_code in SLACK_AUTH_FAILURE_CODES:
         raise SlackIntegrationInactiveError() from error
     raise error
 
