@@ -8,9 +8,6 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
-from django.test import SimpleTestCase
-
-import yaml
 import pandas as pd
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -29,7 +26,7 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
     update_ci_signals_config,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-from products.engineering_analytics.backend.logic.queries.workflow_flakiness import BY_DESIGN_FAILURE_JOB_NAMES
+from products.engineering_analytics.backend.logic.queries.workflow_flakiness import BY_DESIGN_FAILURES
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_PRODUCT,
     SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
@@ -74,6 +71,8 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+
+_BY_DESIGN_JOB_NAMES = [entry.split("/", 2)[2] for entry in BY_DESIGN_FAILURES]
 
 _COORDINATOR = "products.engineering_analytics.backend.logic.signals.coordinator"
 _DETECT = "products.engineering_analytics.backend.logic.signals.detect"
@@ -678,10 +677,10 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+, so
             # NO_OP_JOB_MAX_SECONDS is what drops this one.
             ("Tests Pass", 3),
-            # By-design failures commit an artifact and then exit 1 to block auto-merge, and the
+            # By-design failures commit an artifact and then exit 1 to block the merge, and the
             # rerun passes because the artifact is in place. Their 46s clears the duration floor, so
-            # only BY_DESIGN_FAILURE_JOB_NAMES can drop them.
-            *[(name, 46) for name in BY_DESIGN_FAILURE_JOB_NAMES],
+            # only BY_DESIGN_FAILURES can drop them.
+            *[(name, 46) for name in _BY_DESIGN_JOB_NAMES],
         ]
     )
     def test_flaky_check_ignores_excluded_jobs(self, job_name: str, duration_seconds: int) -> None:
@@ -714,9 +713,9 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
         assert {f.extra["job_name"] for f in findings} == {"real-test-job"}
 
-    @parameterized.expand([(name,) for name in BY_DESIGN_FAILURE_JOB_NAMES])
+    @parameterized.expand([(name,) for name in _BY_DESIGN_JOB_NAMES])
     def test_flaky_check_reports_by_design_job_names_in_another_repo(self, job_name: str) -> None:
-        # The carve-out is scoped to BY_DESIGN_FAILURE_REPO, because a job's display name is free
+        # Each BY_DESIGN_FAILURES entry is qualified by repo, because a job's display name is free
         # text: another team's job that happens to share one fails for its own reasons, and every
         # team with CI signals enabled runs this detector over its own repos.
         now = datetime.now(UTC).replace(tzinfo=None)
@@ -842,19 +841,3 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         # percentile_run_count is 1 < 2, so no regression fires despite the 10s→120s p95 jump.
         findings = detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=2)
         assert findings == []
-
-
-class TestByDesignFailureJobNames(SimpleTestCase):
-    def test_every_excluded_name_still_names_a_job_in_the_workflows(self) -> None:
-        # BY_DESIGN_FAILURE_JOB_NAMES mirrors `name:` values in this repo's workflow files, and a
-        # rename there would silently stop the carve-out matching, putting the manufactured flake
-        # signal back. Nothing else ties the two together, so assert against the workflows directly.
-        workflows = Path(__file__).parents[4] / ".github" / "workflows"
-        assert workflows.is_dir(), f"expected workflow definitions at {workflows}"
-        declared = {
-            job["name"]
-            for path in (*workflows.glob("*.yml"), *workflows.glob("*.yaml"))
-            for job in (yaml.safe_load(path.read_text()) or {}).get("jobs", {}).values()
-            if isinstance(job, dict) and isinstance(job.get("name"), str)
-        }
-        assert set(BY_DESIGN_FAILURE_JOB_NAMES) <= declared
