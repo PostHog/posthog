@@ -79,6 +79,7 @@ PRODUCTS_APPS = [
     "products.logs.backend.apps.LogsConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
+    "products.apm.backend.apps.ApmConfig",
     "products.notifications.backend.apps.NotificationsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
@@ -416,6 +417,18 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "frontend/dist"),
 ]
+if DEBUG:
+    # Vite copies frontend/public into dist only on a production build, so in dev
+    # nothing serves `/static/services/*`. Those paths aren't bundler imports — they
+    # arrive as strings in API payloads (warehouse source `iconPath`, CDP destination
+    # `icon_url`), so the bundler never sees them and can't rewrite them. The request
+    # falls through to the SPA catch-all, the <img> is handed HTML, and every one of
+    # those logos silently swaps to its error placeholder.
+    #
+    # DEBUG-only on purpose: in production dist already holds these files, and adding
+    # a second source for 1300+ identical assets would make collectstatic warn about
+    # duplicate destinations for no gain.
+    STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
@@ -613,6 +626,18 @@ SPECTACULAR_SETTINGS = {
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
         "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
+        "ReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
+        "TaskRunReasoningEffortEnum": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode",
+            None,
+        ],
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
@@ -1222,6 +1247,25 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
 # Sized well above any realistic team; 0 disables the cap.
 WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
     "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
+)
+
+# Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment
+# list (the teams "selected to test out precomputed analytics tables") so the two cohorts track each
+# other unless explicitly overridden. Comma-separated env-var override, like the lists above.
+WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(
+        get_from_env(
+            "WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_TEAM_IDS",
+            ",".join(str(t) for t in WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS),
+        )
+    )
+]
+
+# Model the path-cleaning-suggestion job sends to the LLM gateway. Must be in the `web_analytics`
+# product allowlist in services/llm-gateway/src/llm_gateway/products/config.py.
+WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL: str = get_from_env(
+    "WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL", "claude-haiku-4-5"
 )
 
 # Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join

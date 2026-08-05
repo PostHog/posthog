@@ -64,7 +64,7 @@ Return shapes are typed contracts whose caveats ride in honest field names (`ope
 ```mermaid
 graph LR
     subgraph "Data in"
-        WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members")]
+        WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members<br/>issue_events")]
         LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
         TRACES[("Traces: per-test CI spans<br/>emitted by Backend and Frontend CI")]
     end
@@ -97,7 +97,8 @@ Shortening ready-for-review-to-merge is the headline metric this serves.
 | ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                            |
 | Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                          |
-| Draft/ready transitions, time-in-review, approvals                           | PR lifecycle events (webhooks to events, PR as group type): deferred |
+| Ready to merge time (`ready_to_merge_seconds`), draft/ready transitions      | Warehouse `github_issue_events` (bounded window, grows forward)      |
+| Time-in-review, approvals                                                    | PR lifecycle events (webhooks to events, PR as group type): deferred |
 | Deploys and DORA                                                             | Deploy data: deferred                                                |
 
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
@@ -116,7 +117,7 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 - No author leaderboards or per-developer performance rankings, ever. The author page (own PRs plus own CI cost, reached only from PR-row author links) is allowed; ranking people against each other is not.
 - Bots and drafts excluded by default in throughput / cycle-time reads; bot detection = `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.
 - Author identity = `Author{handle, display_name, avatar_url, is_bot}`. No PostHog-user mapping.
-- Time to merge = `open_to_merge_seconds` = `merged_at - created_at`: coarse until state-transition events exist, and named so.
+- Time to merge = `open_to_merge_seconds` = `merged_at - created_at`: coarse, and named so. `ready_to_merge_seconds` is the precise companion (last observed ready-for-review to merge, from `github_issue_events`); NULL means "not observed", never zero.
 - The GitHub `reviews` endpoint syncs, but review reads stay deferred until a wedge tool needs them.
 
 ## Glossary
