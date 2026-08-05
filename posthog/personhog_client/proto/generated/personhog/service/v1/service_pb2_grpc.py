@@ -249,6 +249,18 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.FromString,
             _registered_method=True,
         )
+        self.FencePerson = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/FencePerson",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonResponse.FromString,
+            _registered_method=True,
+        )
+        self.ReleaseFence = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/ReleaseFence",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceResponse.FromString,
+            _registered_method=True,
+        )
         self.DeletePersons = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/DeletePersons",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.SerializeToString,
@@ -502,6 +514,21 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def FencePerson(self, request, context):
+        """Lifecycle fence RPCs (routed to leader). Internal: called only by the
+        lifecycle saga runner in personhog-identity — see leader.proto for
+        semantics.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def ReleaseFence(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def DeletePersons(self, request, context):
         """Person deletes
         WARNING: This is a write operation on person data. It should route to the leader
@@ -723,6 +750,16 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.UpdatePersonProperties,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.SerializeToString,
+        ),
+        "FencePerson": grpc.unary_unary_rpc_method_handler(
+            servicer.FencePerson,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.FencePersonResponse.SerializeToString,
+        ),
+        "ReleaseFence": grpc.unary_unary_rpc_method_handler(
+            servicer.ReleaseFence,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceResponse.SerializeToString,
         ),
         "DeletePersons": grpc.unary_unary_rpc_method_handler(
             servicer.DeletePersons,
@@ -1804,6 +1841,66 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/UpdatePersonProperties",
             personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def FencePerson(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/FencePerson",
+            personhog_dot_types_dot_v1_dot_person__pb2.FencePersonRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.FencePersonResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def ReleaseFence(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/ReleaseFence",
+            personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceResponse.FromString,
             options,
             channel_credentials,
             insecure,
