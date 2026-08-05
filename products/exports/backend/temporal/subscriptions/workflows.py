@@ -145,6 +145,14 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     team_id=sub.team_id,
                     resource_id=str(sub.subscription_id),
                     distinct_id=sub.distinct_id,
+                    start_properties={
+                        "resource_type": sub.resource_type,
+                        "trigger_type": SubscriptionTriggerType.SCHEDULED,
+                    },
+                    completion_properties={
+                        "resource_type": sub.resource_type,
+                        "trigger_type": SubscriptionTriggerType.SCHEDULED,
+                    },
                 ),
             )
             # AI-prompt subs run a dedicated workflow; distinct child-ID prefixes keep the
@@ -271,6 +279,14 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
+            if inputs.slo:
+                inputs.slo.completion_properties.update(
+                    {
+                        "target_type": prepare_result.target_type,
+                        "selected_insight_count": len(prepare_result.exported_asset_ids),
+                        "available_insight_count": prepare_result.total_insight_count,
+                    }
+                )
 
             if not prepare_result.exported_asset_ids:
                 if prepare_result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS:
@@ -686,6 +702,14 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 resource_id=str(inputs.subscription_id),
                 distinct_id=inputs.distinct_id,
+                start_properties={
+                    "resource_type": inputs.resource_type,
+                    "trigger_type": inputs.trigger_type,
+                },
+                completion_properties={
+                    "resource_type": inputs.resource_type,
+                    "trigger_type": inputs.trigger_type,
+                },
             ),
         )
         # Route AI-prompt subs (test delivery / target change) to the AI workflow, same
