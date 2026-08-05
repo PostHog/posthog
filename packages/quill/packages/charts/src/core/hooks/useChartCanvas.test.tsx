@@ -31,6 +31,10 @@ function renderChart(drawStatic: (args: ChartDrawArgs) => void): HTMLCanvasEleme
 }
 
 describe('useChartCanvas', () => {
+    afterEach(() => {
+        Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+    })
+
     it('repaints against a restored backing store after the 2D context is lost', () => {
         const drawStatic = jest.fn()
         const canvas = renderChart(drawStatic)
@@ -39,6 +43,31 @@ describe('useChartCanvas', () => {
         drawStatic.mockClear()
         act(() => {
             canvas.dispatchEvent(new Event('contextrestored'))
+        })
+
+        expect(drawStatic).toHaveBeenCalled()
+        expect(canvas.width).toBe(mockRect.width)
+    })
+
+    it('repaints on resume from a background tab even without a contextrestored event', () => {
+        const drawStatic = jest.fn()
+        const canvas = renderChart(drawStatic)
+        expect(drawStatic).toHaveBeenCalled()
+
+        // Simulate the backing store being reclaimed while idle: the bitmap is wiped but the
+        // wrapper's geometry hasn't changed, so ResizeObserver never fires on its own.
+        canvas.width = 0
+        drawStatic.mockClear()
+
+        Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+        act(() => {
+            document.dispatchEvent(new Event('visibilitychange'))
+        })
+        expect(drawStatic).not.toHaveBeenCalled()
+
+        Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+        act(() => {
+            document.dispatchEvent(new Event('visibilitychange'))
         })
 
         expect(drawStatic).toHaveBeenCalled()

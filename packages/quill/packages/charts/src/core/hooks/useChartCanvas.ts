@@ -106,9 +106,26 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         )
         restoreTargets.forEach((canvas) => canvas.addEventListener('contextrestored', onContextRestored))
 
+        // The most common way a backing store gets reclaimed is a long idle period with the tab
+        // backgrounded, not a visible context-loss event. On resume the wrapper's geometry hasn't
+        // changed, so `ResizeObserver` never fires and nothing republishes `dimensions` — the only
+        // recovery path is `contextrestored`, which Safari never fires at all. `visibilitychange`
+        // and `pageshow` (the latter also covers a bfcache restore, which never dispatches
+        // `visibilitychange`) force a repaint whenever the page becomes visible again, independent
+        // of whether the browser thinks the context needs restoring.
+        const onPageVisible = (): void => {
+            if (!document.hidden) {
+                updateSize(true)
+            }
+        }
+        document.addEventListener('visibilitychange', onPageVisible)
+        window.addEventListener('pageshow', onPageVisible)
+
         return () => {
             observer.disconnect()
             restoreTargets.forEach((canvas) => canvas.removeEventListener('contextrestored', onContextRestored))
+            document.removeEventListener('visibilitychange', onPageVisible)
+            window.removeEventListener('pageshow', onPageVisible)
         }
         // Bind the observer once. `marginsRef` is a ref so `updateSize` always reads the
         // latest margins; depending on `marginsRef.current` here would disconnect and re-run
