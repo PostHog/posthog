@@ -427,22 +427,36 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         activity = activity_model.objects.unscoped().get(team=self.team, user=owner, comment_id=created.json()["id"])
         assert activity.kind == "owned_item_comment"
 
+    @mock.patch("products.tasks.backend.tasks.project_task_comment_activity.delay")
     @mock.patch("products.tasks.backend.facade.api.record_comment_activity", side_effect=RuntimeError("activity down"))
-    def test_activity_projection_failure_does_not_fail_comment_creation(self, _record_activity: mock.Mock) -> None:
+    def test_activity_projection_failure_schedules_recovery(
+        self,
+        _record_activity: mock.Mock,
+        retry_projection: mock.Mock,
+    ) -> None:
         task = self._task_artifact_target()
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/comments",
-            {
-                "content": "Still persist this",
-                "scope": "task_artifact",
-                "item_id": "artifact-1",
-                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
-            },
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/comments",
+                {
+                    "content": "Still persist this",
+                    "scope": "task_artifact",
+                    "item_id": "artifact-1",
+                    "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+                },
+            )
 
         assert response.status_code == status.HTTP_201_CREATED
         assert Comment.objects.filter(id=response.json()["id"], team=self.team).exists()
+        retry_projection.assert_called_once_with(
+            team_id=self.team.id,
+            comment_id=response.json()["id"],
+            mentioned_user_ids=[],
+            include_relationship_recipients=True,
+            target_owner_id=None,
+            activity_at=None,
+        )
 
     def test_reply_inherits_its_root_comment_target(self) -> None:
         task = self._task_artifact_target()

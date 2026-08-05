@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -67,7 +68,7 @@ def _record_task_comment_activity(
     comment: Comment,
     mentions: list[int],
     *,
-    activity_at=None,
+    activity_at: datetime | None = None,
     include_relationship_recipients: bool = True,
 ) -> None:
     try:
@@ -91,6 +92,21 @@ def _record_task_comment_activity(
         )
     except Exception:
         logger.exception("Failed to project task comment activity", extra={"comment_id": str(comment.id)})
+        from products.tasks.backend.tasks import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product
+            project_task_comment_activity,
+        )
+
+        activity_at_value = activity_at.isoformat() if activity_at else None
+        transaction.on_commit(
+            lambda: project_task_comment_activity.delay(
+                team_id=comment.team_id,
+                comment_id=str(comment.id),
+                mentioned_user_ids=mentions,
+                include_relationship_recipients=include_relationship_recipients,
+                target_owner_id=owner_id,
+                activity_at=activity_at_value,
+            )
+        )
 
 
 def _mentions_allowed_for_comment_target(
