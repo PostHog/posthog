@@ -11,7 +11,7 @@ import {
     IconTerminal,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton, Link, Spinner, LemonSelect, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, LemonSelect, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -21,7 +21,6 @@ import { SANDBOX_BIND_TASK_PARAM } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
-import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { isPiTaskRuntime, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -30,11 +29,13 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { deriveHeadline, parsePrRepoSlug, parsePrUrlParts } from '../../utils/reportPresentation'
-import { getSourceProductMeta } from '../badges/sourceProductIcons'
+import { knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
+import { resolveRunVariant, RunStatusIndicator } from '../cards/runStatusVariant'
 import { DetailSection } from './DetailSection'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailBadges } from './ReportDetail'
 import { ReportTasksSection } from './ReportTasksSection'
+import { RunLogContainer } from './RunLogContainer'
 
 /**
  * Ready-state run output: a polished outcome card that links to the produced PR or report,
@@ -46,7 +47,7 @@ function RunOutputReadyCard({ report }: { report: SignalReport }): JSX.Element {
     const isPr = !!prUrl
     const prSlug = prUrl ? parsePrRepoSlug(prUrl) : null
     const prNumber = prUrl ? (parsePrUrlParts(prUrl)?.number ?? null) : null
-    const sourceMeta = getSourceProductMeta(report.source_products?.[0])
+    const [source] = knownSourceProductEntries(report.source_products)
     const headline = report.title || deriveHeadline(report.summary)
 
     return (
@@ -59,25 +60,21 @@ function RunOutputReadyCard({ report }: { report: SignalReport }): JSX.Element {
                     {isPr ? <IconPullRequest className="text-xs" /> : <IconCheckCircle className="text-xs" />}
                 </span>
                 {prSlug && prNumber ? (
-                    <span className="font-mono text-[12.5px] text-primary">
+                    <span className="font-mono text-sm text-primary">
                         {prSlug}#{prNumber}
                     </span>
                 ) : (
                     <span className="font-medium text-sm text-primary">Report ready</span>
                 )}
                 <span className="flex-1" />
-                {sourceMeta ? (
+                {source ? (
                     <span className="flex items-center gap-1.5 text-xs text-tertiary">
-                        <span className="flex shrink-0 items-center" style={{ color: sourceMeta.color }} aria-hidden>
-                            <sourceMeta.Icon className="text-sm" />
-                        </span>
-                        <span>{sourceMeta.label}</span>
+                        <SourceProductIconRow entries={[source]} className="flex shrink-0 items-center" />
+                        <span>{source.meta.label}</span>
                     </span>
                 ) : null}
             </div>
-            {headline ? (
-                <span className="line-clamp-2 text-[12.5px] text-secondary leading-snug">{headline}</span>
-            ) : null}
+            {headline ? <span className="line-clamp-2 text-sm text-secondary leading-snug">{headline}</span> : null}
             <span className="flex items-center gap-1 text-xs text-tertiary">
                 {isPr ? 'Open the pull request' : 'Open the report'}
                 <IconArrowRight className="transition-transform group-hover:translate-x-0.5" />
@@ -105,7 +102,7 @@ function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                     <span className="font-medium text-sm text-primary">Run failed</span>
                     <span className="text-xs text-secondary leading-snug">
-                        Research couldn't complete – check the linked run below for the error. The agent may retry
+                        Research couldn't complete. Check the linked run below for the error. The agent may retry
                         automatically.
                     </span>
                 </div>
@@ -122,7 +119,7 @@ function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
             ) : (
                 <p className="text-sm text-tertiary m-0">
                     {report.status === SignalReportStatus.IN_PROGRESS
-                        ? 'The agent is investigating – partial signals will appear here as they land.'
+                        ? 'The agent is investigating. Partial signals will appear here as they arrive.'
                         : 'Queued for research.'}
                 </p>
             )}
@@ -138,22 +135,13 @@ function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
 function RunStateStrip({ report }: { report: SignalReport }): JSX.Element {
     const isLive =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.PENDING_INPUT
-    const isFailed = report.status === SignalReportStatus.FAILED
+    const variant = resolveRunVariant(report.status)
     const prSlug = report.implementation_pr_url ? parsePrRepoSlug(report.implementation_pr_url) : null
     const timestamp = report.updated_at ?? report.created_at
 
     return (
         <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-tertiary">
-            <span className="flex items-center gap-1.5 font-medium text-secondary">
-                <span
-                    className={
-                        'inline-block size-1.5 shrink-0 rounded-full ' +
-                        (isFailed ? 'bg-danger' : isLive ? 'bg-primary animate-pulse' : 'bg-success')
-                    }
-                    aria-hidden
-                />
-                {isFailed ? 'Failed' : isLive ? 'Running' : 'Finished'}
-            </span>
+            <RunStatusIndicator variant={variant} />
             {prSlug ? (
                 <span className="flex items-center gap-1 font-mono">
                     <IconPullRequest className="text-sm" />
@@ -192,7 +180,7 @@ function TaskLogBody({
 
     if (task && runId) {
         return (
-            <div className="h-[calc(100dvh-22rem)] min-h-[420px] w-full overflow-hidden rounded border border-primary bg-surface-primary">
+            <RunLogContainer>
                 {/* In-progress runs stream live; terminal runs show the static replay. */}
                 <ReadonlyRunSurface
                     taskId={task.id}
@@ -201,7 +189,7 @@ function TaskLogBody({
                     threadRowClassName="px-3"
                     threadListClassName="py-3"
                 />
-            </div>
+            </RunLogContainer>
         )
     }
 
@@ -212,7 +200,7 @@ function TaskLogBody({
             </span>
             <span className="max-w-2xl text-xs text-secondary leading-snug">
                 {task
-                    ? 'This task is queued – its agent log will appear here once the run starts.'
+                    ? 'This task is queued. Its agent log will appear here once the run starts.'
                     : 'Once the agent links this run to a task, its agent log appears here.'}
             </span>
         </div>
@@ -289,7 +277,12 @@ function TaskLogSection({ report }: { report: SignalReport }): JSX.Element {
                         value: entry.task.id,
                         label: (
                             <span className="flex items-center gap-1.5">
-                                <TaskRunStatusDot status={entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED} />
+                                <RunStatusIndicator
+                                    variant={resolveRunVariant(
+                                        entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED
+                                    )}
+                                    showLabel={false}
+                                />
                                 {entry.purposeLabel}
                             </span>
                         ),
@@ -332,7 +325,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
                     actionabilityExplanation={actionabilityExplanation}
                 />
                 {isReResearch && (
-                    <Tooltip title="A prior research run on this report already completed – this is a re-attempt.">
+                    <Tooltip title="A prior research run on this report already completed. This is another attempt.">
                         <LemonTag size="small" type="warning" className="cursor-help select-none">
                             Re-research
                         </LemonTag>
@@ -353,15 +346,15 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
                             icon={<IconSearch />}
                             title="Evidence so far"
                             rightSlot={
-                                <span className="text-[0.6875rem] text-tertiary tabular-nums">
+                                <span className="text-xs text-tertiary tabular-nums">
                                     {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
                                 </span>
                             }
                         >
                             {reportSignalsLoading && reportSignals === null ? (
-                                <div className="flex items-center gap-2 text-xs text-tertiary py-1">
-                                    <Spinner className="size-3" />
-                                    Loading signals…
+                                <div className="flex flex-col gap-2 py-1">
+                                    <LemonSkeleton className="h-16 w-full" />
+                                    <LemonSkeleton className="h-16 w-full" />
                                 </div>
                             ) : (
                                 <div className="flex flex-col gap-3">

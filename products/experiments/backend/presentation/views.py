@@ -436,6 +436,10 @@ class EnterpriseExperimentsViewSet(
             scopes = ["experiment:write"]
             if request.data.get("open_cleanup_pr", False) in serializers.BooleanField.TRUE_VALUES:
                 scopes.append("task:write")
+            # Saving the team default cleanup repository writes environment-wide configuration,
+            # so the token also needs project:write, matching the experiments_config surface.
+            if request.data.get("set_repository_as_team_default", False) in serializers.BooleanField.TRUE_VALUES:
+                scopes.append("project:write")
             return scopes
         return None
 
@@ -445,6 +449,15 @@ class EnterpriseExperimentsViewSet(
         has no scopes, so gate every caller on PostHog Desktop product access instead."""
         if not has_tasks_access(cast(User, request.user)):
             raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Desktop.")
+
+    def _check_team_default_repository_access(self, request: Request) -> None:
+        """The team default cleanup repository is environment-wide configuration; writing it via
+        experiments_config requires project admin (TeamMemberStrictManagementPermission), so the
+        write through end/ship_variant must hold the same bar."""
+        user_permissions = UserPermissions(user=cast(User, request.user))
+        effective_level = user_permissions.team(self.team).effective_membership_level
+        if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Setting the default cleanup repository requires project admin access.")
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
@@ -571,6 +584,8 @@ class EnterpriseExperimentsViewSet(
         request_serializer.is_valid(raise_exception=True)
         if request_serializer.validated_data["open_cleanup_pr"]:
             self._check_cleanup_pr_access(request)
+        if request_serializer.validated_data["set_repository_as_team_default"]:
+            self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         ended_experiment = service.end_experiment(
             experiment,
@@ -578,6 +593,7 @@ class EnterpriseExperimentsViewSet(
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             repository=request_serializer.validated_data.get("repository"),
+            set_repository_as_team_default=request_serializer.validated_data["set_repository_as_team_default"],
             request=request,
         )
         return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
@@ -617,6 +633,8 @@ class EnterpriseExperimentsViewSet(
         request_serializer.is_valid(raise_exception=True)
         if request_serializer.validated_data["open_cleanup_pr"]:
             self._check_cleanup_pr_access(request)
+        if request_serializer.validated_data["set_repository_as_team_default"]:
+            self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         shipped_experiment = service.ship_variant(
             experiment,
@@ -626,6 +644,7 @@ class EnterpriseExperimentsViewSet(
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             repository=request_serializer.validated_data.get("repository"),
+            set_repository_as_team_default=request_serializer.validated_data["set_repository_as_team_default"],
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
@@ -686,10 +705,11 @@ class EnterpriseExperimentsViewSet(
         """
         Repository a flag-cleanup pull request for this experiment would be opened in.
 
-        Resolution order: the experiment's saved repository, else the team's only connected
-        GitHub repository. When the team has several repositories and none is saved
-        (source=ambiguous), pass one via `repository` on end/ship_variant. Requires access
-        to PostHog Desktop, like open_cleanup_pr (403 otherwise).
+        Resolution order: the experiment's saved repository, else the environment's default
+        cleanup repository, else the team's only connected GitHub repository. When the team
+        has several repositories and none is saved (source=ambiguous), pass one via
+        `repository` on end/ship_variant. Requires access to PostHog Desktop, like
+        open_cleanup_pr (403 otherwise).
         """
         experiment: Experiment = self.get_object()
         # The repository list mirrors what the cleanup checkbox needs, so gate it the same way.
@@ -894,6 +914,12 @@ class EnterpriseExperimentsViewSet(
         metric per selected template, each scoped to the prompt's $ai_prompt_name.
         Resulting experiment is in draft state.
         """
+        # Scope checks alone don't cover resource-level access controls: this action runs on the
+        # experiment viewset, so AccessControlPermission only verifies experiment access. Check
+        # prompt access explicitly before validation queries LLMPrompt and leaks which names exist.
+        if not self.user_access_control.check_access_level_for_resource("llm_prompt", required_level="viewer"):
+            raise PermissionDenied("Creating an experiment from a prompt requires LLM analytics access.")
+
         serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -1439,7 +1465,7 @@ class EnterpriseExperimentsViewSet(
         """Session recordings of this experiment matching a bucket.
 
         Answers the questions a recordings query can't express on its own — "fired any of these
-        metrics", "fired none of them", "entered the funnel but never completed it in this
+        metrics", "fired none of them", "was exposed but never completed the funnel in this
         session" — by returning a bounded, most-recent-first list of session IDs to pass back as
         a recordings query's session_ids. POST because the metric list doesn't fit a query
         string; the endpoint only reads.

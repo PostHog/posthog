@@ -54,6 +54,8 @@ describe('HealthCheckSignalCard', () => {
 
         expect(screen.getByText('SDK migration recommended')).toBeInTheDocument()
         expect(screen.getByText('Outdated SDK')).toBeInTheDocument()
+        expect(container).toHaveTextContent('Health checks · Instrumentation issue · 2026-07-13T00:00:00Z')
+        expect(screen.getAllByText('2026-07-13T00:00:00Z')).toHaveLength(1)
         expect(container).toHaveTextContent('com.posthog.java:posthog → com.posthog:posthog-server')
         expect(container).not.toHaveTextContent('Not reported →')
     })

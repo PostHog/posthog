@@ -22,6 +22,7 @@ from products.tasks.backend.facade import (
     access as tasks_access,
     loops as loops_facade,
 )
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.presentation.serializers_loops import (
     LoopFireRunSerializer,
     LoopPreviewRequestSerializer,
@@ -231,7 +232,12 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data)
         try:
-            loop = loops_facade.create_loop(self.team_id, request.user, dict(serializer.validated_data))
+            loop = loops_facade.create_loop(
+                self.team_id,
+                request.user,
+                dict(serializer.validated_data),
+                client_provenance=get_task_client_provenance(request),
+            )
         except loops_facade.LoopLimitError as exc:
             return _loop_limit_response(exc)
         except loops_facade.LoopValidationError as exc:

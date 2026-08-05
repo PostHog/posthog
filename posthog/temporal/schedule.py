@@ -391,7 +391,7 @@ async def create_sync_events_retention_schedule(client: Client):
                 ),
             ),
             id="sync-events-retention-schedule",
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),

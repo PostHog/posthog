@@ -406,3 +406,21 @@ export const IntegrationsRequestAccessCreateBody = /* @__PURE__ */ zod.object({
             'Explanation from the requester of why this integration is needed. Shown to admins in the notification email.'
         ),
 })
+
+/**
+ * Replay an API request against the connected PostHog project. The server injects the connection's token; the response is passed through.
+ * @summary Forward a request through a PostHog connection
+ */
+export const PosthogConnectionsForwardCreateBody = /* @__PURE__ */ zod.object({
+    method: zod
+        .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+        .describe('\* `GET` - GET\n\* `POST` - POST\n\* `PUT` - PUT\n\* `PATCH` - PATCH\n\* `DELETE` - DELETE')
+        .describe(
+            "HTTP method to use against the target project's API.\n\n\* `GET` - GET\n\* `POST` - POST\n\* `PUT` - PUT\n\* `PATCH` - PATCH\n\* `DELETE` - DELETE"
+        ),
+    path: zod
+        .string()
+        .describe('Relative target API path with no host or scheme, e.g. `api\/projects\/2\/insights\/`.'),
+    query: zod.record(zod.string(), zod.string()).optional().describe('Query parameters to send to the target.'),
+    data: zod.unknown().optional().describe('JSON request body for write methods.'),
+})
