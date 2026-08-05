@@ -95,6 +95,11 @@ describe('CDP API', () => {
     }
 
     beforeAll(async () => {
+        // Reset before caching the team: without this, getFirstTeam picks up
+        // whatever team the previous suite left with the lowest id, and every
+        // beforeEach reset then deletes it — inserts against the cached team
+        // id fail on the team FK.
+        await resetTestDatabase()
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
