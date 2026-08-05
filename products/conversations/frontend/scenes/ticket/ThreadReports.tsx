@@ -84,13 +84,16 @@ export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.
                         tokens start at 20px, and it lands just under a message avatar's 18px: small
                         enough to sit on the same rhythm, big enough to still read as the PostHog mark. */}
                     <Logomark variant="mono" color="primary" className="h-4 w-auto shrink-0" />
-                    <span className="text-sm font-medium">Self-driving</span>
+                    {/* The name takes the AI colour, the same one the assistant's byline and notes wear
+                        in this thread. "PostHog agent" stays muted: it qualifies the name rather than
+                        repeating it. */}
+                    <span className="text-sm font-medium text-ai">Self-driving</span>
                     <Tooltip title="A PostHog agent that investigates tickets against your codebase. Not a teammate.">
                         <span className="text-xs text-muted-alt">PostHog agent</span>
                     </Tooltip>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                    <TeamOnlyBadge label="Internal" />
+                    <TeamOnlyBadge label="Internal" tone="agent" />
                     <span className="text-xs text-muted-alt">
                         <TZLabel time={report.updated_at} />
                     </span>
