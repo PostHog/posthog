@@ -64,10 +64,13 @@ vars on the web app and the data-warehouse worker — nothing else.
 
 The [secrets UI](https://secrets-ui.hedgehog-kitefin.ts.net/) is the preferred way to write secrets: it
 only needs the PostHog tailnet (Tailscale) — no local install, AWS profile, or SSO login — and it can add
-a key across environments from one place. For two keys × two stores × three environments, though, the
-CLI's bulk `template` command is fewer steps. Use it with a **local, uncommitted** YAML file (copy
-`template-example.yaml`). App-name keys are the full `-secrets` store names; the same value repeats
-across environments for one shared client:
+a key across environments from one place.
+
+**Two things this step needs are not in the UI yet** (planned, but CLI-only today): bulk multi-store /
+multi-env writes, and the Argo force-sync after a write. For two keys × two stores × three environments
+that makes the CLI's `template` command the fewer-steps option here. Use it with a **local,
+uncommitted** YAML file (copy `template-example.yaml`). App-name keys are the full `-secrets` store
+names; the same value repeats across environments for one shared client:
 
 ```yaml
 secrets:
@@ -105,6 +108,9 @@ Notes:
 - ExternalSecrets sync from AWS SM to Kubernetes hourly; the CLI offers an immediate Argo force-sync
   after writing (needs the PostHog tailnet), else `kubectl annotate es <name> force-sync=$(date +%s) --overwrite -n posthog`.
   The UI does not force-sync — after writing there, force it via ArgoCD or wait for the hourly sync.
+- UI/CLI parity gaps that matter beyond this step: force-sync, search-by-value, `blame`/`--who`
+  attribution, and bulk `template` writes are all CLI-only for now. The wiki tracks the current list
+  and what's planned: [Not yet in the UI](https://runbooks.posthog.com/operations/secrets/application#not-yet-in-the-ui).
 
 ## What an agent can and cannot do here
 
