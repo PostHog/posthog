@@ -190,7 +190,8 @@ function ProjectAccessSection({
                 <span className="text-muted-alt flex items-center">
                     <IconHome />
                 </span>
-                Project access{currentTeam?.name ? ` · ${currentTeam.name}` : ''}
+                Project access
+                {currentTeam?.name ? <span className="font-normal text-tertiary">· {currentTeam.name}</span> : null}
                 <Tooltip
                     title={
                         <div className="space-y-1">
