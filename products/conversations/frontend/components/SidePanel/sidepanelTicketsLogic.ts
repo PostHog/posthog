@@ -532,10 +532,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 warnSupportWidgetUnavailable()
                 return
             }
-            if (warnIfMessageTooLong(content, {
-                surface: 'side_panel_composer',
-                is_new_ticket: values.view === 'new',
-            })) {
+            if (
+                warnIfMessageTooLong(content, {
+                    surface: 'side_panel_composer',
+                    is_new_ticket: values.view === 'new',
+                })
+            ) {
                 return
             }
             actions.setMessageSending(true)

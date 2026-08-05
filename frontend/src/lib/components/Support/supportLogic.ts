@@ -126,7 +126,9 @@ function supportFailureContext(): Record<string, any> {
         session_id: posthog.get_session_id?.() ?? null,
         // Rewritten to the internal golink for the same reason as the ticket snippet: the recording
         // lives in PostHog's own project, so this link is for staff triaging the alert, never the user.
-        session_replay_url: replayUrl ? replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/') : null,
+        session_replay_url: replayUrl
+            ? replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/')
+            : null,
         current_url: window.location.href,
     }
 }
