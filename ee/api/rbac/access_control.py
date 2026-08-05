@@ -13,6 +13,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -222,7 +223,9 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
         try:
             rows = model._default_manager.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
             return {str(pk): name for pk, name in rows}
-        except Exception:
+        except Exception as e:
+            # The rules list falls back to raw ids, but report the error: it likely affects the whole resource type
+            capture_exception(e, {"resource": resource})
             return {}
     registry = _EXTRA_RESOURCE_MODELS.get(resource)
     if not registry:
@@ -232,8 +235,9 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
         model = apps.get_model(app_label, model_name)
         rows = model._default_manager.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
         return {str(pk): name for pk, name in rows}
-    except Exception:
+    except Exception as e:
         # Type mismatch on pk (e.g. non-numeric id for an int pk), missing model, or missing team_id column
+        capture_exception(e, {"resource": resource})
         return {}
 
 
