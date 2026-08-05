@@ -826,13 +826,26 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             serializer.validated_data["rebuild"] and not dry_run and invalidation.result.jobs_deleted > 0
         )
         rebuild_window = None
+        rebuild_notes: list[str] = []
         if rebuild_scheduled:
-            # Clamp to the window the warmer keeps hot. Rebuilding older data is unbounded work for
-            # something nothing keeps warm afterwards, so it would expire before being read.
-            rebuild_from = max(date_from, date.today() - timedelta(days=REBUILD_MAX_WINDOW_DAYS))
-            rebuild_from = min(rebuild_from, date_to)
-            rebuild_window = {"date_from": rebuild_from, "date_to": date_to}
-            rebuild_marketing_cost_precompute.delay(self.team.pk, rebuild_from.isoformat(), date_to.isoformat())
+            # Clamp to the window the warmer keeps hot, at both ends. Older data is unbounded work
+            # for something nothing keeps warm afterwards, so it would expire before being read;
+            # future days cannot have rows to insert at all, and the rebuild builds one job per
+            # source, grain and day either way.
+            today = date.today()
+            rebuild_from = max(date_from, today - timedelta(days=REBUILD_MAX_WINDOW_DAYS))
+            rebuild_to = min(date_to, today)
+            # An entirely stale range used to survive as `min(rebuild_from, date_to)` — a single day
+            # still outside the warmed window. Nothing to schedule rather than something useless.
+            if rebuild_from > rebuild_to:
+                rebuild_scheduled = False
+                rebuild_notes.append(
+                    "Rebuild skipped: the whole range is outside the warmed window "
+                    f"({REBUILD_MAX_WINDOW_DAYS} days), so a rebuild would expire before being read."
+                )
+            else:
+                rebuild_window = {"date_from": rebuild_from, "date_to": rebuild_to}
+                rebuild_marketing_cost_precompute.delay(self.team.pk, rebuild_from.isoformat(), rebuild_to.isoformat())
 
         effective = invalidation.result
         response_data = CostPrecomputeInvalidateResponseSerializer(
@@ -855,7 +868,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 "query_hashes_resolved": invalidation.query_hashes_resolved,
                 "jobs_invalidated": effective.jobs_deleted,
                 "rebuild": {"scheduled": rebuild_scheduled, "window": rebuild_window},
-                "notes": _cost_precompute_notes(invalidation, (date_from, date_to), rebuild_scheduled),
+                "notes": _cost_precompute_notes(invalidation, (date_from, date_to), rebuild_scheduled, rebuild_notes),
             }
         ).data
         return Response(response_data, status=status.HTTP_200_OK if dry_run else status.HTTP_202_ACCEPTED)
@@ -927,7 +940,12 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
 
 
-def _cost_precompute_notes(invalidation: CostInvalidation, requested: tuple, rebuild_scheduled: bool) -> list[str]:
+def _cost_precompute_notes(
+    invalidation: CostInvalidation,
+    requested: tuple,
+    rebuild_scheduled: bool,
+    extra: list[str] | None = None,
+) -> list[str]:
     """Everything a caller would otherwise have to discover the hard way."""
     notes = [
         "Query result caches are separate from the precompute layer — re-run your query with "
@@ -945,7 +963,12 @@ def _cost_precompute_notes(invalidation: CostInvalidation, requested: tuple, reb
     if (
         effective.effective_start is not None
         and effective.effective_end is not None
-        and (effective.effective_start.date() < requested[0] or effective.effective_end.date() > requested[1])
+        # `- 1 day` on the end: it is the half-open exclusive bound, so a job covering exactly the
+        # last requested day ends at the next midnight and would read as "wider" without this.
+        and (
+            effective.effective_start.date() < requested[0]
+            or (effective.effective_end - timedelta(days=1)).date() > requested[1]
+        )
     ):
         notes.append(
             "effective_range is wider than requested because some precompute jobs spanned days "
@@ -953,6 +976,7 @@ def _cost_precompute_notes(invalidation: CostInvalidation, requested: tuple, reb
         )
     if not rebuild_scheduled:
         notes.append("No rebuild was scheduled — the next read of this range will materialize it inline.")
+    notes.extend(extra or [])
     return notes
 
 

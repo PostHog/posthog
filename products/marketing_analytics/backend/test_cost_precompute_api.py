@@ -112,6 +112,44 @@ class CostPrecomputeInvalidateAPITest(APIBaseTest):
         assert window["date_from"] > one_year_ago.isoformat()
         assert task.delay.call_args.args[1] == window["date_from"]
 
+    def test_no_rebuild_when_the_whole_range_predates_the_warmed_window(self):
+        # Clamping took min(rebuild_from, date_to) to keep the window from inverting, which collapsed
+        # a fully-stale range to a single day that is still outside the warmed window — queueing
+        # INSERTs for rows nothing keeps warm, which expire before anyone reads them.
+        with (
+            patch(_INVALIDATE, return_value=_invalidation()),
+            patch(_REBUILD_TASK) as task,
+            patch(f"{_API}.REBUILD_MAX_WINDOW_DAYS", 90),
+        ):
+            response = self._post(
+                date_from=(date.today() - timedelta(days=100)).isoformat(),
+                date_to=(date.today() - timedelta(days=95)).isoformat(),
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        body = response.json()
+        assert body["rebuild"]["scheduled"] is False
+        assert body["rebuild"]["window"] is None
+        task.delay.assert_not_called()
+        assert any("warmed window" in note for note in body["notes"])
+
+    def test_rebuild_does_not_queue_future_days(self):
+        # Nothing rejected a future date_to, and the rebuild builds one job per source, grain and
+        # day — so a future range queued INSERTs for data that cannot exist yet.
+        with (
+            patch(_INVALIDATE, return_value=_invalidation()),
+            patch(_REBUILD_TASK) as task,
+            patch(f"{_API}.REBUILD_MAX_WINDOW_DAYS", 90),
+        ):
+            response = self._post(
+                date_from=(date.today() - timedelta(days=2)).isoformat(),
+                date_to=(date.today() + timedelta(days=300)).isoformat(),
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json()["rebuild"]["window"]["date_to"] == date.today().isoformat()
+        assert task.delay.call_args.args[2] == date.today().isoformat()
+
     # --- Dry run ---
 
     def test_dry_run_returns_200_and_schedules_nothing(self):
