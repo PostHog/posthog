@@ -56,4 +56,4 @@ AUTO_PAUSE_PROBE_INTERVAL_S = 24 * 60 * 60
 # spend, not a routine limit (the canonical fleet is ~16 scouts). Enforced at the write
 # surfaces (config create/update) and in auto-registration, which falls back to registering
 # new scouts disabled once the team is at the cap.
-MAX_ENABLED_SCOUTS_PER_TEAM = 100
+MAX_ENABLED_SCOUTS_PER_TEAM = 250

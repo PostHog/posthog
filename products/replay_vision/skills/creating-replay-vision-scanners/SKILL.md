@@ -50,6 +50,10 @@ The `query` is a `RecordingsQuery` shape that selects which recordings the scann
 sessions that actually matter — by event, URL, person property, duration, etc. A narrow query is the single
 biggest lever on cost.
 
+When the target is one experiment's exposed population, that's its own job — use the
+`scanning-experiments-with-replay-vision` skill, which derives this query from the experiment's exposure
+criteria instead of hand-building it.
+
 `sampling_rate` (0..1, default 1.0) is a random downsample applied _after_ the query matches. Lower it to
 trade coverage for budget.
 

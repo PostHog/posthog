@@ -376,18 +376,17 @@ def test_retry_on_transient_api_error_bubbles_network_error_after_max_retries(er
 
 
 def test_google_sheets_source_retries_transient_error_on_data_reads():
-    """A transient 5xx on the cell-reading calls (`get_all_values`/`get_all_records`)
-    must be retried, not surfaced on the first occurrence. These reads issue their own
-    Sheets API requests separate from worksheet acquisition, so they need the same
-    backoff — otherwise a "[503]: The service is currently unavailable." blip fails the
-    sync."""
+    """A transient 5xx on the cell-reading calls (`get_all_values`/`get`) must be retried,
+    not surfaced on the first occurrence. These reads issue their own Sheets API requests
+    separate from worksheet acquisition, so they need the same backoff — otherwise a
+    "[503]: The service is currently unavailable." blip fails the sync."""
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
     mock_worksheet = mock.MagicMock()
     # First header read hits a transient 503, then succeeds on retry.
     mock_worksheet.get_all_values.side_effect = [_api_error(503), [["id"]]]
-    # The data read also hits a transient 503 once before returning rows.
-    mock_worksheet.get_all_records.side_effect = [_api_error(503), [{"id": 1}]]
+    # The data read also hits a transient 503 once before returning the grid.
+    mock_worksheet.get.side_effect = [_api_error(503), [["id"], ["1"]]]
 
     with (
         mock.patch(
@@ -406,18 +405,15 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
         list(cast(Iterable[Any], response.items()))
 
     assert mock_worksheet.get_all_values.call_count == 2
-    assert mock_worksheet.get_all_records.call_count == 2
+    assert mock_worksheet.get.call_count == 2
 
 
-def test_google_sheets_source_reads_blank_cells_as_null():
+def _read_sheet(header_row: list[str], data_rows: list[list[str]]) -> list[Any]:
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
     mock_worksheet = mock.MagicMock()
-    mock_worksheet.get_all_values.return_value = [["id", "NumericColumnWithBlanks"]]
-    mock_worksheet.get_all_records.return_value = [
-        {"id": 1, "NumericColumnWithBlanks": 1.5},
-        {"id": 2, "NumericColumnWithBlanks": None},
-    ]
+    mock_worksheet.get_all_values.return_value = [header_row]
+    mock_worksheet.get.return_value = [header_row, *data_rows]
 
     with (
         mock.patch(
@@ -432,9 +428,51 @@ def test_google_sheets_source_reads_blank_cells_as_null():
         response = google_sheets_source(
             config, "sheet1", db_incremental_field_last_value=None, api_version=GOOGLE_SHEETS_API_VERSION_V4
         )
-        list(cast(Iterable[Any], response.items()))
+        return list(cast(Iterable[Any], response.items()))
 
-    mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
+
+def test_google_sheets_source_reads_blank_cells_as_null():
+    """Blank cells must import as null, not as "" — an empty string in an otherwise numeric column
+    turns it into a text column. The source numericises the grid itself, so this covers that wiring."""
+    tables = _read_sheet(["id", "NumericColumnWithBlanks"], [["1", "1.5"], ["2", ""]])
+
+    assert tables[0].to_pylist() == [
+        {"id": 1, "NumericColumnWithBlanks": 1.5},
+        {"id": 2, "NumericColumnWithBlanks": None},
+    ]
+
+
+@pytest.mark.parametrize(
+    "header_row,expected_columns",
+    [
+        pytest.param(["id", "", "name"], ["id", "column_2", "name"], id="blank_header_between_named"),
+        pytest.param(["id", "name", "   "], ["id", "name", "column_3"], id="whitespace_only_header"),
+        # Google pads every row out to the width of the widest one, so a stray value to the right of
+        # the header row can invent several unnamed columns at once.
+        pytest.param(["id", "", ""], ["id", "column_2", "column_3"], id="several_blank_headers"),
+        # A generated name must not steal a name a real header already uses.
+        pytest.param(["", "column_1"], ["_column_1", "column_1"], id="generated_name_avoids_real_header"),
+    ],
+)
+def test_google_sheets_source_names_columns_with_blank_headers(header_row, expected_columns):
+    """A header cell with nothing in it used to produce a column named "", which the naming
+    convention rejected with an empty error message — the sync failed permanently and the user was
+    told only "Application error". Every column must come out with a usable name instead."""
+    tables = _read_sheet(header_row, [["1"] * len(header_row)])
+
+    # Sorted because the pipeline decides the column order in the arrow table, not the source.
+    assert sorted(tables[0].column_names) == sorted(expected_columns)
+    assert tables[0].num_rows == 1
+
+
+def test_google_sheets_source_rejects_duplicate_named_headers():
+    """Two columns under the same name would silently collapse into one, so the sync must fail with
+    a message the framework knows is permanent. This check used to be gspread's, and is now ours."""
+    with pytest.raises(Exception) as exc_info:
+        _read_sheet(["id", "name", "name"], [["1", "a", "b"]])
+
+    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
+    assert any(key in str(exc_info.value) for key in non_retryable_errors)
 
 
 @pytest.mark.parametrize(
@@ -509,6 +547,9 @@ def test_reraises_spreadsheet_not_found_with_non_retryable_message(call_site):
         pytest.param(["task_id", "task-id"], id="punctuation_only"),
         pytest.param(["Name", "name"], id="case_only"),
         pytest.param(["id", "customer name", "Customer Name"], id="collision_among_distinct"),
+        # Normalization drops everything outside a-z and 0-9, so headers written entirely in another
+        # script all reduce to the same name however different they look.
+        pytest.param(["Дата", "Клиент"], id="distinct_non_latin_headers"),
     ],
 )
 def test_assert_unique_normalized_column_names_raises_on_normalized_collision(headers):
@@ -696,7 +737,7 @@ def test_source_for_pipeline_threads_resolved_api_version_to_worksheet(pinned_ve
 
     worksheet = mock.MagicMock()
     worksheet.get_all_values.return_value = [["id"]]
-    worksheet.get_all_records.return_value = [{"id": 1}]
+    worksheet.get.return_value = [["id"], ["1"]]
 
     inputs = mock.MagicMock()
     inputs.schema_name = "sheet1"

@@ -366,7 +366,7 @@ tools:
 
             End a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped.
             The feature flag is NOT modified — users continue seeing their assigned variants and exposure events
-            ($feature_flag_called) continue to fire, but only data up to end_date is included in results.
+            continue to fire, but only data up to end_date is included in results.
 
 
             Optionally provide conclusion ("won", "lost", "inconclusive", "stopped_early", "invalid") and
@@ -455,8 +455,10 @@ tools:
             deactivated, "exposure_frozen" when its flag's release groups are narrowed to the already-exposed cohort so
             enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with
             variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if
-            ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, and type
-            (web/product).
+            ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, type
+            (web/product), and resolved_exposure_event (the event exposures are counted on when no custom exposure event
+            is configured — resolved server-side to $feature_flag_called or $experiment_exposure; use it in SQL instead
+            of hardcoding either name).
         param_overrides:
             id:
                 cast: string-int
@@ -809,8 +811,7 @@ tools:
 
             Pause a running experiment by deactivating its feature flag (sets flag active=false). The flag is no longer
             returned by the /decide endpoint, so users fall back to the application default (typically control). No new
-            exposure events ($feature_flag_called) are recorded while paused. The experiment stays in running status —
-            it is not ended.
+            exposure events are recorded while paused. The experiment stays in running status — it is not ended.
 
 
             Returns 400 if: experiment is in draft ("Experiment has not been launched yet."), already stopped
@@ -886,8 +887,7 @@ tools:
 
 
             Resume a paused experiment by reactivating its feature flag (sets flag active=true). Users are re-bucketed
-            deterministically into the same variants they had before the pause, and exposure tracking
-            ($feature_flag_called) resumes.
+            deterministically into the same variants they had before the pause, and exposure tracking resumes.
 
 
             Returns 400 if: experiment is in draft ("Experiment has not been launched yet."), already stopped

@@ -4,6 +4,7 @@ from .clustering_config import ClusteringConfigViewSet
 from .clustering_job import ClusteringJobViewSet
 from .datasets import DatasetItemViewSet, DatasetViewSet
 from .evaluation_config import EvaluationConfigViewSet
+from .evaluation_directories import EvaluationDirectoryViewSet
 from .evaluation_reports import EvaluationReportViewSet
 from .evaluation_runs import EvaluationRunViewSet
 from .evaluation_summary import LLMEvaluationSummaryViewSet
@@ -37,6 +38,7 @@ __all__ = [
     "DatasetViewSet",
     "DatasetItemViewSet",
     "EvaluationViewSet",
+    "EvaluationDirectoryViewSet",
     "EvaluationReportViewSet",
     "EvaluationRunViewSet",
     "EvaluationConfigViewSet",
