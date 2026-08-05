@@ -3479,6 +3479,10 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
         .filter(team__project_id=team.project_id)
         .exclude(archived=True)
         .filter(start_date__isnull=False, end_date__isnull=True)
+        # External surveys are their own hosted page, rendered server-side from the database by id.
+        # No SDK can display one: the web SDK renders only in-app types, and the mobile SDKs have no
+        # external_survey case in their type enums at all.
+        .exclude(type=Survey.SurveyType.EXTERNAL_SURVEY)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),
         many=True,
