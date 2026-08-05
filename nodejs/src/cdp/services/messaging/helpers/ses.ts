@@ -419,6 +419,7 @@ export class SesWebhookHandler {
             metricName: MinimalAppMetric['metric_name']
             properties?: Record<string, any>
             timestamp?: string
+            workflowVersion?: number
         }[]
         logEntries?: {
             functionId?: string
@@ -516,6 +517,7 @@ export class SesWebhookHandler {
             metricName: MinimalAppMetric['metric_name']
             properties?: Record<string, any>
             timestamp?: string
+            workflowVersion?: number
         }[] = []
         const logEntries: {
             functionId?: string
@@ -555,7 +557,8 @@ export class SesWebhookHandler {
             if (parsedCode) {
                 trackingCodeFormatCounter.inc({ format: parsedCode.format, source: 'ses' })
             }
-            const { functionId, invocationId, teamId, actionId, parentRunId, distinctId, isTest } = parsedCode || {}
+            const { functionId, invocationId, teamId, actionId, parentRunId, distinctId, isTest, workflowVersion } =
+                parsedCode || {}
 
             if (!functionId && !invocationId) {
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
@@ -599,6 +602,7 @@ export class SesWebhookHandler {
                     metricName,
                     properties,
                     timestamp,
+                    workflowVersion,
                 })
 
                 // email_bounced stays the catch-all rollup; each bounce additionally emits a
@@ -616,6 +620,7 @@ export class SesWebhookHandler {
                         metricName: BOUNCE_TYPE_TO_METRIC_NAME[rec.bounce.bounceType],
                         properties,
                         timestamp,
+                        workflowVersion,
                     })
                 }
             }

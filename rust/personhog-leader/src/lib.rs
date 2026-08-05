@@ -1,6 +1,8 @@
 pub mod cache;
 pub mod config;
 pub mod coordination;
+pub mod emitted;
+pub mod fencing;
 pub mod inflight;
 pub mod kafka;
 pub mod person_update;
