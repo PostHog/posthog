@@ -1117,7 +1117,7 @@ class TestLoginCustomerIdRecovery:
             manager_of={_MANAGER_CUSTOMER_ID: [_CLIENT_CUSTOMER_ID]},
             page=_single_page(),
         )
-        service = GoogleAdsSearchService(client, "v25", _CLIENT_CUSTOMER_ID)  # type: ignore[arg-type]
+        service = GoogleAdsSearchService(client, "v25", _CLIENT_CUSTOMER_ID)
 
         tables = list(
             _search_as_arrow_tables(
@@ -1141,7 +1141,7 @@ class TestLoginCustomerIdRecovery:
             manager_of={_MANAGER_CUSTOMER_ID: ["9999999999"]},
             page=_single_page(),
         )
-        service = GoogleAdsSearchService(client, "v25", _CLIENT_CUSTOMER_ID)  # type: ignore[arg-type]
+        service = GoogleAdsSearchService(client, "v25", _CLIENT_CUSTOMER_ID)
 
         with pytest.raises(GoogleAdsException):
             list(
