@@ -10,6 +10,7 @@ points for producing are in `posthog.kafka_client.routing`:
 
 import os
 import json
+import time
 import asyncio
 import threading
 from collections.abc import Callable
@@ -41,6 +42,38 @@ KAFKA_PRODUCER_MESSAGES_COUNTER = Counter(
     "Count of Kafka producer delivery reports, labelled by topic, status, and error name.",
     labelnames=["topic", "status", "error"],
 )
+
+_DELIVERY_FAILURE_LOG_INTERVAL_SECONDS = 60.0
+_delivery_failure_last_logged: dict[tuple[str, str], float] = {}
+
+
+def _log_delivery_failure(topic: str, error_name: str, msg: Optional[Message]) -> None:
+    """Log a broker-side delivery failure with the message key, throttled per (topic, error).
+
+    librdkafka reports delivery failures asynchronously, after its own retries
+    are exhausted, so no produce() caller can catch them; without this log they
+    surface only as an unattributed KAFKA_PRODUCER_MESSAGES_COUNTER tick. The
+    key makes the failure attributable on keyed topics (for example the team id
+    on flags_cache_invalidation). Throttled because a broker outage fails every
+    queued message at once and one warning per message would flood the logs;
+    the counter still counts each failure. The throttle is lock-free on purpose:
+    concurrent callbacks may occasionally double-log, which is harmless.
+    """
+    now = time.monotonic()
+    last = _delivery_failure_last_logged.get((topic, error_name))
+    if last is not None and now - last < _DELIVERY_FAILURE_LOG_INTERVAL_SECONDS:
+        return
+    _delivery_failure_last_logged[(topic, error_name)] = now
+
+    raw_key = msg.key() if msg is not None else None
+    key = raw_key.decode("utf-8", errors="replace") if raw_key is not None else None
+
+    logger.warning(
+        "kafka_producer_delivery_failed",
+        topic=topic,
+        error=error_name,
+        key=key,
+    )
 
 
 @dataclass
@@ -277,7 +310,9 @@ class _KafkaProducer:
         """Delivery callback for confluent-kafka."""
         result.set_result(err, msg)
         if err is not None:
-            KAFKA_PRODUCER_MESSAGES_COUNTER.labels(topic=topic, status="failure", error=err.name()).inc()
+            error_name = err.name()
+            KAFKA_PRODUCER_MESSAGES_COUNTER.labels(topic=topic, status="failure", error=error_name).inc()
+            _log_delivery_failure(topic, error_name, msg)
         else:
             delivered_topic = msg.topic() if msg else topic
             KAFKA_PRODUCER_MESSAGES_COUNTER.labels(topic=delivered_topic, status="success", error="").inc()
