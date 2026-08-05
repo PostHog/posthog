@@ -20,7 +20,7 @@ use personhog_common::partitioning::partition_for_person;
 use crate::cache::{
     CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
 };
-use crate::fence::{fenced_status, mark_status, op_is_live, FenceMap, FenceState};
+use crate::fence::{fenced_status, mark_status, FenceMap, FenceState};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
@@ -141,6 +141,23 @@ impl PersonHogLeaderService {
             return Err(Status::invalid_argument(format!(
                 "x-partition {partition} does not match partition {expected} \
                  derived from team_id={team_id} person_id={person_id}"
+            )));
+        }
+        Ok(())
+    }
+
+    /// The fence RPCs must never succeed on a pod that does not serve the
+    /// partition. A misrouted release that removed nothing and returned
+    /// OK would leave the real owner's fence in place while the saga
+    /// believes it released — a person frozen with no retry coming. The
+    /// handoff guard is not enough on its own: `release_partition`
+    /// unfences, so a pod that has already handed the partition off looks
+    /// unfenced. Rejecting sends the saga's retry to the current owner.
+    #[allow(clippy::result_large_err)]
+    fn validate_ownership(&self, partition: u32) -> Result<(), Status> {
+        if !self.cache.has_partition(partition) {
+            return Err(Status::failed_precondition(format!(
+                "partition {partition} is not served by this pod"
             )));
         }
         Ok(())
@@ -402,38 +419,14 @@ impl PersonHogLeaderService {
         Ok(proto)
     }
 
-    /// The write path's fence conditional, with the lazy liveness check: a
-    /// map entry can briefly outlive its op (the op finished just after the
-    /// takeover scan), so a rejection first verifies the op is still live
-    /// and drops a stale entry instead of rejecting on it. On a Postgres
-    /// error the rejection stands — fail closed. Returns the fence to
-    /// reject with, or None when the person is writable. Assumes the
-    /// caller holds the per-key lock.
-    async fn check_fence(&self, cache_key: &PersonCacheKey) -> Result<Option<FenceState>, Status> {
-        let Some(entry) = self.fences.get(cache_key) else {
-            return Ok(None);
-        };
-        let state = *entry.value();
-        // Drop the map guard before awaiting.
-        drop(entry);
-
-        let Some(fallback) = &self.fallback else {
-            return Ok(Some(state));
-        };
-        match op_is_live(&fallback.pool, state.op_id).await {
-            Ok(true) => Ok(Some(state)),
-            Ok(false) => {
-                // The op finished; the entry is stale. Drop it and let the
-                // write proceed.
-                self.fences.remove(cache_key);
-                counter!("personhog_leader_fences_total", "action" => "stale_dropped").increment(1);
-                Ok(None)
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "fence liveness check failed; rejecting (fail closed)");
-                Ok(Some(state))
-            }
-        }
+    /// The write path's fence conditional: an in-memory lookup and nothing
+    /// else. The map is authoritative here — a fence that outlives its op
+    /// is not the leader's to detect, because the op being unfinished is
+    /// exactly what a live mark means (see the fence module's ownership
+    /// model). Returns the fence to reject with, or None when the person
+    /// is writable. Assumes the caller holds the per-key lock.
+    fn check_fence(&self, cache_key: &PersonCacheKey) -> Option<FenceState> {
+        self.fences.get(cache_key).map(|entry| *entry.value())
     }
 }
 
@@ -640,7 +633,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         // A person fenced by a live lifecycle op rejects writes until the
         // fence is released; reads are unaffected. Checked under the
         // per-key lock so a concurrent FencePerson cannot be missed.
-        if let Some(fence) = self.check_fence(&cache_key).await? {
+        if let Some(fence) = self.check_fence(&cache_key) {
             counter!("personhog_leader_writes_fenced_total").increment(1);
             return Err(fenced_status(&fence));
         }
@@ -820,15 +813,15 @@ impl PersonHogLeader for PersonHogLeaderService {
             return Err(Status::invalid_argument("op_type must be specified"));
         }
 
-        // Fencing produces nothing to Kafka, but the handoff guard is
-        // still load-bearing — for ownership currency, not the HWM: a
-        // fence accepted by a drained (deposed) pod lands in a map the
-        // new owner never consults and is silently discarded at release,
-        // while the saga walks away holding a seal that protects nothing.
-        // Refusing here is what makes "a mark committed after the
-        // takeover scan arrives as a FencePerson call to the current
-        // owner" true: the retry re-routes to the new owner and installs
-        // the fence in the map that is actually consulted.
+        // A fence installed anywhere but the current owner protects
+        // nothing: the map that gates writes is the owner's. Both guards
+        // are needed — ownership covers a pod that already handed the
+        // partition off (release unfences), the handoff guard covers the
+        // drain window before that. Refusing is what makes "a mark
+        // committed after the takeover scan arrives as a FencePerson call
+        // to the current owner" true: the saga's retry re-routes to the
+        // new owner.
+        self.validate_ownership(partition)?;
         let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
             return Err(Status::failed_precondition(format!(
                 "partition {partition} is fenced for handoff; writes are rejected"
@@ -884,6 +877,11 @@ impl PersonHogLeader for PersonHogLeaderService {
         let op_id = Uuid::parse_str(&req.op_id)
             .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
         let outcome = req.outcome();
+
+        // Both outcomes: a release that removed nothing and returned OK
+        // would leave the real owner's fence standing while the saga
+        // believes it released — a person frozen with no retry coming.
+        self.validate_ownership(partition)?;
 
         let cache_key = PersonCacheKey {
             team_id: req.team_id,

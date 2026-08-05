@@ -491,6 +491,50 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
     assert_eq!(read.into_inner().person.unwrap().version, sealed.version);
 }
 
+/// Neither fence RPC may succeed on a pod that does not serve the
+/// partition. A release that removed nothing and returned OK would leave
+/// the real owner's fence standing while the saga believes it released —
+/// a person frozen with no retry coming.
+#[tokio::test]
+async fn the_fence_rpcs_refuse_a_partition_this_pod_does_not_serve() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    // A person on a partition the harness never created.
+    let mut foreign_id: i64 = harness.person_id + 1;
+    while partition_for_person(TEAM_ID, foreign_id, NUM_PARTITIONS) == harness.partition {
+        foreign_id += 1;
+    }
+    let foreign_partition = partition_for_person(TEAM_ID, foreign_id, NUM_PARTITIONS);
+    let op = Uuid::now_v7();
+
+    let status = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(foreign_id, &op),
+            foreign_partition,
+        ))
+        .await
+        .expect_err("fencing an unserved partition is refused");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+
+    let status = harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id: TEAM_ID,
+                person_id: foreign_id,
+                person_uuid: String::new(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Aborted.into(),
+                sealed_version: 0,
+                created_at: 0,
+            },
+            foreign_partition,
+        ))
+        .await
+        .expect_err("an aborted release must not vacuously succeed elsewhere");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+}
+
 /// A drained (deposed) pod must refuse FencePerson: a fence accepted
 /// there lands in a map the new owner never consults and is silently
 /// discarded at release, leaving the saga with a seal that protects

@@ -5,15 +5,32 @@
 //! The fence's source of truth is not this map — it is the saga's mark row
 //! (`lifecycle_op_person` in `marked`/`sealed`), committed on the persons
 //! primary before `FencePerson` is ever called. The map is the leader's
-//! in-process copy so the write path can reject without a database read.
-//! It is filled from two sources that together cover every mark: partition
-//! takeover reads the live marks from Postgres (before the partition
-//! accepts writes), and each `FencePerson` call adds an entry. Entries
-//! leave in exactly three ways: a `ReleaseFence`, the lazy liveness check
-//! (a rejected write finds the op finished and drops the stale entry), and
-//! dropping the whole partition. The map is NOT a cache: it has no
-//! capacity limit and no eviction path — losing an entry while continuing
-//! to serve would violate consistency, not degrade it.
+//! in-process copy, and on the write path it is authoritative: a fenced
+//! write is rejected from memory alone, never a database read.
+//!
+//! Postgres is read in exactly one place — the takeover scan, once per
+//! partition acquisition, before the partition accepts writes. That plus
+//! the `FencePerson` RPC are the only two ways an entry gets in, and
+//! together they cover every mark. Entries leave in exactly two ways: a
+//! `ReleaseFence`, or dropping the whole partition.
+//!
+//! The leader never reclaims a fence on its own, and deliberately so.
+//! personhog-identity owns lifecycle correctness: every op is driven to a
+//! terminal state (lease steal, sweeper resumption), so a `ReleaseFence`
+//! always eventually arrives. An entry that outlives a crashed saga is
+//! not stale — the mark is still live, the op really is unfinished, and
+//! the person really should stay frozen. For that guarantee to hold, a
+//! release must never *vacuously* succeed: both fence RPCs verify this
+//! pod serves the partition, so a misrouted call fails and identity's
+//! retry reaches the pod whose map actually gates the writes.
+//!
+//! The map is NOT a cache: it has no capacity limit and no eviction path
+//! — losing an entry while continuing to serve would violate consistency,
+//! not degrade it.
+//!
+//! One known bound: a takeover that runs between a release being acked
+//! and the saga settling its mark row installs a fence for an op that is
+//! already done. The next partition movement or restart clears it.
 
 use std::sync::Arc;
 
@@ -156,19 +173,4 @@ pub async fn mark_status(
     .bind(person_id)
     .fetch_optional(pool)
     .await
-}
-
-/// The lazy liveness check: a map entry can briefly outlive its op (the op
-/// finished just after the takeover scan read the marks). A rejected write
-/// triggers this check; a finished or GC'd op means the entry is stale and
-/// must be dropped so the person resumes normal life. Returns true when
-/// the op is still live (the rejection stands).
-pub async fn op_is_live(pool: &PgPool, op_id: Uuid) -> Result<bool, sqlx::Error> {
-    let live: Option<bool> =
-        sqlx::query_scalar("SELECT completed_at IS NULL FROM lifecycle_op WHERE op_id = $1")
-            .bind(op_id)
-            .fetch_optional(pool)
-            .await?;
-    // An absent row means the op completed and was GC'd past retention.
-    Ok(live.unwrap_or(false))
 }
