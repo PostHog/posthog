@@ -47,6 +47,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import (
+    align_batch_to_delta_schema,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
@@ -328,7 +331,15 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
-        pa_table = evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+        if delta_table is not None:
+            aligned = await align_batch_to_delta_schema(delta_table, pa_table, self._logger)
+            pa_table = aligned.table
+            if aligned.widened_columns:
+                # Widening rewrote every file, so the snapshot taken above no longer describes the
+                # table this batch is about to be written into.
+                previous_file_uris = await self._delta_table_ref.get_file_uris()
+        else:
+            pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"

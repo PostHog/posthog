@@ -669,7 +669,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # after the destination table was created with the narrower type. Delta Lake can't widen
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
-            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            "Source column type changed": "A column's type changed in your source and the rows already stored can't be converted to the new type. Use 'Delete table and resync' on this table to rebuild it with the new type.",
             # Raised by the source Postgres when the incremental query compares an integer/bigint
             # column against a non-integer cursor value, e.g. `WHERE "id" > '1.5'` or
             # `WHERE "id" > '2026-04-26T20:58:57.557000'`. `_build_query` renders the stored

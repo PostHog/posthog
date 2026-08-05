@@ -235,7 +235,7 @@ class TestDefaultNonRetryableErrors:
     @pytest.mark.parametrize(
         "key,expected_substring",
         [
-            ("Source column type changed", "reset and fully re-sync"),
+            ("Source column type changed", "Delete table and resync"),
             ("Cannot build decimal array from values", "decimal storage limits"),
         ],
     )

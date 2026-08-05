@@ -83,9 +83,8 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         """
         return {
             "Source column type changed": (
-                "A column's type changed in your source database (for example an integer column was widened to bigint) "
-                "and no longer fits the type we stored. We can't widen an existing column in place — please reset and "
-                "fully re-sync this table to adopt the new type."
+                "A column's type changed in your source and the rows already stored can't be converted to the new "
+                "type. Use 'Delete table and resync' on this table to rebuild it with the new type."
             ),
             "Cannot build decimal array from values": (
                 "One of your numeric columns contains values that exceed our decimal storage limits "

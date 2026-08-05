@@ -375,9 +375,10 @@ async def _handle_import_error(
         )
 
     # Raised in shared pipeline code when incoming data can't be cast into the stored (narrower)
-    # Delta column type. delta-rs can't change a column's type in place, so this fails identically
-    # on every retry regardless of source — classify it non-retryable by type here rather than
-    # relying on each source listing the message in get_non_retryable_errors.
+    # Delta column type and the stored rows can't be converted to the wider one either (the loader
+    # widens the column itself when they can). What reaches here fails identically on every retry
+    # regardless of source — classify it non-retryable by type here rather than relying on each
+    # source listing the message in get_non_retryable_errors.
     if isinstance(error, SchemaColumnTypeChangedException):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error

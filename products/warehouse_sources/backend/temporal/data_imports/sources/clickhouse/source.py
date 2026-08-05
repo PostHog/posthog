@@ -294,7 +294,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # the destination table was created with the narrower type. Delta Lake can't widen
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
-            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            "Source column type changed": "A column's type changed in your source and the rows already stored can't be converted to the new type. Use 'Delete table and resync' on this table to rebuild it with the new type.",
             # Raised from `_get_table` when `system.columns` returns no columns for the
             # configured table — the table no longer exists in the source database at sync
             # time. It was dropped or renamed, or (commonly) the schema points at a

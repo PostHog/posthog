@@ -20,6 +20,7 @@ from posthog.temporal.common.errors import NonReportableError
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
+    DeltaColumnWideningRequired,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
@@ -731,22 +732,25 @@ def test_evolve_pyarrow_schema_decimal_does_not_widen_unnecessarily_and_can_wide
 
 
 @pytest.mark.parametrize(
-    "delta_type, incoming_type, overflowing_value",
+    "delta_type, incoming_type, overflowing_value, expected_promotion",
     [
-        (pa.int32(), pa.int64(), 6178466636),  # > int32 max (2147483647)
-        (pa.int16(), pa.int64(), 6178466636),  # > int16 max, fits int64
-        (pa.int16(), pa.int32(), 100000),  # > int16 max (32767), fits int32
-        (pa.int64(), pa.float64(), 19.99),  # fractional float into an int column
-        (pa.int64(), pa.decimal128(4, 2), decimal.Decimal("19.99")),  # fractional decimal into an int column
+        (pa.int32(), pa.int64(), 6178466636, pa.int64()),  # > int32 max (2147483647)
+        (pa.int16(), pa.int64(), 6178466636, pa.int64()),  # > int16 max, fits int64
+        (pa.int16(), pa.int32(), 100000, pa.int32()),  # > int16 max (32767), fits int32
+        (pa.int64(), pa.float64(), 19.99, pa.float64()),  # fractional float into an int column
+        # a fractional decimal into an int column keeps room for the stored int64 range
+        (pa.int64(), pa.decimal128(4, 2), decimal.Decimal("19.99"), pa.decimal128(22, 2)),
     ],
 )
-def test_evolve_pyarrow_schema_integer_overflow_raises_actionable_error(
-    delta_type: pa.DataType, incoming_type: pa.DataType, overflowing_value: int | float | decimal.Decimal
+def test_evolve_pyarrow_schema_reports_a_lossless_widening_for_the_stored_column(
+    delta_type: pa.DataType,
+    incoming_type: pa.DataType,
+    overflowing_value: int | float | decimal.Decimal,
+    expected_promotion: pa.DataType,
 ):
-    """An incoming value that doesn't fit the stored integer Delta type — a wider integer
-    that overflows, or a fractional float/decimal that would be truncated — raises a clear,
-    actionable error instructing the user to reset and re-sync, rather than a raw pyarrow
-    ArrowInvalid."""
+    """An incoming value that doesn't fit the stored numeric Delta type asks for the stored column
+    to be widened (the caller rewrites it), rather than failing the sync or letting delta-rs
+    silently truncate the value into the narrower stored type."""
     arrow_table = pa.table(
         {
             "id": pa.array([1, 2], type=pa.int64()),
@@ -757,8 +761,31 @@ def test_evolve_pyarrow_schema_integer_overflow_raises_actionable_error(
         pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", delta_type, nullable=True)])
     )
 
-    with pytest.raises(SchemaColumnTypeChangedException, match="Source column type changed"):
+    with pytest.raises(DeltaColumnWideningRequired, match="Source column type changed") as raised:
         evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert raised.value.promotions == {"val": expected_promotion}
+
+
+@pytest.mark.parametrize(
+    "delta_type, incoming_type, incoming_value",
+    [
+        (pa.int64(), pa.string(), "n/a"),  # numbers replaced by text
+        (pa.bool_(), pa.string(), "maybe"),  # a flag column replaced by free text
+    ],
+)
+def test_evolve_pyarrow_schema_unconvertible_column_raises_actionable_error(
+    delta_type: pa.DataType, incoming_type: pa.DataType, incoming_value: str
+):
+    """A change no widening can absorb (text where numbers used to be) still fails with a clear,
+    actionable error naming the action that fixes it, not a raw pyarrow ArrowInvalid."""
+    arrow_table = pa.table({"val": pa.array([incoming_value], type=incoming_type)})
+    delta_schema = deltalake.Schema.from_arrow(pa.schema([pa.field("val", delta_type, nullable=True)]))
+
+    with pytest.raises(SchemaColumnTypeChangedException, match="Delete table and resync") as raised:
+        evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert not isinstance(raised.value, DeltaColumnWideningRequired)
 
 
 def test_evolve_pyarrow_schema_integer_narrowing_within_range_is_preserved():

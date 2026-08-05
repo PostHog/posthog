@@ -37,10 +37,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     supports_partial_data_loading,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
-    evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import (
+    align_batch_to_delta_schema,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
@@ -795,7 +797,12 @@ def process_message(
         )
 
         if existing_delta_table is not None:
-            pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
+            aligned = async_to_sync(align_batch_to_delta_schema)(existing_delta_table, pa_table, logger)
+            pa_table = aligned.table
+            if aligned.widened_columns:
+                # Widening rewrote every file, so the snapshot taken above no longer describes the
+                # table this batch is about to be written into.
+                previous_file_uris = existing_delta_table.file_uris()
 
         if verify_ownership is not None:
             verify_ownership()

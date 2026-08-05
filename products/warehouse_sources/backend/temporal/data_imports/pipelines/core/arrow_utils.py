@@ -80,11 +80,76 @@ class SchemaColumnTypeChangedException(Exception):
 
     The usual cause is the source column's type being widened upstream (e.g. Postgres
     `integer` → `bigint`) after the Delta table was already created with the narrower type.
-    delta-rs cannot widen an existing column in place, so retrying is futile — the table must
-    be reset and fully re-synced to adopt the new type.
+    Retrying is futile: the values fail the same cast every time. When the widening is lossless
+    the writer converts the stored column instead (see `DeltaColumnWideningRequired`); everything
+    else needs the table rebuilt from scratch.
     """
 
     pass
+
+
+class DeltaColumnWideningRequired(SchemaColumnTypeChangedException):
+    """The incoming values need a wider stored column, and widening it keeps every stored value.
+
+    Carries `promotions` (column name → target type) so a caller holding the Delta table can
+    convert the stored columns and retry the alignment. Subclasses SchemaColumnTypeChangedException
+    on purpose: a caller that can't widen keeps the old terminal behaviour rather than writing the
+    batch anyway, which delta-rs would silently truncate to the stored type.
+    """
+
+    def __init__(self, message: str, promotions: dict[str, pa.DataType]) -> None:
+        super().__init__(message)
+        self.promotions = promotions
+
+
+# Integer digits the widest value of each integer bit width needs, for sizing a decimal promotion.
+_INT_DECIMAL_DIGITS: dict[int, int] = {8: 3, 16: 5, 32: 10, 64: 20}
+
+COLUMN_TYPE_CHANGED_REMEDY = "Use 'Delete table and resync' on this table to rebuild it with the new type."
+
+
+def column_type_changed_message(column_name: str, stored_type: pa.DataType, incoming_type: pa.DataType) -> str:
+    return (
+        f"Source column type changed: '{column_name}' has values that no longer fit its stored type "
+        f"{stored_type} (incoming data is now {incoming_type}). {COLUMN_TYPE_CHANGED_REMEDY}"
+    )
+
+
+def safe_column_promotion(stored_type: pa.DataType, incoming_type: pa.DataType) -> pa.DataType | None:
+    """The wider type a stored Delta column can be converted to so `incoming_type` fits, or None.
+
+    Only conversions that keep every value already stored in the column are offered, and only for
+    the stored integer columns this actually fires for (a narrowing cast into any other stored type
+    either succeeds or is a genuine incompatibility): a wider integer of the same signedness, a
+    float (whose `safe=True` cast rejects integers past the exactly-representable range, so the
+    conversion still fails closed), or a decimal with room for the stored integer range. Text is
+    deliberately never a target — turning a numeric column into strings changes what every query
+    over it means, so that stays a full rebuild.
+    """
+    if stored_type == incoming_type:
+        return None
+
+    if pa.types.is_integer(stored_type):
+        if pa.types.is_integer(incoming_type):
+            if incoming_type.bit_width <= stored_type.bit_width:
+                return None
+            stored_signed = pa.types.is_signed_integer(stored_type)
+            incoming_signed = pa.types.is_signed_integer(incoming_type)
+            # An unsigned value always fits a strictly wider signed type; the reverse loses negatives.
+            return incoming_type if stored_signed == incoming_signed or incoming_signed else None
+        if pa.types.is_floating(incoming_type):
+            return pa.float64()
+        if pa.types.is_decimal(incoming_type):
+            incoming_decimal = cast(pa.Decimal128Type | pa.Decimal256Type, incoming_type)
+            int_digits = _INT_DECIMAL_DIGITS[stored_type.bit_width]
+            precision = max(incoming_decimal.precision, int_digits + incoming_decimal.scale)
+            # Delta Lake caps decimals at precision 38; a wider one can't be stored, so there is
+            # no target that holds both the stored integers and the incoming scale.
+            if precision > DEFAULT_NUMERIC_PRECISION:
+                return None
+            return pa.decimal128(precision, incoming_decimal.scale)
+
+    return None
 
 
 def normalize_column_name(column_name: str) -> str:
@@ -236,6 +301,8 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
 
     # Second pass: align with existing Delta table schema.
     delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+    pending_promotions: dict[str, pa.DataType] = {}
+    pending_promotion_messages: list[str] = []
     for delta_field in delta_arrow_schema:
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
@@ -313,22 +380,30 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                 except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as e:
                     # Reaching this cast already means the incoming type differs from the stored
                     # Delta type (see the guard above) and the timestamp path didn't apply, so a
-                    # failure here is a deterministic, unretryable incompatibility: the source
-                    # column's type changed under a table created with a narrower type. Common
-                    # shapes are an integer column widened upstream (Postgres `integer` → `bigint`),
-                    # an integer-created column now receiving fractional values ("Float value 19.99
-                    # was truncated converting to int64"), non-numeric text arriving for a numeric
-                    # column ("Failed to parse string: '80-150' as a scalar of type int32"), a
-                    # value that overflows the stored decimal precision, or a cast pyarrow has no
-                    # kernel for at all (raised as ArrowNotImplementedError rather than
-                    # ArrowInvalid). delta-rs cannot change a column's type in place, so
-                    # retrying is futile — surface an actionable error telling the user to reset and
-                    # fully re-sync. Lossless widening (e.g. a whole-valued float into an integer
-                    # column) still casts fine and never reaches here.
+                    # failure here is deterministic: the source column's type changed under a table
+                    # created with a narrower type. Common shapes are an integer column widened
+                    # upstream (Postgres `integer` → `bigint`), an integer-created column now
+                    # receiving fractional values ("Float value 19.99 was truncated converting to
+                    # int64"), non-numeric text arriving for a numeric column ("Failed to parse
+                    # string: '80-150' as a scalar of type int32"), a value that overflows the
+                    # stored decimal precision, or a cast pyarrow has no kernel for at all (raised
+                    # as ArrowNotImplementedError rather than ArrowInvalid). Lossless narrowing
+                    # (e.g. a whole-valued float into an integer column) still casts fine and never
+                    # reaches here.
+                    #
+                    # When the stored column can instead be converted to a type that holds both its
+                    # own values and the incoming ones, collect it: the caller widens the stored
+                    # column and retries. Anything else needs the table rebuilt, and retrying it
+                    # fails identically every time.
+                    promotion = safe_column_promotion(delta_field.type, incoming_column.type)
+                    if promotion is not None:
+                        pending_promotions[delta_field.name] = promotion
+                        pending_promotion_messages.append(
+                            column_type_changed_message(delta_field.name, delta_field.type, incoming_column.type)
+                        )
+                        continue
                     raise SchemaColumnTypeChangedException(
-                        f"Source column type changed: '{delta_field.name}' has values that no longer "
-                        f"fit its stored type {delta_field.type} (incoming data is now "
-                        f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
+                        column_type_changed_message(delta_field.name, delta_field.type, incoming_column.type)
                     ) from e
 
                 incoming_table = incoming_table.set_column(
@@ -354,6 +429,9 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                 delta_field,
                 filled_nulls_arr.combine_chunks(),
             )
+
+    if pending_promotions:
+        raise DeltaColumnWideningRequired(" ".join(pending_promotion_messages), pending_promotions)
 
     # Change types based on what deltalake tables support
     return incoming_table.cast(ensure_delta_compatible_arrow_schema(incoming_table.schema))

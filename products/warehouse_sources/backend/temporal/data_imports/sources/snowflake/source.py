@@ -288,7 +288,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # to a larger NUMBER/BIGINT) after the destination table was created with the
             # narrower type. Delta Lake can't widen an existing column in place, so retrying
             # won't help — the table must be reset and fully re-synced to adopt the new type.
-            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            "Source column type changed": "A column's type changed in your source and the rows already stored can't be converted to the new type. Use 'Delete table and resync' on this table to rebuild it with the new type.",
             # Snowflake SQL compilation error 002057: a view's declared column list no longer
             # matches the columns its query produces, so the view itself fails to compile. This is
             # a broken object on the source side that retrying can't repair.

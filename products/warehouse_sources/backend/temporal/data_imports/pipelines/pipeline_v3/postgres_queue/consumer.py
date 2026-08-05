@@ -81,8 +81,8 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     "is too large to store in a Decimal128",
     # schema configured as incremental without a primary key — config error
     "Primary key required for incremental syncs",
-    # incoming values no longer fit the stored Delta column type
-    # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
+    # incoming values no longer fit the stored Delta column type and the stored rows can't be
+    # converted to the wider one (SchemaColumnTypeChangedException) — only a full rebuild fixes it
     "Source column type changed",
     # the schema or job row was deleted mid-sync — no retry can bring it back
     "ExternalDataSchema matching query does not exist",
@@ -94,8 +94,8 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
 # error-tracking capture for these so they don't drown real bugs. Kept deliberately narrow.
 EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # a source column's type changed upstream and no longer fits the stored Delta column
-    # (SchemaColumnTypeChangedException) — delta-rs can't widen in place, so the fix is a
-    # user-driven reset and full re-sync, not a code change
+    # (SchemaColumnTypeChangedException) — the loader already widens the column where the stored
+    # rows survive the conversion, so what's left needs a user-driven rebuild, not a code change
     "Source column type changed",
     # the schema or job was deleted (e.g. the user removed the source) while a batch for it
     # was still in flight — an upstream/customer action, not a pipeline bug
