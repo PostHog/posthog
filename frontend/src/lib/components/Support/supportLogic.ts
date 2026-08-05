@@ -105,8 +105,13 @@ export type SupportSendFailureReason =
     | 'message_too_long' // rejected by the client-side cap before we tried
     | 'not_entitled' // plan has no ticket channel, so the draft was dropped on the floor
 
-/** Why a support surface couldn't function. Nothing was submitted, so no message is at risk. */
-export type SupportUnavailableReason =
+/**
+ * Why a support surface couldn't function. Nothing was submitted, so no message is at risk.
+ *
+ * `restore_link_failed` is a request failure rather than a load, but it sits under the same event:
+ * the umbrella is "the surface couldn't do its job", and `reason` carries the specifics.
+ */
+export type SupportLoadFailureReason =
     | 'extension_missing' // posthog.conversations never showed up
     | 'tickets_load_failed' // listing existing tickets threw
     | 'thread_load_failed' // opening a ticket's messages threw
@@ -183,18 +188,18 @@ export function captureSupportTicketFailed({
  * A support surface couldn't function. Nothing was submitted, so no customer message is at risk —
  * this is the rate signal for "support is broken for people", not the per-message loss signal.
  */
-export function captureSupportWidgetUnavailable({
+export function captureSupportWidgetLoadFailed({
     surface,
     reason,
     error,
     ...rest
 }: {
     surface: SupportFailureSurface
-    reason: SupportUnavailableReason
+    reason: SupportLoadFailureReason
     error?: unknown
     can_create_ticket?: boolean
 }): void {
-    posthog.capture('support widget unavailable', {
+    posthog.capture('support widget load failed', {
         surface,
         reason,
         error: error !== undefined ? (error instanceof Error ? error.message : String(error)) : undefined,

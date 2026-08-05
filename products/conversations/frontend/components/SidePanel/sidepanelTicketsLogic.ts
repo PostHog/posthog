@@ -18,7 +18,7 @@ import posthog from 'posthog-js'
 import {
     appendExceptionToMessage,
     captureSupportTicketFailed,
-    captureSupportWidgetUnavailable,
+    captureSupportWidgetLoadFailed,
     supportLogic,
     warnIfMessageTooLong,
     warnSupportWidgetUnavailable,
@@ -407,7 +407,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     // Out of retries. Kept separate from the send-failure event because nothing was
                     // submitted here, and recorded even when we stay quiet so the rate is measurable.
                     cache.conversationsUnavailableWarned = true
-                    captureSupportWidgetUnavailable({
+                    captureSupportWidgetLoadFailed({
                         surface: 'side_panel_tickets',
                         reason: 'extension_missing',
                         can_create_ticket: values.canCreateTicket,
@@ -436,7 +436,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 console.error('Failed to load tickets:', e)
                 // Reported because a customer who can't see their tickets can't reply to support on
                 // them either, and the toast alone left us blind to how often that happens
-                captureSupportWidgetUnavailable({
+                captureSupportWidgetLoadFailed({
                     surface: 'side_panel_tickets',
                     reason: 'tickets_load_failed',
                     error: e,
@@ -506,7 +506,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 console.error('Failed to load messages:', e)
                 // A thread that won't open is a customer who can't continue a conversation they
                 // already started, so it belongs in the same rate signal as a dead panel
-                captureSupportWidgetUnavailable({
+                captureSupportWidgetLoadFailed({
                     surface: 'side_panel_tickets',
                     reason: 'thread_load_failed',
                     error: e,
@@ -676,7 +676,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!conversations?.requestRestoreLink) {
                 // Returning quietly left the button idle with no explanation. This form already renders
                 // restoreError inline, which beats a toast for something the user has to act on.
-                captureSupportWidgetUnavailable({ surface: 'restore_form', reason: 'extension_missing' })
+                captureSupportWidgetLoadFailed({ surface: 'restore_form', reason: 'extension_missing' })
                 actions.setRestoreError(
                     "We can't load the support chat, which is usually an ad blocker or a network policy. Try turning it off for this site and reloading."
                 )
@@ -690,7 +690,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             } catch (e: any) {
                 // Someone who lost their tickets and can't get the restore link has no way back to a
                 // conversation they already started, so it's worth the same visibility as a dead panel
-                captureSupportWidgetUnavailable({ surface: 'restore_form', reason: 'restore_link_failed', error: e })
+                captureSupportWidgetLoadFailed({ surface: 'restore_form', reason: 'restore_link_failed', error: e })
                 const message =
                     e?.status === 429
                         ? 'Too many requests. Please try again later.'

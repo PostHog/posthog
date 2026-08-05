@@ -229,11 +229,11 @@ describe('sidepanelTicketsLogic', () => {
         }).toFinishAllListeners()
 
         // Recorded either way, so the failure rate stays visible even where we don't interrupt
-        const unavailable = (posthog.capture as jest.Mock).mock.calls.filter(
-            ([event]) => event === 'support widget unavailable'
+        const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support widget load failed'
         )
-        expect(unavailable).toHaveLength(1)
-        expect(unavailable[0][1]).toMatchObject({ can_create_ticket: expectWarning })
+        expect(loadFailures).toHaveLength(1)
+        expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: expectWarning })
         expect(errorToast).toHaveBeenCalledTimes(expectWarning ? 1 : 0)
         errorToast.mockRestore()
     })
