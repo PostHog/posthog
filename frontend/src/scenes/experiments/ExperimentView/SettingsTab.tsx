@@ -29,7 +29,7 @@ import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
     const { experiment, statsMethod, variants, experimentUpdateLoading } = useValues(experimentLogic)
-    const { updateExperimentSettings } = useActions(experimentLogic)
+    const { updateExperiment, updateExperimentSettings } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
@@ -72,13 +72,15 @@ export function SettingsTab(): JSX.Element {
             <div className="flex gap-4 flex-wrap items-start">
                 <div className="flex-1 min-w-64 flex flex-col gap-4">
                     <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
-                        <div className="font-semibold">Advanced options</div>
+                        <h2 className="font-semibold text-base m-0">Advanced options</h2>
                         <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium">Tags</label>
+                            <h3 className="text-sm font-medium m-0">Tags</h3>
                             {canEditExperiment ? (
                                 <ObjectTags
                                     tags={experiment.tags ?? []}
-                                    onChange={(tags) => updateExperimentSettings({ tags })}
+                                    // Not updateExperimentSettings: tags don't affect metric
+                                    // computation, so don't trigger its results refresh.
+                                    onChange={(tags) => updateExperiment({ tags })}
                                     saving={experimentUpdateLoading}
                                     tagsAvailable={allExistingTags.filter(
                                         (tag: string) => !experiment.tags?.includes(tag)
@@ -95,9 +97,9 @@ export function SettingsTab(): JSX.Element {
 
                 <div className="flex-[2] min-w-80 flex flex-col gap-4">
                     <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
-                        <div className="font-semibold">Statistics</div>
+                        <h2 className="font-semibold text-base m-0">Statistics</h2>
                         <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium">Method</label>
+                            <h3 className="text-sm font-medium m-0">Method</h3>
                             <div className="flex items-center gap-2">
                                 <span>
                                     {isBayesian ? 'Bayesian' : 'Frequentist'} / {confidenceDisplay}
@@ -113,7 +115,7 @@ export function SettingsTab(): JSX.Element {
                             <StatsMethodModal />
                         </div>
                         <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium">CUPED</label>
+                            <h3 className="text-sm font-medium m-0">CUPED</h3>
                             <div className="flex items-center gap-2">
                                 <LemonTag type={cupedEnabled ? 'success' : 'default'}>
                                     {cupedEnabled ? 'Enabled' : 'Disabled'}
@@ -147,7 +149,7 @@ export function SettingsTab(): JSX.Element {
                             <CupedModal />
                         </div>
                         <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium">Baseline variant</label>
+                            <h3 className="text-sm font-medium m-0">Baseline variant</h3>
                             <div>
                                 <LemonSelect
                                     value={getBaselineVariantKey(experiment)}
@@ -165,7 +167,7 @@ export function SettingsTab(): JSX.Element {
                             <p className="text-muted text-xs m-0">The variant all others are compared against.</p>
                         </div>
                         <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium">Conversion windows</label>
+                            <h3 className="text-sm font-medium m-0">Conversion windows</h3>
                             <div className="flex items-center gap-2">
                                 <LemonCheckbox
                                     label="Require completed conversion or retention window"
@@ -193,7 +195,7 @@ export function SettingsTab(): JSX.Element {
 
                     {shouldShowSignificanceAlerts && (
                         <div className="rounded border p-4 bg-bg-light flex flex-col gap-2">
-                            <div className="font-semibold">Notifications</div>
+                            <h2 className="font-semibold text-base m-0">Notifications</h2>
                             <p className="text-muted text-xs m-0">Get notified when a metric reaches significance.</p>
                             <LinkedHogFunctions
                                 type="internal_destination"

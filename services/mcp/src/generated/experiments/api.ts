@@ -864,6 +864,9 @@ export const experimentsCreateBodyConclusionCommentMax = 4000
 export const experimentsCreateBodyRepositoryMax = 255
 
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
+export const experimentsCreateBodyTagsItemMax = 255
+
+export const experimentsCreateBodyTagsMax = 100
 
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -4497,7 +4500,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.'
             ),
-        tags: zod.array(zod.string()).optional().describe('Organizational tags for this experiment.'),
+        tags: zod
+            .array(zod.string().max(experimentsCreateBodyTagsItemMax))
+            .max(experimentsCreateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
@@ -4627,6 +4634,10 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercen
 export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
 
 export const experimentsPartialUpdateBodyRepositoryMax = 255
+
+export const experimentsPartialUpdateBodyTagsItemMax = 255
+
+export const experimentsPartialUpdateBodyTagsMax = 100
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -8268,7 +8279,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.'
             ),
-        tags: zod.array(zod.string()).optional().describe('Organizational tags for this experiment.'),
+        tags: zod
+            .array(zod.string().max(experimentsPartialUpdateBodyTagsItemMax))
+            .max(experimentsPartialUpdateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
@@ -8474,6 +8489,9 @@ export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
 export const experimentsDuplicateCreateBodyRepositoryMax = 255
 
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
+export const experimentsDuplicateCreateBodyTagsItemMax = 255
+
+export const experimentsDuplicateCreateBodyTagsMax = 100
 
 export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -12011,7 +12029,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe(
                 'The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.'
             ),
-        tags: zod.array(zod.string()).optional().describe('Organizational tags for this experiment.'),
+        tags: zod
+            .array(zod.string().max(experimentsDuplicateCreateBodyTagsItemMax))
+            .max(experimentsDuplicateCreateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe(
         'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``\/``metrics_secondary``\/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'

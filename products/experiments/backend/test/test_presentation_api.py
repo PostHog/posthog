@@ -9070,6 +9070,17 @@ class TestExperimentTags(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert sorted(response.json()["tags"]) == ["three", "two"]
 
+        # tags: [] clears (None preserves, [] clears — both ride the same pop in update())
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"tags": []},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == []
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment['id']}/").json()
+        assert detail["tags"] == []
+
     @parameterized.expand(
         [
             ("tags_match", 'tags=["growth"]', {"A"}),
@@ -9135,6 +9146,23 @@ class TestExperimentTags(APILicensedTest):
         response = self.client.get(f'/api/projects/{self.team.id}/experiments/matching_ids/?tags=["growth"]')
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"ids": [tagged["id"]], "total": 1}
+
+    def test_matching_ids_excludes_view_only_experiments(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        editable = self._create_experiment("Mine", "tags-acl-flag-a")
+
+        other_user = self._create_user("other-tags-acl@posthog.com")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="tags-acl-flag-b")
+        view_only = Experiment.objects.create(team=self.team, name="Theirs", created_by=other_user, feature_flag=flag)
+        AccessControl.objects.create(
+            resource="experiment", resource_id=view_only.id, team=self.team, access_level="viewer"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/matching_ids/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert view_only.id not in response.json()["ids"]
+        assert editable["id"] in response.json()["ids"]
 
 
 class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):

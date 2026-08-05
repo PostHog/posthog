@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
@@ -263,6 +263,14 @@ const ExperimentsTable = ({
     const [matchingExperimentIdsLoading, setMatchingExperimentIdsLoading] = useState(false)
     // State rather than a ref so mounting the slot re-renders and the bar's portal finds it.
     const [bulkSelectionBarContainer, setBulkSelectionBarContainer] = useState<HTMLDivElement | null>(null)
+
+    // Changing a filter changes which experiments the bulk bar refers to, so drop the selection and
+    // any cached "all matching" IDs. Page is excluded: selections deliberately span pages.
+    const { page: _page, ...filtersWithoutPage } = filters
+    const filterIdentity = JSON.stringify(filtersWithoutPage)
+    useEffect(() => {
+        setMatchingExperimentIds(null)
+    }, [filterIdentity])
 
     const page = filters.page || 1
     const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
@@ -620,6 +628,7 @@ const ExperimentsTable = ({
                     }
                     bulkSelection={{
                         barPortalTarget: bulkSelectionBarContainer,
+                        clearSelectionKey: filterIdentity,
                         getKey: (experiment: Experiment): number =>
                             typeof experiment.id === 'number' ? experiment.id : -1,
                         isRowSelectable: (experiment: Experiment) =>
@@ -667,6 +676,10 @@ const ExperimentsTable = ({
                                                     )) as { ids: number[]; total: number }
                                                     setMatchingExperimentIds(response.ids)
                                                     ctx.setSelectedKeys(response.ids)
+                                                } catch {
+                                                    lemonToast.error(
+                                                        "Couldn't select all matching experiments. Please try again."
+                                                    )
                                                 } finally {
                                                     setMatchingExperimentIdsLoading(false)
                                                 }

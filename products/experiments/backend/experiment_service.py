@@ -131,10 +131,16 @@ ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
 
 
 def _parse_tag_names(value: Any) -> list[str]:
-    """Parse a tags query param that arrives as a list or a JSON-encoded string."""
+    """Parse a tags query param that arrives as a list or a JSON-encoded string.
+
+    Anything that doesn't decode to a list is ignored rather than an error: a scalar like
+    ``?tags=5`` or ``?tags="growth"`` decodes fine but isn't a tag list.
+    """
     try:
         tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
     except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(tags, list):
         return []
     return [tag for tag in tags if isinstance(tag, str)]
 
@@ -4140,7 +4146,12 @@ class ExperimentService:
 
             tags = _parse_tag_names(query_params.get("tags"))
             if tags:
-                queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+                # Filter by ID subquery instead of join + .distinct(): the list queryset joins six
+                # tables (including jsonb columns), so SELECT DISTINCT over it dedupes every column.
+                experiments_with_tags = Experiment.objects.filter(
+                    team__project_id=self.team.project_id, tagged_items__tag__name__in=tags
+                ).values("pk")
+                queryset = queryset.filter(pk__in=experiments_with_tags)
 
             excluded_tags = _parse_tag_names(query_params.get("excluded_tags"))
             if excluded_tags:

@@ -28764,7 +28764,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
-      /** Organizational tags for this experiment. */
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
       tags?: string[];
     }
 
@@ -28851,7 +28855,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
-      /** Organizational tags for this experiment. */
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
       tags?: string[];
     }
 
@@ -29688,7 +29696,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
-      /** Organizational tags for this experiment. */
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
       tags?: string[];
     }
 
@@ -52364,7 +52376,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
-      /** Organizational tags for this experiment. */
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
       tags?: string[];
     }
 
@@ -80224,10 +80240,59 @@ export namespace Schemas {
 
     export type ExperimentsMatchingIdsRetrieveParams = {
     /**
-     * JSON-encoded list of tag names, same semantics as on the list endpoint.
+     * Filter by archived state. Defaults to non-archived experiments only.
+     */
+    archived?: boolean;
+    /**
+     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
+     */
+    created_by_id?: string;
+    /**
+     * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
+     */
+    event?: string;
+    /**
+     * JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string;
+    /**
+     * Filter to experiments linked to the given feature flag ID.
+     */
+    feature_flag_id?: number;
+    /**
+     * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
+     */
+    order?: string;
+    /**
+     * Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.
+     */
+    prompt_name?: string;
+    /**
+     * Free-text search applied to the experiment name (case-insensitive).
+     */
+    search?: string;
+    /**
+     * Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.
+     */
+    status?: ExperimentsMatchingIdsRetrieveStatus;
+    /**
+     * JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
      */
     tags?: string;
     };
+
+    export type ExperimentsMatchingIdsRetrieveStatus = typeof ExperimentsMatchingIdsRetrieveStatus[keyof typeof ExperimentsMatchingIdsRetrieveStatus];
+
+
+    export const ExperimentsMatchingIdsRetrieveStatus = {
+      All: 'all',
+      Complete: 'complete',
+      Draft: 'draft',
+      ExposureFrozen: 'exposure_frozen',
+      Paused: 'paused',
+      Running: 'running',
+      Stopped: 'stopped',
+    } as const;
 
     export type ExperimentsPromptTemplatesRetrieve200Item = {
       key: string;

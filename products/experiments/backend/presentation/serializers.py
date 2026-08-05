@@ -27,7 +27,7 @@ from posthog.schema import (
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -233,9 +233,10 @@ class ExperimentBaseSerializer(
         ),
     )
     tags = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH),
+        max_length=BULK_UPDATE_TAGS_MAX_TAGS,
         required=False,
-        help_text="Organizational tags for this experiment.",
+        help_text="Organizational tags for this experiment (up to 100, 255 characters each).",
     )
 
     @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "exposure_frozen", "stopped"]})
@@ -811,8 +812,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         # Pop fields not needed for DTO but needed for validation
         validated_data.pop("update_feature_flag_params", None)
-        # Tags live in the shared TaggedItem table, not on the experiment row, so they must not
-        # reach the expected_fields check or the facade DTO.
+        # Tags live in the shared TaggedItem table, not on the experiment row; pop them so the
+        # expected_fields check below doesn't reject them as an unknown key.
         tags = validated_data.pop("tags", None)
         # Concurrency keys are update-only; ignore them on create so clients can share payload builders
         validated_data.pop("version", None)

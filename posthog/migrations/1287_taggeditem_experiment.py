@@ -4,16 +4,10 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("actions", "0001_migrate_actions_models"),
-        ("conversations", "0052_ticket_organization_id_source"),
-        ("customer_analytics", "0025_alter_eventstream_created_by"),
-        ("dashboards", "0014_backfill_dashboardtemplate_button_tile_type"),
-        ("endpoints", "0031_endpointversion_optional_breakdown_properties"),
-        ("event_definitions", "0010_propertydefinition_warehouse_origin"),
+        # Only the new relation's target needs pinning (matching the endpoint precedent in 1179);
+        # the other TaggedItem FK columns already exist in state via their own earlier migrations.
         ("experiments", "0029_experiment_repository"),
-        ("feature_flags", "0011_clean_flag_filters_recoverable_violations"),
         ("posthog", "1286_cleanup_orphaned_identity_provider_configs"),
-        ("product_analytics", "0004_delete_revenue_analytics_insights"),
     ]
 
     state_operations = [

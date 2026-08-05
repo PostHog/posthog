@@ -2422,10 +2422,12 @@
         },
         "stats_config": {},
         "tags": {
-            "description": "Organizational tags for this experiment.",
+            "description": "Organizational tags for this experiment (up to 100, 255 characters each).",
             "items": {
+                "maxLength": 255,
                 "type": "string"
             },
+            "maxItems": 100,
             "type": "array"
         }
     },
