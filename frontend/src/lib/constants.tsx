@@ -310,13 +310,13 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
-    EXPERIMENT_CLEANUP_E2E_DUMMY: 'experiment-cleanup-e2e-dummy', // owner: @jurajmajerik #team-experiments multivariate=control,test, throwaway dogfood flag validating the flag-cleanup PR flow end to end
     EXPERIMENT_FLAG_CLEANUP_PR: 'experiment-flag-cleanup-pr', // owner: @jurajmajerik #team-experiments
     EXPERIMENT_RECORDINGS_TAB: 'experiment-recordings-tab', // owner: @mp-hog #team-experiments
     EXPERIMENT_SESSION_REPLAYS_SKILL: 'experiment-session-replays-skill', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_EXCLUDED_VARIANTS: 'experiments-excluded-variants', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST: 'experiments-freeze-exposure-aa-test', // owner: @mp-hog #team-experiments multivariate=control,test, dogfood A/A used to validate the freeze-exposure lifecycle action
+    EXPERIMENTS_LIST_AA_TEST: 'experiments-list-aa-test', // owner: @andehen #team-experiments multivariate=control,test, dogfood A/A exposed on the experiments list page
     EXPERIMENTS_METRICS_RECALCULATION: 'experiments-metrics-recalculation', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SYNC_QUERIES: 'experiments-sync-queries', // owner: @andehen #team-experiments
@@ -435,7 +435,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS: 'product-analytics-quarter-year-intervals', // owner: @sampennington #team-product-analytics, gates quarter/year interval selection on insights
-    PRODUCT_ANALYTICS_QUILL_DATE_FILTER: 'product-analytics-quill-date-filter', // owner: @sampennington #team-product-analytics, swaps the insight date filter for the chip-based quill date filter (lemon-skinned)
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_DWH: 'retention-dwh', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-self-driving
