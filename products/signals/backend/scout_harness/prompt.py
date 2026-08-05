@@ -605,6 +605,36 @@ Your skill is a canonical PostHog-authored skill that runs on many projects, and
 - Routing: this channel is only for the content of your canonical skill body. A problem with the tools, the harness, or these shared instructions goes through *Report operational friction* above, like any other run, under the same bar and etiquette: a concrete failure or waste observed this run, at most one submission per run, near close-out, mentioned in your summary."""
 
 
+def _structured_output_section(schema: dict | None) -> str:
+    """Compose the structured-output section, or empty when the config carries no schema.
+
+    Per-run composed (like the follow-ups section) because the schema is per-team config data,
+    not a template: the section renders the exact schema the record endpoint will enforce, so
+    the prompt and the validator can never describe two different contracts. The section only
+    exists when the channel is on — naming `scout-record-output` on a scout whose channel is
+    off (no schema, or dry-run: the runner passes None for both) would steer it at a tool
+    that fails closed.
+    """
+    if not schema:
+        return ""
+    schema_text = json.dumps(schema, indent=2, sort_keys=True)
+    return f"""# Structured output
+
+This scout's config carries a structured output schema, so producing records is part of this run's job, alongside everything above. Each record is one measurement (a judgment, a score, a classification) matching the schema below. How many records a run produces is your skill's call – one per run, one per entity you judged, or none when the skill's bar isn't met.
+
+<jsonschema>
+{schema_text}
+</jsonschema>
+
+- Record via `scout-record-output`, passing your `run_id` and a `records` list; each entry is `{{"payload": <object matching the schema>, "subject": "<optional key naming what the record is about, e.g. a report id>"}}`.
+- Set `subject` whenever a record is about one specific entity, so that entity's records can be followed across runs without parsing payloads.
+- Batch: submit many records per call (up to 100) rather than one call per record.
+- Validation is all-or-nothing per call: if any record fails the schema, nothing is recorded and the error names the failing records – fix them and resubmit the whole batch.
+- Each record lands in this project as a `$scout_structured_output` event – past records are queryable like any event (your payload's scalar keys are flattened to `output_<key>` properties, `subject` and `run_id` ride alongside).
+- Recording is idempotent: resubmitting an identical batch cannot double-count, so if a call fails with a delivery error, retry the same call.
+- Records complement your other outputs, they don't replace them: still write your scratchpad entries and close-out summary, and mention how many records you produced."""
+
+
 _OPERATIONAL_FRICTION = """# Report operational friction
 
 You run this tooling end to end on a schedule, so your experience is how PostHog makes the scout system better over time. If something gets in your way as you work (a tool you needed was missing, a tool returned wrong, confusing, or unusable data, an error you couldn't recover from, the project profile lacked something you expected, or these instructions sent you down the wrong path), report it via the `agent-feedback` MCP tool when it's available to you this run.
@@ -632,9 +662,10 @@ Respond at end_turn with a single JSON object matching this schema:
 </jsonschema>"""
 
 
-def _signal_tail_sections(*, followup_section: str) -> list[str]:
+def _signal_tail_sections(*, followup_section: str, structured_output_section: str = "") -> list[str]:
     """Signal-channel tail. `followup_section` is the per-run composed self-validation section —
-    channel-matched, so it can't live in a static list."""
+    channel-matched, so it can't live in a static list; `structured_output_section` is likewise
+    per-run composed (empty when the config carries no schema)."""
     return [
         _HOW_A_RUN_WORKS_SIGNAL,
         # Ground rules lead the tail: the untrusted-input rule is stated once there, and the sections
@@ -645,6 +676,7 @@ def _signal_tail_sections(*, followup_section: str) -> list[str]:
         _FLEET_SEAMS,
         followup_section,
         _RECENCY_LENS,
+        *([structured_output_section] if structured_output_section else []),
         _FINDING_SCHEMA,
         _TAGGING,
         _WRITING_DESCRIPTION_SIGNAL,
@@ -658,7 +690,12 @@ def _signal_tail_sections(*, followup_section: str) -> list[str]:
 
 
 def _report_tail_sections(
-    *, can_emit: bool, can_edit: bool, followup_section: str, github_read_access: bool = False
+    *,
+    can_emit: bool,
+    can_edit: bool,
+    followup_section: str,
+    github_read_access: bool = False,
+    structured_output_section: str = "",
 ) -> list[str]:
     """Report-channel tail, tailored to the report tools the scout actually opted into.
 
@@ -709,6 +746,7 @@ def _report_tail_sections(
         _FLEET_SEAMS,
         followup_section,
         _RECENCY_LENS,
+        *([structured_output_section] if structured_output_section else []),
         *channel_sections,
         _WRITING_STYLE,
         _WRITING_SUMMARY,
@@ -772,6 +810,7 @@ def build_run_prompt(
     team_id: int,
     started_at: datetime,
     github_read_access: bool = False,
+    structured_output_schema: dict | None = None,
 ) -> str:
     """Render the opening prompt for one scout run.
 
@@ -824,6 +863,7 @@ def build_run_prompt(
     followup_section = _self_validation_followups_section(
         report_channel=report_channel, can_emit_report=can_emit_report, can_edit_report=can_edit_report
     )
+    structured_output_section = _structured_output_section(structured_output_schema)
     if report_channel:
         intro = _report_intro(can_emit=can_emit_report, can_edit=can_edit_report)
         sections = _report_tail_sections(
@@ -831,13 +871,16 @@ def build_run_prompt(
             can_edit=can_edit_report,
             followup_section=followup_section,
             github_read_access=github_read_access,
+            structured_output_section=structured_output_section,
         )
         # Point the run-identity line at a report tool the scout can actually call — prefer authoring,
         # fall back to editing for an edit-only scout. Never name a tool that would fail closed.
         emit_tool = "scout-emit-report" if can_emit_report else "scout-edit-report"
     else:
         intro = _BASE_PROMPT_INTRO
-        sections = _signal_tail_sections(followup_section=followup_section)
+        sections = _signal_tail_sections(
+            followup_section=followup_section, structured_output_section=structured_output_section
+        )
         emit_tool = "scout-emit-signal"
     # Slot the origin-matched improvement channel between friction reporting and the output format
     # (the last element of every tail): a custom scout suggests changes to its team-owned body via
