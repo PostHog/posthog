@@ -509,6 +509,35 @@ def _strip_www(host: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
+def _matches_wildcard_host(pattern: str, hostname: str) -> bool:
+    """Match a host pattern whose `*` spans any run of characters, dots included.
+
+    Scanning the literals greedily from left to right decides this grammar exactly, in a
+    single pass, so the cost stays linear in the hostname length however many wildcards
+    the pattern carries.
+    """
+    parts = pattern.split("*")
+    if len(parts) == 1:
+        return pattern == hostname
+
+    prefix, suffix = parts[0], parts[-1]
+    if len(hostname) < len(prefix) + len(suffix):
+        return False
+    if not hostname.startswith(prefix) or not hostname.endswith(suffix):
+        return False
+
+    start, end = len(prefix), len(hostname) - len(suffix)
+    for part in parts[1:-1]:
+        if not part:
+            continue
+        found = hostname.find(part, start, end)
+        if found == -1:
+            return False
+        start = found + len(part)
+
+    return True
+
+
 def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
     if not hostname:
         return False
@@ -516,14 +545,18 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
     permitted_domains = []
     if allowed_url_list:
         for url in allowed_url_list:
-            host = parse_domain(url)
+            try:
+                host = parse_domain(url)
+            except ValueError:
+                # Entries stored before write-time validation can still be unparseable, and
+                # one of them must not take down every allowlist check the team makes.
+                continue
             if host:
                 permitted_domains.append(host)
 
     for permitted_domain in permitted_domains:
         if "*" in permitted_domain:
-            pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
-            if re.search(pattern, hostname):
+            if _matches_wildcard_host(permitted_domain, hostname):
                 return True
         elif _strip_www(permitted_domain) == _strip_www(hostname):
             return True
@@ -533,6 +566,33 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
 
 def parse_domain(url: Any) -> Optional[str]:
     return urlparse(url).hostname
+
+
+MAX_WILDCARDS_PER_AUTHORIZED_URL = 5
+
+
+def validate_authorized_url_wildcards(urls: list[str]) -> None:
+    """Keep stored allowlist entries to the shape real deployments use.
+
+    Genuine entries carry one wildcard, occasionally two. Entries far beyond that only ever
+    make matching more expensive, so they are rejected at write time.
+    """
+    for url in urls:
+        if not isinstance(url, str):
+            # widget_domains arrives on a raw JSONField, so entries are not string-coerced for us.
+            raise ValidationError("Each URL must be a string.")
+        try:
+            host = parse_domain(url)
+        except ValueError:
+            # urlparse raises on an unterminated IPv6 bracket, and every later allowlist
+            # check re-parses the stored entry, so accepting one here turns each of those
+            # checks into a 500 for the whole team.
+            raise ValidationError("One of these URLs can't be parsed. Check for a typo, like an unclosed bracket.")
+        if host and host.count("*") > MAX_WILDCARDS_PER_AUTHORIZED_URL:
+            raise ValidationError(
+                f"Each URL can include up to {MAX_WILDCARDS_PER_AUTHORIZED_URL} wildcards. "
+                "Remove the extra ones from this entry."
+            )
 
 
 def on_permitted_recording_domain(permitted_domains: list[str], request: HttpRequest) -> bool:

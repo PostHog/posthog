@@ -15,8 +15,9 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
+import { buildHogFunctionInvocations } from '../utils/invocation-utils'
 import { mirrorCompare } from '../utils/mirror-call'
-import { HogExecutorService } from './hog-executor.service'
+import { HogInputsService } from './hog-inputs.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
@@ -31,7 +32,7 @@ export interface HogFunctionInvocationPipelineConfig {
 
 export interface HogFunctionInvocationPipelineDeps {
     hogFunctionManager: HogFunctionManagerService
-    hogExecutor: HogExecutorService
+    hogInputsService: HogInputsService
     hogWatcher: HogWatcherService
     hogWatcherMirror: HogWatcherService | null
     hogMasker: HogMaskerService
@@ -89,7 +90,8 @@ export class HogFunctionInvocationPipeline {
                 invocationGlobals.map(async (globals) => {
                     const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = await this.deps.hogExecutor.buildHogFunctionInvocations(
+                    const { invocations, metrics, logs } = await buildHogFunctionInvocations(
+                        this.deps.hogInputsService,
                         teamHogFunctions,
                         globals
                     )

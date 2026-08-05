@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_API_VERSION_2026_03,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
+    HUBSPOT_METADATA_ENDPOINTS as HUBSPOT_METADATA_ENDPOINT_CONFIGS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -161,6 +162,20 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint in HUBSPOT_ENDPOINTS:
+            metadata_config = HUBSPOT_METADATA_ENDPOINT_CONFIGS.get(endpoint)
+            if metadata_config is not None:
+                # Lookup tables have no server-side timestamp filter, so they are full refresh only.
+                schemas.append(
+                    SourceSchema(
+                        name=endpoint,
+                        supports_incremental=False,
+                        supports_append=False,
+                        incremental_fields=[],
+                        should_sync_default=metadata_config.should_sync_default,
+                    )
+                )
+                continue
+
             endpoint_config = HUBSPOT_ENDPOINT_CONFIGS[endpoint]
             supports_incremental = bool(endpoint_config.cursor_filter_property_field)
             schemas.append(

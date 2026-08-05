@@ -15,7 +15,8 @@ const CREDITS_PER_PR = 1500
 
 const mockUsageEndpoints = (
     currentUsage: number,
-    summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count'>
+    summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count' | 'quota_limited'> &
+        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>
 ): void => {
     useMocks({
         get: {
@@ -25,7 +26,7 @@ const mockUsageEndpoints = (
             ],
             '/api/projects/:team_id/signals/reports/refund-summary/': () => [
                 200,
-                { credited_refund_count: summary.credited_credits / CREDITS_PER_PR, ...summary },
+                { credited_refund_count: summary.credited_credits / CREDITS_PER_PR, quota_limited: false, ...summary },
             ],
         },
     })
@@ -39,7 +40,8 @@ const setRefundsFlag = (): void => {
 
 const mountWithUsage = async (
     currentUsage: number,
-    summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count'>
+    summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count' | 'quota_limited'> &
+        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>
 ): Promise<ReturnType<typeof inboxUsageLogic.build>> => {
     mockUsageEndpoints(currentUsage, summary)
     featureFlagLogic.mount()
@@ -104,6 +106,20 @@ describe('inboxUsageLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadRefundSummarySuccess'])
 
         expect(logic.values.usedPrs).toBe(4)
+    })
+
+    // The enforcement flag and the refunds flag roll out independently; an enforcement-only org
+    // still needs the summary loaded, or quota_limited never reaches the paused banner.
+    it('loads the summary and surfaces quotaLimited with only the enforcement flag on', async () => {
+        mockUsageEndpoints(1500, { period_billable_credits: 1500, credited_credits: 0, quota_limited: true })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SELF_DRIVING_QUOTA_ENFORCEMENT], {
+            [FEATURE_FLAGS.SELF_DRIVING_QUOTA_ENFORCEMENT]: true,
+        })
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRefundSummarySuccess'])
+        expect(logic.values.quotaLimited).toBe(true)
     })
 
     // The org-keyed refunds flag resolves late on the client, so the client can fire the summary

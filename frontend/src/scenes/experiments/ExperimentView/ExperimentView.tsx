@@ -1,21 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSparkles } from '@posthog/icons'
 import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { LegacyExperimentView } from '~/scenes/experiments/legacy'
 import { ActivityScope } from '~/types'
 
-import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
-import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
@@ -46,34 +42,6 @@ import { PageHeaderCustom } from './PageHeader'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
-
-const AiAnalysisTab = (): JSX.Element => {
-    const { experiment, hasMinimumExposureForResults } = useValues(experimentLogic)
-
-    return (
-        <div className="flex flex-col gap-4 items-start">
-            <div className="flex flex-col gap-1 items-start">
-                <SummarizeExperimentButton
-                    disabledReason={
-                        !hasMinimumExposureForResults
-                            ? `Experiment needs at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures to summarize results.`
-                            : undefined
-                    }
-                />
-                <p className="text-muted text-xs m-0">
-                    Analyze your experiment's metric results, statistical significance, and variant performance using
-                    AI.
-                </p>
-            </div>
-            <div className="flex flex-col gap-1 items-start">
-                <SummarizeSessionReplaysButton experiment={experiment} />
-                <p className="text-muted text-xs m-0">
-                    Compare session recordings across variants to identify differences in user behavior.
-                </p>
-            </div>
-        </div>
-    )
-}
 
 const MetricsTab = (): JSX.Element => {
     const { experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
@@ -134,16 +102,8 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const {
-        experimentLoading,
-        experimentId,
-        experiment,
-        isExperimentDraft,
-        isExperimentLaunched,
-        orderedPrimaryMetricsWithResults,
-        exposureCriteria,
-        showDebugPanel,
-    } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
+        useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         setExperiment,
@@ -177,21 +137,6 @@ export function ExperimentView(): JSX.Element {
             label: 'Metrics',
             content: <MetricsTab />,
         },
-        // Both AI analysis actions require a launched experiment with primary metrics
-        ...(isExperimentLaunched && orderedPrimaryMetricsWithResults.length > 0
-            ? [
-                  {
-                      key: 'ai_analysis',
-                      label: (
-                          <div className="flex items-center gap-1">
-                              <IconSparkles />
-                              <span>AI analysis</span>
-                          </div>
-                      ),
-                      content: <AiAnalysisTab />,
-                  },
-              ]
-            : []),
         ...(featureFlags[FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]
             ? [
                   {

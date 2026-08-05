@@ -267,6 +267,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
+    # Transient save() state, not columns: _maintain_filter_shape_hashes sets these so the post_save
+    # backfill receivers, which get this same instance, can tell which leaf shapes the save moved.
+    _leaf_shape_changed: bool = False
+    _person_shape_changed: bool = False
+
     objects = CohortManager()  # type: ignore
 
     class Meta:
@@ -314,6 +319,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def _maintain_filter_shape_hashes(self, update_fields: Iterable[str] | None) -> set[str] | None:
         """Maintain full, behavioral, and person filter-shape hashes."""
         self._leaf_shape_changed = False
+        self._person_shape_changed = False
         maintained_update_fields = set(update_fields) if update_fields is not None else None
         try:
             if not self.team_id or not is_realtime_cohort_team(self.team_id):
@@ -379,6 +385,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self._leaf_shape_changed = True
             if person_shape_changed:
                 self.last_backfill_person_properties_at = None
+                self._person_shape_changed = True
+            if behavioral_shape_changed or person_shape_changed:
+                # This stamp vouches for the whole-cohort membership computation, so either
+                # kind of leaf-shape change stales it, and nothing recomputes it on a
+                # schedule to notice.
+                self.last_realtime_cohort_calculation_at = None
 
             if maintained_update_fields is None:
                 return None
@@ -392,6 +404,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 maintained_update_fields.add("last_backfill_events_at")
             if person_shape_changed:
                 maintained_update_fields.add("last_backfill_person_properties_at")
+            if behavioral_shape_changed or person_shape_changed:
+                maintained_update_fields.add("last_realtime_cohort_calculation_at")
             return maintained_update_fields
         except Exception as error:
             logger.exception(

@@ -26,6 +26,8 @@ import {
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { biEditorLogic } from './bi/biEditorLogic'
+import { BIConfig, BIEditorView, BIField } from './bi/biEditorTypes'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import {
@@ -266,7 +268,9 @@ describe('sqlEditorLogic', () => {
                         latest_error: null,
                     },
                 ],
-                '/api/environments/:team_id/warehouse_saved_queries/:id/materialize/': materializeEndpointMock,
+                // The generated client requests the projects path; the environments alias is a
+                // server-side rewrite that msw does not apply, so a mock on it never matches.
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': materializeEndpointMock,
             },
             patch: {
                 '/api/user_home_settings/@me/': [200],
@@ -1475,6 +1479,219 @@ describe('sqlEditorLogic', () => {
             // Reading splitQueryRanges threw "e.trim is not a function" when queryInput was the number 42
             expect(() => logic.values.splitQueryRanges).not.toThrow()
             expect(logic.values.splitQueryRanges).toHaveLength(1)
+        })
+    })
+
+    describe('BI editor hash parameters', () => {
+        const eventField: BIField = {
+            id: 'warehouse:events:event',
+            name: 'event',
+            expression: 'event',
+            type: 'string',
+            source: { table: 'events' },
+        }
+        const timestampField: BIField = {
+            id: 'warehouse:events:timestamp',
+            name: 'timestamp',
+            expression: 'timestamp',
+            type: 'datetime',
+            source: { table: 'events' },
+        }
+        const config: BIConfig = {
+            source: { table: 'events' },
+            chartType: ChartDisplayType.ActionsBar,
+            rows: [eventField],
+            columns: [],
+            values: [],
+            filters: [{ field: eventField, operator: 'equals', value: 'signup' }],
+            limit: 1000,
+        }
+
+        it('offers every sidebar table while excluding hidden PostHog tables', () => {
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            databaseLogic.actions.loadDatabaseSuccess({
+                tables: {
+                    persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                    hidden_table: { id: 'hidden_table', name: 'hidden_table', type: 'posthog', fields: {} },
+                    events: { id: 'events', name: 'events', type: 'posthog', fields: {} },
+                    sessions: { id: 'sessions', name: 'sessions', type: 'posthog', fields: {} },
+                    groups: { id: 'groups', name: 'groups', type: 'posthog', fields: {} },
+                    custom_orders: { id: 'custom_orders', name: 'custom_orders', type: 'data_warehouse', fields: {} },
+                    system_metrics: { id: 'system_metrics', name: 'system_metrics', type: 'system', fields: {} },
+                    revenue_view: {
+                        id: 'revenue_view',
+                        name: 'revenue_view',
+                        type: 'view',
+                        fields: {},
+                        query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                    },
+                },
+                joins: [],
+            })
+
+            expect(biLogic.values.availableDataSources).toEqual([
+                { table: 'custom_orders', connectionId: undefined },
+                { table: 'events', connectionId: undefined },
+                { table: 'groups', connectionId: undefined },
+                { table: 'persons', connectionId: undefined },
+                { table: 'revenue_view', connectionId: undefined },
+                { table: 'sessions', connectionId: undefined },
+                { table: 'system_metrics', connectionId: undefined },
+            ])
+
+            biLogic.unmount()
+        })
+
+        it('restores BI mode and configuration from the URL and keeps changes in the hash', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'updateTab'])
+                .toMatchValues({
+                    activeTab: partial({
+                        biEditorState: { editorView: BIEditorView.BI, config },
+                    }),
+                })
+            await expectLogic(biLogic).toMatchValues({ editorView: BIEditorView.BI, config })
+
+            await expectLogic(biLogic, () => biLogic.actions.setFilterValue(0, 'purchase')).toFinishAllListeners()
+
+            expect(router.values.hashParams.mode).toEqual(BIEditorView.BI)
+            expect(router.values.hashParams.bi).toEqual({
+                ...config,
+                filters: [{ ...config.filters[0], value: 'purchase' }],
+            })
+
+            biLogic.unmount()
+        })
+
+        it('regenerates the query and URL when a date bucket changes', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            const dateConfig: BIConfig = { ...config, rows: [timestampField], filters: [] }
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: 'SELECT timestamp, count(*) FROM events GROUP BY timestamp',
+                mode: BIEditorView.BI,
+                bi: dateConfig,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            await expectLogic(biLogic, () => biLogic.actions.setFieldDateBucket('rows', 0, 'day'))
+                .toFinishAllListeners()
+                .toMatchValues({
+                    config: partial({ rows: [{ ...timestampField, dateBucket: 'day' }] }),
+                })
+
+            expect(logic.values.queryInput).toContain('toStartOfDay(timestamp)')
+            expect(router.values.hashParams.bi).toEqual({
+                ...dateConfig,
+                rows: [{ ...timestampField, dateBucket: 'day' }],
+            })
+
+            biLogic.unmount()
+        })
+
+        it('clears incompatible fields and opens persisted blank shelf fields for editing', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: 'SELECT event, count(*) FROM events GROUP BY event',
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            await expectLogic(biLogic, () => biLogic.actions.setDataSource({ table: 'persons' }))
+                .toFinishAllListeners()
+                .toMatchValues({
+                    config: partial({
+                        source: { table: 'persons' },
+                        rows: [],
+                        columns: [],
+                        values: [],
+                        filters: [],
+                    }),
+                })
+
+            await expectLogic(biLogic, () => biLogic.actions.addBlankFieldToShelf('rows')).toFinishAllListeners()
+
+            expect(biLogic.values.config.rows).toEqual([
+                expect.objectContaining({
+                    name: '',
+                    expression: '',
+                    type: 'unknown',
+                    source: { table: 'persons' },
+                }),
+            ])
+            expect(biLogic.values.activeExpressionEditorId).toEqual(biLogic.values.config.rows[0].id)
+            expect(logic.values.queryInput).toEqual(
+                ['SELECT', '    count(*) AS count', 'FROM persons', 'LIMIT 1000'].join('\n')
+            )
+            expect(router.values.hashParams.bi).toEqual(biLogic.values.config)
+
+            biLogic.unmount()
+        })
+
+        it('adds a removable default date filter for event data', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            await expectLogic(biLogic, () => biLogic.actions.setDataSource({ table: 'events' }))
+                .toFinishAllListeners()
+                .toMatchValues({
+                    config: partial({
+                        source: { table: 'events' },
+                        filters: [
+                            partial({
+                                field: partial({ expression: 'timestamp', type: 'datetime' }),
+                                operator: 'last_7_days',
+                            }),
+                        ],
+                    }),
+                })
+
+            await expectLogic(biLogic, () => biLogic.actions.removeFieldFromShelf('filters', 0)).toFinishAllListeners()
+            await expectLogic(biLogic, () => biLogic.actions.addBlankFieldToShelf('rows')).toFinishAllListeners()
+
+            expect(biLogic.values.config.filters).toEqual([])
+            expect(logic.values.queryInput).not.toContain('INTERVAL 7 DAY')
+
+            biLogic.unmount()
         })
     })
 

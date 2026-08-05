@@ -8,29 +8,23 @@ database "posthog" {
       type = "UUID"
     }
     column "timestamp" {
-      type  = "DateTime64(6, 'UTC')"
-      codec = "DoubleDelta, ZSTD(1)"
+      type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
-      codec   = "DoubleDelta, ZSTD(1)"
     }
     column "distinct_id" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "session_id" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "device_id" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "flag_key" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "response" {
       type = "LowCardinality(String)"
@@ -45,17 +39,14 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "request_id" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "evaluated_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
-      codec   = "DoubleDelta, ZSTD(1)"
     }
     column "error" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "locally_evaluated" {
       type = "Bool"
@@ -79,12 +70,10 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "current_url" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "pathname" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "country_code" {
       type = "LowCardinality(String)"
@@ -93,24 +82,19 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "group_0" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "group_1" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "group_2" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "group_3" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "group_4" {
-      type  = "String"
-      codec = "ZSTD(1)"
+      type = "String"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -124,7 +108,7 @@ database "posthog" {
   }
   table "adhoc_events_deletion" {
     order_by = ["team_id", "uuid"]
-    ttl      = "deleted_at + toIntervalMonth(3)"
+    ttl      = "deleted_at + toIntervalMonth(3) WHERE is_deleted = 1"
     settings = {
       index_granularity = "8192"
     }

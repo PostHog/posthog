@@ -25,12 +25,13 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -70,6 +71,7 @@ from products.tasks.backend.models import (
     Task,
     TaskArtifact,
     TaskAutomation,
+    TaskClientProvenance,
     TaskPin,
     TaskRun,
     TaskSession,
@@ -1011,6 +1013,96 @@ class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
 
 
 class TestTaskAPI(BaseTaskAPITest):
+    def _oauth_client(self, client_id: str, *, scope: str = "task:read task:write") -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Task API client",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+        )
+        OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"phr_task_{uuid.uuid4().hex}",
+            access_token=access_token,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    def test_desktop_oauth_task_creation_records_trusted_provenance(self):
+        client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Desktop task", "description": "Created in Desktop"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.client_provenance, TaskClientProvenance.POSTHOG_DESKTOP)
+
+    @parameterized.expand(
+        [
+            ("session", None, None),
+            ("other_oauth", "untrusted-client", "task:read task:write"),
+            ("server_token", ARRAY_APP_CLIENT_ID_DEV, "task:read task:write internal_run:read"),
+        ]
+    )
+    def test_task_creation_without_trusted_desktop_oauth_fails_closed(
+        self, _name: str, client_id: str | None, scope: str | None
+    ) -> None:
+        client = self.client if client_id is None else self._oauth_client(client_id, scope=scope or "")
+
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Other task", "description": "Not created in Desktop"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(Task.objects.get(id=response.json()["id"]).client_provenance)
+
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.SLACK,),
+            (Task.OriginProduct.SIGNAL_REPORT,),
+        ]
+    )
+    def test_desktop_access_cannot_change_existing_task_provenance(self, origin_product: Task.OriginProduct):
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Slack task",
+            description="Created from Slack",
+            origin_product=origin_product,
+        )
+        client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+
+        self.assertEqual(client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_200_OK)
+        response = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"client_provenance": TaskClientProvenance.POSTHOG_DESKTOP},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertIsNone(task.client_provenance)
+
     def test_pin_state_is_persisted_per_user(self):
         task = self.create_task()
 
