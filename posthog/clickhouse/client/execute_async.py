@@ -26,6 +26,7 @@ from posthog.renderers import SafeJSONRenderer
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
     from posthog.models.team.team import Team
+    from posthog.shared_link_user import SharedLinkUser
 
 logger = structlog.get_logger(__name__)
 
@@ -178,6 +179,19 @@ class QueryStatusManager:
         self.redis_client.hdel(self.running_queries_key, cache_key)
 
 
+def _shared_link_user_for(sharing_configuration_id: int, team_id: int) -> Optional["SharedLinkUser"]:
+    """Rebuild the anonymous viewer of a public share so an async recalculation runs as the same
+    principal the request did. None if the share was disabled, expired, or deleted in the meantime -
+    the query then runs userless and is denied, which is the correct outcome for a revoked share."""
+    from posthog.models.sharing_configuration import SharingConfiguration  # noqa: PLC0415
+    from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
+
+    sharing_configuration = SharingConfiguration.objects.filter(
+        SharingConfiguration.tokens_active_q(), pk=sharing_configuration_id, team_id=team_id
+    ).first()
+    return SharedLinkUser(sharing_configuration) if sharing_configuration else None
+
+
 def execute_process_query(
     team_id: int,
     user_id: Optional[int],
@@ -186,6 +200,7 @@ def execute_process_query(
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
+    sharing_configuration_id: Optional[int] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -197,10 +212,16 @@ def execute_process_query(
     team = Team.objects.get(pk=team_id)
     is_staff_user = False
 
-    user = None
+    user: Optional[User | SharedLinkUser] = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
+    elif sharing_configuration_id:
+        # A shared-link viewer has no user row, so the identity has to be rebuilt from the share it
+        # came in on. Without it the run is userless, which fails closed on every warehouse table
+        # ("You don't have access to table `X`.") and fingerprints the cache differently than the
+        # request that enqueued it.
+        user = _shared_link_user_for(sharing_configuration_id, team_id)
 
     query_status = manager.get_query_status()
 
@@ -303,6 +324,7 @@ def enqueue_process_query_task(
     is_query_service: bool = False,
     is_posthog_ai: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
+    sharing_configuration_id: Optional[int] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -373,6 +395,7 @@ def enqueue_process_query_task(
         is_query_service,
         limit_context,
         analytics_props=analytics_props,
+        sharing_configuration_id=sharing_configuration_id,
     )
 
     if _test_only_bypass_celery:

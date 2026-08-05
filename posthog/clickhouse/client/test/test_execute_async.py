@@ -1,5 +1,6 @@
 import json
 import uuid
+import datetime
 from typing import Any
 
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -25,8 +26,10 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.shared_link_user import SharedLinkUser
 
 
 def build_query(sql):
@@ -180,6 +183,42 @@ class TestExecuteProcessQuery(TestCase):
         execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
         self.assertEqual(mock_capture_exception.called, should_capture)
+
+    @parameterized.expand(
+        [
+            ("live", {}, True),
+            ("disabled", {"enabled": False}, False),
+            ("expired", {"expires_at": datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)}, False),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_shared_link_run_rebuilds_the_viewer_while_the_share_is_live(
+        self, _name, overrides, expect_viewer, mock_process_query_dict, mock_redis_client
+    ):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_process_query_dict.return_value = []
+        sharing_configuration = SharingConfiguration.objects.create(team=self.team, **{"enabled": True, **overrides})
+
+        execute_process_query(
+            self.team.id,
+            None,
+            self.query_id,
+            self.query_json,
+            self.limit_context,
+            sharing_configuration_id=sharing_configuration.id,
+        )
+
+        user = mock_process_query_dict.call_args.kwargs["user"]
+        if expect_viewer:
+            assert isinstance(user, SharedLinkUser)
+            assert user.sharing_configuration.id == sharing_configuration.id
+        else:
+            assert user is None
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
