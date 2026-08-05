@@ -80,6 +80,7 @@ from products.feature_flags.backend.user_blast_radius import (
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
+from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.api.action_redirects import compute_action_redirects
@@ -505,6 +506,61 @@ def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: 
     config["template_uuid"] = str(library_uuid)
     config["template_id"] = fixed_template_id
     return fixed_template_id
+
+
+# Email-body keys a saved library template can supply. `from`/`to` are deliberately absent:
+# sender identity and the recipient expression are step-level decisions, so they always come
+# from the caller.
+_TEMPLATE_EMAIL_BODY_KEYS = ("subject", "text", "html", "design")
+
+
+def _apply_email_template_content(config: dict, team: Team, strict: bool) -> None:
+    """Materialize a referenced saved template's email body into the step's inputs at save,
+    mirroring what the web editor does when a template is picked (snapshot semantics: later
+    template edits don't propagate). Only fires when the caller supplied no body at all — a
+    caller-authored body always wins, and then template_uuid is provenance only. Under strict
+    (programmatic) validation an unresolvable reference is a 400; lenient web/internal saves
+    skip it so re-saves of already-accepted drafts can't start failing."""
+    template_uuid = config.get("template_uuid")
+    if not template_uuid:
+        return
+    inputs = config.get("inputs")
+    email_input = inputs.get("email") if isinstance(inputs, dict) else None
+    value = email_input.get("value") if isinstance(email_input, dict) else None
+    if isinstance(value, dict) and any(value.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
+        return
+
+    try:
+        parsed_uuid = uuid_mod.UUID(str(template_uuid))
+    except (ValueError, AttributeError, TypeError):
+        parsed_uuid = None
+    template = (
+        MessageTemplate.objects.filter(team_id=team.id, id=parsed_uuid, deleted=False).first() if parsed_uuid else None
+    )
+    email_content = (template.content or {}).get("email") if template else None
+    if not isinstance(email_content, dict) or not any(email_content.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
+        if strict:
+            raise serializers.ValidationError(
+                {
+                    "template_uuid": (
+                        f"template_uuid '{str(template_uuid)[:100]}' doesn't match a saved email template in "
+                        "this project. List templates with workflows-list-email-templates, or author the email "
+                        "inline in config.inputs.email.value."
+                    )
+                }
+            )
+        return
+
+    body = {key: email_content[key] for key in _TEMPLATE_EMAIL_BODY_KEYS if email_content.get(key)}
+    merged_value = {**body, **(value if isinstance(value, dict) else {})}
+    merged_input = dict(email_input) if isinstance(email_input, dict) else {}
+    merged_input["value"] = merged_value
+    # Library template content is always Liquid; only default it, never override the caller.
+    merged_input.setdefault("templating", "liquid")
+    if not isinstance(inputs, dict):
+        inputs = {}
+        config["inputs"] = inputs
+    inputs["email"] = merged_input
 
 
 def _describe_unknown_template(action: dict, template_id: str) -> str:
@@ -1027,6 +1083,13 @@ class HogFlowActionSerializer(serializers.Serializer):
             else:
                 if strict:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
+
+        if data.get("type") == "function_email" and (data.get("config") or {}).get("template_uuid"):
+            # get_team is absent when the serializer runs outside a request (internal re-saves,
+            # direct construction) - there's no team to resolve the reference against, so skip.
+            get_team = self.context.get("get_team")
+            if get_team is not None:
+                _apply_email_template_content(data["config"], get_team(), strict)
 
         if "function" in data.get("type", "") or trigger_is_function:
             config = data.setdefault("config", {})
