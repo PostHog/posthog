@@ -23,18 +23,25 @@ operations = (
             modify_properties_column(EVENTS_JSON_DATA_TABLE),
             node_roles=[NodeRole.DATA],
             sharded=True,
+            is_alter_on_replicated_table=True,
         ),
         run_sql_with_exceptions(
             modify_properties_column(WRITABLE_EVENTS_JSON_TABLE),
             node_roles=[NodeRole.DATA],
+            sharded=False,
+            is_alter_on_replicated_table=False,
         ),
         run_sql_with_exceptions(
             modify_properties_column(DISTRIBUTED_EVENTS_JSON_TABLE),
             node_roles=[NodeRole.DATA],
+            sharded=False,
+            is_alter_on_replicated_table=False,
         ),
         run_sql_with_exceptions(
             modify_properties_column(WRITABLE_EVENTS_JSON_TABLE),
             node_roles=[NodeRole.INGESTION_EVENTS],
+            sharded=False,
+            is_alter_on_replicated_table=False,
         ),
     ]
 )
