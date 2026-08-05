@@ -21,7 +21,6 @@ import { keyForSource } from '@posthog/replay-shared'
 import { SnapshotSourceType, SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
 import api, { ApiError, RecordingDeletedError } from 'lib/api'
-import { isUnauthorizedError } from 'lib/api-error'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -740,7 +739,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         isSnapshotUnauthorized: [
             (s) => [s.snapshotLoadError],
             (snapshotLoadError: Error | null): boolean => {
-                return snapshotLoadError instanceof ApiError && isUnauthorizedError(snapshotLoadError)
+                return snapshotLoadError instanceof ApiError && snapshotLoadError.status === 401
             },
         ],
     })),
