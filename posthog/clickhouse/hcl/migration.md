@@ -101,6 +101,20 @@ Each table shall be **defined** once, if there's a difference between envs, it s
 
 The patch vocabulary is complete, so "express it as a patch" is always available for a content difference. `patch_table` carries `column` and `index` (both with positional `after`), `engine`, `order_by`, `partition_by`, `ttl` and `settings`; `patch_view` and `patch_dictionary` do the same for the other kinds. `settings` merge into the target with the patch winning on collision; everything else replaces. Built on demand in PostHog/chschema — #153 (settings merge), #156 (full vocab + `patch_view`/`patch_dictionary`), #159 (positioned column adds), #161 (positioned index adds).
 
+`patch_column` (#165) is the `extend` side of the same idea: a child using `extend` can specialize a single *inherited* column — type, nullability, default kind, CODEC, TTL, comment — while keeping every unspecified field and the inherited column order. A plain `column` block on a child still means *add*, and still collides with an inherited name. This is what lets one codec-free abstract back both a storage table and its Distributed proxy, with only the storage child declaring CODECs:
+
+```hcl
+table "sharded_events" {
+  extend = "_event_base"
+
+  patch_column "timestamp" {
+    codec = "Delta(8), ZSTD(1)"
+  }
+}
+```
+
+Before that, the choice was to hang the CODECs on the abstract — forcing them onto the proxy too — or to stop sharing and repeat the column list.
+
 Vocabulary is therefore no longer why a baseline is non-empty. What remains is *structural*, not expressible-but-unexpressed: objects declared by a set of envs that no layer expresses (e.g. dev and prod-eu but not prod-us), and cross-*role* duplicates that resolve via `roles/coshared/` here rather than any cloud-infra override.
 
 The purpose of the extension is to making the schema changes uniform across all envs: think adding a column or table shall be possible in one place and affect all envs.
