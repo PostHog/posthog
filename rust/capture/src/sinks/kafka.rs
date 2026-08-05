@@ -20,7 +20,7 @@
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
-use crate::sinks::registry::{OutputRegistry, Outputs};
+use crate::sinks::registry::{OutputRegistry, Output};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
 use async_trait::async_trait;
@@ -225,7 +225,7 @@ enum OrderingGuarantee {
 /// self-describing).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Route<'a> {
-    target: Outputs<'a>,
+    target: Output<'a>,
     ordering: OrderingGuarantee,
 }
 
@@ -248,14 +248,14 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
     // redirect_to_dlq takes priority over all other routing.
     if metadata.redirect_to_dlq {
         return Route {
-            target: Outputs::Dlq,
+            target: Output::Dlq,
             ordering: OrderingGuarantee::PerDistinctId,
         };
     }
 
     if let Some(ref topic) = metadata.redirect_to_topic {
         return Route {
-            target: Outputs::Custom(topic),
+            target: Output::Custom(topic),
             ordering: OrderingGuarantee::PerDistinctId,
         };
     }
@@ -264,7 +264,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
         DataType::AnalyticsHistorical => Route {
             // Historical events never overflow — force_overflow and
             // overflow_reason are deliberately ignored here.
-            target: Outputs::AnalyticsHistorical,
+            target: Output::AnalyticsHistorical,
             ordering: OrderingGuarantee::PerDistinctId,
         },
         DataType::AnalyticsMain => {
@@ -272,25 +272,25 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
             // (pipeline-stamped) -> default main-topic routing.
             if metadata.force_overflow {
                 Route {
-                    target: Outputs::AnalyticsOverflow,
+                    target: Output::AnalyticsOverflow,
                     ordering: person_ordering(metadata.skip_person_processing),
                 }
             } else {
                 match &metadata.overflow_reason {
                     Some(OverflowReason::ForceLimited) => Route {
-                        target: Outputs::AnalyticsOverflow,
+                        target: Output::AnalyticsOverflow,
                         ordering: OrderingGuarantee::None,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: true,
                     }) => Route {
-                        target: Outputs::AnalyticsOverflow,
+                        target: Output::AnalyticsOverflow,
                         ordering: OrderingGuarantee::PerDistinctId,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: false,
                     }) => Route {
-                        target: Outputs::AnalyticsOverflow,
+                        target: Output::AnalyticsOverflow,
                         ordering: OrderingGuarantee::None,
                     },
                     // ReplayLimited is stamped only by the recordings pipeline,
@@ -298,7 +298,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
                     // OverflowReason enum forces the arm, which treats the
                     // impossible stamp as unstamped.
                     Some(OverflowReason::ReplayLimited) | None => Route {
-                        target: Outputs::AnalyticsMain,
+                        target: Output::AnalyticsMain,
                         ordering: person_ordering(metadata.skip_person_processing),
                     },
                 }
@@ -315,51 +315,51 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
             // historical.
             if ai_events_overflow_armed && metadata.force_overflow {
                 Route {
-                    target: Outputs::AiOverflow,
+                    target: Output::AiOverflow,
                     ordering: person_ordering(metadata.skip_person_processing),
                 }
             } else if ai_events_overflow_armed {
                 match &metadata.overflow_reason {
                     Some(OverflowReason::ForceLimited) => Route {
-                        target: Outputs::AiOverflow,
+                        target: Output::AiOverflow,
                         ordering: OrderingGuarantee::None,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: true,
                     }) => Route {
-                        target: Outputs::AiOverflow,
+                        target: Output::AiOverflow,
                         ordering: OrderingGuarantee::PerDistinctId,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: false,
                     }) => Route {
-                        target: Outputs::AiOverflow,
+                        target: Output::AiOverflow,
                         ordering: OrderingGuarantee::None,
                     },
                     // ReplayLimited cannot be stamped on the AI lane either;
                     // treated as unstamped, as above.
                     Some(OverflowReason::ReplayLimited) | None => Route {
-                        target: Outputs::AiMain,
+                        target: Output::AiMain,
                         ordering: OrderingGuarantee::PerDistinctId,
                     },
                 }
             } else {
                 Route {
-                    target: Outputs::AiMain,
+                    target: Output::AiMain,
                     ordering: OrderingGuarantee::PerDistinctId,
                 }
             }
         }
         DataType::ClientIngestionWarning => Route {
-            target: Outputs::ClientWarningsMain,
+            target: Output::ClientWarningsMain,
             ordering: OrderingGuarantee::PerDistinctId,
         },
         DataType::HeatmapMain => Route {
-            target: Outputs::HeatmapsMain,
+            target: Output::HeatmapsMain,
             ordering: OrderingGuarantee::PerDistinctId,
         },
         DataType::ExceptionErrorTracking => Route {
-            target: Outputs::ErrorTrackingMain,
+            target: Output::ErrorTrackingMain,
             ordering: OrderingGuarantee::PerDistinctId,
         },
         DataType::SnapshotMain => {
@@ -372,9 +372,9 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
                     metadata.overflow_reason,
                     Some(OverflowReason::ReplayLimited)
                 ) {
-                Outputs::SessionReplayOverflow
+                Output::SessionReplayOverflow
             } else {
-                Outputs::SessionReplayMain
+                Output::SessionReplayMain
             };
             Route {
                 target,
@@ -415,7 +415,7 @@ mod route_tests {
         assert_eq!(
             route(&m, false),
             Route {
-                target: Outputs::Dlq,
+                target: Output::Dlq,
                 ordering: OrderingGuarantee::PerDistinctId,
             }
         );
@@ -430,7 +430,7 @@ mod route_tests {
         assert_eq!(
             route(&m, false),
             Route {
-                target: Outputs::Custom("my_topic"),
+                target: Output::Custom("my_topic"),
                 ordering: OrderingGuarantee::PerDistinctId,
             }
         );
@@ -439,16 +439,16 @@ mod route_tests {
     #[test]
     fn per_datatype_targets() {
         for (dt, target) in [
-            (DataType::AnalyticsMain, Outputs::AnalyticsMain),
-            (DataType::AnalyticsHistorical, Outputs::AnalyticsHistorical),
+            (DataType::AnalyticsMain, Output::AnalyticsMain),
+            (DataType::AnalyticsHistorical, Output::AnalyticsHistorical),
             (
                 DataType::ClientIngestionWarning,
-                Outputs::ClientWarningsMain,
+                Output::ClientWarningsMain,
             ),
-            (DataType::HeatmapMain, Outputs::HeatmapsMain),
-            (DataType::ExceptionErrorTracking, Outputs::ErrorTrackingMain),
-            (DataType::AiEvents, Outputs::AiMain),
-            (DataType::SnapshotMain, Outputs::SessionReplayMain),
+            (DataType::HeatmapMain, Output::HeatmapsMain),
+            (DataType::ExceptionErrorTracking, Output::ErrorTrackingMain),
+            (DataType::AiEvents, Output::AiMain),
+            (DataType::SnapshotMain, Output::SessionReplayMain),
         ] {
             let m = meta(dt);
             let r = route(&m, false);
@@ -464,7 +464,7 @@ mod route_tests {
         assert_eq!(route(&m, false).ordering, OrderingGuarantee::PerDistinctId);
         m.skip_person_processing = true;
         assert_eq!(route(&m, false).ordering, OrderingGuarantee::None);
-        assert_eq!(route(&m, false).target, Outputs::AnalyticsOverflow);
+        assert_eq!(route(&m, false).target, Output::AnalyticsOverflow);
     }
 
     #[test]
@@ -476,7 +476,7 @@ mod route_tests {
         assert_eq!(
             route(&force_limited, false),
             Route {
-                target: Outputs::AnalyticsOverflow,
+                target: Output::AnalyticsOverflow,
                 ordering: OrderingGuarantee::None,
             }
         );
@@ -489,7 +489,7 @@ mod route_tests {
             route(&preserve, false).ordering,
             OrderingGuarantee::PerDistinctId
         );
-        assert_eq!(route(&preserve, false).target, Outputs::AnalyticsOverflow);
+        assert_eq!(route(&preserve, false).target, Output::AnalyticsOverflow);
 
         let mut no_preserve = base.clone();
         no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
@@ -498,7 +498,7 @@ mod route_tests {
         assert_eq!(route(&no_preserve, false).ordering, OrderingGuarantee::None);
         assert_eq!(
             route(&no_preserve, false).target,
-            Outputs::AnalyticsOverflow
+            Output::AnalyticsOverflow
         );
 
         // ReplayLimited cannot be stamped on analytics events (only the
@@ -506,7 +506,7 @@ mod route_tests {
         // treated as unstamped.
         let mut replay = base;
         replay.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(route(&replay, false).target, Outputs::AnalyticsMain);
+        assert_eq!(route(&replay, false).target, Output::AnalyticsMain);
     }
 
     #[test]
@@ -518,13 +518,13 @@ mod route_tests {
         assert_eq!(
             route(&m, false),
             Route {
-                target: Outputs::AiMain,
+                target: Output::AiMain,
                 ordering: OrderingGuarantee::PerDistinctId,
             }
         );
 
         // Valve armed: mirrors the analytics main lane's overflow handling.
-        assert_eq!(route(&m, true).target, Outputs::AiOverflow);
+        assert_eq!(route(&m, true).target, Output::AiOverflow);
         assert_eq!(route(&m, true).ordering, OrderingGuarantee::PerDistinctId);
         m.skip_person_processing = true;
         assert_eq!(route(&m, true).ordering, OrderingGuarantee::None);
@@ -534,11 +534,11 @@ mod route_tests {
         assert_eq!(
             route(&force_limited, true),
             Route {
-                target: Outputs::AiOverflow,
+                target: Output::AiOverflow,
                 ordering: OrderingGuarantee::None,
             }
         );
-        assert_eq!(route(&force_limited, false).target, Outputs::AiMain);
+        assert_eq!(route(&force_limited, false).target, Output::AiMain);
     }
 
     #[test]
@@ -551,7 +551,7 @@ mod route_tests {
             assert_eq!(
                 route(&m, armed),
                 Route {
-                    target: Outputs::AiMain,
+                    target: Output::AiMain,
                     ordering: OrderingGuarantee::PerDistinctId,
                 },
                 "armed={armed}"
@@ -565,18 +565,18 @@ mod route_tests {
         assert_eq!(
             route(&m, false),
             Route {
-                target: Outputs::SessionReplayMain,
+                target: Output::SessionReplayMain,
                 ordering: OrderingGuarantee::PerSession,
             }
         );
 
         m.force_overflow = true;
-        assert_eq!(route(&m, false).target, Outputs::SessionReplayOverflow);
+        assert_eq!(route(&m, false).target, Output::SessionReplayOverflow);
         assert_eq!(route(&m, false).ordering, OrderingGuarantee::PerSession);
 
         m.force_overflow = false;
         m.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(route(&m, false).target, Outputs::SessionReplayOverflow);
+        assert_eq!(route(&m, false).target, Output::SessionReplayOverflow);
     }
 }
 
@@ -833,7 +833,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // Output-implied side effects: the dlq output's contract includes the
         // dlq header set, and both redirect outputs count their reroutes.
         match route.target {
-            Outputs::Dlq => {
+            Output::Dlq => {
                 counter!(
                     "capture_events_rerouted_dlq",
                     &[("reason", "event_restriction")]
@@ -848,7 +848,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                 );
             }
-            Outputs::Custom(_) => {
+            Output::Custom(_) => {
                 counter!(
                     "capture_events_rerouted_custom_topic",
                     &[("reason", "event_restriction")]
