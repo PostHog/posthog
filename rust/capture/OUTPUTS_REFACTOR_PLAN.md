@@ -128,6 +128,8 @@ One output→topic wiring point plus refuse-to-boot on a blank topic. Step 7 abs
 #### Step 9 · Mode-scoped registry completeness
 
 - **Goal.** `OutputRegistry::check_complete` scopes its demand per `CaptureMode`: an Events/Ai pod demands the analytics family, a Recordings pod main/replay-overflow/dlq only.
+- **Arming precondition.** `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` stays off in every deployment until this step lands and the chart env is audited for explicitly-blank topic values.
+  The mode-blind check demands every registered topic on every pod, so a recordings or import deployment that sets an analytics topic to `""` would crashloop the fleet at boot, not degrade.
 - **Parity proof.** Per-mode refusal + anti-over-demand tests.
 - **Size.** M.
 
