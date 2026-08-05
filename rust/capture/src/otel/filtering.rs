@@ -30,11 +30,13 @@ pub async fn check_quota(
     let count = span_events.len();
 
     if gateway_verified {
-        // Match direct AI ingestion's global lookup while bypassing only the
-        // scoped LLM restriction. Direct AI events are retained at this limit.
-        limiter
+        if limiter
             .is_quota_limited_v1(token, &QuotaResource::Events)
-            .await;
+            .await
+        {
+            report_dropped_events("otel_quota_drop", count as u64);
+            return Err(QuotaOutcome::Dropped);
+        }
         return Ok(());
     }
 
