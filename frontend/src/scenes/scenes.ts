@@ -179,30 +179,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.EVENT_DEFINITION,
         iconType: 'event_definition',
     },
-    [Scene.Experiment]: {
-        projectBased: true,
-        name: 'Experiment',
-        activityScope: ActivityScope.EXPERIMENT,
-        iconType: 'experiment',
-    },
-    [Scene.ExperimentsSharedMetric]: {
-        projectBased: true,
-        name: '',
-        activityScope: ActivityScope.EXPERIMENT,
-    },
-    [Scene.ExperimentsSharedMetrics]: {
-        projectBased: true,
-        name: 'Shared metrics',
-        activityScope: ActivityScope.EXPERIMENT,
-    },
-    [Scene.Experiments]: {
-        projectBased: true,
-        name: 'Experiments',
-        activityScope: ActivityScope.EXPERIMENT,
-        description:
-            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
-        iconType: 'experiment',
-    },
     [Scene.Activity]: {
         projectBased: true,
         name: 'Activity',
@@ -828,12 +804,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
     [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
-    [urls.experiments()]: [Scene.Experiments, 'experiments'],
-    [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
-    [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
-    [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
-    [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
-    [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.surveyWizard(':id')]: [Scene.SurveyWizard, 'surveyWizard'],
     [urls.surveyFormBuilder(':id')]: [Scene.SurveyFormBuilder, 'surveyFormBuilder'],

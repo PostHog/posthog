@@ -1,0 +1,367 @@
+import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useState } from 'react'
+
+import { LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
+
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+
+import {
+    CachedNewExperimentQueryResponse,
+    ExperimentMetric,
+    ExperimentQuery,
+    NodeKind,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
+import {
+    EntityType,
+    Experiment,
+    FilterLogicalOperator,
+    FunnelStep,
+    FunnelStepWithNestedBreakdown,
+    RecordingUniversalFilters,
+} from '~/types'
+
+import { FunnelChart } from 'products/experiments/frontend/experiments/charts/funnel/FunnelChart'
+import { experimentLogic } from 'products/experiments/frontend/experiments/experimentLogic'
+import { VariantTag } from 'products/experiments/frontend/experiments/ExperimentView/VariantTag'
+import {
+    applySessionLinkability,
+    getExposureFallbackFilter,
+    getViewRecordingFilters,
+} from 'products/experiments/frontend/experiments/utils'
+import {
+    EXPOSURE_UNLINKABLE_REASON,
+    viewRecordingsLinkabilityLogic,
+} from 'products/experiments/frontend/experiments/viewRecordingsLinkabilityLogic'
+
+import {
+    ExperimentVariantResult,
+    formatChanceToWinForGoal,
+    formatMetricValue,
+    formatPValue,
+    getIntervalLabel,
+    getVariantInterval,
+    isBayesianResult,
+    isFrequentistResult,
+} from '../shared/utils'
+
+/**
+ * Convert new experiment results directly to DataDrivenFunnel format
+ */
+function convertExperimentResultToFunnelSteps(
+    result: CachedNewExperimentQueryResponse,
+    metric: ExperimentMetric
+): FunnelStepWithNestedBreakdown[] {
+    const allResults = [result.baseline, ...(result.variant_results || [])]
+    // Use step_counts from any variant that has data, not just baseline (which might have 0 users)
+    const stepCountsSource = allResults.find((r) => r.step_counts && r.step_counts.length > 0) || result.baseline
+    const numSteps = (stepCountsSource.step_counts?.length || 0) + 1
+    const funnelSteps: FunnelStepWithNestedBreakdown[] = []
+
+    for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {
+        const variantSteps: FunnelStep[] = allResults.map((variantResult, variantIndex) => {
+            let count: number
+            if (stepIndex === 0) {
+                count = variantResult.number_of_samples
+            } else {
+                count = variantResult.step_counts?.[stepIndex - 1] || 0
+            }
+
+            let stepName: string
+            if (stepIndex === 0) {
+                stepName = 'Experiment exposure'
+            } else if (isExperimentFunnelMetric(metric) && metric.series?.[stepIndex - 1]) {
+                const series = metric.series[stepIndex - 1]
+                if (series.kind === NodeKind.EventsNode) {
+                    stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
+                } else if (series.kind === NodeKind.ActionsNode) {
+                    stepName = series.custom_name || series.name || `Action ${series.id}`
+                } else if (series.kind === NodeKind.ExperimentDataWarehouseNode) {
+                    stepName = series.custom_name || series.name || series.table_name || `Step ${stepIndex}`
+                } else {
+                    stepName = `Step ${stepIndex}`
+                }
+            } else {
+                stepName = `Step ${stepIndex}`
+            }
+
+            return {
+                name: stepName,
+                custom_name: null,
+                order: stepIndex,
+                count: count,
+                type: 'events' as EntityType,
+                breakdown_value: variantResult.key,
+                breakdown_index: variantIndex,
+            } as FunnelStep & { breakdown_index: number }
+        })
+
+        const baseStep = variantSteps[0]
+        const totalCount = variantSteps.reduce((sum, step) => sum + step.count, 0)
+
+        funnelSteps.push({
+            ...baseStep,
+            count: totalCount,
+            nested_breakdown: variantSteps,
+        })
+    }
+
+    return funnelSteps
+}
+
+function SqlCollapsible({
+    hogql,
+    clickhouseSql,
+    showClickhouseSql,
+}: {
+    hogql?: string
+    clickhouseSql?: string
+    showClickhouseSql: boolean
+}): JSX.Element {
+    const [activeTab, setActiveTab] = useState<'hogql' | 'clickhouse'>('hogql')
+
+    return (
+        <LemonCollapse
+            panels={[
+                {
+                    key: 'sql',
+                    header: 'SQL',
+                    content: showClickhouseSql ? (
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={setActiveTab}
+                            tabs={[
+                                {
+                                    key: 'hogql',
+                                    label: 'HogQL',
+                                    content: hogql ? (
+                                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                                            {hogql}
+                                        </CodeSnippet>
+                                    ) : (
+                                        <div className="text-muted">No HogQL available</div>
+                                    ),
+                                },
+                                {
+                                    key: 'clickhouse',
+                                    label: 'ClickHouse',
+                                    content: clickhouseSql ? (
+                                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                                            {clickhouseSql}
+                                        </CodeSnippet>
+                                    ) : (
+                                        <div className="text-muted">No SQL available</div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    ) : hogql ? (
+                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                            {hogql}
+                        </CodeSnippet>
+                    ) : (
+                        <div className="text-muted">No SQL available</div>
+                    ),
+                },
+            ]}
+        />
+    )
+}
+
+export function ResultDetails({
+    experiment,
+    result,
+    metric,
+}: {
+    experiment: Experiment
+    result: CachedNewExperimentQueryResponse
+    metric: ExperimentMetric
+}): JSX.Element {
+    const { featureFlags } = useValues(experimentLogic)
+    const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
+
+    const baselineKey = result.baseline?.key
+
+    const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
+        {
+            key: 'variant',
+            title: 'Variant',
+            render: (_, item) => <VariantTag variantKey={item.key} />,
+        },
+        {
+            key: 'total-users',
+            title: 'Total users',
+            render: (_, item) => humanFriendlyNumber(item.number_of_samples),
+        },
+        {
+            key: 'value',
+            title: isExperimentMeanMetric(metric)
+                ? 'Mean'
+                : isExperimentRatioMetric(metric)
+                  ? 'Ratio'
+                  : 'Conversion rate',
+            render: (_, item) => formatMetricValue(item, metric),
+        },
+        {
+            key: 'statistical_measure',
+            title:
+                result.variant_results?.[0] && isBayesianResult(result.variant_results[0])
+                    ? 'Chance to win'
+                    : 'p-value',
+            render: (_, item: ExperimentVariantResult & { key: string }) => {
+                if (item.key === baselineKey) {
+                    return '—'
+                }
+
+                if (isBayesianResult(item)) {
+                    return <div className="font-semibold">{formatChanceToWinForGoal(item, metric.goal)}</div>
+                } else if (isFrequentistResult(item)) {
+                    return <div className="font-semibold">{formatPValue(item.p_value)}</div>
+                }
+                return '—'
+            },
+        },
+        {
+            key: 'significant',
+            title: 'Significant',
+            render: (_, item: ExperimentVariantResult & { key: string }) => {
+                if (item.key === baselineKey) {
+                    return '—'
+                }
+                if (!('significant' in item)) {
+                    return '—'
+                }
+                const label = item.significant ? 'Yes' : 'No'
+                return item.significant ? <div className="text-success font-semibold">{label}</div> : label
+            },
+        },
+        {
+            key: 'interval',
+            title: result.variant_results?.[0]
+                ? `${getIntervalLabel(result.variant_results[0])} (95%)`
+                : 'Confidence interval (95%)',
+            render: (_, item: ExperimentVariantResult & { key: string }) => {
+                if (item.key === baselineKey) {
+                    return '—'
+                }
+                const interval = getVariantInterval(item)
+                if (!interval) {
+                    return '—'
+                }
+                return `[${(interval[0] * 100).toFixed(2)}%, ${(interval[1] * 100).toFixed(2)}%]`
+            },
+        },
+        {
+            key: 'recordings',
+            title: '',
+            render: (_, item) => {
+                const variantKey = item.key
+                const filters = getViewRecordingFilters(experiment, metric, variantKey)
+
+                // While the seenTogether check is in flight, keep today's behavior (fail open).
+                const {
+                    filters: safeFilters,
+                    droppedMetricEventCount,
+                    exposureUnlinkable,
+                    usedExposureFallback,
+                } = linkabilityLoaded
+                    ? applySessionLinkability(
+                          filters,
+                          unlinkableEventNames,
+                          getExposureFallbackFilter(experiment, variantKey)
+                      )
+                    : { filters, droppedMetricEventCount: 0, exposureUnlinkable: false, usedExposureFallback: false }
+
+                const filterGroup: Partial<RecordingUniversalFilters> = {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: safeFilters,
+                            },
+                        ],
+                    },
+                    date_from: experiment?.start_date,
+                    date_to: experiment?.end_date,
+                    filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
+                }
+
+                return (
+                    <ViewRecordingsPlaylistButton
+                        filters={filterGroup}
+                        size="xsmall"
+                        type="secondary"
+                        tooltip={[
+                            usedExposureFallback
+                                ? "Watch recordings of sessions where this variant's flag was active. The exposure event is captured server-side without a session ID, so exact exposures can't be matched."
+                                : 'Watch recordings of people who were exposed to this variant.',
+                            ...(droppedMetricEventCount > 0
+                                ? [
+                                      `Excluded ${droppedMetricEventCount} server-side ${
+                                          droppedMetricEventCount === 1 ? 'event' : 'events'
+                                      } captured without a session ID, which can't match recordings.`,
+                                  ]
+                                : []),
+                        ].join(' ')}
+                        disabled={safeFilters.length === 0}
+                        disabledReason={
+                            exposureUnlinkable
+                                ? EXPOSURE_UNLINKABLE_REASON
+                                : filters.length === 0
+                                  ? 'Unable to identify recordings for this metric'
+                                  : undefined
+                        }
+                        data-attr="experiment-metrics-view-recordings"
+                        onClick={() => {
+                            posthog.capture('viewed recordings from experiment', { variant: variantKey })
+                        }}
+                    />
+                )
+            },
+        },
+    ]
+
+    const dataSource = [
+        ...(result.baseline ? [result.baseline as ExperimentVariantResult & { key: string }] : []),
+        ...(result.variant_results || []),
+    ]
+
+    // Construct ExperimentQuery for actors query
+    const experimentQuery: ExperimentQuery | undefined = experiment.id
+        ? ({
+              kind: NodeKind.ExperimentQuery,
+              experiment_id: experiment.id,
+              metric,
+          } as ExperimentQuery)
+        : undefined
+
+    return (
+        <div className="space-y-4">
+            <LemonTable columns={columns} dataSource={dataSource} loading={false} />
+            {isExperimentFunnelMetric(metric) && (
+                <FunnelChart
+                    steps={convertExperimentResultToFunnelSteps(result, metric)}
+                    showPersonsModal={false}
+                    disableBaseline={true}
+                    inCardView={true}
+                    experimentResult={result}
+                    experiment={experiment}
+                    metric={metric}
+                    experimentQuery={experimentQuery}
+                />
+            )}
+            <SqlCollapsible
+                hogql={result.hogql}
+                clickhouseSql={result.clickhouse_sql}
+                showClickhouseSql={!!featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL]}
+            />
+        </div>
+    )
+}

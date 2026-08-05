@@ -86,6 +86,11 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
     ErrorTrackingFingerprint: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
+    Experiments: () => import('../../products/experiments/frontend/experiments/Experiments'),
+    Experiment: () => import('../../products/experiments/frontend/experiments/Experiment'),
+    ExperimentsSharedMetrics: () =>
+        import('../../products/experiments/frontend/experiments/SharedMetrics/SharedMetrics'),
+    ExperimentsSharedMetric: () => import('../../products/experiments/frontend/experiments/SharedMetrics/SharedMetric'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),

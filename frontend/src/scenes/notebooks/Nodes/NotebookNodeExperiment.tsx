@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
-import { NotebookExperimentComponent } from '~/scenes/experiments/notebook'
 import { createPostHogWidgetNode } from '~/scenes/notebooks/Nodes/NodeWrapper'
 import { type NotebookNodeProps, NotebookNodeType } from '~/scenes/notebooks/types'
 import { urls } from '~/scenes/urls'
+
+import { NotebookExperimentComponent } from 'products/experiments/frontend/experiments/notebook'
 
 import { notebookNodeLogic } from './notebookNodeLogic'
 

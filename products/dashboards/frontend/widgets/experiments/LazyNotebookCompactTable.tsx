@@ -15,7 +15,7 @@ type NotebookCompactTableProps = {
 // cron-parser) — ~1.5 MiB. A static import would pull all of that into the always-loaded dashboard
 // graph; behind a dynamic import it loads only when a results widget actually renders.
 const LazyTable = lazyWithRetry(() =>
-    import('scenes/experiments/notebook/NotebookCompactTable').then((module) => ({
+    import('products/experiments/frontend/experiments/notebook/NotebookCompactTable').then((module) => ({
         default: module.NotebookCompactTable,
     }))
 )

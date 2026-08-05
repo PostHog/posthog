@@ -3,8 +3,9 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { DEFAULT_MDE } from '~/scenes/experiments/constants'
 import { teamLogic } from '~/scenes/teamLogic'
+
+import { DEFAULT_MDE } from 'products/experiments/frontend/experiments/constants'
 
 export interface ExperimentsConfig {
     experiment_recalculation_time: string | null

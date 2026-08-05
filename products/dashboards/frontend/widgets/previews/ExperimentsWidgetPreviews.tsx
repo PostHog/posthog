@@ -1,10 +1,10 @@
 import { clsx } from 'clsx'
 
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
-import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
-
 import type { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { type ExperimentConclusion, type ExperimentStatus } from '~/types'
+
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/experiments/constants'
+import { StatusTag } from 'products/experiments/frontend/experiments/ExperimentView/StatusTag'
 
 import {
     experimentResultsSamplePayload,

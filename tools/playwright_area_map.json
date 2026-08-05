@@ -83,7 +83,6 @@
         "surveys": ["products/surveys/frontend/e2e/"],
         "session-recordings": ["products/replay/frontend/e2e/"],
         "sessions": ["products/replay/frontend/e2e/"],
-        "experiments": ["playwright/e2e/experiments/"],
         "cohorts": ["playwright/e2e/product-analytics/cohorts.spec.ts"],
         "trends": ["playwright/e2e/product-analytics/"],
         "data-warehouse": ["playwright/e2e/sql-editor*.spec.ts"],

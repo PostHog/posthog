@@ -5,10 +5,11 @@ import { LemonInput } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+
 import {
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
     MAX_SEQUENTIAL_TUNING_PARAMETER,
-} from 'scenes/experiments/ExperimentView/sequential'
+} from 'products/experiments/frontend/experiments/ExperimentView/sequential'
 
 import { experimentsConfigLogic } from './experimentsConfigLogic'
 

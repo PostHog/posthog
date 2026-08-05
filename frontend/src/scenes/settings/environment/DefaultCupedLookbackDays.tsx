@@ -5,7 +5,12 @@ import { LemonInput } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
+
+import {
+    DEFAULT_LOOKBACK_DAYS,
+    MAX_LOOKBACK_DAYS,
+    MIN_LOOKBACK_DAYS,
+} from 'products/experiments/frontend/experiments/constants'
 
 import { experimentsConfigLogic } from './experimentsConfigLogic'
 

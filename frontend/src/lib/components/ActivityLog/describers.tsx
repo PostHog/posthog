@@ -13,7 +13,6 @@ import { dataManagementActivityDescriber } from 'scenes/data-management/dataMana
 import { batchExportActivityDescriber } from 'scenes/data-pipelines/batch-exports/activityDescriptions'
 import { batchImportActivityDescriber } from 'scenes/data-pipelines/batch-imports/activityDescriptions'
 import { dataWarehouseSavedQueryActivityDescriber } from 'scenes/data-warehouse/saved_queries/activityDescriptions'
-import { experimentActivityDescriber } from 'scenes/experiments/experimentActivityDescriber'
 import { exportedAssetActivityDescriber } from 'scenes/exports/activityDescriptions'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { groupActivityDescriber } from 'scenes/groups/activityDescriptions'
@@ -44,6 +43,7 @@ import { alertConfigurationActivityDescriber } from 'products/alerts/frontend/co
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
+import { experimentActivityDescriber } from 'products/experiments/frontend/experiments/experimentActivityDescriber'
 import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 

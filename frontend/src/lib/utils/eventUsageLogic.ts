@@ -9,7 +9,6 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
-import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -75,6 +74,8 @@ import {
     Survey,
     SurveyQuestionType,
 } from '~/types'
+
+import { SharedMetric } from 'products/experiments/frontend/experiments/SharedMetrics/sharedMetricLogic'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'

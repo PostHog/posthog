@@ -13,7 +13,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { getExperimentVariants } from 'scenes/experiments/utils'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { SurveyEnableToggle } from 'scenes/surveys/SurveySettings'
@@ -22,6 +21,8 @@ import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Survey } from '~/types'
+
+import { getExperimentVariants } from 'products/experiments/frontend/experiments/utils'
 
 import { EventSelector } from './quick-create/components/EventSelector'
 import { ExceptionFilters } from './quick-create/components/ExceptionFilters'

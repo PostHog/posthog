@@ -7,9 +7,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 
-import { getExperimentStatus } from '~/scenes/experiments/experimentsLogic'
-import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
 import { Experiment } from '~/types'
+
+import { getExperimentStatus } from 'products/experiments/frontend/experiments/experimentsLogic'
+import { StatusTag } from 'products/experiments/frontend/experiments/ExperimentView/StatusTag'
 
 import { addExperimentsToNotebookModalLogic } from './addExperimentsToNotebookModalLogic'
 

@@ -1,10 +1,11 @@
 import { IconArrowRight } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { ExperimentTabContent } from 'scenes/experiments/ExperimentTabContent'
 import { urls } from 'scenes/urls'
 
 import type { FeatureFlagType } from '~/types'
+
+import { ExperimentTabContent } from 'products/experiments/frontend/experiments/ExperimentTabContent'
 
 export function ExperimentsTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     return (

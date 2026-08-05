@@ -24,6 +24,44 @@ export const manifest: ProductManifest = {
         experimentsSharedMetric: (id: string | number, action?: string): string =>
             action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
     },
+    scenes: {
+        Experiments: {
+            name: 'Experiments',
+            import: () => import('./frontend/experiments/Experiments'),
+            projectBased: true,
+            activityScope: 'Experiment',
+            description:
+                'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
+            iconType: 'experiment',
+        },
+        Experiment: {
+            name: 'Experiment',
+            import: () => import('./frontend/experiments/Experiment'),
+            projectBased: true,
+            activityScope: 'Experiment',
+            iconType: 'experiment',
+        },
+        ExperimentsSharedMetrics: {
+            name: 'Shared metrics',
+            import: () => import('./frontend/experiments/SharedMetrics/SharedMetrics'),
+            projectBased: true,
+            activityScope: 'Experiment',
+        },
+        ExperimentsSharedMetric: {
+            name: '',
+            import: () => import('./frontend/experiments/SharedMetrics/SharedMetric'),
+            projectBased: true,
+            activityScope: 'Experiment',
+        },
+    },
+    routes: {
+        '/experiments': ['Experiments', 'experiments'],
+        '/experiments/shared-metrics': ['ExperimentsSharedMetrics', 'experimentsSharedMetrics'],
+        '/experiments/shared-metrics/:id': ['ExperimentsSharedMetric', 'experimentsSharedMetric'],
+        '/experiments/shared-metrics/:id/:action': ['ExperimentsSharedMetric', 'experimentsSharedMetric'],
+        '/experiments/:id': ['Experiment', 'experiment'],
+        '/experiments/:id/:formMode': ['Experiment', 'experiment'],
+    },
     fileSystemTypes: {
         experiment: {
             name: 'Experiment',

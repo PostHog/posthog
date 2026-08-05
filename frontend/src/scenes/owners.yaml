@@ -33,8 +33,6 @@ rules:
       owners: team-workflows
     - match: '/data-warehouse/'
       owners: team-data-stack
-    - match: '/experiments/'
-      owners: team-experiments
     - match: '/exports/'
       owners: team-analytics-platform
     - match: '/feature-flags/'

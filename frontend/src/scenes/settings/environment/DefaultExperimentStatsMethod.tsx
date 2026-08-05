@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 
-import { StatsMethodSelector } from '~/scenes/experiments/components/StatsMethodSelector'
 import { ExperimentStatsMethod } from '~/types'
+
+import { StatsMethodSelector } from 'products/experiments/frontend/experiments/components/StatsMethodSelector'
 
 import { experimentsConfigLogic } from './experimentsConfigLogic'
 
