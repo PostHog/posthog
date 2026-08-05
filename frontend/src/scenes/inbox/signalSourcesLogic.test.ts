@@ -168,4 +168,28 @@ describe('signalSourcesLogic', () => {
         expect(createSourceConfig).toHaveBeenCalledTimes(1)
         expect(logic.values.isGithubIssuesToggling).toBe(false)
     })
+
+    it('creates an AI observability config for evaluation reports', async () => {
+        const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue({
+            id: 'config-evaluation-reports',
+            source_product: SignalSourceProduct.LlmAnalytics,
+            source_type: SignalSourceType.EvaluationReport,
+            enabled: true,
+            config: {},
+            created_at: '2026-07-30T00:00:00Z',
+            updated_at: '2026-07-30T00:00:00Z',
+            status: null,
+        })
+        logic.actions.loadSourceConfigsSuccess([])
+
+        logic.actions.toggleEvalReports()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createSourceConfig).toHaveBeenCalledWith({
+            source_product: SignalSourceProduct.LlmAnalytics,
+            source_type: SignalSourceType.EvaluationReport,
+            enabled: true,
+            config: {},
+        })
+    })
 })

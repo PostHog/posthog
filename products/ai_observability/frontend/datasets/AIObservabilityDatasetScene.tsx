@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconArchive, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTab, LemonTabs, Link, ProfilePicture } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -18,6 +18,7 @@ import { createdAtColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/column
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { isObject } from 'lib/utils/guards'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -39,8 +40,9 @@ import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, Dataset, DatasetItem } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
+import type { DatasetItemReadApi as DatasetItem, DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { truncateValue } from '../utils'
 import { DatasetLogicProps, DatasetTab, isDataset, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
 import { DatasetItemModal } from './DatasetItemModal'
@@ -69,13 +71,13 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         isNewDataset,
         datasetForm,
         dataset,
-        isDeletingDataset,
+        isArchivingDataset,
     } = useValues(aiObservabilityDatasetLogic)
     const {
         submitDatasetForm,
         loadDataset,
         editDataset,
-        deleteDataset,
+        archiveDataset,
         setDatasetFormValue,
         triggerDatasetItemModal,
         onUnmount,
@@ -200,18 +202,17 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                 {({ disabledReason }) => (
                                     <SceneMenuBarItem
                                         variant="destructive"
-                                        opensFloatingUi
-                                        disabled={!!disabledReason || datasetLoading || isDeletingDataset}
+                                        disabled={!!disabledReason || datasetLoading || isArchivingDataset}
                                         onClick={() => {
                                             LemonDialog.open({
-                                                title: 'Permanently delete dataset?',
-                                                description: 'This action cannot be undone.',
+                                                title: 'Archive dataset?',
+                                                description: 'This removes it from the active datasets list.',
                                                 primaryButton: {
-                                                    children: 'Delete',
+                                                    children: 'Archive',
                                                     type: 'primary',
                                                     status: 'danger',
-                                                    'data-attr': 'confirm-delete-dataset',
-                                                    onClick: deleteDataset,
+                                                    'data-attr': 'confirm-archive-dataset',
+                                                    onClick: archiveDataset,
                                                 },
                                                 secondaryButton: {
                                                     children: 'Close',
@@ -219,10 +220,10 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                                 },
                                             })
                                         }}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-archive`}
                                     >
-                                        <IconTrash />
-                                        Delete
+                                        <IconArchive />
+                                        Archive
                                     </SceneMenuBarItem>
                                 )}
                             </AccessControlAction>
@@ -240,7 +241,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                     submitDatasetForm()
                                 }}
                                 dataAttrKey={RESOURCE_TYPE}
-                                isLoading={datasetLoading}
+                                isLoading={datasetLoading || isDatasetFormSubmitting}
                                 canEdit={userHasAccess(
                                     AccessControlResourceType.LlmAnalytics,
                                     AccessControlLevel.Editor
@@ -255,7 +256,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                 }}
                                 dataAttrKey={RESOURCE_TYPE}
                                 optional
-                                isLoading={datasetLoading}
+                                isLoading={datasetLoading || isDatasetFormSubmitting}
                                 canEdit={userHasAccess(
                                     AccessControlResourceType.LlmAnalytics,
                                     AccessControlLevel.Editor
@@ -272,14 +273,14 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                 <ButtonPrimitive
                                     onClick={() => {
                                         LemonDialog.open({
-                                            title: 'Permanently delete dataset?',
-                                            description: 'This action cannot be undone.',
+                                            title: 'Archive dataset?',
+                                            description: 'This removes it from the active datasets list.',
                                             primaryButton: {
-                                                children: 'Delete',
+                                                children: 'Archive',
                                                 type: 'primary',
                                                 status: 'danger',
-                                                'data-attr': 'confirm-delete-dataset',
-                                                onClick: deleteDataset,
+                                                'data-attr': 'confirm-archive-dataset',
+                                                onClick: archiveDataset,
                                             },
                                             secondaryButton: {
                                                 children: 'Close',
@@ -289,14 +290,14 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                     }}
                                     variant="danger"
                                     menuItem
-                                    data-attr={`${RESOURCE_TYPE}-delete`}
+                                    data-attr={`${RESOURCE_TYPE}-archive`}
                                     disabledReasons={{
                                         'Dataset is loading': datasetLoading,
-                                        'Dataset is being deleted': isDeletingDataset,
+                                        'Dataset is being archived': isArchivingDataset,
                                     }}
                                 >
-                                    <IconTrash />
-                                    Delete
+                                    <IconArchive />
+                                    Archive
                                 </ButtonPrimitive>
                             </AccessControlAction>
                         </ScenePanelActionsSection>
@@ -350,8 +351,9 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
 }
 
 function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
-    const { datasetItems, datasetItemsLoading, pagination } = useValues(aiObservabilityDatasetLogic)
-    const { deleteDatasetItem, loadDatasetItems } = useActions(aiObservabilityDatasetLogic)
+    const { archivingDatasetItemId, datasetItems, datasetItemsLoading, pagination } =
+        useValues(aiObservabilityDatasetLogic)
+    const { archiveDatasetItem, loadDatasetItems } = useActions(aiObservabilityDatasetLogic)
     const { searchParams } = useValues(router)
 
     const columns: LemonTableColumns<DatasetItem> = [
@@ -370,22 +372,22 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
         },
         {
             title: 'Trace',
-            dataIndex: 'ref_trace_id',
-            key: 'ref_trace_id',
+            dataIndex: 'source_trace_id',
+            key: 'source_trace_id',
             width: '10%',
-            render: function renderRefTraceId(_, item) {
-                if (!item.ref_trace_id || !item.ref_source_id || !item.ref_timestamp) {
+            render: function renderSourceTraceId(_, item) {
+                if (!item.source_trace_id || !item.source_timestamp) {
                     return <span>—</span>
                 }
 
                 return (
                     <Link
-                        to={urls.aiObservabilityTrace(item.ref_trace_id, {
-                            event: item.ref_source_id,
-                            timestamp: item.ref_timestamp,
+                        to={urls.aiObservabilityTrace(item.source_trace_id, {
+                            event: item.source_event_id ?? undefined,
+                            timestamp: item.source_timestamp,
                         })}
                     >
-                        {truncateValue(item.ref_trace_id)}
+                        {truncateValue(item.source_trace_id)}
                     </Link>
                 )
             },
@@ -394,18 +396,27 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
             title: 'Input',
             dataIndex: 'input',
             key: 'input',
-            width: '30%',
+            width: '20%',
             render: function renderInput(_, item) {
                 return <JSONColumn>{item.input}</JSONColumn>
             },
         },
         {
-            title: 'Output',
-            dataIndex: 'output',
-            key: 'output',
-            width: '30%',
-            render: function renderOutput(_, item) {
-                return <JSONColumn>{item.output}</JSONColumn>
+            title: 'Expected output',
+            dataIndex: 'expected_output',
+            key: 'expected_output',
+            width: '20%',
+            render: function renderExpectedOutput(_, item) {
+                return <JSONColumn>{item.expected_output}</JSONColumn>
+            },
+        },
+        {
+            title: 'Source output',
+            dataIndex: 'source_output',
+            key: 'source_output',
+            width: '20%',
+            render: function renderSourceOutput(_, item) {
+                return <JSONColumn>{item.source_output}</JSONColumn>
             },
         },
         {
@@ -424,7 +435,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                        {created_by && <ProfilePicture user={created_by as UserBasicType} size="md" showName />}
                     </div>
                 )
             },
@@ -452,11 +463,17 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                                 >
                                     <LemonButton
                                         status="danger"
-                                        onClick={() => deleteDatasetItem(item.id)}
-                                        data-attr={`dataset-item-${item.id}-dropdown-delete`}
+                                        onClick={() => archiveDatasetItem(item.id, item.version)}
+                                        loading={archivingDatasetItemId === item.id}
+                                        disabledReason={
+                                            archivingDatasetItemId && archivingDatasetItemId !== item.id
+                                                ? 'Another dataset item is being archived'
+                                                : undefined
+                                        }
+                                        data-attr={`dataset-item-${item.id}-dropdown-archive`}
                                         fullWidth
                                     >
-                                        Delete
+                                        Archive
                                     </LemonButton>
                                 </AccessControlAction>
                             </>
@@ -498,7 +515,7 @@ function DatasetMetadata({ dataset }: { dataset: Dataset }): JSX.Element {
         <div className="flex flex-col gap-4 max-w-160">
             <div className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold m-0">Metadata</h3>
-                {dataset.metadata ? (
+                {isObject(dataset.metadata) ? (
                     <div className="bg-bg-light p-4 rounded border overflow-x-auto">
                         <HighlightedJSONViewer src={dataset.metadata} />
                     </div>

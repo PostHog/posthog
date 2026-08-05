@@ -40,7 +40,10 @@ class TestAgentProxyCallback(TestCase):
         return f"/internal/tasks/runs/{run_id or self.task_run.id}/agent-proxy-callback/"
 
     def _token(self, run: TaskRun | None = None) -> str:
-        return create_sandbox_event_ingest_token(run or self.task_run)
+        token_run = run or self.task_run
+        token_run.state = {**(token_run.state or {}), "sandbox_id": f"sandbox-{token_run.id}"}
+        token_run.save(update_fields=["state", "updated_at"])
+        return create_sandbox_event_ingest_token(token_run)
 
     def _body(self, **overrides: Any) -> dict[str, Any]:
         body: dict[str, Any] = {

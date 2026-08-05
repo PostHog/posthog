@@ -24,12 +24,13 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { fullName } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
+import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { Breadcrumb, CommentType, PersonType } from '~/types'
@@ -43,7 +44,6 @@ import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
-import type { UserType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
@@ -173,8 +173,8 @@ export function getEmailReplyBlockedReason(
 export interface supportTicketSceneLogicValues {
     resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
     draftModeDefault: boolean // conversationsDraftModeLogic
+    availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    user: UserType | null // userLogic
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
@@ -204,6 +204,7 @@ export interface supportTicketSceneLogicValues {
     previousTicketsLoading: boolean
     priority: TicketPriority | null
     replyRecipientDescription: string
+    sidePanelContext: SidePanelSceneContext | null
     snoozedUntil: string | null
     status: TicketStatus | null
     tags: string[]
@@ -218,6 +219,7 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
+    loadTags: () => any // tagsModel
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -435,6 +437,7 @@ export interface supportTicketSceneLogicMeta {
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
+        sidePanelContext: (ticket: Ticket | null) => SidePanelSceneContext | null
     }
 }
 
@@ -450,16 +453,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
-        actions: [supportTicketsSceneLogic, ['loadTickets']],
+        actions: [supportTicketsSceneLogic, ['loadTickets'], tagsModel, ['loadTags']],
         values: [
             teamLogic,
             ['currentTeam'],
             conversationsDraftModeLogic,
             ['draftModeDefault'],
-            userLogic,
-            ['user'],
             assigneeSelectLogic,
             ['resolveAssignee'],
+            tagsModel,
+            ['tags as availableTags'],
         ],
     })),
     actions({
@@ -961,6 +964,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return null
             },
         ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.ticket],
+            (ticket: Ticket | null): SidePanelSceneContext | null => {
+                return ticket?.id
+                    ? {
+                          access_control_resource: 'ticket',
+                          access_control_resource_id: `${ticket.id}`,
+                      }
+                    : null
+            },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         loadTicket: async () => {
@@ -1051,6 +1065,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
+                // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload
+                if (values.tags.some((tag) => !values.availableTags.includes(tag))) {
+                    actions.loadTags()
+                }
             } catch (error: any) {
                 if (error?.isBreakpoint) {
                     throw error
@@ -1136,10 +1154,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
                 if (statusAfterSend) {
                     actions.setStatus(statusAfterSend)
-                    // Pick up the ticket for the sender unless a specific user is already assigned.
-                    if (values.assignee?.type !== 'user' && values.user) {
-                        actions.setAssignee({ type: 'user', id: values.user.id })
-                    }
                     actions.updateTicket()
                 }
                 setTimeout(() => {

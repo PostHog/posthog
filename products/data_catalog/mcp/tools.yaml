@@ -59,7 +59,8 @@ tools:
         title: Propose a table/view certification
         description: >
             Propose a trust mark on a warehouse table or view. Address the target by id, or by name (an ambiguous name
-            returns the candidate ids to pick from).
+            returns the candidate ids to pick from). Pass proposed_status 'deprecated' to propose deprecating a stale or
+            wrong source; an approver settles the proposal with the certify or deprecate tool.
         feature_flag: product-data-catalog
     data-catalog-certifications-destroy:
         operation: data_catalog_certifications_destroy

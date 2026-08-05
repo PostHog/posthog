@@ -276,7 +276,7 @@ Thinking...`)
             logic.actions.pasteAfterLastNode('Dropped text')
         }).toDispatchActions(['setLocalContent'])
 
-        expect(getMarkdownNotebookMarkdown(logic.values.localContent)).toEqual(`${BASE_MARKDOWN}\n\nDropped text`)
+        expect(getMarkdownNotebookMarkdown(logic.values.localContent)).toEqual(`${BASE_MARKDOWN}\n\n\nDropped text`)
     })
 
     it.each([

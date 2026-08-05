@@ -13,6 +13,7 @@ from django.db import OperationalError
 
 import grpc
 import pyarrow as pa
+import requests
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
@@ -24,6 +25,9 @@ from posthog.schema import SourceFieldOauthConfig
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsIsMccAccountConfig,
     GoogleAdsSourceConfig,
@@ -445,6 +449,26 @@ class TestValidateCredentials:
         assert ok is False
         assert "try again" in (message or "")
         assert "Internal error encountered" not in (message or "")
+
+    def test_invalid_argument_returns_actionable_message(self):
+        # A malformed request surfaces as a raw gRPC INVALID_ARGUMENT dump (with a per-request peer IP)
+        # at validate time. Surface a clean, actionable prompt rather than leaking the protobuf dump.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            'status = StatusCode.INVALID_ARGUMENT\n\tdetails = "Request contains an invalid argument."\n\t'
+            'debug_error_string = "peer_address:ipv4:172.217.112.4:443"'
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "customer ID" in (message or "")
+        assert "172.217.112.4" not in (message or "")
+        assert "StatusCode" not in (message or "")
 
 
 def _google_ads_exception(request_error: int) -> GoogleAdsException:
@@ -1184,6 +1208,34 @@ class TestGetOAuthAccountsCaching:
         assert [account.value for account in second] == ["987-654-3210"]
 
 
+class TestGetOAuthAccountsNetworkErrorHandling:
+    @pytest.mark.parametrize(
+        "network_error",
+        [
+            requests.exceptions.ReadTimeout("read timed out"),
+            requests.exceptions.ConnectionError("connection reset"),
+        ],
+    )
+    def test_transient_network_error_becomes_actionable(self, network_error):
+        # list_google_ads_accessible_accounts retries a transient blip internally, so this exception means
+        # every attempt failed. Previously nothing here caught it, so it propagated as an unhandled 500
+        # instead of the same actionable error the credential-rejection path already raises.
+        cache.clear()
+        source = GoogleAdsSource()
+        integration = mock.Mock(errors=None)
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.side_effect = network_error
+
+            with pytest.raises(IntegrationAccountListingError):
+                source.get_oauth_accounts(1, 2)
+
+
 class TestGoogleAdsQueryConstruction:
     _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads"
 
@@ -1452,3 +1504,69 @@ class TestTypeUrlVersionResolution:
     def test_unknown_version_raises(self):
         with pytest.raises(ValueError):
             _resolve_protobuf_message_type_url("google.ads.googleads.v99.enums.DeviceEnum")
+
+
+class TestResourceSchemaInvariants:
+    @pytest.mark.parametrize("alias", sorted(RESOURCE_SCHEMAS))
+    def test_primary_key_columns_are_selected(self, alias):
+        # Rows are built only from the fields in the SELECT clause, so a primary key naming a field
+        # the table doesn't select produces rows without that column. The Delta merge then either
+        # fails on the missing key or matches every row, seeding duplicates on every sync.
+        contents = RESOURCE_SCHEMAS[alias]
+        assert set(contents["primary_key"]) <= set(contents["field_names"])
+
+    @pytest.mark.parametrize("alias", sorted(RESOURCE_SCHEMAS))
+    def test_partition_keys_are_selected(self, alias):
+        # Partition keys are read off the synced rows, so an unselected partition key would leave the
+        # pipeline partitioning on a column that never arrives.
+        contents = RESOURCE_SCHEMAS[alias]
+        assert set(contents.get("partition_keys") or []) <= set(contents["field_names"])
+
+    @pytest.mark.parametrize("alias", sorted(RESOURCE_SCHEMAS))
+    def test_incremental_tables_filter_on_a_selected_segments_date(self, alias):
+        # `requires_filter` tables are queried with a `segments.date` window and partitioned on
+        # `segments_date`. Declaring a different filter field, or not selecting segments.date, breaks
+        # both the incremental window and the partitioning.
+        contents = RESOURCE_SCHEMAS[alias]
+        if "filter_field_names" not in contents:
+            return
+        assert contents["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
+        assert "segments.date" in contents["field_names"]
+
+
+class TestConversionActionSegmentedStats:
+    def test_only_conversion_metrics_are_selected(self):
+        # Google rejects a query that pairs segments.conversion_action with a non-conversion metric,
+        # which would fail the whole table rather than drop a column. Keep the metric list to the
+        # conversion family.
+        field_names = RESOURCE_SCHEMAS["campaign_conversion_action_stats"]["field_names"]
+        metrics = [f for f in field_names if f.startswith("metrics.")]
+
+        assert metrics
+        assert all("conversion" in metric for metric in metrics)
+
+
+class TestBreakdownStatsDefaultOff:
+    # These tables fan a day of spend out across placements, landing pages, product groups, hours and
+    # demographics, so they are orders of magnitude larger than the campaign and ad group reports.
+    # Defaulting one of them on would silently start syncing it for every account on the next schema
+    # reconcile, so each must stay opt-in and explain its size in the picker.
+    @pytest.mark.parametrize(
+        "alias",
+        [
+            "age_range_stats",
+            "campaign_conversion_action_stats",
+            "campaign_hourly_stats",
+            "detail_placement_stats",
+            "gender_stats",
+            "landing_page_stats",
+            "location_stats",
+            "product_group_stats",
+            "user_location_stats",
+        ],
+    )
+    def test_breakdown_stats_are_opt_in_and_described(self, alias):
+        contents = RESOURCE_SCHEMAS[alias]
+
+        assert contents["should_sync_default"] is False
+        assert contents["description"]
