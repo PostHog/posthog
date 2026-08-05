@@ -285,122 +285,122 @@ export function SidePanelSupport(): JSX.Element {
                     )}
                 </SidePanelPaneHeader>
                 <div className="p-0 justify-start flex-none px-1 max-w-160 w-full mx-auto flex flex-col">
-                        {showMaxAI && isBillingLoaded && (
-                            <Section title="Ask PostHog AI">
-                                <div>
-                                    <p>PostHog AI can now answer 80%+ of the support questions we receive! Nice.</p>
-                                    <p>
-                                        Let PostHog AI read 100s of pages of docs for you, write SQL queries and
-                                        expressions, regex patterns, etc.
-                                    </p>
-                                    <LemonButton
-                                        type="primary"
-                                        fullWidth
-                                        center
-                                        onClick={() => {
-                                            openSidePanel(SidePanelTab.Max)
-                                        }}
-                                        targetBlank={false}
-                                        className="mt-2"
-                                    >
-                                        Chat with PostHog AI
-                                    </LemonButton>
-                                </div>
-                            </Section>
-                        )}
-
-                        {showTickets && isBillingLoaded && (
-                            <Section title={canCreateTicket ? 'Contact us' : 'Your tickets'}>
-                                <StatusPageAlert />
-                                <SupportMessageOverride />
+                    {showMaxAI && isBillingLoaded && (
+                        <Section title="Ask PostHog AI">
+                            <div>
+                                <p>PostHog AI can now answer 80%+ of the support questions we receive! Nice.</p>
                                 <p>
-                                    {canCreateTicket
-                                        ? "Can't find what you need and PostHog AI unable to help? Message our support engineers."
-                                        : 'You can keep replying to tickets you already have open.'}
+                                    Let PostHog AI read 100s of pages of docs for you, write SQL queries and
+                                    expressions, regex patterns, etc.
                                 </p>
-                                <SidePanelTickets />
-                            </Section>
-                        )}
-
-                        {!showTickets && isBillingLoaded && (
-                            <Section title="">
-                                <h3>Can't find what you need in the docs?</h3>
-                                <p>
-                                    With the free plan you can ask the community via the link below, or explore your
-                                    upgrade choices to message our support engineers.
-                                </p>
-                            </Section>
-                        )}
-
-                        {/* Community forum */}
-                        <Section title="Ask the community">
-                            <p>
-                                Questions about features, how-tos, or use cases? There are thousands of discussions
-                                in our community forums.
-                            </p>
-                            <LemonButton
-                                type="secondary"
-                                fullWidth
-                                center
-                                to="https://posthog.com/questions"
-                                targetBlank
-                                className="mt-2"
-                            >
-                                Ask the community
-                            </LemonButton>
-                        </Section>
-
-                        {/* Add support hours and table */}
-                        <div className="mb-2">
-                            <strong>Support is open Monday - Friday</strong>
-                        </div>
-                        <SupportResponseTimesTable billing={billing} isCompact={true} />
-                        {billingPlan !== BillingPlan.Enterprise && (
-                            <div className="flex justify-end">
-                                <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
-                                    Upgrade support plan
-                                </Link>
+                                <LemonButton
+                                    type="primary"
+                                    fullWidth
+                                    center
+                                    onClick={() => {
+                                        openSidePanel(SidePanelTab.Max)
+                                    }}
+                                    targetBlank={false}
+                                    className="mt-2"
+                                >
+                                    Chat with PostHog AI
+                                </LemonButton>
                             </div>
-                        )}
-
-                        {/* Share feedback section */}
-                        <Section title="Share feedback">
-                            <ul>
-                                <li>
-                                    <LemonButton
-                                        type="secondary"
-                                        status="alt"
-                                        to="https://posthog.com/wip"
-                                        icon={<IconHelmet />}
-                                        targetBlank
-                                    >
-                                        See what we're building
-                                    </LemonButton>
-                                </li>
-                                <li>
-                                    <LemonButton
-                                        type="secondary"
-                                        status="alt"
-                                        to="https://posthog.com/roadmap"
-                                        icon={<IconMap />}
-                                        targetBlank
-                                    >
-                                        Vote on our roadmap
-                                    </LemonButton>
-                                </li>
-                                <li>
-                                    <LemonButton
-                                        type="secondary"
-                                        status="alt"
-                                        to="https://github.com/PostHog/posthog/issues/new?&labels=enhancement&template=feature_request.yml"
-                                        icon={<IconFeatures />}
-                                        targetBlank
-                                    >
-                                        Request a feature
-                                    </LemonButton>
-                                </li>
-                            </ul>
                         </Section>
+                    )}
+
+                    {showTickets && isBillingLoaded && (
+                        <Section title={canCreateTicket ? 'Contact us' : 'Your tickets'}>
+                            <StatusPageAlert />
+                            <SupportMessageOverride />
+                            <p>
+                                {canCreateTicket
+                                    ? "Can't find what you need and PostHog AI unable to help? Message our support engineers."
+                                    : 'You can keep replying to tickets you already have open.'}
+                            </p>
+                            <SidePanelTickets />
+                        </Section>
+                    )}
+
+                    {!showTickets && isBillingLoaded && (
+                        <Section title="">
+                            <h3>Can't find what you need in the docs?</h3>
+                            <p>
+                                With the free plan you can ask the community via the link below, or explore your upgrade
+                                choices to message our support engineers.
+                            </p>
+                        </Section>
+                    )}
+
+                    {/* Community forum */}
+                    <Section title="Ask the community">
+                        <p>
+                            Questions about features, how-tos, or use cases? There are thousands of discussions in our
+                            community forums.
+                        </p>
+                        <LemonButton
+                            type="secondary"
+                            fullWidth
+                            center
+                            to="https://posthog.com/questions"
+                            targetBlank
+                            className="mt-2"
+                        >
+                            Ask the community
+                        </LemonButton>
+                    </Section>
+
+                    {/* Add support hours and table */}
+                    <div className="mb-2">
+                        <strong>Support is open Monday - Friday</strong>
+                    </div>
+                    <SupportResponseTimesTable billing={billing} isCompact={true} />
+                    {billingPlan !== BillingPlan.Enterprise && (
+                        <div className="flex justify-end">
+                            <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
+                                Upgrade support plan
+                            </Link>
+                        </div>
+                    )}
+
+                    {/* Share feedback section */}
+                    <Section title="Share feedback">
+                        <ul>
+                            <li>
+                                <LemonButton
+                                    type="secondary"
+                                    status="alt"
+                                    to="https://posthog.com/wip"
+                                    icon={<IconHelmet />}
+                                    targetBlank
+                                >
+                                    See what we're building
+                                </LemonButton>
+                            </li>
+                            <li>
+                                <LemonButton
+                                    type="secondary"
+                                    status="alt"
+                                    to="https://posthog.com/roadmap"
+                                    icon={<IconMap />}
+                                    targetBlank
+                                >
+                                    Vote on our roadmap
+                                </LemonButton>
+                            </li>
+                            <li>
+                                <LemonButton
+                                    type="secondary"
+                                    status="alt"
+                                    to="https://github.com/PostHog/posthog/issues/new?&labels=enhancement&template=feature_request.yml"
+                                    icon={<IconFeatures />}
+                                    targetBlank
+                                >
+                                    Request a feature
+                                </LemonButton>
+                            </li>
+                        </ul>
+                    </Section>
                 </div>
             </SidePanelContentContainer>
         </div>
