@@ -968,6 +968,10 @@ snapshots:
         hash: v1.k794b7964.8a532c663ed9af5e8866bc9bbc9f93f6d37319988fc4ba8d18d3c7a50b6ffff1.XVu-dGfZAeBu1WZnAJ4H7wYPLqWq_o3XIyd229OJr5Q
     components-hogcharts-timeseriesbarchart--grouped-multiple-y-axes--light:
         hash: v1.k794b7964.f7743b72fdae4415ac4188d34efea5812da8f0e2e6a904c06962de424191430e.X2dh8u-yOJjWGWkmMxeJTcRGZHjs88svjLov6K5Q2Vg
+    components-hogcharts-timeseriesbarchart--min-bar-size--dark:
+        hash: v1.k794b7964.cbaa74d1ed9462784fbca2283d0cf7e83880d0f26b01ff6122cada17c7392f04.2atjki8iBMtLyVRWYtv9ykdia9HdWzxHI8HfOeiK44g
+    components-hogcharts-timeseriesbarchart--min-bar-size--light:
+        hash: v1.k794b7964.20625f592f09a686f6ab12271d88f5c2e8d43d765d1c599748a3bca19f0b39c3.lawk_0gdTKp6vqU-Xcoy23fQJ1mgGybq4b6k8bdNkHg
     components-hogcharts-timeseriesbarchart--percent--dark:
         hash: v1.k794b7964.3f142f3d58f1bbcab86f0e1acdd41786fb469fdfc199808ed1c39c3539c59b5d.IPQnKR7_vDrRDZ_MQTgUjHmkQHo5yHbAGC5RULADyjU
     components-hogcharts-timeseriesbarchart--percent--light:
