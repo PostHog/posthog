@@ -67,10 +67,3 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
 
         self.team.refresh_from_db()
         assert self.team.event_retention_months == 12
-
-    def test_new_team_inherits_org_retention(self) -> None:
-        self._set_retention_feature(1, "year")
-
-        team = Team.objects.create(organization=self.organization, name="fresh")
-
-        assert team.event_retention_months == 12

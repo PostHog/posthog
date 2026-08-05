@@ -275,8 +275,6 @@ class BillingManager:
         organization.available_product_features = available_product_features
         organization.save()
 
-        # Same non-empty guard as the revoked-features reset below: an error-path empty response
-        # must not flip team retention windows.
         if (
             available_product_features
             and organization_events_retention_months(organization) != previous_retention_months
