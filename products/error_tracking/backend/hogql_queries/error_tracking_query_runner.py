@@ -55,7 +55,13 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     @cached_property
     def _builder(self) -> ErrorTrackingQueryBuilder:
-        return ErrorTrackingQueryBuilder(self.query, self.team, self.date_from, self.date_to)
+        return ErrorTrackingQueryBuilder(
+            self.query,
+            self.team,
+            self.date_from,
+            self.date_to,
+            candidate_limit=self.paginator.offset + self.paginator.limit + 1,
+        )
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -95,6 +101,24 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         return ctx
 
     def _calculate(self):
+        candidate_query = self._builder.build_candidate_query()
+        if candidate_query is not None:
+            with self.timings.measure("error_tracking_candidate_query_hogql_execute"):
+                candidate_result = execute_hogql_query(
+                    query=candidate_query,
+                    team=self.team,
+                    query_type="ErrorTrackingCandidateQuery",
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                    filters=self._builder.hogql_filters(),
+                    user=self.user,
+                    context=self._hogql_context(),
+                )
+            self._builder.selected_fingerprints = [
+                fingerprint for row in candidate_result.results for fingerprint in row[0]
+            ]
+
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self._builder.build_query(),
