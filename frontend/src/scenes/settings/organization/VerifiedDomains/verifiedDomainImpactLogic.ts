@@ -11,9 +11,9 @@ import { OrganizationDomainType, OrganizationMemberType, OrganizationType } from
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 /** How many impacted members to fetch for the modal; the total count still comes from the response. */
-export const IMPACTED_MEMBERS_FETCH_LIMIT = 100
+const IMPACTED_MEMBERS_FETCH_LIMIT = 100
 
-export interface EnforcementRemovalResult {
+interface EnforcementRemovalResult {
     success: boolean
     removed_members: number
 }
