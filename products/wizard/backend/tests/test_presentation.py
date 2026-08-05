@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, PersonalAPIKey
+from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.wizard.backend.models import WizardSession
@@ -64,6 +64,15 @@ class TestWizardSessionViewSet(APIBaseTest):
 
         self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 1)
 
+    def test_create_session_attributes_run_to_authenticated_user(self):
+        response = self.client.post(self._url(), self._payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_by = response.json()["created_by"]
+        self.assertEqual(created_by["id"], self.user.id)
+        self.assertEqual(created_by["email"], self.user.email)
+        self.assertEqual(created_by["first_name"], self.user.first_name)
+
     def test_completed_session_requires_event_definition_write_scope(self):
         self._authenticate_personal_api_key(["wizard_session:write"])
 
@@ -118,6 +127,21 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertEqual(data["tasks"][0]["status"], "completed")
 
         self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 1)
+
+    def test_repost_by_a_different_user_is_forbidden(self):
+        first = self.client.post(self._url(), self._payload(), format="json")
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+
+        other_user = User.objects.create_and_join(self.organization, "teammate@posthog.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.post(
+            self._url(),
+            self._payload(run_phase="completed"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_different_session_id_creates_new_row(self):
         self.client.post(self._url(), self._payload(), format="json")
@@ -350,6 +374,17 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertEqual(data["event_plan"], {"events": [{"name": "$pageview"}]})
         self.assertEqual(data["error"], {"type": "TimeoutError", "message": "Anthropic API timed out"})
 
+    def test_handoff_text_persists_across_pushes_without_it(self):
+        # Leading indentation must survive validation: the doc is markdown, where it is syntax.
+        doc = "    indented code block\n\n# Setup report"
+        response = self.client.post(self._url(), self._payload(handoff_text=doc), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["handoff_text"], doc)
+
+        response = self.client.post(self._url(), self._payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["handoff_text"], doc)
+
     def test_stream_requires_workflow_id(self):
         # No params → 400 from the view-level validation (workflow_id is the
         # only required query param; skill_id is optional for pattern subscribe).
@@ -380,3 +415,70 @@ class TestWizardSessionViewSet(APIBaseTest):
             return_value=flag_value,
         ):
             self.assertEqual(_wizard_sync_killswitch_enabled("distinct-id"), expected)
+
+    def test_sensitive_pending_input_is_stored_without_prompt_text(self):
+        # Redaction has to happen before the row is written, since the same value is streamed over
+        # SSE and logged — a client that sends the text anyway must not get it persisted.
+        response = self.client.post(
+            self._url(),
+            self._payload(
+                pending_input={
+                    "id": "ask-1",
+                    "asked_at": "2026-05-19T10:05:00Z",
+                    "question_count": 1,
+                    "sensitive": True,
+                    "prompts": ["Paste your API key"],
+                }
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertNotIn("prompts", response.json()["pending_input"])
+
+        session = WizardSession.objects.unscoped().get(team=self.team)
+        stored = session.pending_input
+        assert stored is not None
+        self.assertNotIn("prompts", stored)
+        self.assertTrue(stored["sensitive"])
+
+    def test_pending_input_with_asked_at_survives_every_read_path(self):
+        # asked_at is validated as a datetime but stored as a string, since the column is JSON.
+        # Every read serializes that string back out through the same DateTimeField.
+        create = self.client.post(
+            self._url(),
+            self._payload(pending_input={"id": "ask-1", "asked_at": "2026-05-19T10:05:00Z"}),
+            format="json",
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED)
+
+        for label, url in [
+            ("latest", self._url("latest/") + "?workflow_id=onboarding"),
+            ("retrieve", self._url("onboarding-nextjs-2026-05-19T10:00:00Z/")),
+            ("list", self._url()),
+        ]:
+            with self.subTest(read=label):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                body = response.json()
+                payload = body["results"][0] if label == "list" else body
+                self.assertEqual(payload["pending_input"]["id"], "ask-1")
+                self.assertIn("asked_at", payload["pending_input"])
+
+    @parameterized.expand(
+        [
+            ("prompt_not_a_string", {"prompts": [{}]}),
+            ("prompt_too_long", {"prompts": ["x" * 2001]}),
+            ("too_many_prompts", {"prompts": ["q"] * 11}),
+            ("missing_id", {"id": None}),
+            ("question_count_out_of_range", {"question_count": 0}),
+        ]
+    )
+    def test_malformed_pending_input_is_rejected(self, _label, overrides):
+        pending_input = {"id": "ask-1", "sensitive": False, "prompts": ["Which region?"]}
+        pending_input.update(overrides)
+
+        response = self.client.post(self._url(), self._payload(pending_input=pending_input), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 0)

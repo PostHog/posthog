@@ -8,6 +8,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
+import { RecipientsManagerService } from '../../../src/cdp/services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../../src/cdp/services/managers/team-workflows-config.service'
 import { EmailService } from '../../../src/cdp/services/messaging/email.service'
 import {
@@ -68,13 +69,17 @@ describe('Hog Executor', () => {
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
                 sesEndpoint: hub.SES_ENDPOINT,
+                sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            new RecipientsManagerService(hub.postgres)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         executor = new HogExecutorService(
@@ -136,7 +141,7 @@ describe('Hog Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
-                emailAssets: [],
+                messageAssets: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,
@@ -2332,10 +2337,10 @@ describe('Hog Executor', () => {
             expect(result.finished).toBe(false)
         })
 
-        it('should send inline when sendEmailsInline is set', async () => {
+        it('should send inline when isTest is set', async () => {
             const invocation = createEmailInvocation()
 
-            const result = await executor.executeWithAsyncFunctions(invocation, { sendEmailsInline: true })
+            const result = await executor.executeWithAsyncFunctions(invocation, { isTest: true })
 
             expect(result.invocation.queue).not.toBe('email')
             expect(result.finished).toBe(true)

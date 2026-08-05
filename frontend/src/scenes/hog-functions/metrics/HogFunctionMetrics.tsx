@@ -11,6 +11,8 @@ const HOGFUNCTION_METRIC_KEYS = [
     'failed',
     'inputs_failed',
     'filtered',
+    'dropped',
+    'budget_skipped',
     'disabled_permanently',
     'quota_limited',
 ] as const
@@ -36,6 +38,16 @@ export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; descriptio
         name: 'Filtered',
         description: 'Total number of events that were filtered out',
         color: getColorVar('muted'),
+    },
+    dropped: {
+        name: 'Dropped',
+        description: 'Total number of events or log records dropped by the transformation',
+        color: getColorVar('muted'),
+    },
+    budget_skipped: {
+        name: 'Budget skipped',
+        description: 'Total number of log records passed through untransformed because the time budget ran out',
+        color: getColorVar('warning'),
     },
     disabled_permanently: {
         name: 'Disabled',

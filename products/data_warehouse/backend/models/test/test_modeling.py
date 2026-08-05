@@ -673,6 +673,23 @@ class TestBoundedResolver(BaseTest):
 
         assert get_parents_from_model_query(self.team, "nested_union", body) == {"events"}
 
+    @parameterized.expand(
+        [
+            # `WITH x AS (...) SELECT FROM x` saved as view `x`: the CTE shadows the view's
+            # own name, so this is not a self-cycle.
+            ("own_name", "reservations_all"),
+            # A CTE shadowing a different existing view must win over inlining that view.
+            ("other_view_name", "some_other_view"),
+        ]
+    )
+    def test_cte_shadowing_a_view_name_resolves_to_the_cte(self, _name, shadowed_name):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name=shadowed_name, query={"query": "select id from persons"}
+        )
+        body = f"with {shadowed_name} as (select event from events) select * from {shadowed_name}"
+
+        assert get_parents_from_model_query(self.team, "reservations_all", body) == {"events"}
+
     def test_depth_limit_raises_when_chain_too_deep(self):
         self._make_chain(length=4)  # v0 → v1 → v2 → v3
 

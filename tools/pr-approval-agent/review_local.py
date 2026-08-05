@@ -313,10 +313,12 @@ def _attach_familiarity(pipeline: Pipeline, context: dict) -> None:
 
 def run(context: dict) -> dict:
     """Run the full offline review and return the to_dict() contract."""
-    pipeline = Pipeline(0, context.get("repo") or "")
+    # The hosted server sets self_driving_review only for PRs it verified came from a self-driving
+    # Inbox implementation run. Action contexts never carry it, so bot authors are refused as before.
+    pipeline = Pipeline(0, context.get("repo") or "", self_driving=bool(context.get("self_driving_review")))
     pipeline.pr = _build_pr_data(context)
 
-    if pipeline.pr.author_is_bot:
+    if pipeline.pr.author_is_bot and not pipeline.self_driving:
         pipeline._refuse_bot_author()
         return pipeline.to_dict()
 

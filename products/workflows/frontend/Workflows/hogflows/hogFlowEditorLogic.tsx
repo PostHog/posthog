@@ -578,54 +578,6 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
-                                template_id: 'template-email'
-                                template_uuid?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'function_email'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                inputs: Record<
-                                    string,
-                                    {
-                                        bytecode?: any
-                                        order?: number | undefined
-                                        secret?: boolean | undefined
-                                        templating?: 'hog' | 'liquid' | undefined
-                                        value: any
-                                    }
-                                >
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-native-push'
                                 template_uuid?: string | undefined
                             }
@@ -709,15 +661,58 @@ export interface hogFlowEditorLogicActions {
                             updated_at?: number | undefined
                         }
                       | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                template_id: 'template-email'
+                                template_uuid?: string | undefined
+                                tracking_enabled?: boolean | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_email'
+                            updated_at?: number | undefined
+                        }
+                      | {
                             config:
                                 | {
                                       type: 'schedule'
-                                  }
-                                | {
-                                      filters: {
-                                          properties: any[]
-                                      }
-                                      type: 'batch'
                                   }
                                 | {
                                       filters: {
@@ -727,6 +722,16 @@ export interface hogFlowEditorLogicActions {
                                           properties?: any[] | undefined
                                       }
                                       type: 'event'
+                                  }
+                                | {
+                                      filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          properties: any[]
+                                          tag_names?: string[] | undefined
+                                      }
+                                      type: 'batch'
                                   }
                                 | {
                                       filters: {
@@ -853,18 +858,22 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
-                                properties: any[]
-                            }
-                            type: 'batch'
-                        }
-                      | {
-                            filters: {
                                 actions?: any[] | undefined
                                 events?: any[] | undefined
                                 filter_test_accounts?: boolean | undefined
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
+                                properties: any[]
+                                tag_names?: string[] | undefined
+                            }
+                            type: 'batch'
                         }
                       | {
                             filters: {
@@ -1363,54 +1372,6 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
-                                template_id: 'template-email'
-                                template_uuid?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'function_email'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                inputs: Record<
-                                    string,
-                                    {
-                                        bytecode?: any
-                                        order?: number | undefined
-                                        secret?: boolean | undefined
-                                        templating?: 'hog' | 'liquid' | undefined
-                                        value: any
-                                    }
-                                >
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-native-push'
                                 template_uuid?: string | undefined
                             }
@@ -1494,15 +1455,58 @@ export interface hogFlowEditorLogicActions {
                             updated_at?: number | undefined
                         }
                       | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                template_id: 'template-email'
+                                template_uuid?: string | undefined
+                                tracking_enabled?: boolean | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_email'
+                            updated_at?: number | undefined
+                        }
+                      | {
                             config:
                                 | {
                                       type: 'schedule'
-                                  }
-                                | {
-                                      filters: {
-                                          properties: any[]
-                                      }
-                                      type: 'batch'
                                   }
                                 | {
                                       filters: {
@@ -1512,6 +1516,16 @@ export interface hogFlowEditorLogicActions {
                                           properties?: any[] | undefined
                                       }
                                       type: 'event'
+                                  }
+                                | {
+                                      filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          properties: any[]
+                                          tag_names?: string[] | undefined
+                                      }
+                                      type: 'batch'
                                   }
                                 | {
                                       filters: {
@@ -1638,18 +1652,22 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
-                                properties: any[]
-                            }
-                            type: 'batch'
-                        }
-                      | {
-                            filters: {
                                 actions?: any[] | undefined
                                 events?: any[] | undefined
                                 filter_test_accounts?: boolean | undefined
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
+                                properties: any[]
+                                tag_names?: string[] | undefined
+                            }
+                            type: 'batch'
                         }
                       | {
                             filters: {

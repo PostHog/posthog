@@ -4,7 +4,9 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useActions, useMountedLogic, useValues } from 'kea'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { FeaturePreviewGateConfig } from '~/types'
 
@@ -62,6 +64,7 @@ const mockedUseMountedLogic = useMountedLogic as jest.Mock
 
 const mockLoadEarlyAccessFeatures = jest.fn()
 const mockUpdateEarlyAccessFeatureEnrollment = jest.fn()
+const mockOpenSupportForm = jest.fn()
 
 const BASE_CONFIG: FeaturePreviewGateConfig = {
     flag: 'customer-analytics-roadmap',
@@ -84,14 +87,24 @@ function isFeatureFlagLogicRef(logic: unknown): boolean {
     return logic === featureFlagLogic
 }
 
+function isPreflightLogicRef(logic: unknown): boolean {
+    return logic === preflightLogic
+}
+
+function isSupportLogicRef(logic: unknown): boolean {
+    return logic === supportLogic
+}
+
 function setupMocks({
     earlyAccessFeatures = [],
     activeSceneId = null,
     featureFlags = {},
+    cloud = true,
 }: {
     earlyAccessFeatures?: Array<{ flagKey: string; enabled: boolean; stage?: string }>
     activeSceneId?: string | null
     featureFlags?: Record<string, boolean | string>
+    cloud?: boolean
 } = {}): void {
     mockedUseMountedLogic.mockReturnValue({})
 
@@ -105,6 +118,9 @@ function setupMocks({
         if (isFeatureFlagLogicRef(logic)) {
             return { featureFlags }
         }
+        if (isPreflightLogicRef(logic)) {
+            return { preflight: { cloud } }
+        }
         return {}
     })
 
@@ -114,6 +130,9 @@ function setupMocks({
                 loadEarlyAccessFeatures: mockLoadEarlyAccessFeatures,
                 updateEarlyAccessFeatureEnrollment: mockUpdateEarlyAccessFeatureEnrollment,
             }
+        }
+        if (isSupportLogicRef(logic)) {
+            return { openSupportForm: mockOpenSupportForm }
         }
         return {}
     })
@@ -240,6 +259,40 @@ describe('FeaturePreviewSceneGate', () => {
 
             expect(screen.getByText('Open feature previews')).toBeInTheDocument()
             expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+        })
+    })
+
+    describe('request access', () => {
+        const CONFIG_WITH_SUPPORT: FeaturePreviewGateConfig = {
+            ...BASE_CONFIG,
+            supportTargetArea: 'customer_analytics',
+        }
+
+        test('does not show "Request access" when config has no supportTargetArea', () => {
+            setupMocks({ earlyAccessFeatures: [] })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.queryByText('Request access')).not.toBeInTheDocument()
+        })
+
+        test('does not show "Request access" on a self-hosted instance', () => {
+            setupMocks({ earlyAccessFeatures: [], cloud: false })
+
+            render(<FeaturePreviewSceneGate config={CONFIG_WITH_SUPPORT}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.queryByText('Request access')).not.toBeInTheDocument()
+        })
+
+        test('opens the support form targeting the configured area when "Request access" is clicked', async () => {
+            setupMocks({ earlyAccessFeatures: [], cloud: true })
+
+            render(<FeaturePreviewSceneGate config={CONFIG_WITH_SUPPORT}>{CHILDREN}</FeaturePreviewSceneGate>)
+            await userEvent.click(screen.getByText('Request access'))
+
+            expect(mockOpenSupportForm).toHaveBeenCalledWith(
+                expect.objectContaining({ kind: 'support', target_area: 'customer_analytics' })
+            )
         })
     })
 

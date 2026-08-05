@@ -130,6 +130,62 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.organization.available_product_features = features
         self.organization.save()
 
+    def _set_unlimited_projects_with_logs_retention(self, *features: AvailableFeature) -> None:
+        self._set_unlimited_projects()
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            *[{"key": feature.value, "name": feature.value.replace("_", " ")} for feature in features],
+        ]
+        self.organization.save()
+
+    def test_project_creation_rejects_paid_logs_retention_without_feature(self):
+        self._set_unlimited_projects()
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Logs Project", "logs_settings": {"retention_days": 30}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("30 days", response.json()["detail"])
+
+    def test_project_creation_allows_base_logs_retention_without_feature(self):
+        self._set_unlimited_projects()
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Logs Project", "logs_settings": {"retention_days": 14}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["logs_settings"]["retention_days"], 14)
+
+    def test_project_creation_allows_paid_logs_retention_with_matching_feature(self):
+        self._set_unlimited_projects_with_logs_retention(AvailableFeature.LOGS_RETENTION_30D)
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Logs Project", "logs_settings": {"retention_days": 30}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["logs_settings"]["retention_days"], 30)
+
+    def test_project_creation_rejects_invalid_logs_retention(self):
+        self._set_unlimited_projects()
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Logs Project", "logs_settings": {"retention_days": 45}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("retention_days must be one of", response.json()["detail"])
+
     def test_member_cannot_create_project_by_default(self):
         self._set_unlimited_projects()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -281,18 +337,18 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        # Mock the teams queryset to return a count of 1500 non-demo projects
+        # Mock the teams queryset to return a count of 2000 non-demo projects
         mock_qs = MagicMock()
-        mock_qs.exclude.return_value.distinct.return_value.count.return_value = 1500
+        mock_qs.exclude.return_value.distinct.return_value.count.return_value = 2000
         mock_teams.return_value = mock_qs
-        mock_teams.exclude.return_value.distinct.return_value.count.return_value = 1500
+        mock_teams.exclude.return_value.distinct.return_value.count.return_value = 2000
 
         # Should not be able to create another project
         response = self.client.post("/api/projects/", {"name": "Project 1001"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json()["detail"],
-            "You have reached the maximum limit of 1500 projects per organization. Contact support if you'd like access to more projects.",
+            "You have reached the maximum limit of 2000 projects per organization. Contact support if you'd like access to more projects.",
         )
 
     def test_demo_projects_not_counted_toward_limit(self):

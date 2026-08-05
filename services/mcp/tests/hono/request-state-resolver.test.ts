@@ -10,6 +10,23 @@ vi.mock('@/lib/posthog/flags', () => ({
     resolveFeatureFlagOverrides: vi.fn(() => ({})),
 }))
 
+vi.mock('@/hono/cache/McpSessionRedisStore', () => ({
+    McpSessionRedisStore: class {
+        async resolve(requestContext: Record<string, unknown>): Promise<Record<string, unknown>> {
+            const keys = ['mcpClientName', 'mcpClientVersion', 'mcpProtocolVersion', 'mcpConsumer', 'mcpVendorClient']
+            const resolved = Object.fromEntries(
+                keys.map((key) => [key, mockSessionStore.get(key) ?? requestContext[key]])
+            )
+            for (const key of keys) {
+                if (!mockSessionStore.has(key) && requestContext[key] !== undefined) {
+                    mockSessionStore.set(key, requestContext[key])
+                }
+            }
+            return resolved
+        }
+    },
+}))
+
 vi.mock('@/hono/request-context', () => {
     type MockCache = {
         get: (key: string) => Promise<unknown>
@@ -40,16 +57,9 @@ vi.mock('@/hono/request-context', () => {
     })
 
     return {
-        RequestContext: vi.fn().mockImplementation(function (_redis, _env, props: { mcpSessionId?: string } = {}) {
-            const sessionCache = makeCache(mockSessionStore)
+        RequestContext: vi.fn().mockImplementation(function () {
             return {
                 tokenCache: makeCache(mockTokenStore),
-                get sessionCache() {
-                    if (!props.mcpSessionId) {
-                        throw new Error('Session ID is required to use the session cache')
-                    }
-                    return sessionCache
-                },
                 getContext: vi.fn(async () => ({
                     stateManager: {
                         setDefaultOrganizationAndProject: vi.fn(async () => {}),

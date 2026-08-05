@@ -23,7 +23,12 @@ from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
+from posthog.clickhouse.client.execute_async import (
+    QueryNotFoundError,
+    cancel_query,
+    enqueue_process_query_task,
+    get_query_status,
+)
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
 from products.notebooks.backend.models import NotebookNodeRun
@@ -143,6 +148,20 @@ def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) 
             # a test transaction — run inline there, like the manager's own tests do.
             _test_only_bypass_celery=settings.TEST,
         )
+
+
+def cancel_direct_run(run: NotebookNodeRun) -> None:
+    """Stop a direct (hogql) run's query: revoke it if still queued, else KILL it on ClickHouse.
+
+    Best effort. The run row is already terminal by the time this is called, so a cancellation
+    that fails must not turn the user's Stop into an error: the query then runs to its own
+    bounded completion and its result is discarded, because the interrupted row is the one
+    `sync_direct_run` and the result poll read.
+    """
+    try:
+        cancel_query(run.team_id, notebook_direct_query_id(str(run.id)))
+    except Exception:
+        logger.exception("notebook_direct_run_cancel_failed", run_id=str(run.id), team_id=run.team_id)
 
 
 def _query_status_timings(status: Any) -> dict[str, float]:

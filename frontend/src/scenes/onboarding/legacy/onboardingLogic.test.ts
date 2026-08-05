@@ -103,6 +103,16 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.flow).toEqual([])
             expect(logic.values.currentFlowStep).toBeNull()
         })
+
+        it('includes the web analytics path cleaning step only when its flag is enabled', () => {
+            featureFlagLogic
+                .findMounted()
+                ?.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS], {
+                    [FEATURE_FLAGS.WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS]: true,
+                })
+            logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+            expect(flowIds()).toContain('path_cleaning:web_analytics')
+        })
     })
 
     describe('install-step dedup — POSTHOG_JS', () => {
@@ -193,6 +203,18 @@ describe('onboardingLogic — flow composition', () => {
                 INSTALL_DEDUP_KEYS.POSTHOG_JS,
                 INSTALL_DEDUP_KEYS.OPENTELEMETRY,
             ])
+        })
+
+        // Metrics and Logs both send over OTel, but their install steps are NOT
+        // functionally identical (Metrics is OTLP/scrape-agent only; Logs offers 10
+        // SDK-specific flows). Collapsing them would drop the loser's instruction map,
+        // so picking both must keep both install steps regardless of which is primary.
+        it('Metrics primary + Logs secondary keeps both install steps (no dedup)', () => {
+            logic.actions.setProductKey(ProductKey.METRICS)
+            logic.actions.setSecondaryProductKeys([ProductKey.LOGS])
+
+            const installs = logic.values.flow.filter((s) => s.stepKey === OnboardingStepKey.INSTALL)
+            expect(installs.map((s) => s.id)).toEqual(['install:metrics', 'install:logs'])
         })
     })
 
@@ -487,10 +509,10 @@ describe('onboardingLogic — flow composition', () => {
         })
     })
 
-    describe('completeContextOnboarding', () => {
+    describe('completeSelfDrivingOnboarding', () => {
         it('persists both onboarding completion signals', async () => {
             await expectLogic(logic, () => {
-                logic.actions.completeContextOnboarding()
+                logic.actions.completeSelfDrivingOnboarding()
             }).toDispatchActions([
                 (action) => {
                     if (action.type !== logic.actionTypes.updateCurrentTeam) {
@@ -612,7 +634,8 @@ describe('onboardingLogic — flow composition', () => {
     describe('completion redirect URL', () => {
         // Each entry: [primary, expected redirect path-substring].
         // Verifies that each per-product provider's `completeRedirectUrl` is wired up.
-        // EXPERIMENTS has no provider URL, so it falls through to the Quickstart page.
+        // EXPERIMENTS intentionally falls through to urls.default() — same behaviour as
+        // the original central switch.
         const cases: Array<[ProductKey, RegExp]> = [
             [ProductKey.PRODUCT_ANALYTICS, /quickstart|insight/i],
             [ProductKey.WEB_ANALYTICS, /web/i],
@@ -632,36 +655,10 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onCompleteOnboardingRedirectUrl).toMatch(pattern)
         })
 
-        it('experiments falls through to home, or quickstart in the test variant', () => {
+        it('experiments falls through to urls.default()', () => {
             logic.actions.setProductKey(ProductKey.EXPERIMENTS)
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
-
-            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
-                [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'control',
-            })
-            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
-
-            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
-                [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test',
-            })
-            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/quickstart')
-
-            featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
         })
-
-        it.each(cases.map(([product]) => product))(
-            '%s lands on quickstart when the quickstart flag is enabled',
-            (product) => {
-                featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
-                    [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test',
-                })
-                logic.actions.setProductKey(product)
-
-                expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/quickstart')
-
-                featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
-            }
-        )
 
         it('redirect override takes precedence over the per-product URL', () => {
             logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)

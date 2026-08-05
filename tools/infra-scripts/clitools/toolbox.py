@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import functions from the modular package
-from toolbox.kubernetes import select_context, validate_context
+from toolbox.kubernetes import ensure_context_access, select_context, validate_context
 from toolbox.pod import ClaimRaceError, claim_pod, connect_to_pod, delete_pod, get_toolbox_pod
 from toolbox.telemetry import capture_invocation, prompt_for_reason
 from toolbox.user import get_current_user
@@ -122,9 +122,11 @@ def main():
             if not validate_context(kube_context):
                 print(f"❌ KUBE_CONTEXT='{kube_context}' is not a known kubernetes context.")  # noqa: T201
                 sys.exit(1)
+            if not ensure_context_access(kube_context, namespace):
+                sys.exit(1)
             selected_context = kube_context
         else:
-            selected_context = select_context()
+            selected_context = select_context(namespace)
         print(f"🔄 Using kubernetes context: {selected_context}")  # noqa: T201
 
         # Get current user labels
