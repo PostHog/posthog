@@ -682,13 +682,19 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
                 "Option noCursorTimeout not supported in aggregation, full error: {'ok': 0, 'errmsg': "
                 "'Option noCursorTimeout not supported in aggregation', 'code': 9, 'codeName': 'FailedToParse'}",
             ),
+            (
+                "documentdb_rejects_no_timeout_field",
+                "Field 'noCursorTimeout' is currently not supported, full error: {'ok': 0.0, 'code': 303, "
+                "'errmsg': \"Field 'noCursorTimeout' is currently not supported\"}",
+            ),
         ]
     )
     def test_falls_back_to_normal_cursor_when_no_timeout_is_rejected(self, _name: str, error_message: str):
         # Regression: some Atlas tiers (free/shared) reject no_cursor_timeout=True outright with
-        # OperationFailure code 8000, and MongoDB rewrites find() against a view into an
-        # aggregate() where noCursorTimeout isn't a valid option — both fail permanently without
-        # this fallback. Both fire on the very first read, so the fallback cursor must run instead
+        # OperationFailure code 8000, MongoDB rewrites find() against a view into an
+        # aggregate() where noCursorTimeout isn't a valid option, and AWS DocumentDB doesn't
+        # implement the option at all (OperationFailure code 303) — all fail permanently without
+        # this fallback. All fire on the very first read, so the fallback cursor must run instead
         # and yield the real rows.
         notimeout_error = OperationFailure(error_message)
         collection = _FakeCollection([], error=notimeout_error, fallback_docs=[{"_id": "1"}, {"_id": "2"}])
