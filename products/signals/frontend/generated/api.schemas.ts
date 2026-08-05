@@ -3783,6 +3783,9 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `ci_flaky_check` - CI flaky check
  * * `ci_broken_default_branch` - CI broken default branch
  * * `ci_duration_regression` - CI duration regression
+ * * `feedback` - Feedback
+ * * `review` - Review
+ * * `search_opportunity` - Search opportunity
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -3806,6 +3809,9 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     CiFlakyCheck: 'ci_flaky_check',
     CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
+    Feedback: 'feedback',
+    Review: 'review',
+    SearchOpportunity: 'search_opportunity',
 } as const
 
 export interface SignalSourceConfigApi {
