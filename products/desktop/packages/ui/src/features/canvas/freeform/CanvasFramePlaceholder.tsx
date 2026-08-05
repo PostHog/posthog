@@ -1,5 +1,6 @@
 import type {
   CanvasAnalyticsConfig,
+  CanvasCommentHighlight,
   CanvasNavIntent,
   CanvasTextSelection,
 } from "@posthog/core/canvas/freeformSchemas";
@@ -20,6 +21,7 @@ export function CanvasFramePlaceholder({
   onRendered,
   onNavigate,
   onTextSelection,
+  commentHighlights,
 }: {
   dashboardId: string;
   code: string;
@@ -29,6 +31,7 @@ export function CanvasFramePlaceholder({
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  commentHighlights?: CanvasCommentHighlight[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -46,6 +49,7 @@ export function CanvasFramePlaceholder({
       onRendered,
       onNavigate,
       onTextSelection,
+      commentHighlights,
     }),
     [
       code,
@@ -55,6 +59,7 @@ export function CanvasFramePlaceholder({
       onRendered,
       onNavigate,
       onTextSelection,
+      commentHighlights,
     ],
   );
 

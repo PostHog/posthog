@@ -15,6 +15,7 @@ import {
 } from "@posthog/core/canvas/canvasBuildSchemas";
 import type {
   CanvasAnalyticsConfig,
+  CanvasCommentHighlight,
   CanvasTextSelection,
 } from "@posthog/core/canvas/freeformSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
@@ -47,6 +48,12 @@ import {
   useFreeformThread,
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  buildCommentThreads,
+  readCommentContext,
+} from "@posthog/ui/features/sessions/components/commentViewTypes";
+import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
@@ -305,6 +312,38 @@ export function FreeformCanvasView({
   const displayedVersionId = browsing
     ? browseVersionId
     : (publishedBuild?.sourceVersionId ?? headVersionId);
+  const commentTarget = useMemo(
+    () => ({ scope: "desktop_canvas" as const, itemId: dashboardId }),
+    [dashboardId],
+  );
+  const commentsQuery = useCommentsQuery(
+    commentTaskId ? commentTarget : null,
+    commentTaskId ?? "",
+  );
+  const focusedCommentId = useCommentNavigationStore(
+    (state) => state.focusByTask[commentTaskId ?? ""]?.threadId ?? null,
+  );
+  const commentHighlights = useMemo<CanvasCommentHighlight[]>(() => {
+    const threads = buildCommentThreads(commentsQuery.data ?? []);
+    return threads.flatMap((thread) => {
+      if (thread.resolved) return [];
+      const context = readCommentContext(thread.root);
+      if (
+        context?.anchor.kind !== "text" ||
+        (context.canvasVersionId &&
+          context.canvasVersionId !== displayedVersionId)
+      ) {
+        return [];
+      }
+      return [
+        {
+          id: thread.root.id,
+          active: thread.root.id === focusedCommentId,
+          anchor: context.anchor,
+        },
+      ];
+    });
+  }, [commentsQuery.data, displayedVersionId, focusedCommentId]);
   const selectionVersionRef = useRef(displayedVersionId);
   useEffect(() => {
     if (selectionVersionRef.current === displayedVersionId) return;
@@ -621,6 +660,7 @@ export function FreeformCanvasView({
                     onRendered={onRendered}
                     onNavigate={onNavigate}
                     onTextSelection={setTextSelection}
+                    commentHighlights={commentHighlights}
                   />
                 </Box>
               </Flex>
@@ -671,6 +711,7 @@ export function FreeformCanvasView({
                 onRendered={onRendered}
                 onNavigate={onNavigate}
                 onTextSelection={setTextSelection}
+                commentHighlights={commentHighlights}
               />
             </Box>
           ) : headCode ? (
@@ -688,6 +729,7 @@ export function FreeformCanvasView({
                 onRendered={onRendered}
                 onNavigate={onNavigate}
                 onTextSelection={setTextSelection}
+                commentHighlights={commentHighlights}
               />
             </Box>
           ) : (

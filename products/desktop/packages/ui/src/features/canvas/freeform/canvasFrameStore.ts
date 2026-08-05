@@ -1,5 +1,6 @@
 import type {
   CanvasAnalyticsConfig,
+  CanvasCommentHighlight,
   CanvasNavIntent,
   CanvasTextSelection,
 } from "@posthog/core/canvas/freeformSchemas";
@@ -36,6 +37,7 @@ export interface CanvasFrameInputs {
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  commentHighlights?: CanvasCommentHighlight[];
 }
 
 interface CanvasFrameSlot {

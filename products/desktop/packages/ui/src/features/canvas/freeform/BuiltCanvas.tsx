@@ -1,5 +1,6 @@
 import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities";
 import {
+  type CanvasCommentHighlight,
   type CanvasNavIntent,
   type CanvasTextSelection,
   canvasToHostMessageSchema,
@@ -7,7 +8,7 @@ import {
 import type { CanvasCapabilities } from "@posthog/shared";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 
 const log = logger.scope("built-canvas");
@@ -83,6 +84,7 @@ export interface BuiltCanvasProps {
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  commentHighlights?: CanvasCommentHighlight[];
 }
 
 export function BuiltCanvas({
@@ -94,8 +96,10 @@ export function BuiltCanvas({
   onRendered,
   onNavigate,
   onTextSelection,
+  commentHighlights = [],
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const artifactPortRef = useRef<MessagePort | null>(null);
   const hostDocument = buildArtifactHostDocument(artifactUrl);
   const latest = useRef({
     capabilities,
@@ -105,6 +109,7 @@ export function BuiltCanvas({
     onRendered,
     onNavigate,
     onTextSelection,
+    commentHighlights,
   });
   latest.current = {
     capabilities,
@@ -114,6 +119,7 @@ export function BuiltCanvas({
     onRendered,
     onNavigate,
     onTextSelection,
+    commentHighlights,
   };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new host document needs a fresh bridge even though the effect reads it only through the iframe.
@@ -134,7 +140,14 @@ export function BuiltCanvas({
           log.warn("Built canvas error", { message });
           latest.current.onError?.(message, stack);
         },
-        onReady: () => latest.current.onReady?.(),
+        onReady: () => {
+          artifactPort?.postMessage({
+            channel: "posthog-canvas",
+            type: "set-comment-highlights",
+            highlights: latest.current.commentHighlights,
+          });
+          latest.current.onReady?.();
+        },
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
         onTextSelection: (selection) => {
@@ -173,6 +186,7 @@ export function BuiltCanvas({
       if (artifactPort) return;
       const bridge = new MessageChannel();
       artifactPort = bridge.port1;
+      artifactPortRef.current = artifactPort;
       artifactPort.addEventListener("message", onMessage);
       artifactPort.start();
       iframe?.contentWindow?.postMessage(
@@ -192,6 +206,7 @@ export function BuiltCanvas({
       }
       artifactPort?.close();
       artifactPort = null;
+      artifactPortRef.current = null;
     };
 
     iframe?.addEventListener("load", onLoad);
@@ -200,8 +215,17 @@ export function BuiltCanvas({
       iframe?.removeEventListener("load", onLoad);
       window.removeEventListener("message", onHostMessage);
       artifactPort?.close();
+      artifactPortRef.current = null;
     };
   }, [hostDocument]);
+
+  useEffect(() => {
+    artifactPortRef.current?.postMessage({
+      channel: "posthog-canvas",
+      type: "set-comment-highlights",
+      highlights: commentHighlights,
+    });
+  }, [commentHighlights]);
 
   return (
     <iframe

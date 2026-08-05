@@ -1,5 +1,5 @@
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FreeformCanvas } from "./FreeformCanvas";
 
@@ -95,6 +95,50 @@ describe("FreeformCanvas", () => {
       }),
     );
     expect(onTextSelection).toHaveBeenLastCalledWith(null);
+  });
+
+  it("forwards persisted comment highlights into the running sandbox", () => {
+    const highlight = {
+      id: "comment-1",
+      active: false,
+      anchor: {
+        quote: "selected text",
+        prefix: "before ",
+        suffix: " after",
+        start: 7,
+        end: 20,
+      },
+    };
+    const { rerender } = render(
+      <FreeformCanvas
+        code="export default function Canvas() { return null }"
+        mode="edit"
+        onDataRequest={vi.fn()}
+        commentHighlights={[]}
+      />,
+    );
+    const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
+    const postMessage = vi.spyOn(iframe.contentWindow as Window, "postMessage");
+    fireEvent.load(iframe);
+    postMessage.mockClear();
+
+    rerender(
+      <FreeformCanvas
+        code="export default function Canvas() { return null }"
+        mode="edit"
+        onDataRequest={vi.fn()}
+        commentHighlights={[highlight]}
+      />,
+    );
+
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        channel: "posthog-canvas",
+        type: "set-comment-highlights",
+        highlights: [highlight],
+      },
+      "*",
+    );
   });
 
   describe("open-external", () => {

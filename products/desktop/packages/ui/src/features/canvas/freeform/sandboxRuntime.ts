@@ -324,6 +324,69 @@ export function buildSandboxDocument(
       });
     });
 
+    const commentHighlightStyle = document.createElement("style");
+    commentHighlightStyle.textContent = "::highlight(posthog-canvas-comment){background:rgba(250,204,21,.32);color:inherit}::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.58);color:inherit}";
+    document.head.appendChild(commentHighlightStyle);
+    let currentCommentHighlights = [];
+    const commentRangeAt = (start, end) => {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let offset = 0, startNode, endNode, startOffset = 0, endOffset = 0;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const next = offset + node.data.length;
+        if (!startNode && start >= offset && start <= next) {
+          startNode = node;
+          startOffset = start - offset;
+        }
+        if (end >= offset && end <= next) {
+          endNode = node;
+          endOffset = end - offset;
+          break;
+        }
+        offset = next;
+      }
+      if (!startNode || !endNode) return null;
+      const range = document.createRange();
+      range.setStart(startNode, startOffset);
+      range.setEnd(endNode, endOffset);
+      return range;
+    };
+    const resolveCommentAnchor = (text, anchor) => {
+      if (text.slice(anchor.start, anchor.end) === anchor.quote) return anchor;
+      let best = null;
+      for (let start = text.indexOf(anchor.quote); start >= 0; start = text.indexOf(anchor.quote, start + 1)) {
+        const end = start + anchor.quote.length;
+        const prefix = text.slice(Math.max(0, start - anchor.prefix.length), start);
+        const suffix = text.slice(end, end + anchor.suffix.length);
+        const score = (prefix === anchor.prefix ? 2 : 0) + (suffix === anchor.suffix ? 2 : 0) - Math.abs(start - anchor.start) / Math.max(1, text.length);
+        if (!best || score > best.score) best = { start, end, score };
+      }
+      return best;
+    };
+    const renderCommentHighlights = (items) => {
+      currentCommentHighlights = items || [];
+      if (!window.Highlight || !window.CSS || !CSS.highlights) return;
+      const normal = new Highlight();
+      const active = new Highlight();
+      const whole = document.createRange();
+      whole.selectNodeContents(document.body);
+      const text = whole.toString();
+      for (const item of currentCommentHighlights) {
+        const resolved = resolveCommentAnchor(text, item.anchor);
+        const range = resolved && commentRangeAt(resolved.start, resolved.end);
+        if (range) (item.active ? active : normal).add(range);
+      }
+      CSS.highlights.set("posthog-canvas-comment", normal);
+      CSS.highlights.set("posthog-canvas-comment-active", active);
+    };
+    let commentHighlightFrame = 0;
+    new MutationObserver(() => {
+      if (!currentCommentHighlights.length || commentHighlightFrame) return;
+      commentHighlightFrame = requestAnimationFrame(() => {
+        commentHighlightFrame = 0;
+        renderCommentHighlights(currentCommentHighlights);
+      });
+    }).observe(document.body, { childList: true, characterData: true, subtree: true });
+
     // Boot posthog-js with the PUBLIC key the host passed in (never the read
     // token). Enables session replay so the author/viewer can be watched.
     const bootAnalytics = async (cfg) => {
@@ -455,6 +518,7 @@ export function buildSandboxDocument(
         // Let layout settle, then report success.
         requestAnimationFrame(() => {
           if (seq !== mountSeq) return;
+          renderCommentHighlights(currentCommentHighlights);
           post({ type: "rendered" });
         });
       } catch (err) {
@@ -469,11 +533,14 @@ export function buildSandboxDocument(
       if (!d || d.channel !== CHANNEL) return;
       if (d.type === "init") {
         applyTheme(d.theme);
+        currentCommentHighlights = d.highlights || [];
         if (d.analytics) void bootAnalytics(d.analytics);
         void mount(d.code);
       } else if (d.type === "set-theme") {
         // Re-theme in place — no mount(), so the app keeps all its state.
         applyTheme(d.theme);
+      } else if (d.type === "set-comment-highlights") {
+        renderCommentHighlights(d.highlights);
       } else if (d.type === "data-response") {
         const p = pending.get(d.id);
         if (!p) return;

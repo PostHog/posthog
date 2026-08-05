@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { canvasToHostMessageSchema } from "./freeformSchemas";
+import {
+  canvasToHostMessageSchema,
+  hostToCanvasMessageSchema,
+} from "./freeformSchemas";
 
 describe("canvasToHostMessageSchema", () => {
   const message = (url: string) => ({
@@ -61,6 +64,28 @@ describe("canvasToHostMessageSchema", () => {
       canvasToHostMessageSchema.safeParse({
         channel: "posthog-canvas",
         type: "text-selection-cleared",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts bounded comment highlights", () => {
+    expect(
+      hostToCanvasMessageSchema.safeParse({
+        channel: "posthog-canvas",
+        type: "set-comment-highlights",
+        highlights: [
+          {
+            id: "comment-1",
+            active: false,
+            anchor: {
+              quote: "selected text",
+              prefix: "before ",
+              suffix: " after",
+              start: 7,
+              end: 20,
+            },
+          },
+        ],
       }).success,
     ).toBe(true);
   });

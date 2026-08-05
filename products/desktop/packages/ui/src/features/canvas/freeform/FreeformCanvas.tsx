@@ -1,5 +1,6 @@
 import {
   type CanvasAnalyticsConfig,
+  type CanvasCommentHighlight,
   type CanvasNavIntent,
   type CanvasTextSelection,
   canvasToHostMessageSchema,
@@ -41,6 +42,7 @@ export interface FreeformCanvasProps {
    */
   onNavigate?: (intent: CanvasNavIntent) => void;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  commentHighlights?: CanvasCommentHighlight[];
   /**
    * Bootstrap config for in-iframe posthog-js (analytics + session replay).
    * Absent = no capture/replay. Only the PUBLIC key is here; the private token
@@ -60,6 +62,7 @@ export function FreeformCanvas({
   onRendered,
   onNavigate,
   onTextSelection,
+  commentHighlights = [],
   analytics,
 }: FreeformCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -91,6 +94,7 @@ export function FreeformCanvas({
     mode,
     analytics,
     theme,
+    commentHighlights,
   });
   latest.current = {
     onDataRequest,
@@ -102,6 +106,7 @@ export function FreeformCanvas({
     mode,
     analytics,
     theme,
+    commentHighlights,
   };
 
   const postInit = useCallback(() => {
@@ -114,6 +119,7 @@ export function FreeformCanvas({
         mode: p.mode,
         analytics: p.analytics,
         theme: p.theme,
+        highlights: p.commentHighlights,
       },
       "*",
     );
@@ -217,6 +223,18 @@ export function FreeformCanvas({
       "*",
     );
   }, [code, mode, analytics]);
+
+  useEffect(() => {
+    if (!readyRef.current) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        channel: "posthog-canvas",
+        type: "set-comment-highlights",
+        highlights: commentHighlights,
+      },
+      "*",
+    );
+  }, [commentHighlights]);
 
   // Live theme change: re-theme the running canvas in place (no remount), so a
   // host theme toggle — or an OS light/dark flip under "system" — preserves all

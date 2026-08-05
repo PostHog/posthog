@@ -126,6 +126,30 @@ export type CanvasAnalyticsConfig = z.infer<typeof canvasAnalyticsConfigSchema>;
 export const canvasThemeSchema = z.enum(["light", "dark"]);
 export type CanvasTheme = z.infer<typeof canvasThemeSchema>;
 
+export const canvasTextSelectionSchema = z.object({
+  quote: z.string().min(1).max(10_000),
+  prefix: z.string().max(32),
+  suffix: z.string().max(32),
+  start: z.number().int().nonnegative(),
+  end: z.number().int().positive(),
+  rect: z.object({
+    top: z.number().finite(),
+    right: z.number().finite(),
+    bottom: z.number().finite(),
+    left: z.number().finite(),
+  }),
+});
+export type CanvasTextSelection = z.infer<typeof canvasTextSelectionSchema>;
+
+export const canvasCommentHighlightSchema = z.object({
+  id: z.string().min(1).max(128),
+  active: z.boolean(),
+  anchor: canvasTextSelectionSchema.omit({ rect: true }),
+});
+export type CanvasCommentHighlight = z.infer<
+  typeof canvasCommentHighlightSchema
+>;
+
 // host -> iframe
 export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
   // First frame: hand the iframe its source + the run mode. The iframe does not
@@ -143,6 +167,7 @@ export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
     // already correct; live theme changes use the `set-theme` frame below
     // (which re-themes without remounting). Absent = light.
     theme: canvasThemeSchema.optional(),
+    highlights: z.array(canvasCommentHighlightSchema).max(500).optional(),
   }),
   // Live theme change: re-apply light/dark WITHOUT remounting the app. Sent on
   // its own (not folded into `init`) so toggling the host theme — or an OS
@@ -151,6 +176,11 @@ export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("set-theme"),
     theme: canvasThemeSchema,
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("set-comment-highlights"),
+    highlights: z.array(canvasCommentHighlightSchema).max(500),
   }),
   // Reply to a data-request, correlated by `id`.
   z.object({
@@ -176,21 +206,6 @@ export const canvasNavIntentSchema = z.discriminatedUnion("target", [
   z.object({ target: z.literal("new-canvas") }),
 ]);
 export type CanvasNavIntent = z.infer<typeof canvasNavIntentSchema>;
-
-export const canvasTextSelectionSchema = z.object({
-  quote: z.string().min(1).max(10_000),
-  prefix: z.string().max(32),
-  suffix: z.string().max(32),
-  start: z.number().int().nonnegative(),
-  end: z.number().int().positive(),
-  rect: z.object({
-    top: z.number().finite(),
-    right: z.number().finite(),
-    bottom: z.number().finite(),
-    left: z.number().finite(),
-  }),
-});
-export type CanvasTextSelection = z.infer<typeof canvasTextSelectionSchema>;
 
 // iframe -> host
 export const canvasToHostMessageSchema = z.discriminatedUnion("type", [

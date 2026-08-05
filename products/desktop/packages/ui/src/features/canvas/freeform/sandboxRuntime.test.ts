@@ -75,6 +75,13 @@ describe("buildSandboxDocument", () => {
     expect(html).not.toContain("var(--background, #fff)");
     expect(html).toContain("html.dark { color-scheme: dark; }");
   });
+
+  it("renders persisted comment anchors with the CSS Highlights API", () => {
+    const html = buildSandboxDocument("edit");
+    expect(html).toContain('d.type === "set-comment-highlights"');
+    expect(html).toContain('CSS.highlights.set("posthog-canvas-comment"');
+    expect(html).toContain("renderCommentHighlights(currentCommentHighlights)");
+  });
 });
 
 describe("resolveExternalAnchorUrl", () => {
