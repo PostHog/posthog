@@ -41,6 +41,8 @@ export interface ObjectAccessRulesProps {
     /** How the subject is called in copy, e.g. "member" or "role". */
     subjectNoun: string
     canEdit: boolean
+    /** Shown instead of the generic tooltip when editing is blocked for a subject-specific reason. */
+    cannotEditReason?: string
 }
 
 /** The subject's own object-level rules, editable in place. */
@@ -50,12 +52,17 @@ export function ObjectAccessRules({
     subjectId,
     subjectNoun,
     canEdit,
+    cannotEditReason,
 }: ObjectAccessRulesProps): JSX.Element {
     const { objects, objectsLoading, ruleSaving } = useValues(accessDetailLogic({ projectId, scopeType, subjectId }))
     const { setObjectRule } = useActions(accessDetailLogic({ projectId, scopeType, subjectId }))
     const { openModal } = useActions(addObjectOverrideModalLogic({ projectId, scopeType, subjectId }))
 
-    const editDisabledReason = !canEdit ? 'You cannot edit this' : ruleSaving ? 'Saving…' : undefined
+    const editDisabledReason = !canEdit
+        ? (cannotEditReason ?? 'You cannot edit this')
+        : ruleSaving
+          ? 'Saving…'
+          : undefined
 
     return (
         <AccessDetailSection
@@ -134,7 +141,7 @@ export function ObjectAccessRules({
                     size="small"
                     icon={<IconPlus />}
                     onClick={openModal}
-                    disabledReason={!canEdit ? 'You cannot edit this' : undefined}
+                    disabledReason={!canEdit ? (cannotEditReason ?? 'You cannot edit this') : undefined}
                 >
                     Add rule
                 </LemonButton>

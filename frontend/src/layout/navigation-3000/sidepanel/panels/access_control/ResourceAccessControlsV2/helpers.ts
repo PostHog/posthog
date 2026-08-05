@@ -179,9 +179,18 @@ export function inheritedFor(
     }
 }
 
-export function subjectDisabledReason(entry: AccessControlSettingsEntry, canEdit: boolean): string | undefined {
+export function subjectDisabledReason(
+    entry: AccessControlSettingsEntry,
+    canEdit: boolean,
+    currentUserUuid?: string
+): string | undefined {
     if (!canEdit) {
         return 'You cannot edit this'
+    }
+    // Blocking self-edits keeps an admin from accidentally locking themselves out, and anyone
+    // from quietly raising their own access
+    if (isMemberEntry(entry) && currentUserUuid && entry.user.uuid === currentUserUuid) {
+        return 'You cannot change your own access'
     }
     if (entry.project.inherited_access_level_reason === 'organization_admin') {
         return 'Organization admins always have full access'

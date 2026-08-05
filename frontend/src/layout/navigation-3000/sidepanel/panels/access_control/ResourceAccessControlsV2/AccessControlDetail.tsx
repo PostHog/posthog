@@ -11,6 +11,7 @@ import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 import { fullName } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { APIScopeObject, AccessControlLevel } from '~/types'
@@ -38,6 +39,10 @@ export function AccessControlDetailContent({
     const subjectId = getEntryId(entry)
     const subjectNoun = scopeType === 'role' ? 'role' : 'member'
     const { canEdit } = useValues(accessControlsLogic({ projectId }))
+    const { user } = useValues(userLogic)
+
+    const isSelf = isMemberEntry(entry) && entry.user.uuid === user?.uuid
+    const cannotEditReason = isSelf ? 'You cannot change your own access' : undefined
 
     return (
         <>
@@ -52,7 +57,8 @@ export function AccessControlDetailContent({
                 scopeType={scopeType}
                 subjectId={subjectId}
                 subjectNoun={subjectNoun}
-                canEdit={canEdit}
+                canEdit={canEdit && !isSelf}
+                cannotEditReason={cannotEditReason}
             />
 
             <PropertyAccessRules
@@ -60,7 +66,8 @@ export function AccessControlDetailContent({
                 scopeType={scopeType}
                 subjectId={subjectId}
                 subjectNoun={subjectNoun}
-                canEdit={canEdit}
+                canEdit={canEdit && !isSelf}
+                cannotEditReason={cannotEditReason}
             />
         </>
     )
@@ -173,6 +180,7 @@ function ProjectAccessSection({
     const { availableProjectLevels, canEdit } = useValues(accessControlsLogic({ projectId }))
     const { updateAccessControlMembers, updateAccessControlRoles } = useActions(accessControlsLogic({ projectId }))
     const { currentTeam } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
 
     const subjectId = getEntryId(entry)
 
@@ -209,7 +217,7 @@ function ProjectAccessSection({
                 level={entry.project.access_level}
                 levels={availableProjectLevels}
                 onChange={onChange}
-                disabledReason={subjectDisabledReason(entry, canEdit)}
+                disabledReason={subjectDisabledReason(entry, canEdit, user?.uuid)}
                 // Plain "No override": project access is object-resolved at runtime (an explicit role rule
                 // can undercut the default), so annotating what applies without a rule can be wrong here.
                 allowNoOverride
@@ -286,6 +294,7 @@ function ToolsSection({
 }): JSX.Element {
     const { resourceKeys, availableResourceLevels, defaults, canEdit } = useValues(accessControlsLogic({ projectId }))
     const { updateResourceAccessControls } = useActions(accessControlsLogic({ projectId }))
+    const { user } = useValues(userLogic)
 
     const subjectId = getEntryId(entry)
     const [showAllTools, setShowAllTools] = useState(false)
@@ -360,7 +369,7 @@ function ToolsSection({
                                         levels={levels}
                                         minimumLevel={res?.minimum}
                                         onChange={(level) => onResourceChange(resource.key, level)}
-                                        disabledReason={subjectDisabledReason(entry, canEdit)}
+                                        disabledReason={subjectDisabledReason(entry, canEdit, user?.uuid)}
                                         inherited={inheritedFor(
                                             res,
                                             defaults?.resource_access_levels[resource.key]?.system_default_access_level,

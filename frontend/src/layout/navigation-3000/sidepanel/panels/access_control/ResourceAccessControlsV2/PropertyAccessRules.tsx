@@ -35,6 +35,8 @@ export interface PropertyAccessRulesProps {
     /** How the subject is called in copy, e.g. "member" or "role". */
     subjectNoun: string
     canEdit: boolean
+    /** Shown instead of the generic tooltip when editing is blocked for a subject-specific reason. */
+    cannotEditReason?: string
 }
 
 /** The subject's own property restrictions, editable in place. */
@@ -44,6 +46,7 @@ export function PropertyAccessRules({
     subjectId,
     subjectNoun,
     canEdit,
+    cannotEditReason,
 }: PropertyAccessRulesProps): JSX.Element {
     const { properties, propertiesLoading, ruleSaving } = useValues(
         accessDetailLogic({ projectId, scopeType, subjectId })
@@ -51,7 +54,11 @@ export function PropertyAccessRules({
     const { setPropertyRule } = useActions(accessDetailLogic({ projectId, scopeType, subjectId }))
     const { openModal } = useActions(addPropertyRestrictionModalLogic({ projectId, scopeType, subjectId }))
 
-    const editDisabledReason = !canEdit ? 'You cannot edit this' : ruleSaving ? 'Saving…' : undefined
+    const editDisabledReason = !canEdit
+        ? (cannotEditReason ?? 'You cannot edit this')
+        : ruleSaving
+          ? 'Saving…'
+          : undefined
 
     return (
         <AccessDetailSection
