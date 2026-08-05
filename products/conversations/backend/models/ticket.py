@@ -117,6 +117,17 @@ class Ticket(UUIDTModel):
     # (team + zendesk_ticket_id), mirroring the GitHub issue-number pattern.
     zendesk_ticket_id = models.BigIntegerField(null=True, blank=True)
 
+    # Merge — set when this ticket is merged into another. SET_NULL so deleting the
+    # target ticket doesn't cascade-delete the tickets that were merged into it.
+    merged_into = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="merged_tickets",
+    )
+    merged_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
