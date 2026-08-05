@@ -96,10 +96,15 @@ export class AgentAuthAdapter {
     const configuration = await this.buildMcpServers(credentials, {
       refreshTools: true,
     });
-    return {
-      servers: configuration.servers,
-      policies: configuration.toolPolicies,
-    };
+    const policyInstallationIds = new Set(
+      configuration.toolPolicies.map((policy) => policy.installationId),
+    );
+    const servers = configuration.servers.filter((server) => {
+      const installationId = configuration.serverInstallationIds.get(server);
+      return !installationId || policyInstallationIds.has(installationId);
+    });
+
+    return { servers, policies: configuration.toolPolicies };
   }
 
   async buildMcpServers(
@@ -110,8 +115,10 @@ export class AgentAuthAdapter {
     toolApprovals: McpToolApprovals;
     toolInstallations: McpToolInstallations;
     toolPolicies: McpToolPolicy[];
+    serverInstallationIds: Map<McpServerConnection, string>;
   }> {
     const servers: McpServerConnection[] = [];
+    const serverInstallationIds = new Map<McpServerConnection, string>();
     const mcpUrl = this.getPostHogMcpUrl(credentials.apiHost);
     // Warm the token so authenticatedFetch() has something cached, but do not
     // bake it into the MCP config — the proxy injects a fresh one on every
@@ -147,12 +154,14 @@ export class AgentAuthAdapter {
         `installation-${installation.id}`,
         installation.proxy_url,
       );
-      servers.push({
+      const server: McpServerConnection = {
         name,
         type: "http",
         url: proxiedUrl,
         headers: [],
-      });
+      };
+      servers.push(server);
+      serverInstallationIds.set(server, installation.id);
     }
 
     const {
@@ -165,7 +174,13 @@ export class AgentAuthAdapter {
       options.refreshTools ?? false,
     );
 
-    return { servers, toolApprovals, toolInstallations, toolPolicies };
+    return {
+      servers,
+      toolApprovals,
+      toolInstallations,
+      toolPolicies,
+      serverInstallationIds,
+    };
   }
 
   async ensureGatewayProxy(apiHost: string): Promise<string> {

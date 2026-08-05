@@ -388,7 +388,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     if (!pending) {
       throw new Error(`No pending MCP permission ${request.requestId}`);
     }
-    if (decision === "allow" || decision === "allow_always") {
+    if (decision === "allow_always") {
       await this.mcpToolPolicyUpdater.approveMcpTool(
         pending.installationId,
         pending.toolName,

@@ -65,6 +65,10 @@ import { PiQueuedMessagesDock } from "./PiQueuedMessagesDock";
 import { PiMessagingModeSelector } from "./PiSessionControls";
 import { PiSessionModelControls } from "./PiSessionModelControls";
 import {
+  buildPiMcpPermissionToolCall,
+  PI_MCP_PERMISSION_OPTIONS,
+} from "./piMcpPermission";
+import {
   getPiPendingConfig,
   usePiPendingConfigStore,
 } from "./piPendingConfigStore";
@@ -490,6 +494,9 @@ export function PiSessionView({
   const setMessagingMode = useMessagingModeStore((state) => state.setMode);
   const { isOnline } = useConnectivity();
   const promptRecallRef = useRef<PromptRecallHandler | null>(null);
+  const mcpPermissionResponsePending = useRef(false);
+  const [isMcpPermissionResponding, setIsMcpPermissionResponding] =
+    useState(false);
   const handlePromptRecall = useCallback<PromptRecallHandler>(
     (direction) => promptRecallRef.current?.(direction) ?? null,
     [],
@@ -559,6 +566,30 @@ export function PiSessionView({
   usePiFailureNotice(session?.error);
   usePiFailureAcknowledgement(taskId, session?.error);
 
+  const mcpPermission = session?.mcpToolPermissionRequests
+    .values()
+    .next().value;
+  const respondMcpPermission = useCallback(
+    (decision: "allow_always" | "reject") => {
+      if (!mcpPermission || mcpPermissionResponsePending.current) {
+        return;
+      }
+
+      mcpPermissionResponsePending.current = true;
+      setIsMcpPermissionResponding(true);
+      void piSessionController
+        .respondMcpToolPermission(taskId, mcpPermission, decision)
+        .catch((error) =>
+          log.error("Failed to respond to MCP permission", error),
+        )
+        .finally(() => {
+          mcpPermissionResponsePending.current = false;
+          setIsMcpPermissionResponding(false);
+        });
+    },
+    [mcpPermission, piSessionController, taskId],
+  );
+
   if (!session) {
     return <TaskDetailSkeleton />;
   }
@@ -616,19 +647,6 @@ export function PiSessionView({
     return <TaskDetailSkeleton />;
   }
 
-  const mcpPermission = session.mcpToolPermissionRequests.values().next().value;
-  const respondMcpPermission = (
-    decision: "allow" | "allow_always" | "reject",
-  ) => {
-    if (!mcpPermission) {
-      return;
-    }
-    void piSessionController
-      .respondMcpToolPermission(taskId, mcpPermission, decision)
-      .catch((error) =>
-        log.error("Failed to respond to MCP permission", error),
-      );
-  };
   const controlsPending = status ? isStreaming || isBashRunning : false;
   const hasQueuedMessage =
     session.queue.steering.length + session.queue.followUp.length > 0;
@@ -715,46 +733,20 @@ export function PiSessionView({
           </>
         )}
         {mcpPermission ? (
-          <PermissionSelector
-            toolCall={{
-              toolCallId: mcpPermission.requestId,
-              title: `The agent wants to call ${mcpPermission.toolName} (${mcpPermission.serverName})`,
-              kind: "other",
-              content: mcpPermission.description
-                ? [
-                    {
-                      type: "content",
-                      content: {
-                        type: "text",
-                        text: mcpPermission.description,
-                      },
-                    },
-                  ]
-                : [],
-              rawInput: {
-                ...mcpPermission.arguments,
-                mcpServer: mcpPermission.serverName,
-                mcpTool: mcpPermission.toolName,
-              },
-            }}
-            options={[
-              { kind: "allow_once", name: "Allow", optionId: "allow" },
-              {
-                kind: "allow_always",
-                name: "Always allow",
-                optionId: "allow_always",
-              },
-              { kind: "reject_once", name: "Reject", optionId: "reject" },
-            ]}
-            onSelect={(optionId) => {
-              if (optionId === "allow" || optionId === "allow_always") {
-                respondMcpPermission(optionId);
-                return;
-              }
-              respondMcpPermission("reject");
-            }}
-            onCancel={() => respondMcpPermission("reject")}
-          />
+          isMcpPermissionResponding ? (
+            <Skeleton className="h-24 w-full" />
+          ) : (
+            <PermissionSelector
+              toolCall={buildPiMcpPermissionToolCall(mcpPermission)}
+              options={PI_MCP_PERMISSION_OPTIONS}
+              onSelect={(optionId) => {
+                respondMcpPermission(
+                  optionId === "allow_always" ? "allow_always" : "reject",
+                );
+              }}
+              onCancel={() => respondMcpPermission("reject")}
+            />
+          )
         ) : (
           <PromptInput
             sessionId={taskId}

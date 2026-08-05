@@ -53,12 +53,16 @@ describe("posthog MCP policy extension", () => {
     expect(runtime.requestMcpToolPermission).not.toHaveBeenCalled();
   });
 
-  it("prompts before a tool that needs approval", async () => {
+  it("prompts again after a one-time approval", async () => {
     const runtime = setup("needs_approval");
 
     await expect(
       runtime.call("mcp_Cloudflare_search"),
     ).resolves.toBeUndefined();
+    await expect(
+      runtime.call("mcp_Cloudflare_search"),
+    ).resolves.toBeUndefined();
+    expect(runtime.requestMcpToolPermission).toHaveBeenCalledTimes(2);
     expect(runtime.requestMcpToolPermission).toHaveBeenCalledWith({
       requestId: "call-1",
       serverName: "Cloudflare",
@@ -66,6 +70,16 @@ describe("posthog MCP policy extension", () => {
       installationId: "installation-1",
       arguments: {},
     });
+  });
+
+  it("remembers an always-allow approval", async () => {
+    const runtime = setup("needs_approval");
+    runtime.requestMcpToolPermission.mockResolvedValue("allow_always");
+
+    await runtime.call("mcp_Cloudflare_search");
+    await runtime.call("mcp_Cloudflare_search");
+
+    expect(runtime.requestMcpToolPermission).toHaveBeenCalledOnce();
   });
 
   it("blocks a rejected approval", async () => {

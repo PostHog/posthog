@@ -258,13 +258,27 @@ describe("PiSessionService start", () => {
     expect(service.getPendingMcpToolPermissions("task-1")).toEqual([request]);
     await service.respondMcpToolPermission("task-1", request, "allow");
 
+    expect(mcpToolPolicyUpdater.approveMcpTool).not.toHaveBeenCalled();
+    expect(client.respondMcpToolPermission).toHaveBeenCalledWith(
+      "call-1",
+      "allow",
+    );
+
+    const persistentRequest = { ...request, requestId: "call-2" };
+    onRequest(persistentRequest);
+    await service.respondMcpToolPermission(
+      "task-1",
+      persistentRequest,
+      "allow_always",
+    );
+
     expect(mcpToolPolicyUpdater.approveMcpTool).toHaveBeenCalledWith(
       "installation-1",
       "search",
     );
     expect(client.respondMcpToolPermission).toHaveBeenCalledWith(
-      "call-1",
-      "allow",
+      "call-2",
+      "allow_always",
     );
   });
 });

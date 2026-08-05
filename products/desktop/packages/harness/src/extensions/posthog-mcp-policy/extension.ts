@@ -88,7 +88,9 @@ export function createPosthogMcpPolicyExtension(
         };
       }
 
-      policy.approvalState = "approved";
+      if (decision === "allow_always") {
+        policy.approvalState = "approved";
+      }
     });
   };
 }
