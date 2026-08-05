@@ -5609,6 +5609,7 @@ export enum ExporterFormat {
     GIF = 'image/gif',
     HCL = 'text/hcl',
     MARKDOWN = 'text/markdown',
+    JSONL = 'application/x-ndjson',
 }
 
 /** Exporting directly from the browser to a file */

@@ -57,7 +57,7 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     sortedByValue?: boolean
     /** Hide rows whose value is exactly 0 (e.g. absent lifecycle statuses). */
     hideZeroRows?: boolean
-    /** Override the default "click to view X" footer — e.g. to explain why drill-down is unavailable. */
+    /** Override the default "click to view X" footer, for charts whose click goes somewhere other than persons. */
     footerOverride?: React.ReactNode
 }
 

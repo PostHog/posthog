@@ -72,7 +72,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+            "description": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
         },
         "count": {
             "anyOf": [
