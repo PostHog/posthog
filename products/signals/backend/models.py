@@ -1735,6 +1735,11 @@ class SignalScoutStructuredOutput(TeamScopedRootMixin, UUIDModel):
             models.Index(fields=["team", "scout_run"], name="signal_scout_so_run_idx"),
             # Cross-run listing path: "recent records for this scout", newest first.
             models.Index(fields=["team", "skill_name", "-created_at"], name="signal_scout_so_recent_idx"),
+            # `structured-outputs/recent` without a skill filter orders the whole team by
+            # recency; the skill-prefixed index can't serve that once rows accumulate.
+            models.Index(fields=["team", "-created_at"], name="signal_scout_so_created_idx"),
+            # Per-entity series ("every judgment of report X"), newest first.
+            models.Index(fields=["team", "subject", "-created_at"], name="signal_scout_so_subject_idx"),
         ]
 
 

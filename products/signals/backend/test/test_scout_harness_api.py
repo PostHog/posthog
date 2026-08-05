@@ -815,6 +815,29 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_record_output_disabled_source_persists_rows_but_forwards_no_events(self) -> None:
+        # Same inactive-skip rule as the emit/report channels: a project that disabled the
+        # signals_scout source must see no customer-facing event, while the rows still
+        # record as internal run data.
+        from products.signals.backend.models import SignalSourceConfig
+
+        run = self._make_run_with_schema()
+        SignalSourceConfig.objects.get_or_create(
+            team=self.team,
+            source_product="signals_scout",
+            source_type="cross_source_issue",
+            defaults={"enabled": False},
+        )
+        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_internal") as mock_capture:
+            response = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 1
+        mock_capture.assert_not_called()
+
     def test_record_output_dry_run_persists_rows_but_forwards_no_events(self) -> None:
         # A dry-run scout is being validated: its rows must record (that's the validation
         # evidence) but nothing may drive customer-visible automation.
@@ -942,6 +965,18 @@ class TestStructuredOutputSchemaValidation(SimpleTestCase):
                     "$defs": {"verdict": {"enum": ["good", "bad"]}},
                     "properties": {"verdict": {"$ref": "#/$defs/verdict"}},
                 },
+                True,
+            ),
+            # A catastrophic regex (`^(a+)+$`) pins the validating worker with no way to
+            # interrupt it, so regex keywords fail closed at the boundary.
+            (
+                "regex_pattern_rejected",
+                {"type": "object", "properties": {"x": {"type": "string", "pattern": "^(a+)+$"}}},
+                False,
+            ),
+            (
+                "property_named_pattern_allowed",
+                {"type": "object", "properties": {"pattern": {"type": "string"}}},
                 True,
             ),
         ]

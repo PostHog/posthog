@@ -66,6 +66,11 @@ class Migration(migrations.Migration):
                         fields=["team", "skill_name", "-created_at"],
                         name="signal_scout_so_recent_idx",
                     ),
+                    models.Index(fields=["team", "-created_at"], name="signal_scout_so_created_idx"),
+                    models.Index(
+                        fields=["team", "subject", "-created_at"],
+                        name="signal_scout_so_subject_idx",
+                    ),
                 ],
             },
             managers=[

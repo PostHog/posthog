@@ -1094,6 +1094,7 @@ export const SignalsScoutRecordOutputBody = /* @__PURE__ */ zod
                     })
                     .describe('One record submitted through `scout-record-output`.')
             )
+            .min(1)
             .max(signalsScoutRecordOutputBodyRecordsMax)
             .describe(
                 "Records to persist, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record."

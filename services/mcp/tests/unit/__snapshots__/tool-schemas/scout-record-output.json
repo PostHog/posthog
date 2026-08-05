@@ -31,6 +31,7 @@
                 "type": "object"
             },
             "maxItems": 100,
+            "minItems": 1,
             "type": "array"
         },
         "run_id": {

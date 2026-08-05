@@ -63626,6 +63626,7 @@ export namespace Schemas {
     export interface RecordStructuredOutputRequest {
       /**
          * Records to persist, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record.
+         * @minItems 1
          * @maxItems 100
          */
       records: StructuredOutputRecord[];

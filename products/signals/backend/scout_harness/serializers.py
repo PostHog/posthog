@@ -411,6 +411,9 @@ class RecordStructuredOutputRequestSerializer(serializers.Serializer):
     records = serializers.ListField(
         child=StructuredOutputRecordSerializer(),
         allow_empty=False,
+        # `allow_empty` alone doesn't reach the OpenAPI schema; `min_length` emits `minItems: 1`
+        # so generated MCP/Zod clients can't construct an empty batch the API would 400.
+        min_length=1,
         max_length=MAX_RECORDS_PER_CALL,
         help_text=(
             "Records to persist, each validated against the scout config's `structured_output_schema`. "
