@@ -19,10 +19,18 @@ from posthog.models.activity_logging.model_activity import is_impersonated_sessi
 from posthog.models.team import Team
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
-from posthog.utils import get_instance_realm
+from posthog.utils import get_instance_realm, get_instance_region
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
+
+
+def _is_hosted_dev_deployment() -> bool:
+    """The hosted dev environment captures into the same production project as US and EU cloud,
+    and its deploy smoke tests sign up a throwaway organization and delete it again on every run.
+    Reporting those lifecycle events counts each run as a real signup and a real churn.
+    """
+    return get_instance_region() == "DEV"
 
 
 def report_user_signed_up(
@@ -42,6 +50,9 @@ def report_user_signed_up(
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
     joins a new organization, this event is **not** triggered; see `report_user_joined_organization`).
     """
+    if _is_hosted_dev_deployment():
+        return
+
     if not user.distinct_id:
         return
 
@@ -511,6 +522,9 @@ def report_user_or_team_action(
 
 
 def report_organization_deleted(user: User, organization: Organization):
+    if _is_hosted_dev_deployment():
+        return
+
     if not user.distinct_id:
         return
     posthoganalytics.capture(
@@ -522,6 +536,9 @@ def report_organization_deleted(user: User, organization: Organization):
 
 
 def report_organization_deletion_initiated(user: User, organization: Organization):
+    if _is_hosted_dev_deployment():
+        return
+
     if not user.distinct_id:
         return
     posthoganalytics.capture(
@@ -535,6 +552,9 @@ def report_organization_deletion_initiated(user: User, organization: Organizatio
 def report_organization_deletion_completed(user_id: int, organization_id: str) -> None:
     from posthog.models import User as UserModel
     from posthog.ph_client import ph_scoped_capture
+
+    if _is_hosted_dev_deployment():
+        return
 
     user = UserModel.objects.filter(id=user_id).first()
     if not user or not user.distinct_id:
