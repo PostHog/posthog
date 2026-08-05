@@ -90,6 +90,7 @@ from products.customer_analytics.backend.models import (
     DisplayType,
     EventStream,
     EventStreamMember,
+    Meeting,
     SyncStatus,
     TargetType,
 )
@@ -2506,6 +2507,45 @@ def get_account_support_tickets(
     if account is None or not account.external_id:
         return []
     return list_account_tickets(team_id, account.external_id, limit=limit)
+
+
+def get_account_meetings(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    limit: int = 100,
+) -> list[contracts.MeetingView] | None:
+    """Synced calendar meetings for an accessible account, newest first. None when the
+    account isn't accessible (→ 404)."""
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    meetings = (
+        Meeting.objects.for_team(team_id)
+        .filter(account_id=account_id)
+        .order_by("-start_time")
+        .prefetch_related("participants")[:limit]
+    )
+    return [
+        contracts.MeetingView(
+            id=meeting.id,
+            title=meeting.title,
+            start_time=meeting.start_time,
+            end_time=meeting.end_time,
+            organizer_email=meeting.organizer_email,
+            status=meeting.status,
+            participants=[
+                contracts.MeetingParticipantView(
+                    email=participant.email,
+                    display_name=participant.display_name,
+                    response_status=participant.response_status,
+                    is_organizer=participant.is_organizer,
+                )
+                for participant in meeting.participants.all()
+            ],
+        )
+        for meeting in meetings
+    ]
 
 
 def list_account_notebooks(

@@ -49,6 +49,8 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertySourceView,
     CustomPropertySyncRunView,
     EventStreamView,
+    MeetingParticipantView,
+    MeetingView,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -374,6 +376,46 @@ class SupportTicketSerializer(DataclassSerializer):
         dataclass = TicketSummary
         ref_name = "SupportTicket"
         fields = ["id", "ticket_number", "status", "last_message_at", "last_message_text", "deep_link"]
+
+
+class MeetingParticipantSerializer(DataclassSerializer):
+    """One attendee of a synced calendar meeting (read-only)."""
+
+    email = serializers.CharField(read_only=True, help_text="Email address of the attendee.")
+    display_name = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Display name from the calendar event; may be empty."
+    )
+    response_status = serializers.CharField(
+        read_only=True,
+        help_text="The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'.",
+    )
+    is_organizer = serializers.BooleanField(read_only=True, help_text="Whether this attendee organized the meeting.")
+
+    class Meta:
+        dataclass = MeetingParticipantView
+        ref_name = "MeetingParticipant"
+        fields = ["email", "display_name", "response_status", "is_organizer"]
+
+
+class MeetingSerializer(DataclassSerializer):
+    """A calendar meeting synced from a connected employee calendar (read-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the meeting.")
+    title = serializers.CharField(read_only=True, allow_blank=True, help_text="Meeting title; may be empty.")
+    start_time = serializers.DateTimeField(read_only=True, help_text="When the meeting starts.")
+    end_time = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the meeting ends.")
+    organizer_email = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Email address of the meeting organizer; may be empty."
+    )
+    status = serializers.CharField(
+        read_only=True, help_text="Meeting status: 'confirmed', 'tentative', or 'cancelled'."
+    )
+    participants = MeetingParticipantSerializer(many=True, read_only=True, help_text="Attendees of the meeting.")
+
+    class Meta:
+        dataclass = MeetingView
+        ref_name = "Meeting"
+        fields = ["id", "title", "start_time", "end_time", "organizer_email", "status", "participants"]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):

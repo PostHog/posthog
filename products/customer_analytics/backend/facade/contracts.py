@@ -134,6 +134,29 @@ class AccountChannelSummaryView:
 
 
 @dataclass(frozen=True)
+class MeetingParticipantView:
+    """One attendee of a synced calendar meeting."""
+
+    email: str
+    display_name: str
+    response_status: str
+    is_organizer: bool
+
+
+@dataclass(frozen=True)
+class MeetingView:
+    """A synced calendar meeting as returned by the account meetings endpoint."""
+
+    id: UUID
+    title: str
+    start_time: datetime
+    end_time: datetime | None
+    organizer_email: str
+    status: str
+    participants: list[MeetingParticipantView]
+
+
+@dataclass(frozen=True)
 class AccountRef:
     """Lightweight account reference for search/list result rows.
 

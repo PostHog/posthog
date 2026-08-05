@@ -12,6 +12,7 @@ export type AccountExpansionTab =
     | 'opportunities'
     | 'summaries'
     | 'support_tickets'
+    | 'meetings'
     | 'event_stream'
 
 export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = [
@@ -23,6 +24,7 @@ export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = [
     'opportunities',
     'summaries',
     'support_tickets',
+    'meetings',
     'event_stream',
 ]
 
