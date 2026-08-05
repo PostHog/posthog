@@ -10,6 +10,7 @@ the query status (`sync_direct_run`) because the manager has no completion callb
 Kernel-lane runs (python/duckdb) keep the Temporal -> sandbox dispatch in sql_v2.py.
 """
 
+import re
 import hmac
 import hashlib
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.utils import timezone
 
+import sqlparse
 import structlog
 
 from posthog.hogql import ast
@@ -68,21 +70,69 @@ def notebook_direct_query_id(run_id: str) -> str:
     ).hexdigest()
 
 
-def _wrap_hogql_page_query(query: str, limit: int, offset: int) -> str:
+# Leading whitespace and comments, so the keyword check below sees the real first word.
+_LEADING_NOISE = re.compile(r"^(?:\s+|--[^\n]*\n?|/\*.*?\*/)+", re.DOTALL)
+# Statements that return rows but are not valid inside a derived table. Postgres (and so the
+# managed warehouse) admits these in raw mode — only MySQL restricts raw SQL to SELECT — and
+# they all produce tiny introspection results, so serving them unbounded is safe. Anything
+# unrecognized still gets wrapped: an over-eager bound is a syntax error the user can see,
+# while an over-eager pass-through would put an unbounded scan into the result store.
+_UNWRAPPABLE_LEADING_KEYWORDS = frozenset({"explain", "show", "describe", "desc", "pragma"})
+
+
+def _leading_keyword(query: str) -> str:
+    words = _LEADING_NOISE.sub("", query).split(None, 1)
+    return words[0].lower() if words else ""
+
+
+def _strip_statement_terminator(query: str) -> str:
+    """Drop the statement's ``;``, which parses cleanly but breaks once a LIMIT is appended or
+    the query is wrapped as a subquery.
+
+    The terminator is not always the last character: ``select 1; -- note`` is still one
+    statement to sqlparse, so it reaches here with the ``;`` buried mid-string, and wrapping
+    that as a subquery is a hard syntax error on Postgres and MySQL. Only the ``;`` token is
+    removed; a trailing comment is left where the user put it. (A trailing *block* comment
+    splits into a second statement, which the engine's single-statement guard rejects before
+    this point, so it never gets here.)
+    """
+    query = query.rstrip()
+    if query.endswith(";"):
+        return query[:-1].rstrip()
+
+    statements = sqlparse.parse(query)
+    if len(statements) != 1:
+        return query
+
+    tokens = list(statements[0].flatten())
+    for index in range(len(tokens) - 1, -1, -1):
+        token = tokens[index]
+        if token.is_whitespace or token.ttype in sqlparse.tokens.Comment:
+            continue
+        if token.ttype is sqlparse.tokens.Punctuation and token.value == ";":
+            return "".join(t.value for position, t in enumerate(tokens) if position != index).rstrip()
+        break
+    return query
+
+
+def _wrap_page_query(query: str, limit: int, offset: int) -> str:
     """Cap a page by wrapping the query in an outer ``select * from (...) limit/offset``.
 
     The fallback for shapes where setting the bound on the query itself would change its
     meaning: a paged offset or a query with its own OFFSET (both need result-set pagination
     over the query's output), a set query (no single outer LIMIT), or a non-constant LIMIT.
     The outer LIMIT does not push into an aggregated view, so prefer `apply_page_bounds`,
-    which does.
+    which does. Raw (engine-dialect) queries have no pushdown analysis available and always
+    land here.
 
-    The inner query is validated HogQL and the wrapper is re-parsed as HogQL downstream, so
-    there is no raw-SQL injection; limit/offset are int()-cast. The newline before the closing
-    paren keeps a trailing line comment (`-- …`) in the user's query from swallowing the wrapper.
+    The derived table is aliased because Postgres and MySQL reject an unaliased subquery in
+    FROM; HogQL accepts the alias and ignores it. The inner query is either validated HogQL
+    re-parsed downstream, or engine SQL the connection's own raw-SQL guard still vets, so
+    there is no injection; limit/offset are int()-cast. The newline before the closing paren
+    keeps a trailing line comment (`-- …`) in the user's query from swallowing the wrapper.
     """
     # nosemgrep: semgrep.rules.security.hogql-fstring-audit
-    return f"select * from ({query}\n) limit {int(limit)} offset {int(offset)}"
+    return f"select * from ({query}\n) as posthog_notebook_page limit {int(limit)} offset {int(offset)}"
 
 
 def apply_page_bounds(query: str, limit: int, offset: int) -> str:
@@ -95,21 +145,16 @@ def apply_page_bounds(query: str, limit: int, offset: int) -> str:
     re-print a parsed AST, which drops table-function arguments (`numbers(50001)`); a trailing
     `;` is stripped first, since it parses but breaks once a LIMIT is appended or wrapped.
 
-    Everything else falls back to `_wrap_hogql_page_query`: a query with its own LIMIT already
+    Everything else falls back to `_wrap_page_query`: a query with its own LIMIT already
     pushes down through the wrapper's inner subquery, and a paged offset, a query with its own
     OFFSET, a set query, or an unparseable query all need the wrapper's outer bound.
     """
-    # A trailing `;` parses cleanly but breaks once we append LIMIT (or wrap the query as a
-    # subquery), so normalize it away for both lanes. HogQL is single-statement, so this only
-    # ever drops the terminator, never a second statement.
-    query = query.rstrip()
-    if query.endswith(";"):
-        query = query[:-1].rstrip()
+    query = _strip_statement_terminator(query)
 
     try:
         parsed = parse_select(query)
     except ExposedHogQLError:
-        return _wrap_hogql_page_query(query, limit, offset)
+        return _wrap_page_query(query, limit, offset)
 
     if (
         offset == 0
@@ -124,7 +169,20 @@ def apply_page_bounds(query: str, limit: int, offset: int) -> str:
         # nosemgrep: semgrep.rules.security.hogql-fstring-audit
         return f"{query}\nlimit {int(limit)}"
 
-    return _wrap_hogql_page_query(query, limit, offset)
+    return _wrap_page_query(query, limit, offset)
+
+
+def apply_raw_page_bounds(query: str, limit: int, offset: int) -> str:
+    """Bound a raw (engine-dialect) query, which the HogQL parser can't read.
+
+    No pushdown analysis is possible without parsing, so this is `apply_page_bounds`'s
+    wrapper fallback with the parse step skipped — except for the statements that cannot be
+    nested at all, which are served as written rather than turned into a syntax error.
+    """
+    query = _strip_statement_terminator(query)
+    if _leading_keyword(query) in _UNWRAPPABLE_LEADING_KEYWORDS:
+        return query
+    return _wrap_page_query(query, limit, offset)
 
 
 def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) -> None:
@@ -134,13 +192,26 @@ def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) 
     access control, the per-team concurrency limiter, and the Redis status/result
     store all come with it. Fetches one extra row past the cache ceiling so
     `sync_direct_run` can detect has_more, mirroring the kernel's capped fetch.
+
+    A run bound to an external connection rides the same lane: the query runner routes it
+    to that source's engine, so nothing here needs to know which engine that is.
     """
-    bounded = apply_page_bounds(run.code, limit=RESULT_CACHE_ROWS + 1, offset=0)
+    limit, offset = RESULT_CACHE_ROWS + 1, 0
+    bounded = (
+        apply_raw_page_bounds(run.code, limit, offset)
+        if run.send_raw_query
+        else apply_page_bounds(run.code, limit, offset)
+    )
+    query_json: dict[str, Any] = {"kind": "HogQLQuery", "query": bounded}
+    if run.connection_id:
+        query_json["connectionId"] = str(run.connection_id)
+        if run.send_raw_query:
+            query_json["sendRawQuery"] = True
     with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):
         enqueue_process_query_task(
             team=team,
             user_id=user.id if user else None,
-            query_json={"kind": "HogQLQuery", "query": bounded},
+            query_json=query_json,
             query_id=notebook_direct_query_id(str(run.id)),
             # A Run click always executes; never serve a stale cached result.
             refresh_requested=True,

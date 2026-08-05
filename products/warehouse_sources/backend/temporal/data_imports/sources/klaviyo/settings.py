@@ -633,6 +633,11 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         path="/webhooks",
         page_size=0,
         incremental_fields=[],
+        # Klaviyo only offers the webhooks API to accounts with its paid Advanced KDP add-on and
+        # 403s for everyone else even with the webhooks read scope granted, so a default-on table
+        # would fail the first sync for most connections.
+        should_sync_default=False,
+        description="Requires Klaviyo's Advanced KDP add-on",
     ),
     "accounts": KlaviyoEndpointConfig(
         name="accounts",
