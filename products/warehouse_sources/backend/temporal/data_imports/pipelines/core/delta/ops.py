@@ -1,11 +1,14 @@
 import asyncio
 from collections.abc import Callable
+from typing import TypeVar
 
 from django.conf import settings
 
 import deltalake
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
+
+T = TypeVar("T")
 
 
 def delta_merge_spill_kwargs() -> dict[str, int]:
@@ -27,8 +30,9 @@ def delta_merge_spill_kwargs() -> dict[str, int]:
 
 
 # Delta's conflict checker raises CommitFailedError the moment a concurrent commit invalidates what
-# a committing operation read — a merge predicate, or optimize.compact's file-rewrite plan — unlike a
-# plain version-bump race, delta-rs does not consume max_commit_retries or retry this itself (see
+# a committing operation read — a merge predicate, optimize.compact's file-rewrite plan, or vacuum's
+# tombstone list — unlike a plain version-bump race, delta-rs does not consume max_commit_retries or
+# retry this itself (see
 # delta-rs kernel/transaction/conflict_checker.rs), because resolving it safely requires re-reading
 # the table and re-running the operation, which is exactly what its "must be rerun" error message
 # asks the caller to do.
@@ -37,12 +41,12 @@ DELTA_MERGE_CONFLICT_RETRIES = 3
 
 async def execute_with_conflict_retry(
     table: deltalake.DeltaTable,
-    operation_fn: Callable[[], dict],
+    operation_fn: Callable[[], T],
     operation_name: str,
     logger: FilteringBoundLogger,
-) -> dict:
-    """Run a Delta operation that commits (merge, optimize.compact, ...), refreshing the table
-    and re-running it on a commit conflict.
+) -> T:
+    """Run a Delta operation that commits (merge, optimize.compact, vacuum, ...), refreshing the
+    table and re-running it on a commit conflict.
 
     See DELTA_MERGE_CONFLICT_RETRIES for why this can't rely on delta-rs's own retry budget.
     """

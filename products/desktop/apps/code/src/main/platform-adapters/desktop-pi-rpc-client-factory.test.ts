@@ -68,7 +68,7 @@ describe("DesktopPiRpcClientFactory", () => {
     );
 
     await expect(
-      factory.create({ taskId: "task-1", cwd: "/workspace" }),
+      factory.create({ taskId: "task-1", cwd: "/workspace", projectTrusted: true }),
     ).resolves.toBe(client);
     expect(authProxy.start).toHaveBeenCalledWith(
       getLlmGatewayUrl(getCloudUrlFromRegion("eu")),
@@ -86,6 +86,7 @@ describe("DesktopPiRpcClientFactory", () => {
           url: "http://127.0.0.1:4321/posthog",
         },
       },
+      projectTrusted: true,
       providerOptions: {
         region: "eu",
         baseUrl: "http://127.0.0.1:1234",

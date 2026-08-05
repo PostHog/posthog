@@ -33,12 +33,9 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     private readonly mcpServerSource: McpServerConnectionSource,
   ) {}
 
-  async create(input: {
-    taskId: string;
-    cwd: string;
-    model?: string;
-    sessionFile?: string;
-  }): Promise<PiRpcClient> {
+  async create(
+    input: Parameters<PiRpcClientFactory["create"]>[0],
+  ): Promise<PiRpcClient> {
     const credentials = await this.auth.getOAuthCredentials();
     if (!credentials) {
       throw new Error("Pi requires PostHog authentication");
@@ -54,6 +51,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       cwd: input.cwd,
       model: input.model,
       sessionFile: input.sessionFile,
+      projectTrusted: input.projectTrusted,
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
       providerOptions: {

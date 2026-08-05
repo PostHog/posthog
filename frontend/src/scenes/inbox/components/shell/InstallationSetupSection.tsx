@@ -3,8 +3,8 @@ import { useMountedLogic } from 'kea'
 
 import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
 
-import { SetupSection } from './AgentSetupColumn'
 import { InstallationCard } from './InstallationCard'
+import { SetupSection } from './SetupSection'
 
 /**
  * The "Installation" block of the inbox setup column, present only while a wizard run is in flight.

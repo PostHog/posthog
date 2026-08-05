@@ -1545,12 +1545,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         values.dashboard?.tiles
                     ) {
                         // layout changes were discarded so need to reset to original state
-                        const restoredTiles = values.dashboard?.tiles?.map((tile) => ({
-                            ...tile,
-                            layouts: values.dashboardLayouts?.[tile.id],
-                        }))
-
-                        values.dashboard.tiles = restoredTiles
+                        // (as a new object — selectors only recompute when the reference changes)
+                        return {
+                            ...values.dashboard,
+                            tiles: values.dashboard.tiles.map((tile) => ({
+                                ...tile,
+                                layouts: values.dashboardLayouts?.[tile.id],
+                            })),
+                        }
                     }
 
                     return values.dashboard
@@ -3973,13 +3975,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
-                actions.restoreUrlStateAtEditModeEntry(values.urlSearchParamsAtEditModeEntry)
 
-                // reset tile data by reloading dashboard
-                actions.refreshDashboardItems({
-                    action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
-                })
+                // Previews route filters/variables through the URL before refreshing, so tile data
+                // always matches the current URL state. Restoring the snapshot therefore only
+                // requires a reload when it actually changes that state — if no preview ran during
+                // this edit session, the data on screen is already correct.
+                const snapshot = values.urlSearchParamsAtEditModeEntry
+                const urlStateChangedSinceEditModeEntry =
+                    !equal(values.urlFilters, parseURLFilters({ [SEARCH_PARAM_FILTERS_KEY]: snapshot?.filters })) ||
+                    !equal(
+                        parseURLVariables(router.values.searchParams),
+                        parseURLVariables({ [SEARCH_PARAM_QUERY_VARIABLES_KEY]: snapshot?.variables })
+                    )
+                actions.restoreUrlStateAtEditModeEntry(snapshot)
+
+                if (urlStateChangedSinceEditModeEntry) {
+                    // reset tile data by reloading dashboard
+                    actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                    })
+                }
 
                 // also reset layout to that we stored in dashboardLayouts
                 // this is done in the reducer for dashboard

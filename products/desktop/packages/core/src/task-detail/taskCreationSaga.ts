@@ -531,6 +531,8 @@ export class TaskCreationSaga extends Saga<
             await this.deps.piRunner.create({
               taskId: task.id,
               cwd: agentCwd ?? "",
+              projectTrustPath:
+                workspace?.folderPath ?? repoPath ?? scratchCwd ?? undefined,
               prompt: input.content ?? "",
               model: input.model,
               thinkingLevel,

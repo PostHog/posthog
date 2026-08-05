@@ -4,8 +4,10 @@ import type { Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
+  type AgentSessionEvent,
   RpcClient,
   type RpcClientOptions,
+  type RpcEventListener,
 } from "@earendil-works/pi-coding-agent";
 import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
 import type {
@@ -15,9 +17,18 @@ import type {
   McpToolPolicy,
 } from "@posthog/shared";
 import { safePiEnvironment } from "./rpc-environment";
-import type { PiQueueSnapshot } from "./types";
+import type {
+  PiExtensionEvent,
+  PiQueueSnapshot,
+  RpcExtensionUIResponse,
+} from "./types";
+
+export type PiRpcEvent = AgentSessionEvent | PiExtensionEvent;
+
+type PiRpcEventListener = (event: PiRpcEvent) => void;
 
 export type PiRpcClient = RpcClient & {
+  onEvent(listener: PiRpcEventListener): () => void;
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
   onMcpToolPermissionRequest(
@@ -27,12 +38,21 @@ export type PiRpcClient = RpcClient & {
     requestId: string,
     decision: McpToolPermissionDecision,
   ): void;
+  respondToExtensionUI(response: RpcExtensionUIResponse): Promise<void>;
 };
 
 export interface PiRpcProviderOptions {
   region?: "us" | "eu" | "dev";
   apiKey: string;
   baseUrl?: string;
+}
+
+interface PiRpcBootstrap {
+  providerOptions: PiRpcProviderOptions;
+  runtimeMcpServers?: PiRuntimeMcpServers;
+  mcpToolPolicies?: McpToolPolicy[];
+  projectTrusted?: boolean;
+  channelMode?: boolean;
 }
 
 type RpcClientProcessAccess = {
@@ -75,12 +95,6 @@ export function createRuntimeMcpServers(
       },
     ]),
   );
-}
-
-interface PiRpcBootstrap {
-  providerOptions: PiRpcProviderOptions;
-  runtimeMcpServers?: PiRuntimeMcpServers;
-  mcpToolPolicies?: McpToolPolicy[];
 }
 
 interface PiHostRequest {
@@ -145,6 +159,14 @@ class SecurePiRpcClient extends RpcClient {
     private readonly bootstrap: PiRpcBootstrap,
   ) {
     super(secureOptions);
+  }
+
+  onEvent(listener: PiRpcEventListener): () => void;
+  override onEvent(listener: RpcEventListener): () => void;
+  override onEvent(
+    listener: PiRpcEventListener | RpcEventListener,
+  ): () => void {
+    return super.onEvent((event) => listener(event));
   }
 
   override async start(): Promise<void> {
@@ -240,6 +262,24 @@ class SecurePiRpcClient extends RpcClient {
 
   clearQueue(): Promise<PiQueueSnapshot> {
     return this.sendHostRequest("clear_queue");
+  }
+
+  respondToExtensionUI(response: RpcExtensionUIResponse): Promise<void> {
+    const child = (this as unknown as RpcClientInternals).process;
+    const stdin = child?.stdin;
+    if (!child || !stdin || stdin.destroyed || !stdin.writable) {
+      return Promise.reject(new Error("Pi RPC client is not writable"));
+    }
+
+    return new Promise((resolve, reject) => {
+      stdin.write(`${JSON.stringify(response)}\n`, (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 
   private sendHostRequest(
@@ -360,6 +400,8 @@ export type PiRpcClientOptions = Pick<
   providerOptions: PiRpcProviderOptions;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
+  projectTrusted?: boolean;
+  channelMode?: boolean;
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
@@ -368,6 +410,8 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     providerOptions,
     runtimeMcpServers,
     mcpToolPolicies,
+    projectTrusted,
+    channelMode,
     ...rpcOptions
   } = options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
@@ -381,6 +425,12 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       cliPath,
       provider: "posthog",
     },
-    { providerOptions, runtimeMcpServers, mcpToolPolicies },
+    {
+      providerOptions,
+      runtimeMcpServers,
+      mcpToolPolicies,
+      projectTrusted: projectTrusted ?? false,
+      channelMode: channelMode === true,
+    } satisfies PiRpcBootstrap,
   );
 }

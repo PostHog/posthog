@@ -43,6 +43,7 @@ async function createCredentialStore(
 export type HarnessRuntimeOptions = HarnessExtensionOptions & {
   credentialStore?: CredentialStore;
   posthogOAuthCredentials?: PosthogOAuthCredentials;
+  projectTrusted?: (cwd: string) => boolean;
 } & Partial<
     Pick<
       PiRuntimeTarget,
@@ -73,6 +74,7 @@ export async function createHarnessRuntime(
     runtimeMcpServers: _runtimeMcpServers,
     mcpToolPolicies: _mcpToolPolicies,
     requestMcpToolPermission: _requestMcpToolPermission,
+    projectTrusted,
     ...runtimeOptions
   } = options;
   // Pi reads its application branding when the SDK is first evaluated. Keep
@@ -118,7 +120,7 @@ export async function createHarnessRuntime(
       settingsManager:
         options.settingsManager ??
         pi.SettingsManager.create(runtimeCwd, runtimeAgentDir, {
-          projectTrusted: false,
+          projectTrusted: projectTrusted?.(runtimeCwd) ?? false,
         }),
       resourceLoaderOptions: {
         ...runtimeOptions.resourceLoaderOptions,

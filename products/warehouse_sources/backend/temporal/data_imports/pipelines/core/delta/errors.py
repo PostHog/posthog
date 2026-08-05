@@ -3,6 +3,8 @@ from django.db import InterfaceError, OperationalError
 import botocore.exceptions
 import deltalake.exceptions
 
+from posthog.temporal.common.errors import NonReportableError
+
 # Substrings of the object-store errors raised talking to our own S3-backed data-warehouse bucket
 # that are transient and self-recovering, not a bug in our code or a customer credential problem:
 # - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
@@ -19,6 +21,16 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
 )
 
 
+class TransientObjectStoreError(NonReportableError):
+    """A known-transient object-store blip (see is_transient_object_store_error), re-raised as this
+    type instead of the original OSError/DeltaError. Skipping the inline capture_exception call
+    alone isn't enough: the raw error still escapes the activity uncaught and reaches the Temporal
+    activity interceptor (posthog/temporal/common/posthog_client.py), which reports every activity
+    exception to error tracking unless it's a NonReportableError — so it minted a fresh issue per
+    blip anyway. Wrapping keeps it out of tracking at that boundary too. Temporal's retry policy is
+    unaffected either way, since NonReportableError only suppresses reporting, not retries."""
+
+
 def is_transient_object_store_error(error: BaseException) -> bool:
     """True for a transient object-store error, however it happened to surface.
 
@@ -32,7 +44,11 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     match), but hitting our own instance-role-authenticated bucket always means the same transient
     resolution hiccup, so it's recognized by type rather than by message.
     """
-    if isinstance(error, botocore.exceptions.NoCredentialsError):
+    if isinstance(error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError):
+        # Already classified and wrapped by a prior call to this same function (see
+        # `_capture_unless_transient`) — a caller further up the stack that catches broadly and
+        # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
+        # wraps, must still treat it as transient.
         return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
@@ -65,9 +81,38 @@ TRANSIENT_DELTA_MAINTENANCE_ERRORS = (
 
 
 def is_transient_delta_maintenance_error(error: BaseException) -> bool:
-    return isinstance(error, deltalake.exceptions.DeltaError) and any(
-        needle in str(error) for needle in TRANSIENT_DELTA_MAINTENANCE_ERRORS
-    )
+    if not isinstance(error, deltalake.exceptions.DeltaError):
+        return False
+
+    text = str(error)
+    if any(needle in text for needle in TRANSIENT_DELTA_MAINTENANCE_ERRORS):
+        return True
+
+    # The same race can also take a transaction-log commit file, not just a data file: `reset_table`
+    # (full_refresh) purges the whole table prefix, `_delta_log` included, out from under a still-running
+    # maintenance pass that opened the table before the purge landed. Neither `vacuum()` nor
+    # `optimize.compact()` ever deletes a `_delta_log/*.json` commit file itself, so a missing one here
+    # means something else raced the read rather than the table being corrupt. Matched on the log
+    # directory specifically rather than on "File not found" alone, which a genuinely missing data file
+    # or a truly corrupt table can also raise, and those stay captured.
+    return "File not found" in text and "_delta_log/" in text
+
+
+# `optimize.compact` bins files to rewrite by their on-disk (compressed) size, targeting
+# `target_size` bytes per bin, then reads every file in a bin into memory as Arrow batches before
+# writing them back out as one file. `Batcher` (pipelines/core/batcher.py) already keeps each
+# *written* file's string/binary columns under its 32-bit-offset limit, so no single file can
+# overflow on its own — but that guard doesn't cover compaction, which can bin together several
+# already-safe files whose combined column bytes cross the 2^31 (~2.1 GB) offset limit, especially
+# for highly-compressible text (e.g. JSON payloads) where on-disk size understates decompressed
+# size by a wide margin. delta-rs surfaces this as a Rust task panic wrapped in a generic DeltaError
+# rather than a typed error. Retrying the same bin changes nothing, so this isn't transient — the
+# caller instead retries compaction with a smaller `target_size` to shrink the bins.
+DELTA_OFFSET_OVERFLOW_ERROR_NEEDLE = "byte array offset overflow"
+
+
+def is_offset_overflow_compaction_error(error: BaseException) -> bool:
+    return isinstance(error, deltalake.exceptions.DeltaError) and DELTA_OFFSET_OVERFLOW_ERROR_NEEDLE in str(error)
 
 
 def is_transient_maintenance_error(error: BaseException) -> bool:

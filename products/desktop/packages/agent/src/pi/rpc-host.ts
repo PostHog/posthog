@@ -8,16 +8,20 @@ import type {
   McpToolPermissionRequest,
   McpToolPolicy,
 } from "@posthog/shared";
+import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
 } from "./queue-persistence";
+import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
 
 interface PiRpcBootstrap {
   providerOptions?: PosthogProviderOptions;
   runtimeMcpServers?: McpConfig["mcpServers"];
   mcpToolPolicies?: McpToolPolicy[];
+  projectTrusted?: boolean;
+  channelMode?: boolean;
 }
 
 interface PiHostRequest {
@@ -71,6 +75,17 @@ function requestMcpToolPermission(
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
+  projectTrusted: createPiRuntimeTrustResolver(
+    cwd,
+    bootstrap.projectTrusted ?? false,
+  ),
+  ...(bootstrap.channelMode
+    ? {
+        resourceLoaderOptions: {
+          extensionFactories: [createPiRepositoryToolsExtension(cwd)],
+        },
+      }
+    : {}),
   ...providerOptions,
   runtimeMcpServers: bootstrap.runtimeMcpServers,
   mcpToolPolicies: bootstrap.mcpToolPolicies,

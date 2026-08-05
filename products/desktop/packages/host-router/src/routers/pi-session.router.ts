@@ -2,6 +2,8 @@ import { publicProcedure, router } from "@posthog/host-trpc/trpc";
 import { PI_SESSION_SERVICE } from "@posthog/workspace-server/services/pi-session/identifiers";
 import type { PiSessionService } from "@posthog/workspace-server/services/pi-session/pi-session";
 import {
+  piExtensionUIResponseInput,
+  piProjectTrustOutput,
   piQueueSnapshotOutput,
   piRpcResponseSchema,
   piSessionConfigInput,
@@ -12,6 +14,7 @@ import {
   piSessionTaskInput,
   respondMcpToolPermissionInput,
   resumePiSessionInput,
+  setPiProjectTrustInput,
   startPiSessionInput,
 } from "@posthog/workspace-server/services/pi-session/schemas";
 
@@ -94,6 +97,28 @@ export const piSessionRouter = router({
       }
     }),
 
+  getProjectTrust: publicProcedure
+    .input(piSessionTaskInput)
+    .output(piProjectTrustOutput)
+    .query(({ ctx, input }) =>
+      getService(ctx.container).getProjectTrust(input.taskId),
+    ),
+
+  setProjectTrusted: publicProcedure
+    .input(setPiProjectTrustInput)
+    .mutation(({ ctx, input }) =>
+      getService(ctx.container).setProjectTrusted(input.taskId, input.trusted),
+    ),
+
+  respondToExtensionUI: publicProcedure
+    .input(piExtensionUIResponseInput)
+    .mutation(({ ctx, input }) =>
+      getService(ctx.container).respondToExtensionUI(
+        input.taskId,
+        input.response,
+      ),
+    ),
+
   onEvent: publicProcedure
     .input(piSessionTaskInput)
     .subscription(async function* (opts) {
@@ -105,4 +130,10 @@ export const piSessionRouter = router({
         }
       }
     }),
+
+  onExtensionEvent: publicProcedure
+    .input(piSessionTaskInput)
+    .subscription(({ ctx, input, signal }) =>
+      getService(ctx.container).extensionEvents(input.taskId, signal),
+    ),
 });
