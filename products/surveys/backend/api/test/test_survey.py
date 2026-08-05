@@ -533,10 +533,10 @@ class TestSurvey(APIBaseTest):
     def test_sdk_payload_strips_invalid_translation_keys(self) -> None:
         result = get_survey_api_translations(
             {
-                "es": {"name": "Hola"},
-                "default": {"name": "Should be dropped"},
-                "en": {"name": "Same as base, should be dropped"},
-                "EN-us": {"name": "Normalized to en-us"},
+                "es": {"thankYouMessageHeader": "Hola"},
+                "default": {"thankYouMessageHeader": "Should be dropped"},
+                "en": {"thankYouMessageHeader": "Same as base, should be dropped"},
+                "EN-us": {"thankYouMessageHeader": "Normalized to en-us"},
             },
             base_language="en",
         )
@@ -546,6 +546,31 @@ class TestSurvey(APIBaseTest):
         assert "en-us" in result
         assert "default" not in result
         assert "en" not in result
+
+    def test_sdk_payload_strips_translated_survey_name(self) -> None:
+        # Regression guard: the survey name is an internal identifier, never rendered by the SDKs,
+        # so it must not leak through the translations map either (see test_sdk_payload_omits_survey_name).
+        result = get_survey_api_translations(
+            {"es": {"name": "Encuesta", "thankYouMessageHeader": "Gracias"}},
+            base_language="en",
+        )
+
+        assert result is not None
+        assert "name" not in result["es"]
+        assert result["es"]["thankYouMessageHeader"] == "Gracias"
+
+    def test_sdk_payload_omits_survey_name(self) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Acme Corp NPS Q3",
+            type="popover",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
+        )
+
+        payload = next(item for item in get_surveys_response(self.team)["surveys"] if str(item["id"]) == str(survey.id))
+
+        assert "name" not in payload
 
     @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")

@@ -127,9 +127,11 @@ def _normalize_language_code(raw: str) -> str:
 
 # Keep this in sync with SurveyAPISerializer's public runtime contract.
 # Root survey description is intentionally excluded because customers have used it for internal notes.
+# Root survey name is intentionally excluded too: it's an internal identifier, never rendered by the
+# SDKs, and translated names would otherwise leak it through this allowlist even after it was
+# dropped from SurveyAPISerializer.Meta.fields.
 SURVEY_API_TRANSLATION_FIELDS = frozenset(
     [
-        "name",
         "thankYouMessageHeader",
         "thankYouMessageDescription",
         "thankYouMessageCloseButtonText",
@@ -3385,12 +3387,12 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         model = Survey
         fields = [
             "id",
-            "name",
-            # NB: The "description" field is serialized on Create/Update request, and used to be serialized on the next line,
-            # But we had a user write in complaining that we were exposing the description in the API
-            # (https://posthoghelp.zendesk.com/agent/tickets/15210), which was a problem for them
-            # since they were using it as a way to store sensitive information. Given that we don't ever use
-            # that field to render the survey, we can safely remove it from the API response.
+            # NB: The "name" and "description" fields used to be serialized here, but both are
+            # internal identifiers no SDK renders or evaluates, and a user complaint
+            # (https://posthoghelp.zendesk.com/agent/tickets/15210) already got "description" removed
+            # for storing sensitive information. "name" carries the same risk — it's unauthenticated
+            # and readable by anyone via the surveys config, and free-text names have been used to
+            # identify companies running PostHog. Neither is safe to expose here.
             "type",
             "linked_flag_key",
             "targeting_flag_key",
@@ -3451,6 +3453,20 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         if data.get("translations") is None:
             data.pop("translations", None)
         return data
+
+
+class SurveyAPISerializerWithName(SurveyAPISerializer):
+    """
+    Same public runtime contract as SurveyAPISerializer, plus the survey name. Only safe to use
+    from authenticated, team-scoped endpoints (e.g. listing the surveys linked to a feature flag)
+    — never from the unauthenticated SDK-facing surfaces SurveyAPISerializer itself feeds.
+    """
+
+    name = serializers.CharField(read_only=True, help_text="Internal survey name, for staff use only.")
+
+    class Meta(SurveyAPISerializer.Meta):
+        fields = [*SurveyAPISerializer.Meta.fields, "name"]
+        read_only_fields = fields
 
 
 def get_surveys_opt_in(team: Team) -> bool:
