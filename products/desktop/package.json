@@ -16,7 +16,7 @@
     "dev:mprocs": "pnpm build:deps && mprocs",
     "dev:agent": "pnpm --filter agent dev",
     "dev:git": "pnpm --filter @posthog/git dev",
-    "dev:code": "pnpm --filter code start",
+    "dev:code": "node scripts/dev-electron-supervisor.mjs",
     "app:cdp": "node scripts/electron-cdp.mjs",
     "build": "turbo build",
     "build:deps": "turbo build --filter=@posthog/code^...",
