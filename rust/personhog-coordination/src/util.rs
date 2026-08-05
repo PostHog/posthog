@@ -2,12 +2,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use metrics::counter;
+use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 pub use assignment_coordination::util::{now_millis, now_seconds};
 
+use crate::authority::AuthorityClock;
 use crate::error::{Error, Result};
 use crate::store::PersonhogStore;
 
@@ -90,6 +91,7 @@ pub(crate) fn note_run_failure(
 /// local measurement is conservative, and every await in the loop is
 /// bounded by the time left so a hang can never defer the verdict past
 /// the moment the fence must begin.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_lease_keepalive(
     store: Arc<PersonhogStore>,
     lease_id: i64,
@@ -97,9 +99,13 @@ pub async fn run_lease_keepalive(
     lease_ttl: i64,
     granted_at: Instant,
     component: &'static str,
+    // Published on every confirmed renewal, so the data plane can judge
+    // its own authority without depending on this task being alive to
+    // tell it. `None` for components that serve nothing.
+    authority: Option<Arc<AuthorityClock>>,
     cancel: CancellationToken,
 ) -> Result<()> {
-    let renewal_margin = Duration::from_secs(lease_ttl.max(0) as u64).mul_f64(2.0 / 3.0);
+    let renewal_margin = AuthorityClock::renewal_margin(lease_ttl);
     // `clamp` panics when min > max, and sub-250ms intervals are
     // constructible from zero-valued env config; floor the pace instead.
     let retry_pace = (interval / 4)
@@ -180,7 +186,23 @@ pub async fn run_lease_keepalive(
                 ))),
             };
             match outcome {
-                Ok(true) => last_renewed = Instant::now(),
+                Ok(true) => {
+                    // The gap between confirmations is the headroom
+                    // question in one number: how close routine
+                    // operation runs to the margin at which a pod stops
+                    // being able to vouch for what it serves. Recorded
+                    // whether or not anything is gating on it, so the
+                    // distribution is known before it is enforced.
+                    histogram!(
+                        "personhog_coordination_lease_renewal_interval_ms",
+                        "component" => component
+                    )
+                    .record(last_renewed.elapsed().as_secs_f64() * 1000.0);
+                    last_renewed = Instant::now();
+                    if let Some(authority) = &authority {
+                        authority.confirm();
+                    }
+                }
                 // Authoritative: the lease is gone, no margin applies.
                 Ok(false) => return Err(Error::leadership_lost()),
                 Err(e) => {

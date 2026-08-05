@@ -10,9 +10,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use envconfig::Envconfig;
+use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::HandoffHandler;
 use personhog_leader::fencing::{
-    FenceGuard, FencedChangelogProducers, FencedProduceError, FencedProducerConfig,
+    heal_fence, FenceGuard, FencedChangelogProducers, FencedProduceError, FencedProducerConfig,
 };
 use personhog_leader::inflight::InflightTracker;
 use personhog_proto::personhog::types::v1::Person;
@@ -437,6 +438,113 @@ async fn an_abandoned_guard_does_not_evict_its_replacement() {
         .expect("the replacement fence must survive the stale guard");
 }
 
+/// A partition can end up served without a fence — a broker rejection
+/// evicted it, an abort exhausted its retries, a stale pod took the
+/// epoch and stepped back. Convergence sees such a partition warmed and
+/// unfenced and does nothing, so this is what gets it writable again
+/// before the next handoff.
+#[tokio::test]
+async fn healing_retakes_a_fence_for_a_served_partition() {
+    let topic = format!("fence_heal_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    let inflight = InflightTracker::new();
+    let clock = AuthorityClock::unclaimed();
+    clock.begin_session(Duration::from_secs(30), std::time::Instant::now());
+
+    heal_fence(&producers, &inflight, Some(&clock), 0).await;
+
+    producers
+        .produce(0, &test_person(1))
+        .await
+        .expect("a served partition must regain a usable fence");
+}
+
+/// Healing takes the partition's epoch from whoever holds it, so a pod
+/// that cannot vouch for its own claim must not start the round trip at
+/// all — `init_transactions` cannot be undone once it returns, and the
+/// post-acquire check can only stop *this* pod from building on a fence
+/// it already stole.
+///
+/// The assertion is therefore on the victim. Asking only whether we
+/// ended up holding a fence cannot tell the pre-check from the
+/// post-check: both leave us empty-handed, and only one of them leaves
+/// the legitimate owner still able to write.
+#[tokio::test]
+async fn healing_without_standing_does_not_steal_the_epoch() {
+    let topic = format!("fence_heal_{}", uuid::Uuid::new_v4().simple());
+    let inflight = InflightTracker::new();
+
+    // The partition's real owner, holding a working fence.
+    let owner = Arc::new(fenced_producers(&topic));
+    owner.acquire(0).await.expect("the owner takes its fence");
+    owner
+        .produce(0, &test_person(1))
+        .await
+        .expect("the owner can write");
+
+    // A pod whose claim is gone tries to heal the same partition.
+    let zombie = Arc::new(fenced_producers(&topic));
+    let lapsed = AuthorityClock::unclaimed();
+    lapsed.begin_session(Duration::from_secs(30), std::time::Instant::now());
+    lapsed.surrender();
+    heal_fence(&zombie, &inflight, Some(&lapsed), 0).await;
+
+    owner
+        .produce(0, &test_person(2))
+        .await
+        .expect("a pod with no standing must not take the epoch from the real owner");
+}
+
+/// A partition a handoff is already moving belongs to the incoming
+/// owner, so healing must leave it alone for the same reason.
+#[tokio::test]
+async fn healing_skips_a_partition_under_handoff() {
+    let topic = format!("fence_heal_{}", uuid::Uuid::new_v4().simple());
+    let inflight = InflightTracker::new();
+
+    let owner = Arc::new(fenced_producers(&topic));
+    owner.acquire(0).await.expect("the owner takes its fence");
+
+    let other = Arc::new(fenced_producers(&topic));
+    let valid = AuthorityClock::unclaimed();
+    valid.begin_session(Duration::from_secs(30), std::time::Instant::now());
+    inflight.fence(0);
+    heal_fence(&other, &inflight, Some(&valid), 0).await;
+
+    owner
+        .produce(0, &test_person(1))
+        .await
+        .expect("a partition being handed off is not ours to take");
+}
+
+/// Standing can lapse *during* the broker round trip, by which point the
+/// fence is installed. Keeping it is not passive: the write path trusts
+/// the broker epoch rather than re-checking the claim, so a request
+/// landing here would ack a mutation with an epoch taken from the
+/// partition's real owner.
+#[tokio::test]
+async fn healing_gives_back_a_fence_it_lost_standing_for() {
+    let topic = format!("fence_heal_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    let inflight = InflightTracker::new();
+
+    let clock = Arc::new(AuthorityClock::unclaimed());
+    clock.begin_session(Duration::from_secs(30), std::time::Instant::now());
+    let losing = Arc::clone(&clock);
+    let lease_loss = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        losing.surrender();
+    });
+
+    heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    lease_loss.await.unwrap();
+
+    match producers.produce(0, &test_person(1)).await {
+        Err(FencedProduceError::NotAcquired) => {}
+        other => panic!("a fence taken without standing must be given back, got {other:?}"),
+    }
+}
+
 /// A writer parked behind a committing window is woken by the very commit
 /// that condemns the producer. Checking usability only before the park
 /// skips exactly that writer: it wakes, finds the gate idle, and opens a
@@ -469,6 +577,45 @@ async fn a_writer_woken_onto_a_condemned_producer_is_bounced() {
             panic!("a writer woken onto a condemned producer must answer as unowned, got {other:?}")
         }
     }
+}
+
+/// Healing must leave a partition it already holds alone. Re-acquiring
+/// runs `init_transactions`, which bumps the broker epoch — so a healing
+/// pass that ignored the fence it is already holding would fence this
+/// pod's own producer on every reconcile tick.
+///
+/// The damage lands on writes already in flight, not on the next one: a
+/// fresh write simply uses whichever producer is installed. So the write
+/// here is mid-window when the tick runs.
+#[tokio::test]
+async fn healing_leaves_a_fence_it_already_holds_alone() {
+    let topic = format!("fence_heal_noop_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers_with_window(
+        &topic,
+        Duration::from_millis(600),
+    ));
+    let inflight = InflightTracker::new();
+    let clock = AuthorityClock::unclaimed();
+    clock.begin_session(Duration::from_secs(30), std::time::Instant::now());
+
+    producers.acquire(0).await.expect("take the fence");
+
+    // In flight: the window is open and its commit has not fired.
+    let writing = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.produce(0, &test_person(1)).await })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // A reconcile tick with everything healthy.
+    heal_fence(&producers, &inflight, Some(&clock), 0).await;
+
+    let result = writing.await.expect("the write task must not panic");
+    assert!(
+        result.is_ok(),
+        "a healing pass must not fence the window this pod is already \
+         filling, got {result:?}"
+    );
 }
 
 /// A commit task that never reports its outcome must condemn the producer.
@@ -735,6 +882,7 @@ async fn a_repeated_resume_does_not_fence_the_window_the_first_one_admitted() {
         "a retried resume must not fence the window the first one admitted, got {result:?}"
     );
 }
+
 /// A drain that arrives while the window's commit is already running must
 /// wait for it.
 ///
@@ -811,6 +959,158 @@ async fn a_resume_that_took_the_fence_itself_does_not_take_it_again() {
     );
 }
 
+/// Warming without a confirmed renewal must not take the epoch.
+///
+/// `init_transactions` grants the epoch to whoever initializes last, not
+/// to whoever the protocol says owns the partition — so a zombie warming
+/// on its way to noticing it is dead would fence the legitimate owner.
+#[tokio::test]
+async fn warming_without_a_confirmed_lease_does_not_take_the_epoch() {
+    let topic = format!("fence_warm_auth_{}", uuid::Uuid::new_v4().simple());
+    let owner = Arc::new(fenced_producers(&topic));
+    owner.acquire(0).await.expect("the owner takes its fence");
+    owner
+        .produce(0, &test_person(1))
+        .await
+        .expect("the owner can write");
+
+    let lapsed = common::live_authority();
+    lapsed.surrender();
+    let zombie = Arc::new(fenced_producers(&topic));
+    let handler = common::test_handoff_handler_with_authority(&topic, Arc::clone(&zombie), lapsed);
+    handler
+        .warm_partition(0)
+        .await
+        .expect_err("a pod with no confirmed renewal must not warm");
+
+    owner
+        .produce(0, &test_person(2))
+        .await
+        .expect("a warm with no standing must not take the epoch from the real owner");
+}
+
+/// A resume without a confirmed renewal must not take the epoch either —
+/// the same act, reached through the branch that cancels a handoff.
+#[tokio::test]
+async fn a_resume_without_a_confirmed_lease_does_not_take_the_epoch() {
+    let topic = format!("fence_resume_auth_{}", uuid::Uuid::new_v4().simple());
+    let owner = Arc::new(fenced_producers(&topic));
+    owner.acquire(0).await.expect("the owner takes its fence");
+    owner
+        .produce(0, &test_person(1))
+        .await
+        .expect("the owner can write");
+
+    let lapsed = common::live_authority();
+    lapsed.surrender();
+    let zombie = Arc::new(fenced_producers(&topic));
+    let handler = common::test_handoff_handler_with_authority(&topic, Arc::clone(&zombie), lapsed);
+    handler
+        .resume_partition(0)
+        .await
+        .expect_err("a pod with no confirmed renewal must not resume");
+
+    owner
+        .produce(0, &test_person(2))
+        .await
+        .expect("a resume with no standing must not take the epoch from the real owner");
+}
+
+/// The claim can lapse *during* the acquire, by which point the epoch has
+/// already moved. The pod cannot undo that, but it can decline to build on
+/// a claim it no longer holds: it drops the fence and fails the
+/// convergence, so the partition's real owner heals back to it instead of
+/// finding a zombie serving on a stolen epoch.
+#[tokio::test]
+async fn a_warm_that_loses_its_claim_mid_acquire_gives_the_fence_back() {
+    let topic = format!("fence_warm_midauth_{}", uuid::Uuid::new_v4().simple());
+    // Seeded through a separate owner so the warm below is a real one: a
+    // warm that fails for want of a topic would leave the fence behind
+    // through its guard and prove nothing about this branch.
+    let seed = fenced_producers(&topic);
+    seed.acquire(0).await.expect("seed the topic");
+    seed.produce(0, &test_person(1)).await.expect("seed record");
+
+    let producers = Arc::new(fenced_producers(&topic));
+    let clock = common::live_authority();
+    let handler = common::test_handoff_handler_with_authority(
+        &topic,
+        Arc::clone(&producers),
+        Arc::clone(&clock),
+    );
+
+    let losing = Arc::clone(&clock);
+    let lease_loss = tokio::spawn(async move {
+        sleep(Duration::from_millis(5)).await;
+        losing.surrender();
+    });
+    let outcome = handler.warm_partition(0).await;
+    lease_loss.await.unwrap();
+
+    match outcome {
+        // The surrender landed inside the warm: whichever check saw it,
+        // an epoch taken across a lapsed claim is not this pod's to
+        // keep.
+        Err(_) => match producers.produce(0, &test_person(2)).await {
+            Err(FencedProduceError::NotAcquired) => {}
+            other => {
+                panic!("a fence taken across a lapsed claim must be given back, got {other:?}")
+            }
+        },
+        // The surrender lost the race outright — the claim was valid at
+        // both checks, so the warm keeps its fence legitimately. A fast
+        // broker reaches this branch; asserting the fence works keeps
+        // the test meaningful there instead of panicking on good
+        // behavior.
+        Ok(()) => {
+            producers
+                .produce(0, &test_person(2))
+                .await
+                .expect("a warm whose claim never lapsed keeps a working fence");
+        }
+    }
+}
+
+/// The same window on the resume path.
+#[tokio::test]
+async fn a_resume_that_loses_its_claim_mid_acquire_gives_the_fence_back() {
+    let topic = format!("fence_resume_midauth_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    let clock = common::live_authority();
+    let handler = common::test_handoff_handler_with_authority(
+        &topic,
+        Arc::clone(&producers),
+        Arc::clone(&clock),
+    );
+
+    let losing = Arc::clone(&clock);
+    let lease_loss = tokio::spawn(async move {
+        sleep(Duration::from_millis(5)).await;
+        losing.surrender();
+    });
+    let outcome = handler.resume_partition(0).await;
+    lease_loss.await.unwrap();
+
+    match outcome {
+        // The surrender landed inside the resume: the fence it took
+        // across a lapsed claim is not this pod's to keep.
+        Err(_) => match producers.produce(0, &test_person(1)).await {
+            Err(FencedProduceError::NotAcquired) => {}
+            other => {
+                panic!("a fence taken across a lapsed claim must be given back, got {other:?}")
+            }
+        },
+        // The surrender lost the race outright — the claim held at both
+        // checks and the resume keeps a working fence.
+        Ok(()) => {
+            producers
+                .produce(0, &test_person(1))
+                .await
+                .expect("a resume whose claim never lapsed keeps a working fence");
+        }
+    }
+}
+
 /// The drain closes admissions before it waits, not after.
 ///
 /// Waiting first leaves a window where a request admitted during the wait
@@ -877,6 +1177,37 @@ async fn releasing_a_partition_retires_its_fresh_fence_mark() {
         .expect("a resume after a release must take the fence again");
 }
 
+/// The repair pass has to actually run for a condemned partition.
+///
+/// `heal_fence` knows how to retake an epoch this pod gave up on, but
+/// convergence only reaches it through `verify_serving`. Without that
+/// call a condemned partition stays warmed, unfenced, and unwritable for
+/// the life of the process, with no branch left to re-acquire.
+#[tokio::test]
+async fn verifying_a_served_partition_retakes_a_condemned_fence() {
+    let topic = format!("fence_verify_heal_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
+    producers.acquire(0).await.expect("acquire the fence");
+
+    // The state a failed abort or an unknown commit leaves behind.
+    producers.condemn_for_test(0);
+    assert!(
+        !producers.holds(0),
+        "a condemned producer must not still claim the partition"
+    );
+
+    handler
+        .verify_serving(0)
+        .await
+        .expect("verifying a served partition must not fail");
+
+    assert!(
+        producers.holds(0),
+        "a served partition whose fence was condemned must be healed back into service"
+    );
+}
+
 /// A committer that unwinds with subscribers still queued must condemn
 /// the producer, not strand them.
 ///
@@ -924,6 +1255,7 @@ async fn the_derived_production_timescales_compose_against_a_real_broker() {
     let mut config =
         personhog_leader::config::Config::init_from_env().expect("defaults are constructible");
     config.kafka_transactional_fencing = true;
+    config.lease_gated_authority = true;
     config.lease_ttl = 30;
     config.fencing_txn_timeout_ms = 0;
     config.fencing_message_timeout_ms = 0;

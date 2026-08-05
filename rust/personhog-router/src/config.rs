@@ -2,6 +2,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use envconfig::Envconfig;
+use personhog_coordination::authority::AuthorityClock;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -313,6 +314,34 @@ pub struct Config {
 mod tests {
     use super::*;
 
+    fn leased(lease_ttl: i64, heartbeat_interval_secs: u64) -> Config {
+        let mut config = Config::init_from_env().expect("defaults");
+        config.lease_ttl = lease_ttl;
+        config.heartbeat_interval_secs = heartbeat_interval_secs;
+        config
+    }
+
+    /// The keepalive uses the heartbeat as the timeout for each renewal
+    /// round, so a zero one times out instantly and the router fences
+    /// itself against healthy etcd for as long as it runs — taking every
+    /// handoff that needs its freeze ack with it.
+    #[test]
+    fn a_zero_heartbeat_is_refused() {
+        assert!(leased(10, 0).validate_lease_timescales().is_err());
+    }
+
+    /// A heartbeat past the renewal margin exhausts the lease by sleeping,
+    /// with the same result.
+    #[test]
+    fn a_heartbeat_the_lease_cannot_fit_is_refused() {
+        assert!(leased(10, 30).validate_lease_timescales().is_err());
+    }
+
+    #[test]
+    fn a_heartbeat_well_inside_the_margin_is_accepted() {
+        assert!(leased(10, 2).validate_lease_timescales().is_ok());
+    }
+
     // ── ReplicaDiscoveryMode ──────────────────────────────────────────────────
 
     #[test]
@@ -474,6 +503,39 @@ impl Config {
 
     pub fn heartbeat_interval(&self) -> Duration {
         Duration::from_secs(self.heartbeat_interval_secs)
+    }
+
+    /// Refuse a heartbeat the lease cannot survive.
+    ///
+    /// The router holds an etcd lease, publishes an authority stamp, and
+    /// votes in the freeze quorum, all on the same keepalive the leader
+    /// runs — which uses this interval as the timeout for each renewal
+    /// round. A zero one times out instantly and a slow one sleeps
+    /// through the margin, and either exhausts the lease against healthy
+    /// etcd. The router then deregisters and starts over for as long as
+    /// it runs, and every handoff that needs its freeze ack waits on a
+    /// participant that keeps leaving.
+    pub fn validate_lease_timescales(&self) -> Result<(), String> {
+        let margin = AuthorityClock::renewal_margin(self.lease_ttl);
+        let heartbeat = self.heartbeat_interval();
+        if heartbeat.is_zero() {
+            return Err(
+                "HEARTBEAT_INTERVAL_SECS must be greater than zero: the keepalive uses it as \
+                 the timeout for each renewal round, so a zero interval fences the router \
+                 against healthy etcd in a loop it cannot leave"
+                    .to_string(),
+            );
+        }
+        if heartbeat >= margin {
+            return Err(format!(
+                "HEARTBEAT_INTERVAL_SECS ({heartbeat:?}) must be well under the keepalive \
+                 renewal margin ({margin:?} = 2/3 of LEASE_TTL {}s): the sleep between \
+                 renewals would exhaust the margin on its own, and the router would fence \
+                 itself against healthy etcd",
+                self.lease_ttl
+            ));
+        }
+        Ok(())
     }
 
     pub fn coordinator_keepalive_interval(&self) -> Duration {

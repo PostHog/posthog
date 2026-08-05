@@ -66,6 +66,11 @@ impl PartitionedCache {
         self.partitions.iter().map(|c| c.usage_bytes()).sum()
     }
 
+    /// Every partition this pod currently serves.
+    pub fn owned_partitions(&self) -> Vec<u32> {
+        self.partitions.iter().map(|e| *e.key()).collect()
+    }
+
     /// Check if a partition cache exists (i.e., the partition is owned).
     pub fn has_partition(&self, partition: u32) -> bool {
         self.partitions.contains_key(&partition)

@@ -2,13 +2,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use metrics::counter;
+use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::error::{Error, Result};
 use personhog_coordination::pod::HandoffHandler;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::cache::{DirtyIndex, PartitionedCache};
 use crate::emitted::EmittedVersions;
-use crate::fencing::{FenceGuard, FencedChangelogProducers};
+use crate::fencing::{heal_fence, FenceGuard, FencedChangelogProducers};
 use crate::inflight::InflightTracker;
 use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
 
@@ -52,6 +54,13 @@ pub struct LeaderHandoffHandler {
     /// partition initializes its transactional producer (fencing every
     /// predecessor), and releasing it drops the producer.
     fenced: Option<Arc<FencedChangelogProducers>>,
+    /// Present when lease-gated authority is on. Acquiring a fence takes
+    /// the partition's epoch away from whoever holds it, so a pod whose
+    /// lease may have lapsed must not do it: the broker grants the epoch
+    /// to whoever initializes last, not to whoever the protocol says
+    /// owns the partition, so an unchecked acquire lets a zombie waking
+    /// inside its lease window fence the legitimate owner.
+    authority: Option<Arc<AuthorityClock>>,
     /// Shared with the service, so that giving up a partition also gives
     /// up the version floors held for its persons.
     emitted_versions: Arc<EmittedVersions>,
@@ -67,6 +76,7 @@ pub struct LeaderHandoffHandler {
 }
 
 impl LeaderHandoffHandler {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cache: Arc<PartitionedCache>,
         inflight: Arc<InflightTracker>,
@@ -74,6 +84,7 @@ impl LeaderHandoffHandler {
         warming: WarmingConfig,
         pools: Arc<WarmClientPools>,
         fenced: Option<Arc<FencedChangelogProducers>>,
+        authority: Option<Arc<AuthorityClock>>,
         emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
         Self {
@@ -83,6 +94,7 @@ impl LeaderHandoffHandler {
             warming,
             pools,
             fenced,
+            authority,
             emitted_versions,
             freshly_fenced: Arc::new(dashmap::DashSet::new()),
         }
@@ -91,6 +103,68 @@ impl LeaderHandoffHandler {
     pub fn owns_partition(&self, partition: u32) -> bool {
         self.cache.has_partition(partition)
     }
+
+    /// Refuse to take a partition's fence when this pod's own lease may
+    /// have lapsed.
+    ///
+    /// Acquisition is not a private act: `init_transactions` moves the
+    /// broker's epoch to this producer and invalidates the previous
+    /// holder, whoever that is. A pod that has stopped renewing has no
+    /// standing to do that, and doing it anyway is how a waking zombie
+    /// takes the partition away from the owner that legitimately holds
+    /// it. Failing here leaves the convergence to retry once the lease
+    /// is confirmed again, or to end with the session if it is not.
+    /// Re-check after a broker round trip that moved the partition's
+    /// epoch.
+    ///
+    /// `check_authority` before `acquire` is a pre-check across an
+    /// operation that talks to the broker, so the claim can lapse while
+    /// it runs. The epoch bump cannot be undone — `init_transactions`
+    /// has already taken it from whoever held it — but this pod can
+    /// decline to build on a claim it no longer has: it drops the fence
+    /// and fails the convergence rather than serving. The partition's
+    /// real owner re-takes the epoch through its own healing
+    /// re-acquisition, so a fence stolen this way corrects itself
+    /// instead of persisting until the next handoff.
+    fn check_authority_after_acquire(&self, partition: u32, phase: &'static str) -> Result<()> {
+        let Err(e) = self.check_authority(partition, phase) else {
+            return Ok(());
+        };
+        if let Some(fenced) = &self.fenced {
+            fenced.release(partition);
+        }
+        counter!(
+            "personhog_leader_authority_lapsed_mid_acquire_total",
+            "phase" => phase
+        )
+        .increment(1);
+        error!(
+            partition,
+            phase, "authority lapsed while taking the changelog fence; dropping it"
+        );
+        Err(e)
+    }
+
+    fn check_authority(&self, partition: u32, phase: &'static str) -> Result<()> {
+        let Some(authority) = &self.authority else {
+            return Ok(());
+        };
+        if authority.is_valid() {
+            return Ok(());
+        }
+        counter!(
+            "personhog_leader_authority_lapsed_acquires_total",
+            "phase" => phase,
+            "reason" => if authority.is_surrendered() { "surrendered" } else { "stale" }
+        )
+        .increment(1);
+        Err(Error::invalid_state(format!(
+            "refusing to take the changelog fence for partition {partition}: no confirmed \
+             lease renewal in {:?}",
+            authority.since_confirmed()
+        )))
+    }
+
     /// Stage the mark warming leaves behind. Warming itself needs a
     /// broker, and what these tests pin is the mark's lifetime across the
     /// convergences that follow, not how it comes to exist.
@@ -146,6 +220,7 @@ impl HandoffHandler for LeaderHandoffHandler {
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "warming partition cache from kafka");
+        self.check_authority(partition, "warm")?;
         // Broker-side fencing before the warm read, not after: acquiring
         // the fence bumps the producer epoch and aborts any in-flight
         // transaction from a predecessor, so every write a stale owner
@@ -165,6 +240,7 @@ impl HandoffHandler for LeaderHandoffHandler {
                 .acquire(partition)
                 .await
                 .map_err(Error::invalid_state)?;
+            self.check_authority_after_acquire(partition, "warm")?;
             info!(partition, "changelog fence acquired");
             // From here the fence is held for a warm that has not
             // happened yet. If the warm fails — or never returns,
@@ -195,6 +271,17 @@ impl HandoffHandler for LeaderHandoffHandler {
         Ok(())
     }
 
+    /// The partition is meant to be served, so make sure this pod can
+    /// actually write to it. A fence lost to a broker rejection or a
+    /// failed abort has no other way back — convergence sees the
+    /// partition warmed and unfenced and would otherwise do nothing.
+    async fn verify_serving(&self, partition: u32) -> Result<()> {
+        if let Some(fenced) = &self.fenced {
+            heal_fence(fenced, &self.inflight, self.authority.as_deref(), partition).await;
+        }
+        Ok(())
+    }
+
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
         if let Some(fenced) = &self.fenced {
@@ -216,6 +303,7 @@ impl HandoffHandler for LeaderHandoffHandler {
 
     async fn resume_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "handoff cancelled; re-admitting writes");
+        self.check_authority(partition, "resume")?;
         // The cancelled handoff's target may have gotten as far as
         // acquiring the changelog fence, which leaves this pod's producer
         // epoch-stale — every write would fail as fenced until the next
@@ -241,6 +329,7 @@ impl HandoffHandler for LeaderHandoffHandler {
                 .acquire(partition)
                 .await
                 .map_err(Error::invalid_state)?;
+            self.check_authority_after_acquire(partition, "resume")?;
             // Mark it the same way warming does. A convergence torn down
             // between here and the point `apply` records the resume
             // retries with the partition still listed as fenced, and
@@ -309,6 +398,7 @@ mod tests {
                 },
             },
             pools,
+            None,
             None,
             Arc::new(EmittedVersions::new(1_000_000)),
         )
