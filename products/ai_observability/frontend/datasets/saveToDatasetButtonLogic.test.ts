@@ -41,6 +41,7 @@ describe('saveToDatasetButtonLogic', () => {
         archived: false,
         current_revision: null,
         current_revision_id: null,
+        user_access_level: 'editor',
     }
 
     const mockDataset2: Dataset = {
@@ -55,10 +56,11 @@ describe('saveToDatasetButtonLogic', () => {
         archived: false,
         current_revision: null,
         current_revision_id: null,
+        user_access_level: 'editor',
     }
 
     const mockPartialDatasetItem: Partial<DatasetItemCreateApi> = {
-        external_id: 'event-1',
+        client_item_id: 'event-1',
         input: { message: 'Hello' },
         source_output: { response: 'Hi there' },
         metadata: { source: 'test' },
@@ -335,7 +337,7 @@ describe('saveToDatasetButtonLogic', () => {
 
                 expect(mockDatasetsApi.createItem).toHaveBeenCalledWith({
                     dataset: 'test-dataset-1',
-                    external_id: mockPartialDatasetItem.external_id,
+                    client_item_id: mockPartialDatasetItem.client_item_id,
                     input: mockPartialDatasetItem.input,
                     expected_output: undefined,
                     source_output: mockPartialDatasetItem.source_output,

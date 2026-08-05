@@ -24,6 +24,7 @@ from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mapping
 
 from products.actions.backend.models.action import Action
+from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
@@ -246,6 +247,38 @@ def _create_dashboard_tile(team: Team, label: str) -> DashboardTile:
     dashboard = Dashboard.objects.create(team=team, name=f"dashboard_for_tile_{label}")
     insight = Insight.objects.create(team=team, short_id=f"tile_{label}"[:12], name=f"insight_{label}")
     return DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+
+def _create_dataset(team: Team, label: str) -> Dataset:
+    return Dataset.objects.for_team(team.id, canonical=True).create(team=team, name=f"dataset_{label}")
+
+
+def _create_dataset_revision(team: Team, label: str) -> DatasetRevision:
+    dataset = _create_dataset(team, f"for_revision_{label}")
+    return DatasetRevision.objects.for_team(team.id, canonical=True).create(team=team, dataset=dataset, revision=1)
+
+
+def _create_dataset_item(team: Team, label: str) -> DatasetItem:
+    dataset = _create_dataset(team, f"for_item_{label}")
+    return DatasetItem.objects.for_team(team.id, canonical=True).create(
+        team=team, dataset=dataset, client_item_id=f"item_{label}"
+    )
+
+
+def _create_dataset_item_version(team: Team, label: str) -> DatasetItemVersion:
+    dataset = _create_dataset(team, f"for_version_{label}")
+    revision = DatasetRevision.objects.for_team(team.id, canonical=True).create(team=team, dataset=dataset, revision=1)
+    item = DatasetItem.objects.for_team(team.id, canonical=True).create(
+        team=team, dataset=dataset, client_item_id=f"versioned_item_{label}"
+    )
+    return DatasetItemVersion.objects.for_team(team.id, canonical=True).create(
+        team=team,
+        dataset=dataset,
+        dataset_item=item,
+        dataset_revision=revision,
+        version=1,
+        input={"label": label},
+    )
 
 
 def _create_data_modeling_job(team: Team, label: str) -> DataModelingJob:
@@ -737,6 +770,10 @@ SYSTEM_TABLE_FACTORIES = [
     ("custom_property_definitions", _create_custom_property_definition),
     ("dashboards", _create_dashboard),
     ("dashboard_tiles", _create_dashboard_tile),
+    ("dataset_item_versions", _create_dataset_item_version),
+    ("dataset_items", _create_dataset_item),
+    ("dataset_revisions", _create_dataset_revision),
+    ("datasets", _create_dataset),
     ("data_modeling_jobs", _create_data_modeling_job),
     ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
