@@ -4524,3 +4524,34 @@ class TestPardotIntegrationModel(BaseTest):
 
         assert integration.integration_id == "https://acme.my.salesforce.com"
         assert integration.config["expires_in"] == 3600
+
+
+@override_settings(
+    YOUTUBE_ANALYTICS_APP_CLIENT_ID="youtube-client-id",
+    YOUTUBE_ANALYTICS_APP_CLIENT_SECRET="youtube-client-secret",
+)
+class TestYouTubeAnalyticsIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+        assert config.authorize_url == "https://accounts.google.com/o/oauth2/v2/auth"
+        assert config.token_url == "https://oauth2.googleapis.com/token"
+        assert config.client_id == "youtube-client-id"
+        assert config.client_secret == "youtube-client-secret"
+        assert config.id_path == "sub"
+        assert config.name_path == "email"
+        # A refresh token only comes back when consent is forced, and the sync depends on one.
+        assert config.additional_authorize_params == {"access_type": "offline", "prompt": "consent"}
+
+    def test_oauth_config_requests_analytics_and_channel_read_scopes(self):
+        scopes = set(OauthIntegration.oauth_config_for_kind("youtube-analytics").scope.split())
+
+        assert "https://www.googleapis.com/auth/yt-analytics.readonly" in scopes
+        assert "https://www.googleapis.com/auth/youtube.readonly" in scopes
+        # Channel reports carry no revenue metrics, so the monetary scope is never asked for.
+        assert "https://www.googleapis.com/auth/yt-analytics-monetary.readonly" not in scopes
+
+    @override_settings(YOUTUBE_ANALYTICS_APP_CLIENT_ID="", YOUTUBE_ANALYTICS_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
+            OauthIntegration.oauth_config_for_kind("youtube-analytics")

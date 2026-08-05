@@ -584,6 +584,7 @@ class Integration(models.Model):
         TIKTOK_ADS = "tiktok-ads"
         TWILIO = "twilio"
         VERCEL = "vercel"
+        YOUTUBE_ANALYTICS = "youtube-analytics"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -855,6 +856,7 @@ class OauthIntegration:
         "pinterest-ads",
         "stripe",
         "resend",
+        "youtube-analytics",
     ]
     integration: Integration
 
@@ -1060,6 +1062,30 @@ class OauthIntegration:
                 client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
                 client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
                 scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "youtube-analytics":
+            if not settings.YOUTUBE_ANALYTICS_APP_CLIENT_ID or not settings.YOUTUBE_ANALYTICS_APP_CLIENT_SECRET:
+                raise NotImplementedError("YouTube Analytics app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.YOUTUBE_ANALYTICS_APP_CLIENT_ID,
+                client_secret=settings.YOUTUBE_ANALYTICS_APP_CLIENT_SECRET,
+                # `yt-analytics.readonly` reads the reports; `youtube.readonly` lists the account's
+                # channels so the user picks one instead of hunting for its ID. Channel reports carry
+                # no revenue metrics, so `yt-analytics-monetary.readonly` is deliberately not asked for.
+                scope=(
+                    "https://www.googleapis.com/auth/yt-analytics.readonly "
+                    "https://www.googleapis.com/auth/youtube.readonly "
+                    "https://www.googleapis.com/auth/userinfo.email"
+                ),
                 id_path="sub",
                 name_path="email",
             )

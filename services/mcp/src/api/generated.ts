@@ -5611,6 +5611,7 @@ export namespace Schemas {
       AwsS3: 'aws-s3',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
+      YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -39047,6 +39048,7 @@ export namespace Schemas {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
@@ -39096,6 +39098,7 @@ export namespace Schemas {
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
       Vercel: 'vercel',
+      YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
     export interface IntegrationAccessRequest {
@@ -39144,7 +39147,8 @@ export namespace Schemas {
        * * `stripe` - Stripe
        * * `tiktok-ads` - Tiktok Ads
        * * `twilio` - Twilio
-       * * `vercel` - Vercel */
+       * * `vercel` - Vercel
+       * * `youtube-analytics` - Youtube Analytics */
       kind: IntegrationKindEnum;
       /**
          * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
@@ -82917,6 +82921,7 @@ export namespace Schemas {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics
      */
     kind?: IntegrationsListKind;
     /**
@@ -82977,6 +82982,7 @@ export namespace Schemas {
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
       Vercel: 'vercel',
+      YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
     export type IntegrationsChannelsRetrieveParams = {
