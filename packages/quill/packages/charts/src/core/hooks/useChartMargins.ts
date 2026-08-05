@@ -57,7 +57,15 @@ interface UseChartMarginsOptions {
  *  `undefined` through and clobber the computed margin, which turns the whole plot geometry into
  *  `NaN` and renders a blank chart — so a caller building an override object conditionally
  *  (`{ top: reserveOrUndefined }`) gets "leave this side alone" rather than a silent wipeout. */
-export function applyMarginOverride(computed: ChartMargins, override: Partial<ChartMargins>): ChartMargins {
+export function applyMarginOverride(computed: ChartMargins, override: Partial<ChartMargins>): ChartMargins
+export function applyMarginOverride(
+    computed: Partial<ChartMargins>,
+    override: Partial<ChartMargins>
+): Partial<ChartMargins>
+export function applyMarginOverride(
+    computed: Partial<ChartMargins>,
+    override: Partial<ChartMargins>
+): Partial<ChartMargins> {
     const result = { ...computed }
     for (const side of ['top', 'right', 'bottom', 'left'] as const) {
         const value = override[side]
