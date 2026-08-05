@@ -15,7 +15,12 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
-from posthog.clickhouse.client.async_principal import PrincipalRef, rebuild_principal, record_principal_loss
+from posthog.clickhouse.client.async_principal import (
+    PrincipalRef,
+    rebuild_principal,
+    record_principal_loss,
+    serialize_principal,
+)
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
@@ -368,6 +373,10 @@ def enqueue_process_query_task(
     query_tags = get_query_tags().model_dump()
     manager.store_query_status(query_status)
 
+    # Past the early returns (so a deduplicated or already-answered query does no work) but ahead of
+    # the Redis writes below, so a failure here cannot leave a registered cache key with no task.
+    principal = serialize_principal(user)
+
     if cache_key:
         try:
             manager.register_cache_key_mapping(cache_key)
@@ -379,10 +388,11 @@ def enqueue_process_query_task(
     from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
-    # No `principal` kwarg yet, deliberately: a worker running the previous release cannot bind it and
-    # rejects the task with a TypeError, which `autoretry_for` does not cover. This deploy teaches
-    # every worker to accept and rebuild a reference (see `serialize_principal`, which the follow-up
-    # calls here); producing one only once they all can means there is no deploy ordering to get right.
+    # The consumer deploy taught every worker to accept and rebuild this reference, so producing one
+    # is now safe. It is still omitted when there is no principal, keeping the real-user path
+    # byte-identical on the wire, and a principal that cannot be rebuilt on the worker falls back to
+    # the userless (denied) path rather than over-granting.
+    extra_kwargs = {"principal": principal} if principal is not None else {}
     task_signature = process_query_task.si(
         team.id,
         user_id,
@@ -392,6 +402,7 @@ def enqueue_process_query_task(
         is_query_service,
         limit_context,
         analytics_props=analytics_props,
+        **extra_kwargs,
     )
 
     if _test_only_bypass_celery:
