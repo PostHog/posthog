@@ -871,33 +871,40 @@ export interface experimentLogicActions {
     }
     endExperiment: (
         openCleanupPr?: boolean,
-        repository?: string | null
+        repository?: string | null,
+        setRepositoryAsTeamDefault?: boolean
     ) => {
         openCleanupPr: boolean
         repository: string | null
+        setRepositoryAsTeamDefault: boolean
     }
     endExperimentWithoutShipping: (
         openCleanupPr?: boolean,
-        repository?: string | null
+        repository?: string | null,
+        setRepositoryAsTeamDefault?: boolean
     ) => {
         openCleanupPr: boolean
         repository: string | null
+        setRepositoryAsTeamDefault: boolean
     }
     finishExperiment: ({
         selectedVariantKey,
         releaseToEveryone,
         openCleanupPr,
         repository,
+        setRepositoryAsTeamDefault,
     }: {
         openCleanupPr?: boolean
         releaseToEveryone: boolean
         repository?: string | null
         selectedVariantKey: string
+        setRepositoryAsTeamDefault?: boolean
     }) => {
         openCleanupPr: boolean
         releaseToEveryone: boolean
         repository: string | null
         selectedVariantKey: string
+        setRepositoryAsTeamDefault: boolean
     }
     freezeExposure: () => {
         value: true
@@ -1530,29 +1537,42 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
-        endExperiment: (openCleanupPr: boolean = false, repository: string | null = null) => ({
+        endExperiment: (
+            openCleanupPr: boolean = false,
+            repository: string | null = null,
+            setRepositoryAsTeamDefault: boolean = false
+        ) => ({
             openCleanupPr,
             repository,
+            setRepositoryAsTeamDefault,
         }),
-        endExperimentWithoutShipping: (openCleanupPr: boolean = false, repository: string | null = null) => ({
+        endExperimentWithoutShipping: (
+            openCleanupPr: boolean = false,
+            repository: string | null = null,
+            setRepositoryAsTeamDefault: boolean = false
+        ) => ({
             openCleanupPr,
             repository,
+            setRepositoryAsTeamDefault,
         }),
         finishExperiment: ({
             selectedVariantKey,
             releaseToEveryone,
             openCleanupPr,
             repository,
+            setRepositoryAsTeamDefault,
         }: {
             selectedVariantKey: string
             releaseToEveryone: boolean
             openCleanupPr?: boolean
             repository?: string | null
+            setRepositoryAsTeamDefault?: boolean
         }) => ({
             selectedVariantKey,
             releaseToEveryone,
             openCleanupPr: openCleanupPr ?? false,
             repository: repository ?? null,
+            setRepositoryAsTeamDefault: setRepositoryAsTeamDefault ?? false,
         }),
         pauseExperiment: true,
         resumeExperiment: true,
@@ -2426,7 +2446,7 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
             actions.refreshExperimentResults(true, 'config_change')
         },
-        endExperiment: async ({ openCleanupPr, repository }) => {
+        endExperiment: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
             actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
@@ -2436,6 +2456,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         conclusion_comment: values.experiment.conclusion_comment,
                         open_cleanup_pr: openCleanupPr,
                         ...(repository ? { repository } : {}),
+                        ...(setRepositoryAsTeamDefault ? { set_repository_as_team_default: true } : {}),
                     }
                 )
                 actions.setExperiment(response)
@@ -2446,8 +2467,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setEndExperimentLoading(false)
             }
         },
-        endExperimentWithoutShipping: async ({ openCleanupPr, repository }) => {
-            actions.endExperiment(openCleanupPr, repository)
+        endExperimentWithoutShipping: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
+            actions.endExperiment(openCleanupPr, repository, setRepositoryAsTeamDefault)
             actions.closeFinishExperimentModal()
             lemonToast.success('Experiment ended successfully')
 
@@ -2762,7 +2783,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        finishExperiment: async ({ selectedVariantKey, releaseToEveryone, openCleanupPr, repository }) => {
+        finishExperiment: async ({
+            selectedVariantKey,
+            releaseToEveryone,
+            openCleanupPr,
+            repository,
+            setRepositoryAsTeamDefault,
+        }) => {
             actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
@@ -2774,6 +2801,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         conclusion_comment: values.experiment.conclusion_comment,
                         open_cleanup_pr: openCleanupPr,
                         ...(repository ? { repository } : {}),
+                        ...(setRepositoryAsTeamDefault ? { set_repository_as_team_default: true } : {}),
                     }
                 )
                 actions.setExperiment(response)
@@ -2816,15 +2844,28 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...values.experiment.parameters,
                     variant_screenshot_media_ids: variantPreviewMediaIds,
                 }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    parameters: updatedParameters,
-                    update_feature_flag_params: false,
-                })
+                const response: Experiment = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        parameters: updatedParameters,
+                        update_feature_flag_params: false,
+                    }
+                )
+                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
-            } catch {
-                lemonToast.error('Failed to update experiment variant images')
+            } catch (error: any) {
+                if (isExperimentConflictError(error)) {
+                    lemonToast.error(
+                        error.data?.detail ||
+                            'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    )
+                    actions.loadExperiment()
+                } else {
+                    lemonToast.error('Failed to update experiment variant images')
+                }
             }
         },
         updateExperimentVariantNotes: async ({ variantNotes }) => {
@@ -2833,18 +2874,35 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...values.experiment.parameters,
                     variant_notes: variantNotes,
                 }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    parameters: updatedParameters,
-                    update_feature_flag_params: false,
-                })
+                const response: Experiment = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        parameters: updatedParameters,
+                        update_feature_flag_params: false,
+                    }
+                )
+                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
-            } catch {
-                lemonToast.error('Failed to update experiment variant notes')
+            } catch (error: any) {
+                if (isExperimentConflictError(error)) {
+                    lemonToast.error(
+                        error.data?.detail ||
+                            'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    )
+                    actions.loadExperiment()
+                } else {
+                    lemonToast.error('Failed to update experiment variant notes')
+                }
             }
         },
         updateDistribution: async ({ variants, rolloutPercentage }) => {
+            // Resending an unchanged holdout would make every stale distribution save read as a
+            // holdout edit server-side; include it only when the selector actually changed it.
+            const holdoutChanged =
+                (values.experiment.holdout_id ?? null) !== (values.unmodifiedExperiment?.holdout_id ?? null)
             actions.updateExperiment({
                 feature_flag: {
                     filters: {
@@ -2854,7 +2912,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             : {}),
                     },
                 },
-                holdout_id: values.experiment.holdout_id,
+                ...(holdoutChanged ? { holdout_id: values.experiment.holdout_id } : {}),
                 update_feature_flag_params: true,
             })
         },

@@ -1161,6 +1161,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # which system writers should leave it alone (`in_cold_start_grace`).
     COLD_START_GRACE = timedelta(days=14)
 
+    # Bounds on `tags`. Tags are a grouping aid over a fleet an org can only grow so far, not a
+    # taxonomy — the caps keep the column small and the fleet filter's option list scannable.
+    MAX_TAGS = 10
+    MAX_TAG_LENGTH = 50
+
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
     # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
     # (admin changelist queryset, related-object access, prefetch_related) that must not
@@ -1269,6 +1274,29 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # config columns. A Slack destination is active only when both its integration and channel
     # are present; the UI may persist the integration first while the user chooses a channel.
     output_destinations = models.JSONField(default=dict, db_default={})
+    # Free-form labels for grouping the fleet ("revenue", "on-call", "experimental"). Normalized
+    # to lowercase and deduped at the API boundary, so a tag means the same thing whoever typed
+    # it. No GIN index: every read is already scoped to one team, and a team holds at most a
+    # couple of dozen scouts, so `tags && ARRAY[...]` runs over a handful of rows.
+    # `null=True` only so the AddField could land without a NOT NULL rewrite — the migration
+    # backfilled existing rows with `{}` and every write path sends a list, so NULL carries no
+    # meaning. Read through `tag_list` rather than this column so that stays an implementation
+    # detail instead of leaking a nullable `tags` into the API and its generated clients.
+    tags = ArrayField(
+        models.CharField(max_length=MAX_TAG_LENGTH),
+        default=list,
+        null=True,
+        blank=True,
+    )
+    # Optional JSON Schema (draft 2020-12, object-rooted) describing one structured record this
+    # scout produces via `scout-record-output`. Null = the channel is off: the record endpoint
+    # fails closed and the run prompt renders no structured-output section. Records land solely
+    # as `$scout_structured_output` events in the project, so the channel also requires `emit`
+    # (a dry-run scout has nowhere to record to). Serializer-validated (must compile as a
+    # schema, bounded size) — this field is only written through the config API. The schema
+    # describes ONE record; cardinality is the scout's call (one record per run, one per judged
+    # entity, ...), so no separate mode enum is stored.
+    structured_output_schema = models.JSONField(null=True, blank=True)
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -1488,6 +1516,18 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         if self.status == self.Status.ACTIVE and self.status_changed_at is not None:
             anchor = max(anchor, self.status_changed_at)
         return timezone.now() < anchor + self.COLD_START_GRACE
+
+    @property
+    def tag_list(self) -> list[str]:
+        """`tags` with the nullable column's NULL folded away, for readers.
+
+        The API serializes this rather than the column so `tags` is a plain non-null list
+        everywhere downstream. Serializing the column directly would surface `null` in the
+        OpenAPI schema and, through the generated clients, force every consumer to tell "no
+        tags" apart from "not set" — a distinction the column does not actually carry, since
+        the AddField backfilled existing rows and every write path sends a list.
+        """
+        return self.tags or []
 
     def _get_before_update(self, **kwargs: Any) -> "SignalScoutConfig | None":
         # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed

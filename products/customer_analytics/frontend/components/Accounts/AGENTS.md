@@ -125,7 +125,20 @@ The Notes tab is server-paginated, searchable, and sortable (all via `accountNot
 
 ### Deep-link to one account (path route)
 
-`/customer_analytics/accounts/:accountId/:tab` opens a single account directly (separate from the persistent `#view=` filter state). `accountsLogic.urlToAction` reads the route params, validates the id (UUID) and tab (against `ACCOUNT_EXPANSION_TABS`, default `DEFAULT_ACCOUNT_TAB`), sets `accountIdFilter` — which ANDs `toString(id) = '<id>'` into the query's `filterExpression`, filtering the list to just that account — and opens the tab via `openAccountTab`. Returning to the bare `/customer_analytics/accounts` clears `accountIdFilter`. Because it filters by the PK, the id alone is enough; no name/external_id is needed in the link.
+`/customer_analytics/accounts/:accountId/:tab` opens a single account directly (separate from the persistent `#view=` filter state).
+`accountsLogic.urlToAction` reads the route params, validates the id (UUID) and tab (against `ACCOUNT_EXPANSION_TABS`, default `DEFAULT_ACCOUNT_TAB`), sets `accountIdFilter`, and opens the tab via `openAccountTab`.
+Returning to the bare `/customer_analytics/accounts` clears `accountIdFilter`.
+Because it filters by the PK, the id alone is enough; no name/external_id is needed in the link.
+
+A set `accountIdFilter` **replaces** the rest of the query's filters rather than ANDing with them: `applyAccountFilters` emits `toString(id) = '<id>'` alone and returns.
+A deep link has to resolve to its account for whoever opens it, and the viewer's own filters (a restored saved view, the localStorage-persisted "my accounts" toggle) would otherwise exclude it and land them on an empty list.
+
+Two things conspire to bounce a deep link back to the unfiltered list, so keep both in mind when touching URL sync:
+
+- `actionToUrl` mirrors view state into the hash on ~14 setters, and those setters also fire while state is being _restored_ (the default-column upgrade once relationship definitions load, `accountsViewsLogic`'s auto-restored saved view) — not just on user edits.
+  So it writes back to `accountsPathToWriteBackTo(accountIdFilter)`, the path we are already on, never a hardcoded list path.
+- Because the deep-link path can therefore carry a `#view=` hash, its `urlToAction` handlers restore that hash too — but only when one is present.
+  An absent hash there means "just open the account", not "reset the list".
 
 **Build the URL via the canonical helpers, never hand-build the path:**
 

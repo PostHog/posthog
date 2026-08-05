@@ -393,9 +393,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         help_text=(
             "Optimistic-concurrency token. Reads return the experiment's current version, bumped on "
             "every update. Send the version you last read with an update to detect concurrent edits: "
-            "a stale update that only touches the metric collections is merged per metric uuid when "
-            "`original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip "
-            "the check."
+            "a stale update merges concurrent changes where safe — metric collections per metric "
+            "uuid, other fields per field — using the base values sent in `original_experiment`, and "
+            "fails with HTTP 409 only when the same metric or field changed on both sides (or no "
+            "base value was sent for a changed field). Omit to skip the check."
         ),
     )
     original_experiment = serializers.DictField(
@@ -403,11 +404,13 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         allow_null=True,
         write_only=True,
         help_text=(
-            "The metric collections as the client last read them, used together with `version` to "
-            "resolve concurrent metric edits: changes made by other users are merged per metric uuid "
-            "where safe instead of failing. Relevant keys are metrics, metrics_secondary, and "
-            "saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails "
-            "with HTTP 409."
+            "The experiment state as the client last read it, used together with `version` to "
+            "resolve concurrent edits: metric collections merge per metric uuid, and any other "
+            "field the update carries merges per field against its base value here (only a "
+            "same-field double edit fails). Relevant keys are metrics, metrics_secondary, "
+            "saved_metrics_ids, plus the last-read values of whichever scalar fields the update "
+            "writes; unknown keys are ignored. Changed fields without a base value — and, without "
+            "this object, any version mismatch — fail with HTTP 409."
         ),
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -1116,7 +1119,17 @@ class EndExperimentSerializer(serializers.Serializer):
             "GitHub repository to open the cleanup pull request in, in `organization/repository` format. "
             "Only used when open_cleanup_pr is true. It must be one of the team's connected repositories "
             "(see the flag_cleanup_target action); it is then saved as the experiment's repository. When "
-            "omitted, the experiment's saved repository or the team's only connected repository is used."
+            "omitted, the experiment's saved repository, the team's default cleanup repository, or the "
+            "team's only connected repository is used."
+        ),
+    )
+    set_repository_as_team_default = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When true, also save `repository` as this environment's default cleanup repository, used for "
+            "experiments that have no repository of their own. Only acts when open_cleanup_pr is true and "
+            "`repository` is provided and belongs to the team's GitHub installation. Requires project admin "
+            "access (403 otherwise)."
         ),
     )
 
@@ -1156,11 +1169,12 @@ class ExperimentFlagCleanupTargetSerializer(serializers.Serializer):
         help_text="Repository a flag-cleanup pull request would be opened in, or null when none can be determined.",
     )
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=["explicit", "single_repo", "ambiguous", "no_integration"],
+        choices=["explicit", "team_default", "single_repo", "ambiguous", "no_integration"],
         help_text=(
-            "How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the "
-            "team's only connected repository), `ambiguous` (several connected repositories and none saved — "
-            "pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no "
+            "How the repository was determined: `explicit` (saved on the experiment), `team_default` (the "
+            "environment's default cleanup repository), `single_repo` (the team's only connected repository), "
+            "`ambiguous` (several connected repositories and none saved — pass one via repository on "
+            "end/ship_variant), or `no_integration` (no GitHub integration or no "
             "connected repositories, so no cleanup PR can be opened)."
         ),
     )
