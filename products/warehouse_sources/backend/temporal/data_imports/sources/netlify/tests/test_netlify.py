@@ -92,6 +92,9 @@ class TestTopLevelPagination:
 
         assert rows == [{"id": "a"}, {"id": "b"}]
         assert snaps[0]["params"]["per_page"] == 100
+        # filter=all is load-bearing: without it Netlify returns only sites the token's user
+        # personally owns, hiding team sites (and starving every site-scoped fan-out).
+        assert snaps[0]["params"]["filter"] == "all"
         # The next-page URL is self-contained, so its params are dropped on the follow-up request.
         assert snaps[1]["params"] == {}
         # State saved once — after the first page, pointing at the second. The last page has no next
@@ -174,7 +177,7 @@ class TestFanOut:
         session = MockSession.return_value
 
         def route(url: str) -> Response:
-            if url == f"{BASE}/sites?per_page=100":
+            if url == f"{BASE}/sites?filter=all&per_page=100":
                 return _response([{"id": "s1"}], next_url=None)
             if url == f"{BASE}/sites/s1/builds?per_page=100":
                 return _response([{"id": "b1"}], next_url=None)
@@ -213,7 +216,7 @@ class TestFanOut:
         session = MockSession.return_value
 
         def route(url: str) -> Response:
-            if url == f"{BASE}/sites?per_page=100":
+            if url == f"{BASE}/sites?filter=all&per_page=100":
                 return _response([{"id": "s1"}, {"id": "s2"}], next_url=None)
             if url == f"{BASE}/sites/s2/builds?per_page=100":
                 return _response([{"id": "b2"}], next_url=None)
