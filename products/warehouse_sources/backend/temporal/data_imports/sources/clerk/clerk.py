@@ -198,13 +198,15 @@ def _convert_timestamps(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-# Redeemable invitation links Clerk returns on invitation rows. Anyone who can read the
-# warehouse table could otherwise copy one of these and accept the invitation, so drop them
-# before the row is stored. Values are dotted paths into each endpoint's row shape.
+# Secrets Clerk returns on list rows that would let a reader impersonate the object: redeemable
+# invitation links, and the reusable `token` on each m2m_token that authenticates as its machine.
+# Anyone who can read the warehouse table could otherwise copy one, so drop them before the row
+# is stored. Values are dotted paths into each endpoint's row shape.
 SENSITIVE_FIELDS_BY_ENDPOINT: dict[str, tuple[str, ...]] = {
     "invitations": ("url",),
     "organization_invitations": ("url",),
     "waitlist_entries": ("invitation.url",),
+    "m2m_tokens": ("token",),
 }
 
 

@@ -410,7 +410,12 @@ class TestClerkSourceResponse:
         manager.can_resume.return_value = False
         responses = [
             _make_http_response({"data": [{"id": "mch_1"}], "total_count": 1}),
-            _make_http_response({"m2m_tokens": [{"id": "mt_1", "created_at": 1700000000000}], "total_count": 1}),
+            _make_http_response(
+                {
+                    "m2m_tokens": [{"id": "mt_1", "created_at": 1700000000000, "token": "mt_secret"}],
+                    "total_count": 1,
+                }
+            ),
         ]
 
         with patch(
@@ -431,6 +436,7 @@ class TestClerkSourceResponse:
             )
             pages = list(cast(Iterable[Any], source_response.items()))
 
+        # The reusable `token` secret must be stripped before the row reaches the warehouse.
         assert pages == [[{"id": "mt_1", "created_at": 1700000000}]]
 
 
