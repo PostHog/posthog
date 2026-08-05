@@ -10,6 +10,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import psycopg
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
@@ -1168,6 +1169,85 @@ class _EmptyArrowClient:
                 return self.body
 
         yield _Response(body)
+
+
+class TestMaterializeViewDuckgresActivity:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (psycopg.OperationalError("connection failed: server unreachable"), True),
+            (Exception("FATAL: failed to create session: acquire worker: spawn sized worker"), True),
+            (Exception("duckgres control plane unreachable reading team state for team 2"), True),
+            (Exception("Function 'argMax' is not supported in the DuckDB dialect."), False),
+            (Exception("Binder Error: JSON path error near 'survey_response'"), False),
+        ],
+    )
+    def test_is_transient_duckgres_error(self, error, expected):
+        from posthog.temporal.data_modeling.activities.materialize_view_duckgres import _is_transient_duckgres_error
+
+        assert _is_transient_duckgres_error(error) is expected
+
+    async def test_transient_error_raises_for_retry_without_finalizing_job(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        from temporalio.exceptions import ApplicationError
+
+        from posthog.temporal.data_modeling.activities.materialize_view_duckgres import (
+            TRANSIENT_DUCKGRES_ERROR_TYPE,
+            DuckgresShadowInputs,
+            materialize_view_duckgres_activity,
+        )
+        from posthog.temporal.data_modeling.activities.utils import is_node_suspended
+
+        job = await _make_job(
+            ateam, asaved_query, DataModelingJob.Status.RUNNING, engine=DataModelingJobEngine.DUCKGRES
+        )
+        inputs = DuckgresShadowInputs(team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(job.id))
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_duckgres._compile_hogql_to_postgres_sql",
+                return_value=("SELECT 1", {}),
+            ),
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.execute_ducklake_create_table",
+                side_effect=psycopg.OperationalError("connection failed: worker spawn timeout"),
+            ),
+        ):
+            with pytest.raises(ApplicationError) as raised:
+                await activity_environment.run(materialize_view_duckgres_activity, inputs)
+
+        # Temporal retries the raise; the job and suspension state must be untouched
+        # so an infra blip never marks the model failed or benches it.
+        assert raised.value.type == TRANSIENT_DUCKGRES_ERROR_TYPE
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.RUNNING
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is False
+        await database_sync_to_async(job.delete)()
+
+    async def test_query_error_finalizes_job_failed(self, activity_environment, ateam, anode, asaved_query, adag):
+        from posthog.hogql.errors import QueryError
+
+        from posthog.temporal.data_modeling.activities.materialize_view_duckgres import (
+            DuckgresShadowInputs,
+            materialize_view_duckgres_activity,
+        )
+
+        job = await _make_job(
+            ateam, asaved_query, DataModelingJob.Status.RUNNING, engine=DataModelingJobEngine.DUCKGRES
+        )
+        inputs = DuckgresShadowInputs(team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(job.id))
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view_duckgres._compile_hogql_to_postgres_sql",
+            side_effect=QueryError("Function 'argMax' is not supported in the DuckDB dialect."),
+        ):
+            result = await activity_environment.run(materialize_view_duckgres_activity, inputs)
+
+        assert result.error is not None
+        assert "argMax" in result.error
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.FAILED
+        await database_sync_to_async(job.delete)()
 
 
 class TestHogqlTableEmptyResults:

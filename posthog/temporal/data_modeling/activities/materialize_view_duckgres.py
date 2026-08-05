@@ -3,8 +3,10 @@ import typing
 import datetime as dt
 import dataclasses
 
+import psycopg
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -38,6 +40,27 @@ from .utils import (
 LOGGER = get_logger(__name__)
 
 FEATURE_FLAG = "duckgres-data-modeling-shadow"
+
+TRANSIENT_DUCKGRES_ERROR_TYPE = "TransientDuckgresError"
+
+# Substrings of duckgres/control-plane infra failures. Matched case-insensitively
+# against the stringified exception; anything else is treated as a deterministic
+# query error that feeds node suspension.
+_TRANSIENT_ERROR_MARKERS = (
+    "connection",
+    "timeout",
+    "fatal:",
+    "control plane unreachable",
+    "resourceexhausted",
+    "catalog attachment",
+)
+
+
+def _is_transient_duckgres_error(error: BaseException) -> bool:
+    if isinstance(error, psycopg.OperationalError):
+        return True
+    message = str(error).lower()
+    return any(marker in message for marker in _TRANSIENT_ERROR_MARKERS)
 
 
 @dataclasses.dataclass
@@ -224,6 +247,17 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
         return shadow_result
     except Exception as e:
         duration = time.monotonic() - start_time
+        if _is_transient_duckgres_error(e):
+            await logger.awarning(
+                "Duckgres shadow materialization hit a transient error",
+                node_name=node.name,
+                error=str(e),
+                duration_seconds=round(duration, 2),
+            )
+            # Raise so Temporal retries. Infra failures must not finalize the job or
+            # count toward suspension; if every attempt fails, the workflow backstop
+            # marks the job FAILED and the finished metric records status "error".
+            raise ApplicationError(str(e), type=TRANSIENT_DUCKGRES_ERROR_TYPE) from e
         capture_exception(e, {"sql": sql, "inputs": inputs})
         await logger.awarning(
             "Duckgres shadow materialization failed",

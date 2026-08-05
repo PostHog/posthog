@@ -166,8 +166,10 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=20),
+                # The activity only raises for transient duckgres errors (deterministic
+                # query failures return a result), so retries never repeat a doomed query.
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3 if inputs.duckgres_only else 1,
+                    maximum_attempts=3,
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(minutes=5),
                 ),
