@@ -1576,6 +1576,7 @@ export interface sourceWizardLogicActions {
             | 'ServiceNow'
             | 'Servicetitan'
             | 'Servicetrade'
+            | 'Sevalla'
             | 'Sevdesk'
             | 'SevenShifts'
             | 'SFTP'
