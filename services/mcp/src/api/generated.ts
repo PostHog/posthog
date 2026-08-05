@@ -42749,6 +42749,18 @@ export namespace Schemas {
       readonly ticket_number: number;
       /** Status of the merged ticket. */
       readonly status: string;
+      /** Channel the merged ticket came from. */
+      readonly channel_source: string;
+      /**
+         * Email subject of the merged ticket, if any.
+         * @nullable
+         */
+      readonly email_subject: string | null;
+      /**
+         * Truncated preview of the merged ticket's last message.
+         * @nullable
+         */
+      readonly last_message_text: string | null;
       /** When it was merged into this ticket. */
       readonly merged_at: string;
     }

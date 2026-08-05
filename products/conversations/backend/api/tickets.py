@@ -32,7 +32,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
@@ -72,6 +72,9 @@ if TYPE_CHECKING:
     from posthog.models import User
 
 logger = structlog.get_logger(__name__)
+
+# Auto-applied to a ticket when it is merged into another, so duplicates drop out of reporting.
+MERGED_TICKET_TAG = "exclude_from_reporting"
 
 
 class TicketErrorSerializer(serializers.Serializer):
@@ -297,6 +300,13 @@ class MergedTicketSummarySerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Merged ticket UUID.")
     ticket_number = serializers.IntegerField(read_only=True, help_text="Human-readable number of the merged ticket.")
     status = serializers.CharField(read_only=True, help_text="Status of the merged ticket.")
+    channel_source = serializers.CharField(read_only=True, help_text="Channel the merged ticket came from.")
+    email_subject = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Email subject of the merged ticket, if any."
+    )
+    last_message_text = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Truncated preview of the merged ticket's last message."
+    )
     merged_at = serializers.DateTimeField(read_only=True, help_text="When it was merged into this ticket.")
 
 
@@ -1355,6 +1365,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 item_context={"author_type": "support", "is_private": data["target_is_private"]},
             )
 
+            # Merged tickets are duplicates, so flag them out of reporting. Add the tag without
+            # touching the ticket's other tags.
+            tag, _ = Tag.objects.get_or_create(name=MERGED_TICKET_TAG, team_id=self.team_id)
+            source.tagged_items.get_or_create(tag_id=tag.id)
+
         source.refresh_from_db()
 
         if old_status != source.status and (old_status == "resolved" or source.status == "resolved"):
@@ -1380,6 +1395,28 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                             field="merged_into",
                             before=None,
                             after=target.ticket_number,
+                            action="created",
+                        )
+                    ],
+                ),
+            )
+            # Also record it on the target so its activity history shows what was merged into it.
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+                item_id=str(target.id),
+                scope="Ticket",
+                activity="merged",
+                detail=Detail(
+                    name=f"Ticket #{target.ticket_number}",
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="merged_ticket",
+                            before=None,
+                            after=source.ticket_number,
                             action="created",
                         )
                     ],

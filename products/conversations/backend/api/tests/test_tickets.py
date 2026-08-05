@@ -2506,6 +2506,11 @@ class TestTicketMerge(APIBaseTest):
         assert self.source.merged_into_id == self.target.id
         assert self.source.merged_at is not None
         assert TicketAssignment.objects.get(ticket=self.source).user_id == self.user.id
+        # Merged tickets are auto-tagged so they drop out of reporting.
+        assert "exclude_from_reporting" in self.source.tagged_items.values_list("tag__name", flat=True)
+        # Both tickets record the merge in their activity history.
+        assert ActivityLog.objects.filter(scope="Ticket", item_id=str(self.source.id), activity="merged").exists()
+        assert ActivityLog.objects.filter(scope="Ticket", item_id=str(self.target.id), activity="merged").exists()
 
         # Both notes default to private, so each links to the other via the internal agent URL.
         source_comment = self._comment_for(self.source)
