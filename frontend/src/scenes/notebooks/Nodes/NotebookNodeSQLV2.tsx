@@ -41,6 +41,10 @@ export type NotebookNodeSQLV2Attributes = {
     code: string
     // Dataframe name other SQLV2 nodes can reference (inlined as a CTE when they join it).
     returnVariable: string
+    // Where the cell runs: a direct-query data source id, or null/absent for PostHog's ClickHouse.
+    connectionId?: string | null
+    // Send the code to that connection verbatim instead of compiling it from HogQL.
+    sendRawQuery?: boolean | null
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
     // How the run that produced `result` ended. An interrupt persists a partial result just
@@ -155,15 +159,21 @@ const Component = ({
     const cachedResults = useMemo(() => (result ? toCachedResults(result) : null), [result])
     const activeTab = attributes.outputTab === OutputTab.Visualization ? OutputTab.Visualization : OutputTab.Results
 
-    // The stored viz config wins, but the source always tracks the node's current code.
+    // The stored viz config wins, but the source always tracks the node's current code — and the
+    // connection it runs on, so anything the viz layer re-queries lands on the same engine.
     const vizQuery = useMemo(
         (): DataVisualizationNode => ({
             kind: NodeKind.DataVisualizationNode,
             display: ChartDisplayType.ActionsLineGraph,
             ...attributes.vizQuery,
-            source: { kind: NodeKind.HogQLQuery, query: attributes.code },
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: attributes.code,
+                connectionId: attributes.connectionId ?? undefined,
+                sendRawQuery: attributes.connectionId ? !!attributes.sendRawQuery || undefined : undefined,
+            },
         }),
-        [attributes.vizQuery, attributes.code]
+        [attributes.vizQuery, attributes.code, attributes.connectionId, attributes.sendRawQuery]
     )
 
     // Grow a still-too-short node to fit the result each run lands, so output is readable without
@@ -359,9 +369,12 @@ const Settings = ({
             attributes={attributes}
             updateAttributes={updateAttributes}
             tabIdSuffix="datav2"
+            persistConnection
             // Refs come from the notebook content, not the tiptap editor: markdown notebooks
             // (the only surface with SQLV2 cells) have no tiptap editor at all.
-            onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId))}
+            onRunQuery={(code, connection) =>
+                runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId), connection)
+            }
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL query"
@@ -387,6 +400,12 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
         // carry their persisted name ('sql_df' was the old default) and keep exporting it.
         returnVariable: {
             default: '',
+        },
+        connectionId: {
+            default: null,
+        },
+        sendRawQuery: {
+            default: false,
         },
         runId: {
             default: null,
