@@ -3850,6 +3850,10 @@
             "description": "Fires when a message is sent in a support conversation.",
             "label": "Conversation message sent"
         },
+        "$conversation_private_message_sent": {
+            "description": "Fires when a team member sends a private note in a support conversation.",
+            "label": "Conversation private message sent"
+        },
         "$conversation_ticket_assigned": {
             "description": "Fires when a support conversation ticket is assigned to an actor.",
             "label": "Conversation ticket assigned"

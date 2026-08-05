@@ -39,7 +39,7 @@ const MANAGED_WAREHOUSE_DOMAINS: Partial<Record<Region, string>> = {
 }
 
 // The schema name is used verbatim as a SQL identifier (and as the backfill table suffix), so
-// it must already be safe. Mirrors validate_schema_name in posthog/ducklake/common.py.
+// it must already be safe. Mirrors validate_schema_name in products/managed_warehouse/backend/common.py.
 const SCHEMA_NAME_REGEX = /^[a-z0-9_]{1,63}$/
 
 const databaseNameStorageKey = (teamId: number | null): string =>

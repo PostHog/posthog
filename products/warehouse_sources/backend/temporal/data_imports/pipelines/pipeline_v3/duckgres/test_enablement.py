@@ -1,35 +1,43 @@
+from dataclasses import replace
+
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.ducklake import cp_teams
-from posthog.ducklake.models import DuckgresServer
 from posthog.models import Organization, Team
 
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseTableNames,
+    ManagedWarehouseTeamMembership,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import enablement
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
     is_duckgres_sink_team_member,
 )
 
 
-@pytest.fixture(autouse=True)
-def _reset_cp_cache():
-    cp_teams.clear_cache()
-    yield
-    cp_teams.clear_cache()
+def _cp_row(team: Team, *, backfill_enabled: bool = True) -> ManagedWarehouseTeamMembership:
+    schema_name = f"team_{team.id}"
+    return ManagedWarehouseTeamMembership(
+        team_id=team.id,
+        organization_id=str(team.organization_id),
+        schema_name=schema_name,
+        enabled=True,
+        backfill_enabled=backfill_enabled,
+        table_names=ManagedWarehouseTableNames(
+            events_table=f"events_{schema_name}",
+            persons_table=f"persons_{schema_name}",
+            data_imports_schema=f"posthog_data_imports_{schema_name}",
+        ),
+        earliest_event_date=None,
+    )
 
 
-def _cp_row(team: Team, *, backfill_enabled: bool = True) -> dict:
-    return {
-        "org_id": str(team.organization_id),
-        "team_id": team.id,
-        "schema_name": f"team_{team.id}",
-        "enabled": True,
-        "backfill_enabled": backfill_enabled,
-    }
+def _patch_all_rows(rows: list[ManagedWarehouseTeamMembership] | None):
+    return patch.object(enablement, "list_team_memberships", return_value=rows)
 
 
-def _patch_all_rows(rows):
-    return patch("posthog.ducklake.cp_teams._fetch_all_rows", return_value=rows)
+def _patch_budgets(budgets: dict[str, int]):
+    return patch.object(enablement, "sink_concurrency_by_trusted_organization_ids", return_value=budgets)
 
 
 @pytest.mark.django_db
@@ -42,10 +50,9 @@ def test_duckgres_sink_flag_evaluated_locally_with_group_properties(
     org+project group properties supplied inline and only-local evaluation."""
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
-    DuckgresServer.objects.create(organization=org, host="h", username="root", password="x")
     mock_feature_enabled.return_value = True
 
-    with _patch_all_rows([_cp_row(team)]):
+    with _patch_all_rows([_cp_row(team)]), _patch_budgets({str(org.id): 4}):
         result = enablement.duckgres_sink_enablement()
 
     assert result is not None
@@ -74,10 +81,9 @@ def test_duckgres_sink_skips_team_when_flag_unresolved_locally(
     falsy value must skip the team, never claim it."""
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
-    DuckgresServer.objects.create(organization=org, host="h", username="root", password="x")
     mock_feature_enabled.return_value = None
 
-    with _patch_all_rows([_cp_row(team)]):
+    with _patch_all_rows([_cp_row(team)]), _patch_budgets({str(org.id): 4}):
         result = enablement.duckgres_sink_enablement()
 
     assert result is not None
@@ -97,13 +103,14 @@ def test_duckgres_sink_enablement_uses_memberships_and_carries_org_budgets(
     team_a = Team.objects.create(organization=org_a)
     team_b = Team.objects.create(organization=org_b)
     Team.objects.create(organization=org_a)
-    DuckgresServer.objects.create(organization=org_a, host="h", username="root", password="x")
-    DuckgresServer.objects.create(organization=org_b, host="h", username="root", password="x", sink_max_concurrency=7)
     mock_feature_enabled.return_value = True
 
     # Disabled events backfill does not revoke sink membership; the unregistered third
     # team is never evaluated even though its org is provisioned.
-    with _patch_all_rows([_cp_row(team_a), _cp_row(team_b, backfill_enabled=False)]):
+    with (
+        _patch_all_rows([_cp_row(team_a), _cp_row(team_b, backfill_enabled=False)]),
+        _patch_budgets({str(org_a.id): 4, str(org_b.id): 7}),
+    ):
         result = enablement.duckgres_sink_enablement()
 
     assert result is not None
@@ -127,13 +134,11 @@ def test_duckgres_sink_enablement_ignores_non_uuid_control_plane_org_ids(
     should just fail the org match-up and be skipped, like any other mismatched row."""
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
-    DuckgresServer.objects.create(organization=org, host="h", username="root", password="x")
     mock_feature_enabled.return_value = True
 
-    mismatched_row = _cp_row(team)
-    mismatched_row["org_id"] = "not-a-uuid-slug"
+    mismatched_row = replace(_cp_row(team), organization_id="not-a-uuid-slug")
 
-    with _patch_all_rows([_cp_row(team), mismatched_row]):
+    with _patch_all_rows([_cp_row(team), mismatched_row]), _patch_budgets({str(org.id): 4}):
         result = enablement.duckgres_sink_enablement()
 
     assert result is not None
@@ -162,11 +167,10 @@ def test_is_duckgres_sink_team_member_reads_the_control_plane() -> None:
     member = Team.objects.create(organization=org)
     non_member = Team.objects.create(organization=org)
 
-    with patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=[_cp_row(member)]):
+    with patch.object(enablement, "list_org_team_memberships", return_value=[_cp_row(member)]):
         assert is_duckgres_sink_team_member(member.id) is True
         assert is_duckgres_sink_team_member(non_member.id) is False
 
-    cp_teams.clear_cache()
-    with patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=None):
+    with patch.object(enablement, "list_org_team_memberships", return_value=None):
         with pytest.raises(RuntimeError):
             is_duckgres_sink_team_member(member.id)

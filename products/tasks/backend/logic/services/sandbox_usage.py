@@ -19,7 +19,7 @@ from typing import ParamSpec, TypeVar
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Case, F, Q, Value, When
 from django.utils import timezone
 
 import structlog
@@ -59,7 +59,7 @@ def open_sandbox_session(
             run = (
                 TaskRun.objects.select_for_update(of=("self",))
                 .select_related("task")
-                .only("id", "team_id", "state", "task__origin_product")
+                .only("id", "team_id", "state", "task__origin_product", "task__client_provenance")
                 .get(id=run_id)
             )
             state = run.state or {}
@@ -84,6 +84,7 @@ def open_sandbox_session(
                 defaults=shape,
                 create_defaults={
                     **shape,
+                    "client_provenance": run.task.client_provenance,
                     "user_attributed_at": None if state.get("await_user_message") else timezone.now(),
                 },
             )
@@ -122,7 +123,16 @@ def record_task_run_user_activity(run_id: str | UUID, team_id: int) -> None:
     run_uuid = run_id if isinstance(run_id, UUID) else UUID(run_id)
     open_sessions = SandboxSession.objects.for_team(team_id).filter(task_run_id=run_uuid, ended_at__isnull=True)
     open_sessions.update(last_user_activity_at=now)
-    open_sessions.filter(user_attributed_at__isnull=True).update(user_attributed_at=now)
+    client_provenance = (
+        TaskRun.objects.filter(id=run_uuid, team_id=team_id).values_list("task__client_provenance", flat=True).first()
+    )
+    open_sessions.filter(user_attributed_at__isnull=True).update(
+        user_attributed_at=now,
+        client_provenance=Case(
+            When(client_provenance__isnull=True, then=Value(client_provenance)),
+            default=F("client_provenance"),
+        ),
+    )
 
 
 @dataclass(frozen=True)
