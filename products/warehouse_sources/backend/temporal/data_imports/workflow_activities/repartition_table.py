@@ -527,14 +527,24 @@ def _handle_failure(
     )
 
     if attempts >= MAX_REPARTITION_ATTEMPTS:
-        props["final"] = True
-        schema.clear_repartition_pending()
-        schema.clear_repartition_swap()
-        # Engage the cooldown as well, or the give-up never takes effect: the trigger that queued
-        # this rewrite (the largest partition is over budget) is just as true on the next sync and
-        # the layout is unchanged, so detection re-flags the table immediately with `attempts` back
-        # at 0 and the three attempts start over. The cooldown re-evaluates at most daily instead.
-        schema.stamp_last_repartition_at()
+        if (schema.repartition_swap or {}).get("state") == "ready":
+            # Never drop a staged swap from a failure path: once the marker is recorded, the swap
+            # may already have purged live, which makes temp the only complete copy of the table.
+            # Clearing the marker here would strand that temp for the next rebuild's sweep to
+            # delete, and the following sync would bootstrap an empty table over the lost data. So
+            # keep the markers and let every later sync retry the swap from temp: wasted compute is
+            # recoverable, the table is not.
+            props["swap_kept"] = True
+            schema.set_repartition_pending({**pending, "attempts": attempts})
+        else:
+            props["final"] = True
+            schema.clear_repartition_pending()
+            schema.clear_repartition_swap()
+            # Engage the cooldown as well, or the give-up never takes effect: the trigger that queued
+            # this rewrite (the largest partition is over budget) is just as true on the next sync and
+            # the layout is unchanged, so detection re-flags the table immediately with `attempts` back
+            # at 0 and the three attempts start over. The cooldown re-evaluates at most daily instead.
+            schema.stamp_last_repartition_at()
     else:
         updated = {**pending, "attempts": attempts}
         schema.set_repartition_pending(updated)
