@@ -228,10 +228,7 @@ interface TestableServer {
     run: TaskRun | null,
   ): Promise<void>;
   detectedPrUrl: string | null;
-  slackArtifactDelivery: {
-    livingArtifactsEnabled: boolean;
-    canvasFileArtifactsEnabled: boolean;
-  } | null;
+  slackArtifactDelivery: "none" | "message" | "canvas_file" | null;
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -4017,34 +4014,22 @@ describe("AgentServer HTTP Mode", () => {
   describe("buildCloudSystemPrompt", () => {
     it.each([
       {
-        name: "canvas and file adapters available",
-        delivery: {
-          livingArtifactsEnabled: true,
-          canvasFileArtifactsEnabled: true,
-        },
+        delivery: "canvas_file" as const,
         expected: "`slack_canvas`, `slack_message`, `slack_file`",
         notExpected: "You do not have canvas or file delivery",
       },
       {
-        name: "canvas and file adapters unavailable",
-        delivery: {
-          livingArtifactsEnabled: true,
-          canvasFileArtifactsEnabled: false,
-        },
+        delivery: "message" as const,
         expected: "You do not have canvas or file delivery in this workspace",
         notExpected: "`slack_canvas`, `slack_message`, `slack_file`",
       },
       {
-        name: "artifact delivery off entirely",
-        delivery: {
-          livingArtifactsEnabled: false,
-          canvasFileArtifactsEnabled: false,
-        },
+        delivery: "none" as const,
         expected: "You do not have artifact delivery in this workspace",
         notExpected: "create a living artifact before claiming delivery",
       },
     ])(
-      "offers only the Slack delivery routes the workspace has: $name",
+      "offers only the Slack delivery routes the workspace has: $delivery",
       ({ delivery, expected, notExpected }) => {
         const s = createServer() as unknown as TestableServer;
         s.slackArtifactDelivery = delivery;

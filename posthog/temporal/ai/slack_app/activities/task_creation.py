@@ -34,20 +34,10 @@ _INITIATOR_PLACEHOLDER = "<original user message was here>"
 
 # Slack scopes the canvas/file living-artifact adapters check at delivery time.
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({"canvases:write", "files:write"})
-
-
-def _canvas_file_delivery_available(integration: Integration) -> bool:
-    """Whether the workspace can actually deliver canvas/file artifacts.
-
-    The prompt offer must match delivery capability — the rollout flag AND the Slack
-    scopes the adapters check at delivery time — so the agent is never invited to
-    create an artifact that delivery will reject.
-    """
-    from products.slack_app.backend.feature_flags import is_slack_app_canvas_file_artifacts_enabled  # noqa: PLC0415
-
-    if not is_slack_app_canvas_file_artifacts_enabled(integration):
-        return False
-    return not SlackIntegration(integration).missing_scopes(_SLACK_CANVAS_FILE_ADAPTER_SCOPES)
+_SLACK_ARTIFACT_DELIVERY_KEY = "slack_artifact_delivery"
+_SLACK_ARTIFACT_DELIVERY_NONE = "none"
+_SLACK_ARTIFACT_DELIVERY_MESSAGE = "message"
+_SLACK_ARTIFACT_DELIVERY_CANVAS_FILE = "canvas_file"
 
 
 # Cap on how many messages a single follow-up update block can carry. Threads with
@@ -125,20 +115,28 @@ def _indent_body(text: str, indent: str = "  ") -> str:
 
 
 def _artifact_delivery_state_updates(integration: Integration) -> dict[str, Any]:
-    """Run-state keys telling the agent which Slack delivery routes this workspace has.
+    """Run state telling the agent which Slack delivery routes this workspace has.
 
-    The agent turns these into its delivery constraints, so the wording lives with the
-    agent and the feature-flag and Slack-scope checks stay here. Both are resolved when
-    the run is created, before the sandbox boots and reads the state.
+    The agent turns the mode into its delivery constraints, so the wording lives with the
+    agent and the gating stays here. Canvas and file delivery needs its own rollout flag
+    *and* the Slack scopes the adapters write with, so that the agent is never invited to
+    create an artifact delivery would reject. Resolved when the run is created, before the
+    sandbox boots and reads the state.
     """
-    from products.slack_app.backend.feature_flags import is_slack_app_living_artifacts_enabled  # noqa: PLC0415
+    from products.slack_app.backend.feature_flags import (  # noqa: PLC0415
+        is_slack_app_canvas_file_artifacts_enabled,
+        is_slack_app_living_artifacts_enabled,
+    )
 
-    living_artifacts_enabled = is_slack_app_living_artifacts_enabled(integration)
-    return {
-        "slack_living_artifacts_enabled": living_artifacts_enabled,
-        "slack_canvas_file_artifacts_enabled": living_artifacts_enabled
-        and _canvas_file_delivery_available(integration),
-    }
+    if not is_slack_app_living_artifacts_enabled(integration):
+        mode = _SLACK_ARTIFACT_DELIVERY_NONE
+    elif is_slack_app_canvas_file_artifacts_enabled(integration) and not SlackIntegration(integration).missing_scopes(
+        _SLACK_CANVAS_FILE_ADAPTER_SCOPES
+    ):
+        mode = _SLACK_ARTIFACT_DELIVERY_CANVAS_FILE
+    else:
+        mode = _SLACK_ARTIFACT_DELIVERY_MESSAGE
+    return {_SLACK_ARTIFACT_DELIVERY_KEY: mode}
 
 
 def _uploaded_attachment_ids(uploaded_artifacts: list[dict[str, Any]]) -> list[str]:

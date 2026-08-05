@@ -21,7 +21,6 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     _THREAD_CONTEXT_UPDATE_TAG,
     _artifact_delivery_state_updates,
     _build_posthog_code_task_description,
-    _canvas_file_delivery_available,
     _format_author_token,
     _indent_body,
     build_thread_context_update_block,
@@ -55,38 +54,45 @@ def test_indent_body_preserves_blank_lines_without_trailing_whitespace():
     assert _indent_body("a\n\nb") == "  a\n\n  b"
 
 
-def test_build_description_keeps_the_prompt_bare_when_thread_has_only_initiator():
-    # Single-message threads don't need a context block — the initiator's text
-    # *is* the entire context, and we already keep it as the prompt below the
-    # divider. Wrapping it would just add noise.
+@pytest.mark.parametrize(
+    "thread_messages,initiator_text,expected",
+    [
+        # A single-message thread needs no context block — the initiator's text *is* the
+        # entire context, and it is already the prompt below the divider.
+        (
+            [{"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"}],
+            "do something",
+            "do something",
+        ),
+        ([], "   ", "Task from Slack"),
+    ],
+)
+def test_build_description_keeps_the_prompt_bare_without_a_context_block(thread_messages, initiator_text, expected):
     out = _build_posthog_code_task_description(
-        "do something",
-        [{"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"}],
+        initiator_text,
+        thread_messages,
         "1234.5678",
         mentioner_slack_user_id="U_GEORGIY",
     )
-    assert out == "do something"
-
-
-def test_build_description_falls_back_to_default_prompt_when_initiator_text_is_blank():
-    assert _build_posthog_code_task_description("   ", [], None) == "Task from Slack"
+    assert out == expected
 
 
 @pytest.mark.parametrize(
-    "living_enabled,canvas_flag_enabled,granted_scopes,expected_canvas_file",
+    "living_enabled,canvas_flag_enabled,granted_scopes,expected_mode",
     [
-        (True, True, "chat:write,canvases:write,files:write", True),
-        (True, True, "chat:write", False),
-        (True, False, "chat:write,canvases:write,files:write", False),
-        (False, True, "chat:write,canvases:write,files:write", False),
+        (True, True, "chat:write,canvases:write,files:write", "canvas_file"),
+        (True, True, "chat:write,canvases:write", "message"),
+        (True, True, "chat:write", "message"),
+        (True, False, "chat:write,canvases:write,files:write", "message"),
+        (False, True, "chat:write,canvases:write,files:write", "none"),
     ],
 )
-def test_artifact_delivery_state_updates_never_offers_more_than_the_umbrella_gate(
-    living_enabled, canvas_flag_enabled, granted_scopes, expected_canvas_file
+def test_artifact_delivery_mode_offers_only_what_delivery_accepts(
+    living_enabled, canvas_flag_enabled, granted_scopes, expected_mode
 ):
-    # The agent reads these two keys to decide which delivery routes to offer, so
-    # canvas/file must stay off whenever living artifacts are off — a workspace with
-    # the canvas flag on but the umbrella gate off can deliver nothing at all.
+    # The agent offers whatever this mode says, so it must never claim more than the
+    # workspace has: canvas/file needs its flag AND both scopes AND the umbrella gate,
+    # or the agent promises an artifact the adapters then reject.
     integration = Integration(kind="slack", config={"scope": granted_scopes})
 
     with (
@@ -99,32 +105,7 @@ def test_artifact_delivery_state_updates_never_offers_more_than_the_umbrella_gat
             return_value=canvas_flag_enabled,
         ),
     ):
-        assert _artifact_delivery_state_updates(integration) == {
-            "slack_living_artifacts_enabled": living_enabled,
-            "slack_canvas_file_artifacts_enabled": expected_canvas_file,
-        }
-
-
-@pytest.mark.parametrize(
-    "flag_enabled,granted_scopes,expected",
-    [
-        (True, "chat:write,canvases:write,files:write", True),
-        (True, "chat:write,canvases:write", False),
-        (True, "chat:write", False),
-        (False, "chat:write,canvases:write,files:write", False),
-    ],
-)
-def test_canvas_file_delivery_requires_flag_and_scopes(flag_enabled, granted_scopes, expected):
-    # A flag-on workspace whose Slack install lacks the adapter scopes must not be
-    # offered canvas/file delivery in the prompt — the agent would create artifacts
-    # that delivery then rejects. Capability = rollout flag AND granted scopes.
-    integration = Integration(kind="slack", config={"scope": granted_scopes})
-
-    with patch(
-        "products.slack_app.backend.feature_flags.is_slack_app_canvas_file_artifacts_enabled",
-        return_value=flag_enabled,
-    ):
-        assert _canvas_file_delivery_available(integration) is expected
+        assert _artifact_delivery_state_updates(integration) == {"slack_artifact_delivery": expected_mode}
 
 
 def test_build_description_renders_labeled_mention_for_each_author():
