@@ -46,8 +46,11 @@ class EmailVerifier:
     ) -> None:
         # `target_email` pins the recipient to the address the token authorizes; callers with a
         # stable email leave it None and the recipient falls back to the user's pending_email.
+        # Dispatched via the broker (not called inline) so a slow email provider can't block the
+        # request. Callers invoke this after their own transaction has committed the user row,
+        # so the worker never races reading it.
         try:
-            send_email_verification(user.pk, token, next_url, target_email)
+            send_email_verification.apply_async(args=[user.pk, token, next_url, target_email])
         except Exception as e:
             capture_exception(Exception(f"Verification email failed: {e}"))
             raise exceptions.APIException(

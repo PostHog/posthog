@@ -756,7 +756,7 @@ class TestUserAPI(APIBaseTest):
             assert self.user.pending_email == "beta@example.com"
 
             mock_is_email_available.assert_called_once()
-            mock_send_email_verification.assert_called_once()
+            mock_send_email_verification.apply_async.assert_called_once()
 
             token = email_verification_token_generator.make_token(self.user)
             with freeze_time("2020-01-01T21:37:00+00:00"):
@@ -819,7 +819,7 @@ class TestUserAPI(APIBaseTest):
 
             assert response.status_code == status.HTTP_200_OK
             mock_is_email_available.assert_called_once()
-            mock_send_email_verification.assert_called_once()
+            mock_send_email_verification.apply_async.assert_called_once()
 
             token = email_verification_token_generator.make_token(self.user)
             response = self.client.post(

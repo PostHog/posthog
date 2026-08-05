@@ -483,7 +483,7 @@ def send_email_verification(
     # Pin the recipient to the email the token authorizes (the caller-captured `target_email`)
     # rather than re-reading `pending_email`, which a concurrent email change could have drifted.
     message.add_user_recipient(user, email_override=target_email if target_email is not None else user.pending_email)
-    message.send(send_async=False)
+    message.send()
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="verification email sent",
