@@ -7,6 +7,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import {
+    buildRunCreateRequest,
     DEFAULT_COMPOSER_EFFORT,
     DEFAULT_COMPOSER_MODEL,
     resolveEffortForModel,
@@ -17,12 +18,7 @@ import {
     type PermissionMode,
 } from 'products/posthog_ai/frontend/utils/composerModes'
 import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
-import {
-    ClaudeRuntimeAdapterEnumApi,
-    type ClaudeTaskRunCreateSchemaApi,
-    type ModelChoiceApi,
-    type ReasoningEffortEnumApi,
-} from 'products/tasks/frontend/generated/api.schemas'
+import { type ModelChoiceApi, type ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord } from '../types/streamTypes'
@@ -74,7 +70,7 @@ const MODE_CONFIG_ID = 'mode'
 export interface runInteractionLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
-    claudeModels: ModelChoiceApi[] // modelCatalogueLogic
+    catalogue: ModelChoiceApi[] // modelCatalogueLogic
     seenContextLinesByTask: Record<string, string[]> // attachedContextLogic
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
     currentProjectId: number | null // projectLogic
@@ -351,7 +347,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             aiConsentLogic,
             ['dataProcessingAccepted'],
             modelCatalogueLogic,
-            ['claudeModels'],
+            ['catalogue'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -540,7 +536,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             (override: string | null, current): string => override ?? current ?? DEFAULT_COMPOSER_MODEL,
         ],
         selectedEffort: [
-            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.selectedModel, s.claudeModels],
+            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.selectedModel, s.catalogue],
             (
                 override: string | null,
                 current: string | null | undefined,
@@ -653,7 +649,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // successful sync so the next send retries an unsent change.
                     const activeModel = values.sentModel ?? props.currentModel ?? DEFAULT_COMPOSER_MODEL
                     const activeEffort = resolveEffortForModel(
-                        values.claudeModels,
+                        values.catalogue,
                         values.sentEffort ?? props.currentEffort ?? DEFAULT_COMPOSER_EFFORT,
                         activeModel
                     )
@@ -722,7 +718,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             // unsupported value. No network here: the pick is synced to the agent at send time.
             setModel: ({ model }) => {
                 const currentEffort = values.effortOverride ?? props.currentEffort
-                const resolvedEffort = resolveEffortForModel(values.claudeModels, currentEffort, model)
+                const resolvedEffort = resolveEffortForModel(values.catalogue, currentEffort, model)
                 if (resolvedEffort !== currentEffort) {
                     actions.setEffort(resolvedEffort)
                 }
@@ -742,14 +738,16 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
                     // carries the new run id as `latest_run`; the consumer-provided `onRunStarted` re-points to it.
-                    const createRequest: ClaudeTaskRunCreateSchemaApi = {
-                        runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
-                        model: values.selectedModel,
-                        reasoning_effort: values.selectedEffort,
-                        initial_permission_mode: values.selectedMode,
-                        resume_from_run_id: props.runId,
-                        pending_user_message: wrapWithPosthogContext(content, pendingContext),
-                    }
+                    const createRequest = buildRunCreateRequest(
+                        values.catalogue,
+                        values.selectedModel,
+                        values.selectedEffort,
+                        values.selectedMode,
+                        {
+                            resume_from_run_id: props.runId,
+                            pending_user_message: wrapWithPosthogContext(content, pendingContext),
+                        }
+                    )
                     const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
                     actions.resetComposerForm()
                     markPendingContextSent(pendingContext)

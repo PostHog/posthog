@@ -120,7 +120,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
         consentBlocked,
         selectedMode,
     } = useValues(runInteractionLogic(logicProps))
-    const { claudeModels } = useValues(modelCatalogueLogic)
+    const { catalogue } = useValues(modelCatalogueLogic)
     const {
         setComposerFormValues,
         submitComposerForm,
@@ -172,7 +172,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                         or used to seed the next run once terminal. */}
                         <ComposerModePicker selectedMode={selectedMode} onModeChange={setMode} />
                         <ComposerModelEffortPickers
-                            models={claudeModels}
+                            models={catalogue}
                             selectedModel={selectedModel}
                             selectedEffort={selectedEffort}
                             onModelChange={setModel}

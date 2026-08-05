@@ -10,7 +10,6 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
-    ClaudeRuntimeAdapterEnumApi,
     type ModelChoiceApi,
     OriginProductEnumApi,
     ReasoningEffortEnumApi,
@@ -32,7 +31,12 @@ import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import type { AttachedContextItem } from '../../types/contextTypes'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
-import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
+import {
+    buildRunCreateRequest,
+    DEFAULT_COMPOSER_EFFORT,
+    DEFAULT_COMPOSER_MODEL,
+    resolveEffortForModel,
+} from '../../utils/composerModels'
 import { DEFAULT_COMPOSER_MODE, type PermissionMode } from '../../utils/composerModes'
 import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
 
@@ -77,7 +81,7 @@ export interface taskTrackerSceneLogicValues {
     contextItems: AttachedContextItem[] // attachedContextLogic
     seed: ComposerSeed | null // composerSeedLogic
     integrations: IntegrationType[] | null // integrationsLogic
-    claudeModels: ModelChoiceApi[] // modelCatalogueLogic
+    catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     historyExpanded: boolean // runnerPanelLogic
@@ -317,7 +321,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             composerSeedLogic(props),
             ['seed'],
             modelCatalogueLogic,
-            ['claudeModels'],
+            ['catalogue'],
         ],
         actions: [
             runnerPanelLogic(props),
@@ -512,22 +516,28 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
                 // run checks out the chosen branch (server falls back to the repo's default branch if unset)
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
-                const runResponse = await tasksRunCreate(projectId, newTask.id, {
-                    branch: repositoryConfig.branch ?? null,
-                    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
-                    model,
-                    reasoning_effort: resolveEffortForModel(values.claudeModels, reasoningEffort, model),
-                    initial_permission_mode: permissionMode,
-                    // Interactive keeps the sandbox agent-server's event stream open across turns, so
-                    // follow-up messages stream their reply over the same SSE (background runs seal the
-                    // stream after the first turn). Interactive runs boot with the agent-server pulling
-                    // pending_user_message from run state (the workflow doesn't forward it), so seed the
-                    // typed message as turn 1 — otherwise the first prompt is lost and the run idles.
-                    mode: TaskExecutionModeEnumApi.Interactive,
-                    // Wrap only the message sent to the agent with the on-screen context block; the task
-                    // `description` field and the optimistic seed (`startOptimisticRun`) stay raw.
-                    pending_user_message: wrapWithPosthogContext(description, seededContext),
-                })
+                const runResponse = await tasksRunCreate(
+                    projectId,
+                    newTask.id,
+                    buildRunCreateRequest(
+                        values.catalogue,
+                        model,
+                        resolveEffortForModel(values.catalogue, reasoningEffort, model),
+                        permissionMode,
+                        {
+                            branch: repositoryConfig.branch ?? null,
+                            // Interactive keeps the sandbox agent-server's event stream open across turns, so
+                            // follow-up messages stream their reply over the same SSE (background runs seal the
+                            // stream after the first turn). Interactive runs boot with the agent-server pulling
+                            // pending_user_message from run state (the workflow doesn't forward it), so seed the
+                            // typed message as turn 1 — otherwise the first prompt is lost and the run idles.
+                            mode: TaskExecutionModeEnumApi.Interactive,
+                            // Wrap only the message sent to the agent with the on-screen context block; the task
+                            // `description` field and the optimistic seed (`startOptimisticRun`) stay raw.
+                            pending_user_message: wrapWithPosthogContext(description, seededContext),
+                        }
+                    )
+                )
 
                 // Mark the seeded non-text refs sent under the created task, so the run's first follow-up
                 // (sent via `runInteractionLogic`) doesn't re-wrap them. Text items always resend.
