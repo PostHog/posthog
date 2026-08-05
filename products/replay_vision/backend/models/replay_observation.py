@@ -18,6 +18,10 @@ class ObservationStatus(models.TextChoices):
 # Not-yet-terminal statuses: what the quota meter reserves and the concurrency caps count as "in flight".
 IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 
+# Settled statuses. These rows are sticky, so the (scanner, session) slot they hold is spent: a new scan
+# for the same pair can't be started, only retried (which deletes and re-creates the row).
+TERMINAL_STATUSES = (ObservationStatus.SUCCEEDED, ObservationStatus.FAILED, ObservationStatus.INELIGIBLE)
+
 
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"

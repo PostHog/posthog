@@ -726,7 +726,8 @@ class ReplayObservationViewSet(
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
         except (KeyError, ValueError):
             raise NotFound()
-        scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
+        # `all_origins`: an inline scan hands back a scan id precisely so its results can be read here.
+        scanner = ReplayScanner.all_origins.filter(team_id=self.team_id, id=scanner_id).first()
         if scanner is None:
             raise NotFound()
         # Observations expose recording-derived output, so they inherit the scanner's RBAC and also require session_recording read.
@@ -1096,7 +1097,8 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         # row rather than its scanner, so scope explicitly to the scanners this caller can read.
         readable_scanner_ids = list(
             self.user_access_control.filter_queryset_by_access_level(
-                ReplayScanner.objects.filter(team_id=self.team_id)
+                # `all_origins`: the cross-scanner observation list is how inline scan results surface.
+                ReplayScanner.all_origins.filter(team_id=self.team_id)
             ).values_list("id", flat=True)
         )
         queryset = (

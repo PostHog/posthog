@@ -512,7 +512,8 @@ class SearchReplayVisionObservationsTool(MaxTool):
             except (ValueError, TypeError):
                 # A model-supplied non-UUID would raise ValidationError deeper in the ORM (alert noise); treat as not-found.
                 return None
-            scanner = ReplayScanner.objects.filter(team_id=self._team.id, id=scanner_uuid).first()
+            # `all_origins`: scoping a search to a scan id an inline scan just returned is a real flow.
+            scanner = ReplayScanner.all_origins.filter(team_id=self._team.id, id=scanner_uuid).first()
             # Observations inherit the scanner's RBAC — treat missing access as not-found.
             if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
                 return None
@@ -520,7 +521,8 @@ class SearchReplayVisionObservationsTool(MaxTool):
             # tool output entirely (stored-injection guard); the searcher already knows which scanner they're on.
             return [str(scanner.id)], "the selected Replay Vision scanner", False
         readable = self.user_access_control.filter_queryset_by_access_level(
-            ReplayScanner.objects.filter(team_id=self._team.id)
+            # `all_origins`: searching "your observations" should reach inline scan results too.
+            ReplayScanner.all_origins.filter(team_id=self._team.id)
         ).values_list("id", flat=True)
         return [str(sid) for sid in readable], "your Replay Vision scanners", True
 

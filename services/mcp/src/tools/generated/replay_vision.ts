@@ -25,6 +25,7 @@ import {
     VisionScannersEstimateCreateBody,
     VisionScannersImpactRetrieveParams,
     VisionScannersImpactRetrieveQueryParams,
+    VisionScannersInlineScanCreateBody,
     VisionScannersListQueryParams,
     VisionScannersObservationsListParams,
     VisionScannersObservationsListQueryParams,
@@ -400,6 +401,38 @@ const visionScannersAffectedCohortCreate = (): ToolBase<
         const result = await context.api.request<Schemas.AffectedCohortResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/affected_cohort/`,
+            body,
+        })
+        return result
+    },
+})
+
+const VisionScannersInlineScanCreateSchema = VisionScannersInlineScanCreateBody
+
+const visionScannersInlineScanCreate = (): ToolBase<typeof VisionScannersInlineScanCreateSchema, unknown> => ({
+    name: 'vision-scanners-inline-scan-create',
+    schema: VisionScannersInlineScanCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionScannersInlineScanCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.session_ids !== undefined) {
+            body['session_ids'] = params.session_ids
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.scanner_type !== undefined) {
+            body['scanner_type'] = params.scanner_type
+        }
+        if (params.scanner_config !== undefined) {
+            body['scanner_config'] = params.scanner_config
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/inline_scan/`,
             body,
         })
         return result
@@ -863,6 +896,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-observations-retrieve': visionObservationsRetrieve,
     'vision-quota-retrieve': visionQuotaRetrieve,
     'vision-scanners-affected-cohort-create': visionScannersAffectedCohortCreate,
+    'vision-scanners-inline-scan-create': visionScannersInlineScanCreate,
     'vision-scanners-create': visionScannersCreate,
     'vision-scanners-delete': visionScannersDelete,
     'vision-scanners-estimate-create': visionScannersEstimateCreate,

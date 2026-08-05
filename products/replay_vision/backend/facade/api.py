@@ -49,7 +49,8 @@ def fetch_page_session_observations(
     readable_scanner_ids = [
         str(sid)
         for sid in UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-        .filter_queryset_by_access_level(ReplayScanner.objects.filter(team_id=team.id))
+        # `all_origins`: session-level color should include what an inline scan found, not just saved scanners.
+        .filter_queryset_by_access_level(ReplayScanner.all_origins.filter(team_id=team.id))
         .values_list("id", flat=True)
     ]
     if not readable_scanner_ids:
