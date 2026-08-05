@@ -215,7 +215,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "slack_app_routing": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allowed_models=frozenset({"claude-haiku-4-5", "gpt-5.6-luna"}),
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
     ),
@@ -324,6 +324,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,  # any model
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
+    ),
+    "web_analytics": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        credit_bucket=None,
     ),
     # changelog-bot. Exact-pinned to these two ids (the agent sends "openai/"-prefixed).
     "changelog_bot": ProductConfig(
