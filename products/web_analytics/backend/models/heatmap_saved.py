@@ -52,9 +52,9 @@ class SavedHeatmap(UUIDTModel):
 
     @property
     def has_content(self) -> bool:
-        return self.snapshots.filter(
-            models.Q(content__isnull=False) | models.Q(content_location__isnull=False)
-        ).exists()
+        # `content_location` (object storage) isn't wired up for reads on the content endpoint yet,
+        # so a snapshot with only that set can't actually be served - don't count it as ready.
+        return self.snapshots.filter(content__isnull=False).exists()
 
     def get_analytics_metadata(self) -> dict:
         return {

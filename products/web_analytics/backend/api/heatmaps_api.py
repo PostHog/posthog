@@ -888,7 +888,7 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
             snaps.append(
                 {
                     "width": snap.width,
-                    "has_content": bool(snap.content or snap.content_location),
+                    "has_content": bool(snap.content),
                 }
             )
         snaps.sort(key=lambda s: s["width"])

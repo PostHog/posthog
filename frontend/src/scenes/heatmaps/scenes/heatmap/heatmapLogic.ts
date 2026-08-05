@@ -76,6 +76,22 @@ function isValidPageUrl(url: string | null): boolean {
     }
 }
 
+// `has_content` reflects only what the content endpoint can actually serve (real bytes), so a
+// 'completed' screenshot without it isn't still rendering - it never will be. Polling further
+// would just spin for minutes before timing out with a misleading message.
+export function resolveScreenshotReadiness(
+    heatmapStatus: HeatmapStatus,
+    hasContent: boolean
+): 'ready' | 'failed' | 'unavailable' | 'pending' {
+    if (heatmapStatus === 'completed') {
+        return hasContent ? 'ready' : 'unavailable'
+    }
+    if (heatmapStatus === 'failed') {
+        return 'failed'
+    }
+    return 'pending'
+}
+
 // Screenshot heatmaps store a same-origin API path as `screenshotUrl`; the export backend's
 // SSRF validation rejects URLs without an http(s) scheme, so we resolve it to an absolute URL.
 export function resolveHeatmapExportUrl(
@@ -396,7 +412,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 })
                 if (item.type === 'screenshot') {
                     const desiredWidth = values.widthOverride
-                    if (item.status === 'completed' && item.has_content) {
+                    const readiness = resolveScreenshotReadiness(item.status ?? 'processing', !!item.has_content)
+                    if (readiness === 'ready') {
                         actions.setScreenshotUrl(
                             getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), item.id, {
                                 width: desiredWidth,
@@ -404,8 +421,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         )
                         // trigger heatmap overlay load
                         actions.loadHeatmap()
-                    } else if (item.status === 'failed') {
+                    } else if (readiness === 'failed') {
                         actions.setScreenshotError(item.exception || 'Screenshot generation failed')
+                    } else if (readiness === 'unavailable') {
+                        // e.g. a legacy render that only has object storage metadata the content
+                        // endpoint can't serve. Won't resolve by polling.
+                        actions.setScreenshotError('This screenshot is no longer available. Regenerate to view it.')
                     } else {
                         actions.setScreenshotError(null)
                         actions.pollScreenshotStatus(desiredWidth)
@@ -458,7 +479,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 await breakpoint(pollIntervalMs)
                 try {
                     const screenshot = await savedRetrieve(String(values.currentTeamIdStrict), String(props.id))
-                    if (screenshot.status === 'completed' && screenshot.has_content) {
+                    const readiness = resolveScreenshotReadiness(
+                        screenshot.status ?? 'processing',
+                        !!screenshot.has_content
+                    )
+                    if (readiness === 'ready') {
                         const w = width ?? DEFAULT_HEATMAP_WIDTH
                         actions.setScreenshotUrl(
                             getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), screenshot.id, {
@@ -468,8 +493,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         actions.loadHeatmap()
                         actions.setGeneratingScreenshot(false)
                         break
-                    } else if (screenshot.status === 'failed') {
+                    } else if (readiness === 'failed') {
                         actions.setScreenshotError(screenshot.exception || 'Screenshot generation failed')
+                        actions.setGeneratingScreenshot(false)
+                        break
+                    } else if (readiness === 'unavailable') {
+                        // Won't resolve by continuing to poll.
+                        actions.setScreenshotError('This screenshot is no longer available. Regenerate to view it.')
                         actions.setGeneratingScreenshot(false)
                         break
                     }

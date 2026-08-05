@@ -274,6 +274,22 @@ class TestHeatmapsAPI(APIBaseTest):
         r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")
         self.assertEqual(r.status_code, 501)
 
+    def test_has_content_false_when_only_content_location_set(self):
+        # The content endpoint can't serve content_location-backed snapshots (returns 501 above), so
+        # has_content must not claim the render is fetchable - otherwise the frontend points an <img>
+        # at a URL it knows will fail.
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=None, content_location="s3://bucket/key")
+        r = self.client.get(f"/api/environments/{self.team.id}/saved/{saved.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.data["has_content"])
+        self.assertFalse(r.data["snapshots"][0]["has_content"])
+
     def test_content_served_increments_metric(self):
         saved = SavedHeatmap.objects.create(
             team=self.team,
