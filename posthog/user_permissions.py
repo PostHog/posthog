@@ -132,18 +132,24 @@ class UserPermissions:
         return result
 
     @cached_property
-    def _prefetched_role_ids(self) -> set[UUID]:
-        """Prefetch the ids of every role the user holds.
+    def _prefetched_role_ids_by_organization(self) -> dict[UUID, set[UUID]]:
+        """Prefetch the ids of every role the user holds, grouped by the role's organization.
 
-        Keyed off the user rather than grouped by the `organization_member` FK because legacy
-        RoleMembership rows predating that FK have it NULL (see `RoleMembershipViewSet.
-        safely_get_queryset`), and grouping would silently drop their role rules — including
-        denials. Mirrors `UserAccessControl._user_role_ids`. Role ids are unique, so a role from
-        another organization can never match a row on this team.
+        Grouped by the role's organization rather than by the `organization_member` FK for two
+        reasons. That FK is nullable and legacy rows have it NULL (see `RoleMembershipViewSet.
+        safely_get_queryset`), so grouping by it silently drops those rows' role rules, including
+        denials. And the organization is the authorization boundary a role must not cross: an
+        AccessControl row can name a role belonging to a different organization, so callers have to
+        look roles up under the organization of the team being resolved.
         """
         from ee.models.rbac.role import RoleMembership
 
-        return set(RoleMembership.objects.filter(user=self.user).values_list("role_id", flat=True))
+        result: dict[UUID, set[UUID]] = {}
+        for organization_id, role_id in RoleMembership.objects.filter(user=self.user).values_list(
+            "role__organization_id", "role_id"
+        ):
+            result.setdefault(organization_id, set()).add(role_id)
+        return result
 
     def set_preloaded_dashboard_tiles(self, tiles: list[DashboardTile]):
         """
@@ -209,7 +215,7 @@ class UserTeamPermissions:
         # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
         # project access settings page (and as resource-level role overrides).
         role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
-        user_roles = self.p._prefetched_role_ids
+        user_roles = self.p._prefetched_role_ids_by_organization.get(self.team.organization_id, set())
 
         # Rules naming this user — directly, or through a role they hold. These decide on their
         # own: the highest of them wins, and an explicit "none" is a denial rather than a miss

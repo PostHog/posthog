@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
@@ -509,6 +509,38 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             organization_member=None if legacy_membership else self.organization_membership,
         )
         self._grant_project_access(access_level, role=role)
+
+    @parameterized.expand(
+        [
+            ("denial", "none", "member", OrganizationMembership.Level.MEMBER),
+            ("grant", "admin", "none", None),
+        ]
+    )
+    def test_role_rule_from_another_organization_is_ignored(self, _name, role_level, default_level, expected_level):
+        # Nothing scopes the role on an AccessControl row to the project's organization, so a rule
+        # can name a role the user holds in an unrelated organization
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._grant_project_access(default_level)
+
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        foreign_role = Role.objects.create(name="Foreign role", organization=other_organization)
+        RoleMembership.objects.create(role=foreign_role, user=self.user, organization_member=other_membership)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            role=foreign_role,
+            access_level=role_level,
+        )
+
+        assert self.permissions().current_team.effective_membership_level == expected_level
 
     @parameterized.expand(
         [

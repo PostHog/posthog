@@ -557,8 +557,13 @@ class UserAccessControl:
             # Early return to prevent an unnecessary lookup
             return []
 
-        role_memberships = cast(Any, self._user).role_memberships.select_related("role").all()
-        return [membership.role.id for membership in role_memberships]
+        # Scoped to this organization: an AccessControl row can name a role belonging to a
+        # different organization, and such a row must not grant or deny anything here.
+        return list(
+            cast(Any, self._user)
+            .role_memberships.filter(role__organization_id=self._organization_id)
+            .values_list("role_id", flat=True)
+        )
 
     @cached_property
     def _cached_access_controls(self) -> list[_AccessControl]:

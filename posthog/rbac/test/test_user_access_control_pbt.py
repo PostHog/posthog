@@ -21,7 +21,7 @@ from hypothesis import (
 from hypothesis.extra.django import TestCase as HypothesisDjangoTestCase
 
 from posthog.constants import AvailableFeature
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import (
@@ -302,9 +302,11 @@ def model_has_created_by(model_cls: type[models.Model]) -> bool:
 
 
 # Row targets: who an AccessControl row applies to, relative to self.user
-# (who is in role_a; other_user is in role_b).
-TARGETS = ("team_default", "self_member", "other_member", "role_a", "role_b")
-# Rows _filter_options can ever see for self.user - other_member/role_b rows are invisible
+# (who is in role_a and in role_other_org; other_user is in role_b).
+# role_other_org is a role self.user holds in a different organization, which nothing on the write
+# path scopes out of a rule on this team - resolving it here would cross the authorization boundary.
+TARGETS = ("team_default", "self_member", "other_member", "role_a", "role_b", "role_other_org")
+# Rows _filter_options can ever see for self.user - other_member/role_b/role_other_org are invisible
 MATCHING = {"team_default", "self_member", "role_a"}
 
 PROJECT_LEVELS = ordered_access_levels("project")
@@ -509,6 +511,9 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
     other_user: User
     role_a: "Role"
     role_b: "Role"
+    role_other_org: "Role"
+    other_organization: Organization
+    other_organization_membership: OrganizationMembership
 
     # Fixtures live in setUpTestData (class-level atomics): hypothesis runs each
     # example inside Django's per-test transaction via _pre_setup/_post_teardown,
@@ -528,6 +533,16 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         RoleMembership.objects.create(user=cls.user, role=cls.role_a)
         RoleMembership.objects.create(user=cls.other_user, role=cls.role_b)
 
+        # A second organization self.user also belongs to, holding a role there
+        cls.other_organization = Organization.objects.create(name="PBT other organization")
+        cls.other_organization_membership = OrganizationMembership.objects.create(
+            organization=cls.other_organization, user=cls.user, level=OrganizationMembership.Level.MEMBER
+        )
+        cls.role_other_org = Role.objects.create(name="PBT foreign role", organization=cls.other_organization)
+        RoleMembership.objects.create(
+            user=cls.user, role=cls.role_other_org, organization_member=cls.other_organization_membership
+        )
+
     def _membership(self, user: User) -> OrganizationMembership:
         return OrganizationMembership.objects.get(user=user, organization=self.organization)
 
@@ -545,6 +560,8 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
             return {"organization_member": self._membership(self.other_user)}
         if target == "role_a":
             return {"role": self.role_a}
+        if target == "role_other_org":
+            return {"role": self.role_other_org}
         return {"role": self.role_b}
 
     def _materialize(self, specs: list[RowSpec], resource: APIScopeObject, obj: Optional[models.Model]) -> None:
