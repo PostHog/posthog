@@ -1,10 +1,6 @@
 from posthog.test.base import BaseTest
 
 from products.posthog_ai.backend.models.assistant import CoreMemory
-from products.replay_vision.backend.temporal.activities.fetch_session_events import (
-    ProcessedEvents,
-    _event_names_by_frequency,
-)
 from products.replay_vision.backend.temporal.team_context import (
     _MAX_EVENT_DESCRIPTIONS,
     fetch_event_descriptions,
@@ -12,6 +8,10 @@ from products.replay_vision.backend.temporal.team_context import (
 )
 
 from ee.models.event_definition import EnterpriseEventDefinition
+
+
+def _rows(*event_names: str) -> tuple[list[str], list[list[str]]]:
+    return ["event_uuid", "event"], [[f"u{i}", name] for i, name in enumerate(event_names)]
 
 
 class TestFetchProductContext(BaseTest):
@@ -41,15 +41,20 @@ class TestFetchEventDescriptions(BaseTest):
     def _define(self, name: str, description: str | None) -> None:
         EnterpriseEventDefinition.objects.create(team=self.team, name=name, description=description)
 
-    def test_returns_only_described_custom_events_in_given_order(self):
+    def test_returns_described_custom_events_ordered_by_session_frequency(self):
         self._define("checkout_completed", "User paid for their cart.")
         self._define("quote_expired", "A saved quote passed its validity window.")
         self._define("undescribed_event", "")
         self._define("$pageview", "Customer override that must not surface.")
-        result = fetch_event_descriptions(
-            self.team.pk,
-            ["quote_expired", "$pageview", "undescribed_event", "checkout_completed", "unknown_event"],
+        columns, rows = _rows(
+            "quote_expired",
+            "checkout_completed",
+            "quote_expired",
+            "$pageview",
+            "undescribed_event",
+            "unknown_event",
         )
+        result = fetch_event_descriptions(self.team.pk, columns, rows)
         assert result == {
             "quote_expired": "A saved quote passed its validity window.",
             "checkout_completed": "User paid for their cart.",
@@ -60,7 +65,8 @@ class TestFetchEventDescriptions(BaseTest):
         names = [f"event_{i:03d}" for i in range(_MAX_EVENT_DESCRIPTIONS + 5)]
         for name in names:
             self._define(name, "desc\x07 " + "y" * 600)
-        result = fetch_event_descriptions(self.team.pk, names)
+        columns, rows = _rows(*names)
+        result = fetch_event_descriptions(self.team.pk, columns, rows)
         assert len(result) == _MAX_EVENT_DESCRIPTIONS
         sample = result[names[0]]
         assert sample.startswith("desc y")
@@ -69,18 +75,5 @@ class TestFetchEventDescriptions(BaseTest):
 
     def test_drops_names_containing_backticks(self):
         self._define("bad`name", "Would escape the prompt's code fencing.")
-        assert fetch_event_descriptions(self.team.pk, ["bad`name"]) == {}
-
-
-class TestEventNamesByFrequency:
-    def test_orders_by_count_then_alphabetically(self):
-        processed = ProcessedEvents(
-            columns=["event_uuid", "event"],
-            rows=[["u1", "b_event"], ["u2", "a_event"], ["u3", "b_event"], ["u4", "c_event"], ["u5", "a_event"]],
-            url_mapping={},
-            window_mapping={},
-            event_timestamps={},
-            navigation=[],
-            navigation_dropped=0,
-        )
-        assert _event_names_by_frequency(processed) == ["a_event", "b_event", "c_event"]
+        columns, rows = _rows("bad`name")
+        assert fetch_event_descriptions(self.team.pk, columns, rows) == {}

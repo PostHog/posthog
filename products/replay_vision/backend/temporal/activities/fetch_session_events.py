@@ -1,7 +1,6 @@
 import hashlib
 import datetime as dt
 import itertools
-from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
@@ -113,7 +112,8 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
 
 
 def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
-    team = Team.objects.get(pk=team_id)
+    # select_related saves the extra round trip when fetch_product_context reads team.project.
+    team = Team.objects.select_related("project").get(pk=team_id)
     events_obj = SessionReplayEvents()
     metadata = events_obj.get_metadata(session_id=session_id, team=team, ch_user=ClickHouseUser.REPLAY_VISION)
     if metadata is None:
@@ -183,7 +183,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
         session_id=session_id,
         team_id=team_id,
         product_context=fetch_product_context(team),
-        event_descriptions=fetch_event_descriptions(team_id, _event_names_by_frequency(processed)),
+        event_descriptions=fetch_event_descriptions(team_id, processed.columns, processed.rows),
         events=EventTable(columns=processed.columns, rows=processed.rows),
         url_mapping=processed.url_mapping,
         window_mapping=processed.window_mapping,
@@ -205,17 +205,6 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
             console_error_count=metadata.get("console_error_count"),
         ),
     )
-
-
-def _event_names_by_frequency(processed: "ProcessedEvents") -> list[str]:
-    """Distinct event names in the session, most frequent first, alphabetical tie-break for stable order."""
-    if "event" not in processed.columns:
-        return []
-    event_index = processed.columns.index("event")
-    counts = Counter(
-        row[event_index] for row in processed.rows if isinstance(row[event_index], str) and row[event_index]
-    )
-    return [name for name, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
 
 
 @dataclass(frozen=True)

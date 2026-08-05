@@ -4,25 +4,36 @@ Both sources are customer-authored text rendered into the trusted preamble, so e
 sanitized (control chars stripped, whitespace collapsed, length-capped) before it is stored.
 """
 
+import re
+from collections import Counter
+from functools import cache
+from typing import Any
+
 from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models import Team
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 # CoreMemory.text is model-capped at 10k chars; cap lower since the preamble is resent on every scan step.
 _MAX_PRODUCT_CONTEXT_LEN = 4000
 _MAX_EVENT_DESCRIPTIONS = 50
-# Mirrors Max's MAX_EVENT_DESCRIPTION_LENGTH in ee/hogai/utils/helpers.py.
 _MAX_EVENT_DESCRIPTION_LEN = 500
 # Bound the name list sent to Postgres when a session emits a pathological number of distinct events.
 _MAX_LOOKUP_NAMES = 300
 
-# The model already knows built-in events, and the preamble explains the key ones by hand.
-_CORE_EVENT_NAMES = frozenset(CORE_FILTER_DEFINITIONS_BY_GROUP["events"])
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+@cache
+def _core_event_names() -> frozenset[str]:
+    """Built-in event names, which the model already knows and the preamble explains by hand."""
+    # Deferred: the taxonomy module is a ~4000-line dict this worker otherwise never loads.
+    from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP  # noqa: PLC0415
+
+    return frozenset(CORE_FILTER_DEFINITIONS_BY_GROUP["events"])
 
 
 def _sanitize(text: str, max_len: int) -> str:
-    cleaned = " ".join("".join(ch if ch.isprintable() else " " for ch in text).split())
+    cleaned = " ".join(_CONTROL_CHARS_RE.sub(" ", text).split())
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len] + "…"
     return cleaned
@@ -36,8 +47,17 @@ def fetch_product_context(team: Team) -> str:
     return _sanitize(text, _MAX_PRODUCT_CONTEXT_LEN)
 
 
-def fetch_event_descriptions(team_id: int, event_names_by_frequency: list[str]) -> dict[str, str]:
-    """Customer-written descriptions for this session's custom events, keyed by name in the given order.
+def _event_names_by_frequency(columns: list[str], rows: list[list[Any]]) -> list[str]:
+    """Distinct event names in the session, most frequent first, alphabetical tie-break for stable order."""
+    if "event" not in columns:
+        return []
+    event_index = columns.index("event")
+    counts = Counter(row[event_index] for row in rows if isinstance(row[event_index], str) and row[event_index])
+    return [name for name, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
+
+
+def fetch_event_descriptions(team_id: int, columns: list[str], rows: list[list[Any]]) -> dict[str, str]:
+    """Customer-written descriptions for this session's custom events, keyed by name, most frequent first.
 
     Descriptions only exist on the enterprise EventDefinition model, so this is a no-op on OSS builds.
     """
@@ -46,11 +66,9 @@ def fetch_event_descriptions(team_id: int, event_names_by_frequency: list[str]) 
     from ee.models.event_definition import EnterpriseEventDefinition  # noqa: PLC0415 — absent from OSS builds
 
     # A backtick in a name would escape the prompt's inline-code fencing; drop such names rather than escape.
-    custom_names = [name for name in event_names_by_frequency if name not in _CORE_EVENT_NAMES and "`" not in name][
-        :_MAX_LOOKUP_NAMES
-    ]
-    if not custom_names:
-        return {}
+    custom_names = [
+        name for name in _event_names_by_frequency(columns, rows) if name not in _core_event_names() and "`" not in name
+    ][:_MAX_LOOKUP_NAMES]
 
     found = dict(
         EnterpriseEventDefinition.objects.filter(team_id=team_id, name__in=custom_names)
@@ -60,13 +78,8 @@ def fetch_event_descriptions(team_id: int, event_names_by_frequency: list[str]) 
     )
     described: dict[str, str] = {}
     for name in custom_names:
-        description = found.get(name)
-        if not description:
-            continue
-        sanitized = _sanitize(description, _MAX_EVENT_DESCRIPTION_LEN)
-        if not sanitized:
-            continue
-        described[name] = sanitized
-        if len(described) >= _MAX_EVENT_DESCRIPTIONS:
-            break
+        if sanitized := _sanitize(found.get(name) or "", _MAX_EVENT_DESCRIPTION_LEN):
+            described[name] = sanitized
+            if len(described) >= _MAX_EVENT_DESCRIPTIONS:
+                break
     return described
