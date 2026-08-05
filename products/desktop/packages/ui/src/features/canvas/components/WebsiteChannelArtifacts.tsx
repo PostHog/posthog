@@ -2,8 +2,8 @@ import { CaretRightIcon } from "@phosphor-icons/react";
 import type { ChannelTaskRecord } from "@posthog/core/canvas/channelTaskSchemas";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { formatRelativeTimeShort } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -12,7 +12,6 @@ import { useDashboards } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifact";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
-import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
@@ -46,7 +45,7 @@ export function WebsiteChannelArtifacts({ channelId }: { channelId: string }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "view_artifacts",
       surface: "channel_artifacts",
       channel_id: channelId,
@@ -98,7 +97,7 @@ export function WebsiteChannelArtifacts({ channelId }: { channelId: string }) {
 
   const openCanvas = useCallback(
     (dashboardId: string) => {
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "open_artifact",
         surface: "channel_artifacts",
         channel_id: channelId,
@@ -113,7 +112,7 @@ export function WebsiteChannelArtifacts({ channelId }: { channelId: string }) {
 
   const openPr = useCallback(
     (prUrl: string) => {
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "open_artifact",
         surface: "channel_artifacts",
         channel_id: channelId,

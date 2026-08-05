@@ -2,8 +2,8 @@ import { CaretRightIcon } from "@phosphor-icons/react";
 import type { ChannelTaskRecord } from "@posthog/core/canvas/channelTaskSchemas";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { formatRelativeTimeShort } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -11,7 +11,6 @@ import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTas
 import { useDashboards } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
-import { track } from "@posthog/ui/shell/analytics";
 import { Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo } from "react";
@@ -34,7 +33,7 @@ export function WebsiteChannelHistory({ channelId }: { channelId: string }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "view_history",
       surface: "channel_history",
       channel_id: channelId,

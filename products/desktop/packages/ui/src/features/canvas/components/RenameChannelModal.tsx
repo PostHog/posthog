@@ -1,13 +1,12 @@
 import { XIcon } from "@phosphor-icons/react";
 import { validateChannelName } from "@posthog/core/canvas/channelName";
 import { Button } from "@posthog/quill";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { toast } from "@posthog/ui/primitives/toast";
-import { track } from "@posthog/ui/shell/analytics";
 import { Dialog, Flex, IconButton, Text, TextField } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 
@@ -43,7 +42,7 @@ export function RenameChannelModal({
     if (!trimmed || unchanged || validationError || isRenaming) return;
     try {
       await renameChannel(channel.id, trimmed);
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "rename",
         surface: "sidebar",
         channel_id: channel.id,
@@ -51,7 +50,7 @@ export function RenameChannelModal({
       });
       onOpenChange(false);
     } catch (error) {
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "rename",
         surface: "sidebar",
         channel_id: channel.id,

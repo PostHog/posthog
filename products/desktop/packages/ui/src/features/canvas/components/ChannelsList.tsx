@@ -48,7 +48,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
 import { trackAndCreateCanvas } from "@posthog/ui/features/canvas/createCanvasAnalytics";
@@ -80,7 +80,6 @@ import {
 } from "@posthog/ui/primitives/OverflowTickerText";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
-import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex } from "@radix-ui/themes";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
@@ -223,7 +222,7 @@ function useChannelActions(channel: Channel): {
       if (useCurrentChannelStore.getState().currentChannelId === channel.id) {
         resetCurrentChannel();
       }
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "delete",
         surface: "sidebar",
         channel_id: channel.id,
@@ -235,7 +234,7 @@ function useChannelActions(channel: Channel): {
       }
       return true;
     } catch (error) {
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "delete",
         surface: "sidebar",
         channel_id: channel.id,
@@ -254,7 +253,7 @@ function useChannelActions(channel: Channel): {
       label: isStarred ? `Unstar ${noun}` : `Star ${noun}`,
       icon: <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />,
       onSelect: () => {
-        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        trackChannelAction({
           action_type: isStarred ? "unstar" : "star",
           surface: "sidebar",
           channel_id: channel.id,
@@ -522,7 +521,7 @@ function ChannelSection({
             >
               <DropdownMenuItem
                 onClick={() => {
-                  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                  trackChannelAction({
                     action_type: "new_task_open",
                     surface: "sidebar",
                     channel_id: channel.id,
@@ -644,7 +643,7 @@ function useOpenPersonalChannel(): {
   const openPersonalChannel = () => {
     const channelId = ensureChannelId();
     if (!channelId) return;
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "nav_click",
       surface: "sidebar",
       channel_id: channelId,
@@ -670,7 +669,7 @@ function useOpenChannel(): (channel: Channel) => void {
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
 
   return (channel: Channel) => {
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "nav_click",
       surface: "sidebar",
       channel_id: channel.id,
@@ -708,7 +707,7 @@ function PersonalChannelRow({ hotkeySlot }: { hotkeySlot?: number }) {
   const newTask = () => {
     const channelId = ensureChannelId();
     if (!channelId) return;
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "new_task_open",
       surface: "sidebar",
       channel_id: channelId,

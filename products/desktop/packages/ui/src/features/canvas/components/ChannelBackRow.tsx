@@ -6,7 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
@@ -15,7 +15,6 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
-import { track } from "@posthog/ui/shell/analytics";
 
 // An overlay rather than a sibling: the back button fills the row, and nesting
 // the star inside it would be a button within a button.
@@ -27,7 +26,7 @@ function RowStar({ channel }: { channel: Channel }) {
       size="icon-sm"
       aria-label={isStarred ? "Unstar space" : "Star space"}
       onClick={() => {
-        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        trackChannelAction({
           action_type: isStarred ? "unstar" : "star",
           surface: "sidebar",
           channel_id: channel.id,
@@ -71,7 +70,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
               left
               aria-label="Back to spaces"
               onClick={() => {
-                track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                trackChannelAction({
                   action_type: "browse_channels",
                   surface: "sidebar",
                   channel_id: channelId,

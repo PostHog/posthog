@@ -18,6 +18,7 @@ import {
   Textarea,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -159,7 +160,7 @@ export function CreateChannelModal({
     let contextId: string;
     try {
       const channel = await createChannel(trimmedName);
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "create",
         surface: "sidebar",
         channel_id: channel.id,
@@ -167,7 +168,7 @@ export function CreateChannelModal({
       });
       contextId = channel.id;
     } catch (error) {
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "create",
         surface: "sidebar",
         success: false,

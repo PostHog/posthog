@@ -1,5 +1,5 @@
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { CHANNEL_TASK_SUGGESTIONS } from "@posthog/ui/features/canvas/channelTaskSuggestions";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelContextPanel } from "@posthog/ui/features/canvas/components/ChannelContextPanel";
@@ -14,7 +14,6 @@ import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useAppView } from "@posthog/ui/router/useAppView";
-import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -64,7 +63,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
     // Only count opening the panel, not closing it, so an open→close→open
     // cycle doesn't inflate the metric.
     if (nextOpen) {
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "view_context",
         surface: "new_task",
         channel_id: channelId,
@@ -79,7 +78,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
       queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
       void fileTask(channelId, task.id)
         .then(() => {
-          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+          trackChannelAction({
             action_type: "file_task",
             surface: "new_task",
             channel_id: channelId,
@@ -88,7 +87,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
           });
         })
         .catch((error: unknown) => {
-          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+          trackChannelAction({
             action_type: "file_task",
             surface: "new_task",
             channel_id: channelId,
@@ -112,7 +111,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
   // switching survives the navigation.
   const handleSpaceChange = useCallback(
     (nextChannelId: string) => {
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "new_task_open",
         surface: "new_task",
         channel_id: nextChannelId,
@@ -154,7 +153,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
           reportAssociation={view.reportAssociation}
           suggestions={CHANNEL_TASK_SUGGESTIONS}
           onSuggestionSelect={(label) =>
-            track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+            trackChannelAction({
               action_type: "new_task_suggestion",
               surface: "new_task",
               channel_id: channelId,

@@ -6,7 +6,6 @@ import {
   type ThreadAgentStatus,
   type ThreadTimelineRow,
 } from "@posthog/core/canvas/threadTimeline";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type {
   Task,
   TaskThreadMessage,
@@ -15,6 +14,7 @@ import type {
 import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import {
   useDeleteTaskThreadMessage,
@@ -27,7 +27,6 @@ import { useSessionConnection } from "@posthog/ui/features/sessions/hooks/useSes
 import { useSessionViewState } from "@posthog/ui/features/sessions/hooks/useSessionViewState";
 import { usePendingPermissionsForTask } from "@posthog/ui/features/sessions/sessionStore";
 import { toast } from "@posthog/ui/primitives/toast";
-import { track } from "@posthog/ui/shell/analytics";
 import { useCallback, useMemo, useState } from "react";
 
 export type ThreadSurface = "thread_panel" | "activity_panel";
@@ -124,7 +123,7 @@ export function useThreadConversation(
 
   const onMentionInsert = useCallback(
     (member: UserBasic) => {
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "mention_member",
         surface,
         task_id: taskId,

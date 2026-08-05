@@ -24,15 +24,14 @@ import {
   MenuLabel,
 } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG, type WorkspaceMode } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { toast } from "@posthog/ui/primitives/toast";
-import { track } from "@posthog/ui/shell/analytics";
 import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import { logger } from "@posthog/ui/shell/logger";
 import { useState } from "react";
@@ -230,11 +229,11 @@ export function TasksHeader() {
   const handleModeChange = (showChannels: boolean) => {
     if (showChannels === channelsEnabled) return;
     setChannelsEnabled(showChannels);
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "toggle_channels",
       surface: "nav",
     });
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: showChannels ? "enter_space" : "leave_space",
       surface: "nav",
     });

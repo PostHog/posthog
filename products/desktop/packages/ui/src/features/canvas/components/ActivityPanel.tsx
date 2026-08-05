@@ -4,8 +4,8 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { Button, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
 import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { TaskArtifactsList } from "@posthog/ui/features/canvas/components/TaskArtifactsList";
@@ -17,7 +17,6 @@ import {
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -143,7 +142,7 @@ function ActivityConversation({
   const handleTabChange = useCallback(
     (next: ActivityTab) => {
       setTab(next);
-      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      trackChannelAction({
         action_type: "activity_tab_change",
         surface: "activity_panel",
         task_id: taskId,

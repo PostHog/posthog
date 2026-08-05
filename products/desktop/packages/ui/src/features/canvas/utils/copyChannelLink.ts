@@ -1,9 +1,6 @@
-import {
-  ANALYTICS_EVENTS,
-  type ChannelsSurface,
-} from "@posthog/shared/analytics-events";
+import type { ChannelsSurface } from "@posthog/shared/analytics-events";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { toast } from "@posthog/ui/primitives/toast";
-import { track } from "@posthog/ui/shell/analytics";
 import { channelShareUrl } from "@posthog/ui/utils/posthogLinks";
 
 /**
@@ -30,7 +27,7 @@ export async function copyChannelLink(
     toast.success("Link copied", {
       description: `Anyone with the link can open this ${target}.`,
     });
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "copy_link",
       surface,
       channel_id: channelId,
@@ -41,7 +38,7 @@ export async function copyChannelLink(
     toast.error("Couldn't copy link", {
       description: error instanceof Error ? error.message : String(error),
     });
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "copy_link",
       surface,
       channel_id: channelId,

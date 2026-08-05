@@ -19,11 +19,11 @@ import {
   Spinner,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
@@ -43,7 +43,6 @@ import {
   navigateToChannelTask,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
-import { track } from "@posthog/ui/shell/analytics";
 import { Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
@@ -142,7 +141,7 @@ export function ActivityRow({
     item.activityKind === "completed" ||
     (item.activityKind === "message" && !item.author);
   const openTask = () => {
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "open_task",
       surface,
       channel_id: channelId ?? undefined,
@@ -277,7 +276,7 @@ export function ActivityView() {
     markTasksRead(activityReadPayload(unreadItems));
   }, [markTasksRead, unreadItems]);
   useEffect(() => {
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "view_activity",
       surface: "activity",
     });

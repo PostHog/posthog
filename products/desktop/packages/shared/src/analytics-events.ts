@@ -984,8 +984,9 @@ export interface ChannelActionProperties {
   /** The channel acted on, when one is in scope. */
   channel_id?: string;
   /**
-   * Personal (#me) vs shared. Absent at capture sites that hold only a
-   * channel_id; set where the full channel is in scope (sidebar/hotkey opens).
+   * Personal (#me) vs shared. Stamped by trackChannelAction: explicit where
+   * the capture site holds the channel, else resolved from the cached
+   * channels list by channel_id.
    */
   channel_type?: "public" | "personal";
   /** For file/unfile/archive/open task actions; for copy_link of a thread. */

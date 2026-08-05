@@ -9,14 +9,13 @@ import {
   PopoverContent,
   Spinner,
 } from "@posthog/quill";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityView";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
-import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useState } from "react";
 import {
   activityReadPayload,
@@ -52,7 +51,7 @@ export function ActivityHoverCard({
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
   useEffect(() => {
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "view_activity",
       surface: "activity_panel",
     });

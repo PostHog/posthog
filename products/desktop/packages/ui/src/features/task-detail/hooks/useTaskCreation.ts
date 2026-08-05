@@ -20,6 +20,7 @@ import {
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -441,7 +442,7 @@ export function useTaskCreation({
               editor.clear();
             }
             if (defaultedChannelId) {
-              track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+              trackChannelAction({
                 action_type: "file_task",
                 surface: "task_input",
                 channel_id: defaultedChannelId,

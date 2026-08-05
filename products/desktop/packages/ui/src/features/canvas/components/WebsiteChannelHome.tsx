@@ -1,7 +1,7 @@
 import { insertTaskDedup } from "@posthog/core/tasks/taskDelete";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { CHANNEL_TASK_SUGGESTIONS } from "@posthog/ui/features/canvas/channelTaskSuggestions";
 import {
   ChannelFeedView,
@@ -36,7 +36,6 @@ import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { toast } from "@posthog/ui/primitives/toast";
-import { track } from "@posthog/ui/shell/analytics";
 import { Heading, Text } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -160,7 +159,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
       invalidateFeed();
       void fileTask(channelId, task.id)
         .then(() =>
-          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+          trackChannelAction({
             action_type: "file_task",
             surface: "channel_home",
             channel_id: channelId,
@@ -169,7 +168,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           }),
         )
         .catch((error: unknown) => {
-          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+          trackChannelAction({
             action_type: "file_task",
             surface: "channel_home",
             channel_id: channelId,

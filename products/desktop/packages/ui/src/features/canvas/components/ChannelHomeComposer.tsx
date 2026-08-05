@@ -3,8 +3,9 @@ import type {
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
 import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
-import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
+import type { AgentRuntime } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   forwardRef,
@@ -15,7 +16,6 @@ import {
   useState,
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
-import { track } from "../../../shell/analytics";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { useUserRepositoryIntegration } from "../../integrations/useIntegrations";
@@ -104,7 +104,7 @@ export const ChannelHomeComposer = forwardRef<
     });
 
   const toggleCanvasMode = useCallback(() => {
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "canvas_mode_toggle",
       surface: "channel_home",
       channel_id: channelId,
@@ -253,7 +253,7 @@ export const ChannelHomeComposer = forwardRef<
     const editor = editorRef.current;
     const instruction = editor?.getText().trim();
     if (!editor || !instruction || isStartingCanvas) return;
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    trackChannelAction({
       action_type: "canvas_generate",
       surface: "channel_home",
       channel_id: channelId,

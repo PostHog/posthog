@@ -1,5 +1,4 @@
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { track } from "@posthog/ui/shell/analytics";
+import { trackChannelAction } from "@posthog/ui/features/canvas/channelAnalytics";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -28,7 +27,7 @@ export const useArtifactsViewStore = create<ArtifactsViewStore>()(
       setView: (view, channelId) =>
         set((state) => {
           if (state.view === view) return state;
-          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+          trackChannelAction({
             action_type: "artifacts_view_change",
             surface: "channel_artifacts",
             channel_id: channelId,
