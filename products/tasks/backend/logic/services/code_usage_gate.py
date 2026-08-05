@@ -152,19 +152,14 @@ def code_access_required_response(user) -> Response | None:
     )
 
 
-def cloud_usage_limit_response(user, team_id: int, *, require_tasks_access: bool = True) -> Response | None:
-    """Return a blocking response when Desktop access or usage limits deny a cloud run, else None.
+def usage_limit_response(user, team_id: int) -> Response | None:
+    """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 
-    Entitlement checks fail closed. Usage checks fail open when the gateway can't be reached.
-    Every usage check is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`)
-    so a degraded gateway silently removing this cost backstop is visible, not just logged.
-
-    ``require_tasks_access`` lets callers whose run is entitled through another product skip the
-    PostHog Code (`tasks`) entitlement check while still applying the usage-limit cost backstop.
+    Since Desktop moved to usage-based billing, this is the cost backstop on cloud runs — no
+    entitlement is involved. Fails open when the gateway can't be reached, so every check is
+    counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded
+    gateway silently removing the backstop is visible, not just logged.
     """
-    if require_tasks_access and (response := code_access_required_response(user)):
-        return response
-
     usage = get_posthog_code_usage(user, team_id)
     if usage is None:
         observe_code_usage_gate_check(outcome="fail_open")
@@ -177,3 +172,13 @@ def cloud_usage_limit_response(user, team_id: int, *, require_tasks_access: bool
         TaskRunErrorResponseSerializer(rate_limit_error_payload(usage)).data,
         status=status.HTTP_429_TOO_MANY_REQUESTS,
     )
+
+
+def cloud_usage_limit_response(user, team_id: int) -> Response | None:
+    """Desktop entitlement first (fails closed), then the usage backstop.
+
+    For background paths that dispatch a cloud run on a user's behalf — a scheduled Loop fire —
+    where the creator's Desktop access has to still hold at fire time. Request paths that only
+    need the cost backstop call ``usage_limit_response`` directly.
+    """
+    return code_access_required_response(user) or usage_limit_response(user, team_id)

@@ -10669,6 +10669,22 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_create_cloud_run_without_code_access_still_runs(self, mock_gate):
+        # Desktop is usage-billed, so cloud runs are metered rather than entitlement-gated.
+        mock_gate.return_value = None
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_create_local_run_is_not_gated(self, mock_gate):
         mock_gate.return_value = self.OVER_LIMIT
         task = self.create_task()

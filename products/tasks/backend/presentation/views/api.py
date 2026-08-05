@@ -57,7 +57,7 @@ from products.tasks.backend.facade import (
     cancellation as tasks_cancellation,
     contracts as tasks_contracts,
 )
-from products.tasks.backend.facade.access import cloud_usage_limit_response, code_access_required_response
+from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
@@ -708,11 +708,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
             return _pi_cloud_runtime_disabled_response()
 
-        # No PostHog Code (`tasks`) entitlement check: this is the endpoint the generally-available
-        # Inbox runs tasks through (report "Create PR" / "Discuss", scout chat), so gating it on a
-        # product the Inbox doesn't require would 403 a released surface. Usage limits still apply
-        # as a cost backstop.
-        if limit_response := cloud_usage_limit_response(request.user, self.team_id, require_tasks_access=False):
+        # Usage limits only, no PostHog Desktop entitlement check: this is the endpoint the
+        # generally-available Inbox runs tasks through (report "Create PR" / "Discuss", scout chat),
+        # so gating it on a product the Inbox doesn't require would 403 a released surface.
+        if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
         result = tasks_facade.run_task(pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data))
@@ -1067,7 +1066,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 task_id, self.team_id, self._user_id(), for_control=True
             ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
                 return _pi_cloud_runtime_disabled_response()
-            if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+            if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
 
         result = tasks_facade.bootstrap_task_run(
@@ -1122,7 +1121,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
         # Backstop: don't launch the cloud workflow for an over-limit team.
-        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+        if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
         outcome, started_task_id = tasks_facade.start_task_run(
@@ -1779,7 +1778,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = request.validated_data.get("params")
 
         if method == "user_message":
-            # No PostHog Code (`tasks`) entitlement check, for the same reason as `TaskViewSet.run`:
+            # No PostHog Desktop entitlement check, for the same reason as `TaskViewSet.run`:
             # the Inbox starts interactive runs and drops the user straight into this composer, so
             # "Discuss" would 403 on its first reply if this required Code access.
             command_params = dict(params or {})
@@ -2125,7 +2124,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return _pi_cloud_runtime_disabled_response()
 
         # Resume also runs in cloud: gate before handoff.
-        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+        if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
         outcome, run, _ = tasks_facade.resume_task_run_in_cloud(pk, task_id, self.team_id, self._user_id())
