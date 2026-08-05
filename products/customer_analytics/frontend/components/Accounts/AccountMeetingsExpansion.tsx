@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconPencil } from '@posthog/icons'
+import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -11,6 +11,7 @@ import {
     LemonTableColumns,
     LemonTag,
     Link,
+    ProfilePicture,
 } from '@posthog/lemon-ui'
 
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
@@ -72,12 +73,16 @@ function MatchingEditor({ accountId }: { accountId: string }): JSX.Element {
     )
 }
 
+const RSVP_ICONS: Partial<Record<string, JSX.Element>> = {
+    accepted: <IconCheck className="text-success" />,
+    declined: <IconX className="text-danger" />,
+    tentative: <span className="text-muted font-medium">?</span>,
+}
+
 function AttendeeLink({ participant }: { participant: MeetingParticipantApi }): JSX.Element {
     const label = participant.display_name || participant.email
-    if (!participant.person_id) {
-        return <span title={participant.email}>{label}</span>
-    }
-    return (
+    const rsvp = RSVP_ICONS[participant.response_status]
+    const name = participant.person_id ? (
         <Link
             to={urls.personByUUID(participant.person_id)}
             title={participant.email}
@@ -85,6 +90,19 @@ function AttendeeLink({ participant }: { participant: MeetingParticipantApi }): 
         >
             {label}
         </Link>
+    ) : (
+        <span title={participant.email}>{label}</span>
+    )
+    return (
+        <span className="inline-flex items-center gap-1 align-bottom">
+            {participant.person_id && <ProfilePicture user={{ email: participant.email }} size="xs" />}
+            {name}
+            {rsvp && (
+                <span className="text-xs leading-none" title={`RSVP: ${participant.response_status}`}>
+                    {rsvp}
+                </span>
+            )}
+        </span>
     )
 }
 
