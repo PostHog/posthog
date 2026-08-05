@@ -7,6 +7,12 @@
 //! distribution lands in the overflow bucket and no quantile over it is meaningful.
 //!
 //! Wired in at startup via `common_metrics::setup_metrics_routes_with_overrides`.
+//!
+//! One unit trap to know about: `http_requests_duration_seconds`, recorded by the
+//! `common_metrics` axum middleware, observes seconds while the default ladder is
+//! millisecond-shaped, so every sub-second request collapses into the first bucket. That is
+//! harmless while this service's HTTP surface is only `/metrics` and the probes, but if a real
+//! API endpoint ever ships here it needs a seconds-shaped override in this list.
 
 use common_metrics::Matcher;
 
