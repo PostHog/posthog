@@ -182,7 +182,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                 input=[
                     {
                         "role": "human",
-                        "content": "our managed reverse proxy metrics.widgetworks.dev has started failing. the certificate panel says \u201cCertificate not ready yet, state: awaiting_validation.\u201d the CNAME and CAA entries and the HTTP-01 check all passed before. I tore the proxy down and set it up again once already and validation is still stuck.",
+                        "content": "our managed reverse proxy proxy.example.com has started failing. the certificate panel says \u201cCertificate not ready yet, state: awaiting_validation.\u201d the CNAME and CAA entries and the HTTP-01 check all passed before. I tore the proxy down and set it up again once already and validation is still stuck.",
                     },
                     {
                         "role": "assistant",
@@ -212,7 +212,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                     },
                     {
                         "role": "human",
-                        "content": "/ticket hi support, im getting Austrian flags where I expect German ones, testing on widgetworks.de. no proxy or vpn here and I assumed it reads my IP in Hamburg. why is the recording list showing the wrong one. makes me wonder if the rst of the flags are guesswork too.",
+                        "content": "/ticket hi support, im getting Austrian flags where I expect German ones, testing on example.com. no proxy or vpn here and I assumed it reads my IP in Hamburg. why is the recording list showing the wrong one. makes me wonder if the rst of the flags are guesswork too.",
                     },
                 ],
                 expected="Only the wrong country flag on session recordings. The opening turn about finding Data management is not the issue and should not appear. The customer's im, shows shows and rst must survive verbatim wherever quoted. Topic session_replay.",
@@ -332,7 +332,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                     },
                     {
                         "role": "human",
-                        "content": "I call .setIdentity on the client and the HMAC comes from our backend. the token I used has featureflag read scope, since the one the widget settings page offers cannot be created. they line up, see\n\ncurl 'https://staging.widgetworks.dev/api/conversations/v1/widget/message' -H 'content-type: application/json' -b '_ga=GA1.1.1234567890.1700000000; app-auth-token=base64-ZmFrZS1ldmFsLXRva2VuLXZhbHVlLWRvLW5vdC11c2U'",
+                        "content": "I call .setIdentity on the client and the HMAC comes from our backend. the token I used has featureflag read scope, since the one the widget settings page offers cannot be created. they line up, see\n\ncurl 'https://staging.example.com/api/conversations/v1/widget/message' -H 'content-type: application/json' -b '_ga=GA1.1.0000000000.0000000000; app-auth-token=base64-ZmFrZS1ldmFsLXRva2VuLXZhbHVlLWRvLW5vdC11c2U'",
                     },
                     {
                         "role": "assistant",
