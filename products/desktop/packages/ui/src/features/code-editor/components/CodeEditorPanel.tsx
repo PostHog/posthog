@@ -4,7 +4,10 @@ import {
   resolveMarkdownLink,
   selectFileSource,
 } from "@posthog/core/code-editor/fileSource";
-import { getRelativePath } from "@posthog/core/code-editor/pathUtils";
+import {
+  getRelativePath,
+  isInsideRepoPath,
+} from "@posthog/core/code-editor/pathUtils";
 import { buildFileLineReferencePrompt } from "@posthog/core/code-review/reviewPrompts";
 import { xmlToContent } from "@posthog/core/message-editor/content";
 import {
@@ -108,7 +111,7 @@ export function CodeEditorPanel({
   absolutePath,
 }: CodeEditorPanelProps) {
   const repoPath = useCwd(taskId);
-  const isInsideRepo = !!repoPath && absolutePath.startsWith(repoPath);
+  const isInsideRepo = isInsideRepoPath(absolutePath, repoPath);
   const filePath = getRelativePath(absolutePath, repoPath);
   const isImage = isRasterImageFile(absolutePath);
   const renderableKind = getRenderableKind(absolutePath);

@@ -4,6 +4,9 @@ import { getChangedFiles, listAllFiles } from "@posthog/git/queries";
 import { injectable } from "inversify";
 import type { BoundedReadResult, DirectoryEntry, FileEntry } from "./schemas";
 
+// Matches Linux's own MAXSYMLINKS, so any chain we refuse the OS would too.
+const MAX_SYMLINK_HOPS = 40;
+
 @injectable()
 export class FsService {
   private static readonly CACHE_TTL = 30000;
@@ -314,7 +317,7 @@ export class FsService {
   }
 }
 
-// Resolve the real path the OS would open for `resolved`, resolving the parent
+// Resolve the real path the OS would open for `resolved`, resolving each parent
 // directory with realpath but inspecting the final component with lstat.
 // realpath alone cannot tell a not-yet-created file apart from a *dangling*
 // symlink -- one whose own name exists but whose target does not -- because it
@@ -322,21 +325,34 @@ export class FsService {
 // then be mistaken for an in-repo new file, and fs.writeFile would follow it and
 // create a file outside the repo. Resolving the parent and lstat-ing the leaf
 // closes that gap while still allowing legitimate new-file writes.
+//
+// The walk repeats per link because only the terminal target is read or written,
+// and a single hop is not enough to find it: with `a -> b` in the repo and a
+// dangling `b -> /outside/missing`, resolving `a` one hop lands on the in-repo
+// name `b`, which realpath cannot resolve past (the chain dangles) and which
+// therefore reads as contained while the OS still follows both links out.
 async function realTargetForContainment(resolved: string): Promise<string> {
-  const realParent = await realpathAllowingMissing(path.dirname(resolved));
-  const leaf = path.join(realParent, path.basename(resolved));
-  try {
-    const stats = await fs.lstat(leaf);
-    if (stats.isSymbolicLink()) {
-      const linkTarget = path.resolve(realParent, await fs.readlink(leaf));
-      return await realpathAllowingMissing(linkTarget);
+  let current = resolved;
+  for (let hop = 0; hop <= MAX_SYMLINK_HOPS; hop++) {
+    const realParent = await realpathAllowingMissing(path.dirname(current));
+    const leaf = path.join(realParent, path.basename(current));
+    let stats: Awaited<ReturnType<typeof fs.lstat>>;
+    try {
+      stats = await fs.lstat(leaf);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+      return leaf;
     }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error;
+    if (!stats.isSymbolicLink()) {
+      return leaf;
     }
+    current = path.resolve(realParent, await fs.readlink(leaf));
   }
-  return leaf;
+  // Only reachable via a symlink cycle or an absurdly long chain, which the OS
+  // would refuse with ELOOP anyway. Fail closed rather than return a guess.
+  throw new Error("Access denied: symlink chain too deep");
 }
 
 // Resolve symlinks on the deepest existing prefix of `target`, then re-append

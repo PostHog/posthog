@@ -172,6 +172,25 @@ describe("FsService repo file IO", () => {
     }
   });
 
+  it("refuses to write through a chain of symlinks ending outside the repository", async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), "fs-service-outside-"));
+    try {
+      // Chaining hides the escape from a single-hop check: resolving `first`
+      // one hop lands on the in-repo name `second`, and because the chain
+      // dangles, realpath cannot see past it to the outside target.
+      const danglingTarget = path.join(outside, "brand-new.txt");
+      await symlink(danglingTarget, path.join(repo, "second"));
+      await symlink(path.join(repo, "second"), path.join(repo, "first"));
+
+      await expect(
+        service.writeRepoFile(repo, "first", "attacker"),
+      ).rejects.toThrow(/Access denied/);
+      await expect(readFile(danglingTarget, "utf-8")).rejects.toThrow();
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it("confines readRepoFileAsBase64 to the repo (symlink escape blocked)", async () => {
     const outside = await mkdtemp(path.join(tmpdir(), "fs-service-outside-"));
     try {
