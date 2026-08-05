@@ -108,3 +108,14 @@ class TestNormalizeToExposureCriteria:
 
         # Should return the exact same object, not a copy
         assert result is typed_criteria
+
+    def test_drops_legacy_unknown_top_level_keys(self):
+        input_dict = {
+            "filterTestAccounts": True,
+            "properties": [{"key": "isInternalActor", "operator": "is_not"}],
+        }
+
+        result = normalize_to_exposure_criteria(input_dict)
+
+        assert result is not None
+        assert result.filterTestAccounts is True

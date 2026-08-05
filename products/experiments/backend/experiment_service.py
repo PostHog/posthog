@@ -508,6 +508,8 @@ class ExperimentService:
         if exposure_estimate_config is not None and not isinstance(exposure_estimate_config, dict):
             raise ValidationError("exposure_estimate_config must be an object")
 
+    EXPOSURE_CRITERIA_KEYS = ("filterTestAccounts", "exposure_config", "multiple_variant_handling")
+
     EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
 
     EXPOSURE_CONFIG_HINT = (
@@ -543,6 +545,10 @@ class ExperimentService:
                 f"exposure_criteria must be an object, got {type(exposure_criteria).__name__}. "
                 "Expected shape: {'filterTestAccounts': <bool>, 'exposure_config': <object>}."
             )
+
+        unknown = set(exposure_criteria.keys()) - set(cls.EXPOSURE_CRITERIA_KEYS)
+        if unknown:
+            raise ValidationError(f"exposure_criteria got unknown keys: {sorted(unknown)}")
 
         if "filterTestAccounts" in exposure_criteria:
             filter_test_accounts = exposure_criteria["filterTestAccounts"]

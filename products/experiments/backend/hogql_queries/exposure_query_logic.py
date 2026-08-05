@@ -112,8 +112,11 @@ def normalize_to_exposure_criteria(
 
     # Convert dict to typed object
     if isinstance(exposure_criteria, dict):
-        # Create a copy to avoid mutating the input
-        criteria_copy = exposure_criteria.copy()
+        # ExperimentExposureCriteria forbids extra fields, but some stored rows predate that
+        # constraint (e.g. a legacy `properties` test-account filter) — drop anything the model
+        # doesn't know about instead of failing validation on data we can't retroactively fix.
+        known_fields = ExperimentExposureCriteria.model_fields.keys()
+        criteria_copy = {key: value for key, value in exposure_criteria.items() if key in known_fields}
         # Also normalize nested exposure_config if present
         if criteria_copy.get("exposure_config"):
             exposure_config = criteria_copy["exposure_config"]

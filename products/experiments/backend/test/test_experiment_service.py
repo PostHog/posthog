@@ -792,6 +792,11 @@ class TestExperimentService(APIBaseTest):
                 {"exposure_config": {"kind": "ActionsNode"}},
                 "Invalid exposure_criteria.exposure_config (kind='ActionsNode')",
             ),
+            (
+                "legacy_properties_key",
+                {"properties": [{"key": "isInternalActor", "operator": "is_not"}]},
+                "exposure_criteria got unknown keys: ['properties']",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
