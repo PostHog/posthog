@@ -23,7 +23,7 @@ resource-listing tools: comments are inner tools behind `exec`, not MCP resource
 Call `posthog:exec` with:
 
 ```json
-{"command":"search ^tasks-(artifacts-list|comments-(list|retrieve))$"}
+{ "command": "search ^tasks-(artifacts-list|comments-(list|retrieve))$" }
 ```
 
 The expected inner tools are:
@@ -39,7 +39,7 @@ the required PostHog Code task context. Only then report that task comments cann
 Use `info <inner-tool-name>` when the schema is unclear. For example:
 
 ```json
-{"command":"info tasks-comments-list"}
+{ "command": "info tasks-comments-list" }
 ```
 
 ## Call tools through `exec`
@@ -49,25 +49,25 @@ Put the complete inner-tool invocation in `exec.command`.
 List open comment roots across the task:
 
 ```json
-{"command":"call tasks-comments-list {}"}
+{ "command": "call tasks-comments-list {}" }
 ```
 
 List artifacts and canvases when an inventory or filter id is needed:
 
 ```json
-{"command":"call tasks-artifacts-list {}"}
+{ "command": "call tasks-artifacts-list {}" }
 ```
 
 Filter roots to one returned artifact or canvas id:
 
 ```json
-{"command":"call tasks-comments-list {\"artifact_id\":\"<artifact-id>\"}"}
+{ "command": "call tasks-comments-list {\"artifact_id\":\"<artifact-id>\"}" }
 ```
 
 Retrieve a root and its replies:
 
 ```json
-{"command":"call tasks-comments-retrieve {\"root_comment_id\":\"<root-comment-id>\"}"}
+{ "command": "call tasks-comments-retrieve {\"root_comment_id\":\"<root-comment-id>\"}" }
 ```
 
 Never attempt to invoke an inner name as a top-level MCP tool. The notation
@@ -86,7 +86,7 @@ Both root listing and thread retrieval are cursor-paginated. For either operatio
 Example continuation:
 
 ```json
-{"command":"call tasks-comments-list {\"cursor\":\"<next>\"}"}
+{ "command": "call tasks-comments-list {\"cursor\":\"<next>\"}" }
 ```
 
 Start with the root inventory and retrieve only threads relevant to the user's request. Before
