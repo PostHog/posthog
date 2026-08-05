@@ -320,7 +320,9 @@ tools:
             monthly credit spend and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner
             sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner
             can exhaust the monthly budget on its first sweeps. To get notified about what the scanner finds (a Slack
-            alert or a scheduled summary), create a vision action bound to it with `vision-actions-create`.
+            alert or a scheduled summary), create a vision action bound to it with `vision-actions-create`. For a
+            scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision`
+            skill first — it derives the query from the experiment's exposure criteria.
         exclude_params:
             - id
             - scanner_version
