@@ -20,6 +20,13 @@ fi
 # commands -- skip telemetry so the dashboard reflects intentional usage only.
 export POSTHOG_TELEMETRY_OPT_OUT=1
 
+# Fixture-provenance warning. Runs here rather than as a lint-staged task because
+# lint-staged prints nothing for a task that succeeds, and this one always does.
+# Never blocks: the question it raises is not one a script can answer.
+if [ -x .github/scripts/check-fixture-provenance.sh ]; then
+    .github/scripts/check-fixture-provenance.sh || true
+fi
+
 # Activate Flox environment if available and not already active
 # This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)
 if command -v flox > /dev/null 2>&1 && [ -d ".flox/cache" ] && [ -z "$FLOX_ENV" ]; then
