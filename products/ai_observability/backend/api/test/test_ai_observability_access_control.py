@@ -9,7 +9,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.ai_observability.backend.dataset_service import create_dataset, create_dataset_item
+from products.ai_observability.backend.dataset_service import archive_dataset, create_dataset, create_dataset_item
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -181,6 +181,26 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_viewer_can_export_an_archived_dataset(self, _async_connect: AsyncMock) -> None:
+        create_dataset_item(
+            team_id=self.team.id,
+            dataset_id=self.dataset.id,
+            created_by=self.user,
+            input={"question": "Can a viewer export this?"},
+        )
+        archive_dataset(team_id=self.team.id, dataset_id=self.dataset.id)
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/datasets/{self.dataset.id}/exports/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @parameterized.expand(
         [
