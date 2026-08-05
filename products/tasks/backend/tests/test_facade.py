@@ -842,36 +842,15 @@ class TestRecentWizardCloudRunTimes(TestCase):
             ("run_patched_to_local", {"environment": TaskRun.Environment.LOCAL}, 1),
             ("non_onboarding_task_with_marker", {"origin_product": Task.OriginProduct.USER_CREATED}, 1),
             ("run_without_wizard_config", {"state": {}}, 0),
+            # A detection scan stamps wizard_config too, so origin is the only thing keeping it out
+            # of the much tighter cloud-run window the user needs to get through onboarding.
+            ("detection_run", {"origin_product": Task.OriginProduct.WIZARD_REPOSITORY_DETECTION}, 0),
         ]
     )
     def test_counts_only_quota_consuming_runs(self, _name, run_kwargs, expected_count):
         self._make_run(**run_kwargs)
         since = django_timezone.now() - timedelta(hours=1)
         self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), expected_count)
-
-    @parameterized.expand(
-        [
-            ("cloud_run", {}, 1, 0),
-            (
-                "detection_run",
-                {
-                    "origin_product": Task.OriginProduct.WIZARD_REPOSITORY_DETECTION,
-                    "state": {"wizard_config": {"kind": "error-tracking-source-maps"}},
-                },
-                0,
-                1,
-            ),
-        ]
-    )
-    def test_detection_and_cloud_runs_count_against_separate_windows(
-        self, _name, run_kwargs, cloud_count, detection_count
-    ):
-        # Both stamp wizard_config, so the origin is the only thing keeping repository scans out of
-        # the much tighter cloud-run window the user needs to get through onboarding.
-        self._make_run(**run_kwargs)
-        since = django_timezone.now() - timedelta(hours=1)
-        self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), cloud_count)
-        self.assertEqual(len(facade.recent_wizard_repository_detection_run_times(self.user.id, since)), detection_count)
 
     def test_scopes_by_user_across_teams_and_respects_window(self):
         self._make_run()

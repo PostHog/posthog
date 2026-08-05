@@ -1126,8 +1126,9 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
     local must keep consuming quota, or flipping it would launder sandbox boots out of the limits.
 
     Detection runs stamp ``wizard_config`` too (it is what makes provisioning inject the wizard
-    token), so they are excluded by origin and counted by ``recent_wizard_repository_detection_run_times``
-    against their own window instead.
+    token), so they are excluded by origin. They are bounded instead by their own daily attempt
+    reservation in the detection view, which counts every attempt regardless of outcome and so
+    needs no query here.
 
     Deliberately user-scoped across teams: the throttle is per user, and a user can run the
     wizard on projects in different teams. Returns only timestamps, no run data.
@@ -1140,34 +1141,6 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
         )
         .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
         .exclude(task__origin_product=Task.OriginProduct.WIZARD_REPOSITORY_DETECTION)
-        .order_by("created_at")
-        .values_list("created_at", flat=True)
-    )
-
-
-def recent_wizard_repository_detection_run_times(user_id: int, since: datetime) -> list[datetime]:
-    """Creation times of a user's recent repository detection runs that still count against quota.
-
-    Backs the outcome-aware detection throttles, on a window of their own: a scan boots a sandbox
-    but runs no agent, and is triggered per repository rather than per onboarding, so it must not
-    spend the tighter budget that gets a user through setup. Failed and cancelled runs are excluded
-    so a user whose scan broke can retry immediately. The hard ceiling on total attempts lives in
-    the detection view as an atomic cache reservation, not here.
-
-    Membership is the task's origin, which is set once at creation and rejected from API task
-    creation (see ``TaskWriteSerializer.validate_origin_product``), so a caller can neither forge a
-    run into this window nor move one out of the cloud wizard's.
-
-    Deliberately user-scoped across teams, like the cloud-run counterpart: the throttle is per user.
-    Returns only timestamps, no run data.
-    """
-    return list(
-        TaskRun.objects.filter(
-            task__created_by_id=user_id,
-            task__origin_product=Task.OriginProduct.WIZARD_REPOSITORY_DETECTION,
-            created_at__gte=since,
-        )
-        .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
         .order_by("created_at")
         .values_list("created_at", flat=True)
     )

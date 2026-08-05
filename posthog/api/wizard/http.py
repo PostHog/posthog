@@ -39,8 +39,6 @@ from posthog.rate_limit import (
     SetupWizardCloudRunBurstRateThrottle,
     SetupWizardCloudRunSustainedRateThrottle,
     SetupWizardQueryRateThrottle,
-    SetupWizardRepositoryDetectionBurstRateThrottle,
-    SetupWizardRepositoryDetectionSustainedRateThrottle,
 )
 from posthog.user_permissions import UserPermissions
 
@@ -63,9 +61,11 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 # loop lands on. Only requests that reach creation consume it.
 WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 
-# The same ceiling for detection scans, on its own counter. A scan boots a sandbox but runs no
-# agent, and a user scanning several repositories must not exhaust the budget that gets them through
-# onboarding, so the two budgets are separate and this one is higher.
+# The same ceiling for detection scans, on its own counter, and the *only* limit on them: unlike
+# cloud_run there are no outcome-aware DB throttles on top, so every attempt counts whether the scan
+# succeeds, fails, or is cancelled. A scan boots a sandbox but runs no agent, and a user scanning
+# several repositories must not exhaust the budget that gets them through onboarding, so the two
+# budgets are separate and this one is higher.
 WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP = 30
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
@@ -610,10 +610,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
         url_path="repository_detection",
         authentication_classes=[SessionAuthentication],
         permission_classes=[IsAuthenticated],
-        throttle_classes=[
-            SetupWizardRepositoryDetectionBurstRateThrottle,
-            SetupWizardRepositoryDetectionSustainedRateThrottle,
-        ],
     )
     def repository_detection(self, request: Request) -> Response:
         """Run a repository detection scan of the given kind, in the cloud.
@@ -623,9 +619,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
         repository-detections API under the same kind; the app reads it from there later. No
         agent runs and no pull request is opened.
 
-        Rate limited on its own budget rather than the cloud wizard run's: each scan still boots a
-        sandbox, but it runs no agent and is triggered per repository, so a user scanning several
-        repositories must not lock themselves out of the setup run.
+        Bounded solely by the daily attempt reservation below, on its own counter rather than the
+        cloud wizard run's: each scan still boots a sandbox, but it runs no agent and is triggered
+        per repository, so a user scanning several repositories must not lock themselves out of
+        the setup run. Unlike cloud_run there are no DB-counted throttles on top — every attempt
+        counts, whatever it goes on to do, so one number bounds the sandbox boots.
         """
         if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
             raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")

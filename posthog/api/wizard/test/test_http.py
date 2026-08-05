@@ -594,6 +594,20 @@ class SetupWizardCloudRunTests(APIBaseTest):
         accepted = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
         assert accepted.status_code == status.HTTP_200_OK, accepted.content
 
+    @patch("posthog.api.wizard.http.WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP", 1)
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_attempt_cap_is_the_only_thing_bounding_sandbox_boots(self, mock_create):
+        # Detection declares no DB-counted throttles, so this reservation alone stands between a
+        # user and unbounded sandbox boots. It counts attempts, so the outcome never refunds one.
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        first = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert first.status_code == status.HTTP_200_OK, first.content
+
+        second = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert mock_create.call_count == 1
+
     @patch("posthog.api.wizard.http.WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP", 1)
     @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")

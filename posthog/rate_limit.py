@@ -1028,56 +1028,6 @@ class SetupWizardCloudRunSustainedRateThrottle(SetupWizardCloudRunOutcomeAwareTh
     rate = "5/day"
 
 
-class SetupWizardRepositoryDetectionOutcomeAwareThrottle(UserRateThrottle):
-    """Counts a user's recent repository detection RUNS (not requests), excluding failed and cancelled.
-
-    Same outcome-aware design as the cloud-run throttle above, over a different population and its
-    own window. Kept standalone rather than sharing that class: the two limit different things (a
-    scan boots a sandbox but runs no agent, and is triggered per repository rather than per
-    onboarding) and neither should be able to move the other's numbers.
-    """
-
-    # Assigned by SimpleRateThrottle.__init__ from the parsed rate; the stubs don't declare them.
-    num_requests: int
-    duration: int
-
-    def allow_request(self, request: "Request", view: "APIView") -> bool:
-        user = getattr(request, "user", None)
-        if user is None or not user.is_authenticated:
-            # The detection action requires IsAuthenticated; anything else is rejected by permissions.
-            return True
-        memo = getattr(request, "_wizard_repository_detection_run_times_memo", None)
-        if memo is None:
-            memo = {}
-            setattr(request, "_wizard_repository_detection_run_times_memo", memo)  # noqa: B010 — dynamic attr the stubs don't know
-        if self.duration not in memo:
-            # Deferred: rate_limit is core and imports at module scope would pull the tasks
-            # product into every process's import path.
-            from products.tasks.backend.facade.api import recent_wizard_repository_detection_run_times  # noqa: PLC0415
-
-            memo[self.duration] = recent_wizard_repository_detection_run_times(
-                user.pk, timezone.now() - timedelta(seconds=self.duration)
-            )
-        self._recent_run_times = memo[self.duration]
-        return len(self._recent_run_times) < self.num_requests
-
-    def wait(self) -> float | None:
-        run_times = getattr(self, "_recent_run_times", None)
-        if not run_times:
-            return None
-        return max((run_times[0] + timedelta(seconds=self.duration) - timezone.now()).total_seconds(), 0)
-
-
-class SetupWizardRepositoryDetectionBurstRateThrottle(SetupWizardRepositoryDetectionOutcomeAwareThrottle):
-    scope = "wizard_repository_detection_burst"
-    rate = "6/hour"
-
-
-class SetupWizardRepositoryDetectionSustainedRateThrottle(SetupWizardRepositoryDetectionOutcomeAwareThrottle):
-    scope = "wizard_repository_detection_day"
-    rate = "20/day"
-
-
 class SymbolSetUploadBurstRateThrottle(PersonalApiKeyRateThrottle):
     scope = "symbol_set_upload_burst"
     rate = "1200/minute"
