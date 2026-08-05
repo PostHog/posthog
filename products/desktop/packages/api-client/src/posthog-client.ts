@@ -371,12 +371,6 @@ export interface ScoutConfig {
    */
   scout_origin?: "canonical" | "custom";
   run_interval_minutes: number;
-  /**
-   * Lowercase kebab-case labels grouping the fleet ("revenue", "on-call"). The
-   * server normalizes, dedupes, and sorts them, and reports "no tags" as `[]`;
-   * the field is absent entirely on backends predating it.
-   */
-  tags?: string[];
   last_run_at: string | null;
   created_at: string;
 }
@@ -1855,8 +1849,6 @@ export class PostHogAPIClient {
       enabled?: boolean;
       emit?: boolean;
       run_interval_minutes?: number;
-      /** Replaces the scout's tags outright — send the full desired set. */
-      tags?: string[];
     },
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;

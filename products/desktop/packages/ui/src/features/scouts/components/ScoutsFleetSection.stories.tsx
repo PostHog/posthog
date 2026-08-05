@@ -36,25 +36,21 @@ const CONFIGS: ScoutConfig[] = [
     scout_origin: "custom",
     emit: false,
     description: "Watches ad spend events for runaway campaigns.",
-    tags: ["revenue"],
   }),
   config({
     skill_name: "signals-scout-error-tracking",
     description: "Sweeps error tracking for new and spiking issues.",
-    tags: ["on-call"],
   }),
   config({
     skill_name: "signals-scout-web-analytics",
     run_interval_minutes: 1440,
     description: "Looks for traffic anomalies across web analytics.",
-    tags: [],
   }),
   config({
     skill_name: "signals-scout-checkout-funnel",
     scout_origin: "custom",
     run_interval_minutes: 480,
     description: "Tracks conversion through the checkout funnel.",
-    tags: ["on-call", "revenue"],
   }),
   config({
     skill_name: "signals-scout-weekly-digest",
@@ -62,7 +58,6 @@ const CONFIGS: ScoutConfig[] = [
     enabled: false,
     run_interval_minutes: 10080,
     description: "Posts a weekly digest of notable product metrics.",
-    tags: ["digest"],
   }),
 ];
 
@@ -141,18 +136,8 @@ const meta: Meta<typeof ScoutsFleetListView> = {
 export default meta;
 type Story = StoryObj<typeof ScoutsFleetListView>;
 
-/** The expanded fleet: summary, filters (Created by + Tagged + Hide disabled), CTAs, rows. */
+/** The expanded fleet: summary, filters (Created by + Hide disabled), CTAs, rows. */
 export const Fleet: Story = {};
-
-/** Tag filter preset to two tags → any-of, so both tags' scouts show. */
-export const FilteredByTags: Story = {
-  args: { initialTags: ["on-call", "revenue"] },
-};
-
-/** Nothing tagged yet → no tag picker at all. */
-export const WithoutTags: Story = {
-  args: { configs: CONFIGS.map((c) => ({ ...c, tags: [] })) },
-};
 
 /** "Created by" preset to the current user → only their hand-authored scouts. */
 export const FilteredToYou: Story = {

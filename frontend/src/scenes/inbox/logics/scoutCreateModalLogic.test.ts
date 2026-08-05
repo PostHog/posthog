@@ -82,6 +82,7 @@ describe('scoutCreateModalLogic', () => {
                             channel: 'C123|#ai-observability',
                         },
                     },
+                    tags: ['on-call', 'revenue'],
                 },
             },
             onClose,
@@ -105,6 +106,7 @@ describe('scoutCreateModalLogic', () => {
                         channel: 'C123|#ai-observability',
                     },
                 },
+                tags: ['on-call', 'revenue'],
             },
         })
 
@@ -125,6 +127,7 @@ describe('scoutCreateModalLogic', () => {
                         channel: 'C123|#ai-observability',
                     },
                 },
+                tags: ['on-call', 'revenue'],
             },
         })
         expect(onCreated).toHaveBeenCalledWith(CREATED_SCOUT)
@@ -156,6 +159,7 @@ describe('scoutCreateModalLogic', () => {
                     emit: true,
                     run_interval_minutes: 1440,
                     run_cron_schedule: '45 14 * * *',
+                    tags: [],
                 },
             }),
         })
@@ -169,6 +173,7 @@ describe('scoutCreateModalLogic', () => {
                     emit: true,
                     run_interval_minutes: 1440,
                     run_cron_schedule: '45 14 * * *',
+                    tags: [],
                 },
             })
         )
