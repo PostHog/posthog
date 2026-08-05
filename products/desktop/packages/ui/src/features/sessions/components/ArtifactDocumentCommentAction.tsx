@@ -1,5 +1,8 @@
 import { ChatCircleIcon } from "@phosphor-icons/react";
-import type { CommentTarget } from "@posthog/core/comments/anchors";
+import type {
+  CommentContext,
+  CommentTarget,
+} from "@posthog/core/comments/anchors";
 import {
   Button,
   Popover,
@@ -15,10 +18,12 @@ export function ArtifactDocumentCommentAction({
   target,
   taskId,
   onCreated,
+  context = { anchor: { kind: "document" } },
 }: {
   target: CommentTarget;
   taskId: string;
   onCreated?: (commentId: string) => void;
+  context?: CommentContext;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -43,7 +48,7 @@ export function ArtifactDocumentCommentAction({
             createComment.mutate(
               {
                 content,
-                context: { anchor: { kind: "document" } },
+                context,
                 mentions,
               },
               { onSuccess: (comment) => onCreated?.(comment.id) },

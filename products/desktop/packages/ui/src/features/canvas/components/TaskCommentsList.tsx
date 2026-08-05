@@ -115,6 +115,33 @@ function SourceLabel({ thread }: { thread: TaskCommentThread }) {
   );
 }
 
+function CanvasCommentReference({
+  root,
+  versionLabel,
+}: {
+  root: ResourceComment;
+  versionLabel?: (versionId: string) => string;
+}) {
+  const context = readCommentContext(root);
+  const version = context?.canvasVersionId
+    ? versionLabel?.(context.canvasVersionId)
+    : null;
+  const anchor = context?.anchor;
+  return (
+    <span className="mb-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+      <span className="shrink-0">
+        {anchor?.kind === "text" ? "Selected text" : "Whole canvas"}
+        {version ? ` · ${version}` : ""}
+      </span>
+      {anchor?.kind === "text" && (
+        <span className="min-w-0 truncate" title={anchor.quote}>
+          “{anchor.quote}”
+        </span>
+      )}
+    </span>
+  );
+}
+
 /**
  * A PostHog comment thread. Its own component so it can hold the mutations for
  * its thread's resource — the list spans several, each with its own target.
@@ -130,6 +157,7 @@ function ResourceThreadRow({
   resolution,
   onOpen,
   showSource = true,
+  commentVersionLabel,
 }: {
   thread: TaskCommentThread;
   source: CommentSource;
@@ -141,6 +169,7 @@ function ResourceThreadRow({
   resolution?: HighlightResolution;
   onOpen: () => void;
   showSource?: boolean;
+  commentVersionLabel?: (versionId: string) => string;
 }) {
   const createComment = useCreateComment(source.target, taskId);
   const setResolved = useSetCommentResolved(source.target);
@@ -155,7 +184,16 @@ function ResourceThreadRow({
       members={members}
       resolution={resolution}
       busy={createComment.isPending || setResolved.isPending}
-      source={showSource ? <SourceLabel thread={thread} /> : undefined}
+      source={
+        showSource ? (
+          <SourceLabel thread={thread} />
+        ) : (
+          <CanvasCommentReference
+            root={root}
+            versionLabel={commentVersionLabel}
+          />
+        )
+      }
       onSelect={onOpen}
       onReply={(content, mentions) =>
         createComment.mutate({
@@ -238,12 +276,18 @@ export function TaskCommentsList({
   task,
   timeline,
   onlySource,
+  canvasVersionId,
+  commentVersionLabel,
+  onCanvasCommentOpen,
 }: {
   task: Task;
   timeline: ThreadTimelineRow<TaskThreadMessage>[];
   /** Restricts the pane to one resource known by its host, without relying on
    * the task timeline to rediscover it. */
   onlySource?: CommentSource;
+  canvasVersionId?: string | null;
+  commentVersionLabel?: (versionId: string) => string;
+  onCanvasCommentOpen?: (versionId: string | null) => void;
 }) {
   const { runs } = useTaskRuns(task.id);
   const { members } = useOrgMembers();
@@ -277,7 +321,7 @@ export function TaskCommentsList({
   );
   const commentsQuery = useCommentsForTargetsQuery(targets, task.id, {
     live: true,
-    intervalMs: POLL_INTERVAL_MS,
+    intervalMs: onlySource ? 5_000 : POLL_INTERVAL_MS,
   });
   const prUrls = useMemo(
     () =>
@@ -415,6 +459,11 @@ export function TaskCommentsList({
     }
     const { source, root } = origin;
     if (source.kind === "canvas") {
+      requestCommentFocus(task.id, source.target, root.id);
+      if (onCanvasCommentOpen) {
+        onCanvasCommentOpen(readCommentContext(root)?.canvasVersionId ?? null);
+        return;
+      }
       canvasArtifactOpenHandler(source.url)?.();
       return;
     }
@@ -434,7 +483,7 @@ export function TaskCommentsList({
   return (
     // The parent scrolls the middle; the filters and the composer are pinned so
     // they stay reachable however long the thread list grows.
-    <div className="flex min-h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <header className="sticky top-0 z-10 flex shrink-0 items-center justify-end gap-1 bg-gray-1 px-2 py-2">
         {!onlySource && (
           <DropdownMenu>
@@ -517,7 +566,7 @@ export function TaskCommentsList({
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
-      <div className="flex-1 space-y-2 px-2 pt-3 pb-2">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pt-3 pb-2">
         {loading && threads.length === 0 ? (
           <div className="flex justify-center py-8">
             <Spinner />
@@ -557,6 +606,7 @@ export function TaskCommentsList({
                 )}
                 onOpen={() => openThread(thread)}
                 showSource={!onlySource}
+                commentVersionLabel={commentVersionLabel}
               />
             ) : (
               <PrThreadRow
@@ -577,7 +627,10 @@ export function TaskCommentsList({
           onSubmit={(content, mentions) => {
             createComment.mutate({
               content,
-              context: { anchor: { kind: "document" } },
+              context: {
+                anchor: { kind: "document" },
+                ...(canvasVersionId ? { canvasVersionId } : {}),
+              },
               mentions,
             });
             setDraft("");

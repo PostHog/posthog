@@ -215,11 +215,23 @@ describe("TaskCommentsList", () => {
   });
 
   it("queries and displays only the current canvas when restricted", () => {
+    const onCanvasCommentOpen = vi.fn();
     mocks.comments = [
       comment({
         item_id: "canvas-1",
         scope: "desktop_canvas",
         content: "Canvas feedback",
+        item_context: {
+          anchor: {
+            kind: "text",
+            quote: "important copy",
+            prefix: "",
+            suffix: "",
+            start: 0,
+            end: 14,
+          },
+          canvasVersionId: "version-2",
+        },
       }),
     ];
 
@@ -233,6 +245,9 @@ describe("TaskCommentsList", () => {
           target: { scope: "desktop_canvas", itemId: "canvas-1" },
           url: null,
         }}
+        canvasVersionId="version-2"
+        commentVersionLabel={() => "v2/3"}
+        onCanvasCommentOpen={onCanvasCommentOpen}
       />,
     );
 
@@ -240,11 +255,26 @@ describe("TaskCommentsList", () => {
       { scope: "desktop_canvas", itemId: "canvas-1" },
     ]);
     expect(screen.getByText("Canvas feedback")).toBeInTheDocument();
+    expect(screen.getByText("“important copy”")).toBeInTheDocument();
+    expect(screen.getByText(/Selected text · v2\/3/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Filter by source")).not.toBeInTheDocument();
     expect(screen.queryByText("Launch canvas")).not.toBeInTheDocument();
     expect(mocks.createdFor.at(-1)).toEqual({
       scope: "desktop_canvas",
       itemId: "canvas-1",
+    });
+
+    fireEvent.click(screen.getByText("Canvas feedback"));
+    expect(onCanvasCommentOpen).toHaveBeenCalledWith("version-2");
+
+    fireEvent.click(screen.getByText(/Comment on this canvas/));
+    expect(mocks.createComment).toHaveBeenCalledWith({
+      content: "Composed comment",
+      context: {
+        anchor: { kind: "document" },
+        canvasVersionId: "version-2",
+      },
+      mentions: [],
     });
   });
 

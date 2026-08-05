@@ -84,6 +84,17 @@ describe("FreeformCanvas", () => {
         rect: { top: 110, right: 280, bottom: 130, left: 220 },
       }),
     );
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: iframe.contentWindow,
+        data: {
+          channel: "posthog-canvas",
+          type: "text-selection-cleared",
+        },
+      }),
+    );
+    expect(onTextSelection).toHaveBeenLastCalledWith(null);
   });
 
   describe("open-external", () => {

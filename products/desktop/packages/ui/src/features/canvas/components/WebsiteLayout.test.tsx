@@ -1,7 +1,7 @@
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
@@ -59,14 +59,17 @@ vi.mock(
   () => ({
     ArtifactDocumentCommentAction: ({
       taskId,
+      context,
       onCreated,
     }: {
       taskId: string;
+      context?: unknown;
       onCreated?: (commentId: string) => void;
     }) => (
       <button
         type="button"
         data-testid="canvas-comment-action"
+        data-context={JSON.stringify(context)}
         onClick={() => onCreated?.("comment-1")}
       >
         {taskId}
@@ -87,6 +90,7 @@ vi.mock("@posthog/ui/features/canvas/freeform/CanvasFrameHost", () => ({
 }));
 
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { useFreeformChatStore } from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { WebsiteLayout } from "./WebsiteLayout";
 
@@ -126,7 +130,14 @@ function renderLayout({
 }
 
 describe("WebsiteLayout task header actions", () => {
+  beforeEach(() => {
+    useFreeformChatStore.setState({ threads: {} });
+  });
+
   it("offers document comments on a task-generated canvas", () => {
+    useFreeformChatStore
+      .getState()
+      .setDisplayedVersion("dashboard:canvas-1", "version-2");
     renderLayout({
       pathname: "/website/chan-1/dashboards/canvas-1",
       params: { channelId: "chan-1", dashboardId: "canvas-1" },
@@ -139,6 +150,13 @@ describe("WebsiteLayout task header actions", () => {
 
     expect(screen.getByTestId("canvas-comment-action")).toHaveTextContent(
       "task-1",
+    );
+    expect(screen.getByTestId("canvas-comment-action")).toHaveAttribute(
+      "data-context",
+      JSON.stringify({
+        anchor: { kind: "document" },
+        canvasVersionId: "version-2",
+      }),
     );
     useCanvasChatPanelStore.setState({ collapsed: true, tab: "chat" });
     fireEvent.click(screen.getByTestId("canvas-comment-action"));

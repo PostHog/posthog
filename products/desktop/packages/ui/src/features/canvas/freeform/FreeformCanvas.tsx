@@ -40,7 +40,7 @@ export interface FreeformCanvasProps {
    * just forwards it — the caller maps it to actual routing.
    */
   onNavigate?: (intent: CanvasNavIntent) => void;
-  onTextSelection?: (selection: CanvasTextSelection) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
   /**
    * Bootstrap config for in-iframe posthog-js (analytics + session replay).
    * Absent = no capture/replay. Only the PUBLIC key is here; the private token
@@ -151,6 +151,10 @@ export function FreeformCanvas({
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
         onTextSelection: (selection) => {
+          if (!selection) {
+            latest.current.onTextSelection?.(null);
+            return;
+          }
           const frame = iframeRef.current?.getBoundingClientRect();
           latest.current.onTextSelection?.({
             ...selection,

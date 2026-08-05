@@ -96,6 +96,9 @@ export function FreeformCanvasView({
   const dashboardId = dashboardIdOf(threadId);
   const { runtimeError, browseVersionId } = useFreeformThread(threadId);
   const setBrowseVersion = useFreeformChatStore((s) => s.setBrowseVersion);
+  const setDisplayedVersion = useFreeformChatStore(
+    (s) => s.setDisplayedVersion,
+  );
   const setRuntimeError = useFreeformChatStore((s) => s.setRuntimeError);
 
   // Right-hand panel state (persisted minimize + width). `startedTaskId` is a
@@ -301,6 +304,22 @@ export function FreeformCanvasView({
   // Migrated single-file canvases have no version pointer, but the source
   // endpoint exposes their stored code as a synthetic project.
   const headVersionId = dashboard?.currentVersionId ?? null;
+  const displayedVersionId = browsing
+    ? browseVersionId
+    : (publishedBuild?.sourceVersionId ?? headVersionId);
+  useEffect(() => {
+    setDisplayedVersion(threadId, displayedVersionId);
+    setTextSelection(null);
+  }, [displayedVersionId, setDisplayedVersion, threadId]);
+  const commentVersionLabel = useCallback(
+    (versionId: string) => {
+      const index = versions.findIndex((version) => version.id === versionId);
+      return index === -1
+        ? "Saved version"
+        : `v${versions.length - index}/${versions.length}`;
+    },
+    [versions],
+  );
   const wantHeadSource =
     !!dashboard && lifecycle !== undefined && !publishedBuild;
   const { source: headSource, isLoading: headSourceLoading } = useCanvasSource({
@@ -737,6 +756,14 @@ export function FreeformCanvasView({
             channelId={channelId}
             channelName={channelName}
             name={dashboard?.name ?? "Canvas"}
+            displayedVersionId={displayedVersionId}
+            commentVersionLabel={commentVersionLabel}
+            onCommentOpen={(versionId) => {
+              setBrowseVersion(
+                threadId,
+                versionId && versionId !== headVersionId ? versionId : null,
+              );
+            }}
             templateId={dashboard?.templateId}
             isEdit={hasSource}
             editorRef={editorRef}
@@ -750,6 +777,7 @@ export function FreeformCanvasView({
         taskId={commentTaskId}
         dashboardId={dashboardId}
         canvasName={dashboard?.name ?? "Canvas"}
+        versionId={displayedVersionId}
         onDismiss={() => setTextSelection(null)}
       />
 

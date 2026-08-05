@@ -60,6 +60,7 @@ describe("CanvasSelectionCommentAction", () => {
         taskId="task-1"
         dashboardId="canvas-1"
         canvasName="Launch canvas"
+        versionId="version-2"
         onDismiss={vi.fn()}
       />,
     );
@@ -78,6 +79,7 @@ describe("CanvasSelectionCommentAction", () => {
             start: 7,
             end: 20,
           },
+          canvasVersionId: "version-2",
         },
         mentions: [4],
       },

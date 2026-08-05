@@ -33,6 +33,9 @@ export function CanvasSidePanel({
   channelId,
   channelName,
   name,
+  displayedVersionId,
+  commentVersionLabel,
+  onCommentOpen,
   templateId,
   isEdit,
   editorRef,
@@ -45,6 +48,9 @@ export function CanvasSidePanel({
   channelId: string;
   channelName: string;
   name: string;
+  displayedVersionId: string | null;
+  commentVersionLabel: (versionId: string) => string;
+  onCommentOpen: (versionId: string | null) => void;
   templateId?: string;
   /** Whether the canvas already has published source (a follow-up edit rather
    * than a first build) — the agent re-reads the live source itself. */
@@ -99,6 +105,9 @@ export function CanvasSidePanel({
             taskId={commentTaskId}
             dashboardId={dashboardId}
             name={name}
+            displayedVersionId={displayedVersionId}
+            commentVersionLabel={commentVersionLabel}
+            onCommentOpen={onCommentOpen}
           />
         ) : effectiveTaskId ? (
           <CanvasChatLoader taskId={effectiveTaskId} />
@@ -153,10 +162,16 @@ function CanvasCommentsLoader({
   taskId,
   dashboardId,
   name,
+  displayedVersionId,
+  commentVersionLabel,
+  onCommentOpen,
 }: {
   taskId: string;
   dashboardId: string;
   name: string;
+  displayedVersionId: string | null;
+  commentVersionLabel: (versionId: string) => string;
+  onCommentOpen: (versionId: string | null) => void;
 }) {
   const { data: task } = useQuery(taskDetailQuery(taskId));
 
@@ -169,7 +184,14 @@ function CanvasCommentsLoader({
   }
 
   return (
-    <CanvasTaskComments task={task} dashboardId={dashboardId} name={name} />
+    <CanvasTaskComments
+      task={task}
+      dashboardId={dashboardId}
+      name={name}
+      displayedVersionId={displayedVersionId}
+      commentVersionLabel={commentVersionLabel}
+      onCommentOpen={onCommentOpen}
+    />
   );
 }
 
@@ -177,10 +199,16 @@ function CanvasTaskComments({
   task,
   dashboardId,
   name,
+  displayedVersionId,
+  commentVersionLabel,
+  onCommentOpen,
 }: {
   task: Task;
   dashboardId: string;
   name: string;
+  displayedVersionId: string | null;
+  commentVersionLabel: (versionId: string) => string;
+  onCommentOpen: (versionId: string | null) => void;
 }) {
   const { timeline } = useThreadConversation(task, {
     surface: "activity_panel",
@@ -195,6 +223,9 @@ function CanvasTaskComments({
         target: { scope: "desktop_canvas", itemId: dashboardId },
         url: null,
       }}
+      canvasVersionId={displayedVersionId}
+      commentVersionLabel={commentVersionLabel}
+      onCanvasCommentOpen={onCommentOpen}
     />
   );
 }

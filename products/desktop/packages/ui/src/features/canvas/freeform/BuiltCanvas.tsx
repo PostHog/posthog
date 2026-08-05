@@ -82,7 +82,7 @@ export interface BuiltCanvasProps {
   onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
-  onTextSelection?: (selection: CanvasTextSelection) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
 }
 
 export function BuiltCanvas({
@@ -138,6 +138,10 @@ export function BuiltCanvas({
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
         onTextSelection: (selection) => {
+          if (!selection) {
+            onTextSelection?.(null);
+            return;
+          }
           const frame = iframeRef.current?.getBoundingClientRect();
           latest.current.onTextSelection?.({
             ...selection,

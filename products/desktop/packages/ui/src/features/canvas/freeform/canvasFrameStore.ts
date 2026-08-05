@@ -35,7 +35,7 @@ export interface CanvasFrameInputs {
   onError?: (message: string, stack?: string) => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
-  onTextSelection?: (selection: CanvasTextSelection) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
 }
 
 interface CanvasFrameSlot {

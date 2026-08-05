@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createTextCommentAnchor,
   isThreadResolved,
+  parseCommentContext,
   resolveTextCommentAnchor,
 } from "./anchors";
 
@@ -65,6 +66,18 @@ describe("artifact text anchors", () => {
 
   it("rejects whitespace-only selections", () => {
     expect(createTextCommentAnchor("a   b", 1, 4)).toBeNull();
+  });
+
+  it("preserves a canvas source version in comment context", () => {
+    expect(
+      parseCommentContext({
+        anchor: { kind: "document" },
+        canvasVersionId: "version-2",
+      }),
+    ).toEqual({
+      anchor: { kind: "document" },
+      canvasVersionId: "version-2",
+    });
   });
 
   it("uses the latest thread-state event for resolution", () => {

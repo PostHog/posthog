@@ -59,6 +59,8 @@ export type CommentAnchor = z.infer<typeof commentAnchorSchema>;
 export const commentContextSchema = z.object({
   anchor: commentAnchorSchema,
   threadState: z.enum(["resolved", "open"]).optional(),
+  /** Immutable canvas source version rendered when the comment was made. */
+  canvasVersionId: z.string().min(1).optional(),
   // The task the commented resource belongs to. Artifact and canvas ids live in a run's
   // JSON rather than a table, so the server can't get back to the task without being told.
   taskId: z.string().optional(),

@@ -29,7 +29,7 @@ export interface CanvasHostCallbacks {
   onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
-  onTextSelection?: (selection: CanvasTextSelection) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
 }
 
 export type ExternalOpenBlockReason =
@@ -124,6 +124,9 @@ export function createCanvasHostMessageRouter(
         break;
       case "text-selection":
         options.callbacks().onTextSelection?.(message.selection);
+        break;
+      case "text-selection-cleared":
+        options.callbacks().onTextSelection?.(null);
         break;
       case "open-external":
         // Re-checks the schema's allowlist refine in case it ever drifts.

@@ -55,4 +55,13 @@ describe("canvasToHostMessageSchema", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("accepts an explicit selection-cleared event", () => {
+    expect(
+      canvasToHostMessageSchema.safeParse({
+        channel: "posthog-canvas",
+        type: "text-selection-cleared",
+      }).success,
+    ).toBe(true);
+  });
 });

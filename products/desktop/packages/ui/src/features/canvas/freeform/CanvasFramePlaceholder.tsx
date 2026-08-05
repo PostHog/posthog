@@ -28,7 +28,7 @@ export function CanvasFramePlaceholder({
   onError?: (message: string, stack?: string) => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
-  onTextSelection?: (selection: CanvasTextSelection) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 

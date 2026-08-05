@@ -48,6 +48,9 @@ describe("CanvasSidePanel", () => {
         channelId="channel-1"
         channelName="General"
         name="Launch canvas"
+        displayedVersionId="version-2"
+        commentVersionLabel={(versionId) => versionId}
+        onCommentOpen={vi.fn()}
       />,
     );
 

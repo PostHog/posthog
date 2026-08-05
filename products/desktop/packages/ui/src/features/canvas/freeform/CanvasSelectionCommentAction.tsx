@@ -11,12 +11,14 @@ export function CanvasSelectionCommentAction({
   taskId,
   dashboardId,
   canvasName,
+  versionId,
   onDismiss,
 }: {
   selection: CanvasTextSelection | null;
   taskId: string | null;
   dashboardId: string;
   canvasName: string;
+  versionId: string | null;
   onDismiss: () => void;
 }) {
   const { members } = useOrgMembers();
@@ -60,7 +62,14 @@ export function CanvasSelectionCommentAction({
       onSubmit={(_start, _end, content, mentions) => {
         if (!anchor || !taskId) return;
         createComment.mutate(
-          { content, context: { anchor }, mentions },
+          {
+            content,
+            context: {
+              anchor,
+              ...(versionId ? { canvasVersionId: versionId } : {}),
+            },
+            mentions,
+          },
           {
             onSuccess: (comment) => {
               openComments();

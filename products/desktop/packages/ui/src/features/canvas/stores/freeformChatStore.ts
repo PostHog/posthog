@@ -12,11 +12,14 @@ export interface FreeformThreadState {
   runtimeError: string | null;
   /** Historical source version being browsed (edit mode); null = the head. */
   browseVersionId: string | null;
+  /** Immutable source version currently rendered, including fallback builds. */
+  displayedVersionId: string | null;
 }
 
 export const EMPTY_FREEFORM_THREAD: FreeformThreadState = {
   runtimeError: null,
   browseVersionId: null,
+  displayedVersionId: null,
 };
 
 interface FreeformChatStore {
@@ -24,6 +27,7 @@ interface FreeformChatStore {
 
   /** Browse a historical source version (null = back to the head). */
   setBrowseVersion: (threadId: string, versionId: string | null) => void;
+  setDisplayedVersion: (threadId: string, versionId: string | null) => void;
   setRuntimeError: (threadId: string, message: string | null) => void;
 }
 
@@ -50,6 +54,9 @@ export const useFreeformChatStore = create<FreeformChatStore>()((set) => {
 
     setBrowseVersion: (threadId, versionId) => {
       patch(threadId, (prev) => ({ ...prev, browseVersionId: versionId }));
+    },
+    setDisplayedVersion: (threadId, versionId) => {
+      patch(threadId, (prev) => ({ ...prev, displayedVersionId: versionId }));
     },
 
     setRuntimeError: (threadId, message) => {

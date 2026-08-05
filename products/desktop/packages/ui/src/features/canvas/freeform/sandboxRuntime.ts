@@ -276,11 +276,24 @@ export function buildSandboxDocument(
       true,
     );
 
+    const clearTextSelection = () => post({ type: "text-selection-cleared" });
+    document.addEventListener("selectionchange", () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        clearTextSelection();
+      }
+    });
     document.addEventListener("mouseup", () => {
       const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        clearTextSelection();
+        return;
+      }
       const range = selection.getRangeAt(0);
-      if (!document.body.contains(range.startContainer) || !document.body.contains(range.endContainer)) return;
+      if (!document.body.contains(range.startContainer) || !document.body.contains(range.endContainer)) {
+        clearTextSelection();
+        return;
+      }
       const before = document.createRange();
       before.selectNodeContents(document.body);
       before.setEnd(range.startContainer, range.startOffset);
@@ -293,7 +306,10 @@ export function buildSandboxDocument(
       const start = before.toString().length;
       const end = through.toString().length;
       const quote = text.slice(start, end);
-      if (!quote.trim()) return;
+      if (!quote.trim()) {
+        clearTextSelection();
+        return;
+      }
       const rect = range.getBoundingClientRect();
       post({
         type: "text-selection",

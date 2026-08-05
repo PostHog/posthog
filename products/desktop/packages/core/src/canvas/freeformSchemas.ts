@@ -243,5 +243,9 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("text-selection"),
     selection: canvasTextSelectionSchema,
   }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("text-selection-cleared"),
+  }),
 ]);
 export type CanvasToHostMessage = z.infer<typeof canvasToHostMessageSchema>;
