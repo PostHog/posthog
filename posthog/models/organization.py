@@ -1,4 +1,5 @@
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
@@ -62,6 +63,12 @@ class OrganizationUsageInfo(TypedDict):
     logs_mb_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class BillingPeriod:
+    start: datetime
+    end: datetime
 
 
 class ProductFeature(TypedDict):
@@ -235,6 +242,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, in-app callouts inviting members to enable AI training are shown.",
     )
     enforce_2fa = models.BooleanField(null=True, blank=True)
+    enforce_verified_domains = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.",
+    )
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_create_projects = models.BooleanField(
         default=False,
@@ -418,8 +430,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         billing_period = self.current_billing_period
 
         if billing_period:
-            _start, end = billing_period
-            billing_period_end_timestamp = int(end.timestamp())
+            billing_period_end_timestamp = int(billing_period.end.timestamp())
 
             team_rows = [
                 (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
@@ -542,9 +553,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         return result
 
     @property
-    def current_billing_period(self) -> tuple[datetime, datetime] | None:
+    def current_billing_period(self) -> BillingPeriod | None:
         """
-        Returns the current billing period as a tuple of (start, end).
+        Returns the current billing period.
         Returns None if usage data is not available or period is not set.
         """
         if not self.usage or "period" not in self.usage:
@@ -557,7 +568,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
             start = dateutil.parser.isoparse(period[0])
             end = dateutil.parser.isoparse(period[1])
-            return (start, end)
+            return BillingPeriod(start=start, end=end)
         except (ValueError, TypeError, KeyError) as e:
             logger.warning(f"Failed to parse billing period for organization {self.id}: {e}")
             return None

@@ -1,4 +1,5 @@
 import { BindLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { ReactNode, useCallback, useState } from 'react'
 
 import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
@@ -13,6 +14,7 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
+import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
@@ -81,9 +83,9 @@ export function ReportDetailBadges({
     )
 }
 
-/** Shared explainer for the finding count in the meta line and the Evidence section. */
-const FINDINGS_TOOLTIP =
-    'Findings are the individual pieces of evidence – signals from your connected sources and scouts – that were grouped into this report.'
+/** Shared explainer for the signal count in the meta line and the Evidence section. */
+const SIGNALS_TOOLTIP =
+    'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
 
 /**
  * Single meta line under the title: status/actionability chips, then dot-separated stats
@@ -109,9 +111,9 @@ function ReportDetailMeta({
     const stats: ReactNode[] = []
     if (evidenceCount > 0) {
         stats.push(
-            <Tooltip title={FINDINGS_TOOLTIP}>
+            <Tooltip title={SIGNALS_TOOLTIP}>
                 <span className="tabular-nums cursor-help">
-                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                    {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
                 </span>
             </Tooltip>
         )
@@ -296,6 +298,12 @@ export function InboxDetailFrame({
     diffStat,
     children,
 }: InboxDetailFrameProps): JSX.Element {
+    const { searchParams } = useValues(router)
+    // A `?back=` internal path (set by surfaces embedding inbox cards, e.g. the customer analytics
+    // feed) redirects the back button there instead of the inbox list tab.
+    const rawBack = searchParams.back
+    const backOverride =
+        typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
     const logicProps = { reportId: report.id, report }
     const {
         reportSignals,
@@ -326,6 +334,15 @@ export function InboxDetailFrame({
         [chartPlacements]
     )
 
+    // Reading depth on the report body: which supporting sections a reader actually opened.
+    const captureSectionToggle = (section: string) => (collapsed: boolean) =>
+        captureInboxReportAction({
+            report,
+            actionType: collapsed ? 'collapse_section' : 'expand_section',
+            surface: 'detail_pane',
+            extra: { section },
+        })
+
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
@@ -349,7 +366,12 @@ export function InboxDetailFrame({
         <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
             <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
                 <div className="min-w-0 flex flex-col gap-5">
-                    <DetailSection icon={summary.icon} title={summary.title} collapsible>
+                    <DetailSection
+                        icon={summary.icon}
+                        title={summary.title}
+                        collapsible
+                        onToggleCollapsed={captureSectionToggle('summary')}
+                    >
                         {report.summary ? (
                             <LemonMarkdown
                                 className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
@@ -360,7 +382,7 @@ export function InboxDetailFrame({
                             </LemonMarkdown>
                         ) : (
                             <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                                No summary yet – an agent is still investigating.
+                                No summary yet. An agent is still investigating.
                             </p>
                         )}
                         {trailingCharts.length > 0 && (
@@ -386,10 +408,11 @@ export function InboxDetailFrame({
                             icon={<IconSearch />}
                             title="Evidence"
                             collapsible
+                            onToggleCollapsed={captureSectionToggle('evidence')}
                             rightSlot={
-                                <Tooltip title={FINDINGS_TOOLTIP}>
+                                <Tooltip title={SIGNALS_TOOLTIP}>
                                     <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
-                                        {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                                        {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
                                     </span>
                                 </Tooltip>
                             }
@@ -420,10 +443,10 @@ export function InboxDetailFrame({
                     type="tertiary"
                     size="small"
                     icon={<IconArrowLeft />}
-                    to={urls.inbox(tab)}
+                    to={backOverride ?? urls.inbox(tab)}
                     className="-ml-2 w-fit"
                 >
-                    {INBOX_TAB_LABEL[tab]}
+                    {backOverride ? 'Back' : INBOX_TAB_LABEL[tab]}
                 </LemonButton>
                 <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between @2xl:gap-4">
                     {/* Priority square anchors the title; everything else collapses into the meta line. */}
@@ -495,7 +518,14 @@ export function InboxDetailFrame({
             {hasDiff ? (
                 <LemonTabs
                     activeKey={activeDetailTab}
-                    onChange={setActiveDetailTab}
+                    onChange={(key) => {
+                        setActiveDetailTab(key)
+                        // Reviewing the diff is the deepest engagement a report gets short of acting
+                        // on it, and it's the one desktop can't see either.
+                        if (key === 'files') {
+                            captureInboxReportAction({ report, actionType: 'view_diff', surface: 'detail_pane' })
+                        }
+                    }}
                     tabs={[
                         { key: 'overview', label: 'Overview', content: overviewBody },
                         {
@@ -568,6 +598,9 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                         to={prFilesUrl(prUrl)}
                         targetBlank
                         tooltip={`${prRef.repoSlug}#${prRef.number}`}
+                        onClick={() =>
+                            captureInboxReportAction({ report, actionType: 'open_pr', surface: 'detail_pane' })
+                        }
                     >
                         Open in GitHub
                     </LemonButton>

@@ -33,6 +33,8 @@ export interface DataModelingJobApi {
     readonly error: string | null
     readonly created_at: string
     readonly last_run_at: string
+    /** When the job row last changed. For finished jobs this is when the run reached its terminal status. */
+    readonly updated_at: string
     /** @nullable */
     readonly workflow_id: string | null
     /** @nullable */
@@ -166,10 +168,10 @@ export interface ManagedWarehouseSourceSummaryApi {
     detail: string
     /** Number of this source's schemas visible to the warehouse. */
     total_schemas: number
-    /** Number of schemas whose one-time historical copy into the warehouse has completed. */
-    backfilled_schemas: number
+    /** Number of schemas applied by a completed copy or register workflow. */
+    applied_schemas: number
     /**
-     * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
+     * Most recent completed copy or register workflow across this source's schemas, or null if none completed.
      * @nullable
      */
     last_applied_at: string | null
@@ -192,7 +194,7 @@ export interface ManagedWarehouseSourcesStatusApi {
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of imported source readiness. */
     detail: string
-    /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+    /** Per-source rollup of copy and register workflow statuses for configured warehouse source imports. */
     sources: ManagedWarehouseSourceSummaryApi[]
 }
 
@@ -216,6 +218,34 @@ export interface ManagedWarehouseDataStatusResponseApi {
     generated_at: string
 }
 
+/**
+ * * `copy` - copy
+ * * `register` - register
+ */
+export type WorkflowTypeEnumApi = (typeof WorkflowTypeEnumApi)[keyof typeof WorkflowTypeEnumApi]
+
+export const WorkflowTypeEnumApi = {
+    Copy: 'copy',
+    Register: 'register',
+} as const
+
+/**
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `skipped` - skipped
+ * * `stale` - stale
+ */
+export type WorkflowStatusEnumApi = (typeof WorkflowStatusEnumApi)[keyof typeof WorkflowStatusEnumApi]
+
+export const WorkflowStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+    Stale: 'stale',
+} as const
+
 export interface ManagedWarehouseSourceTableStatusApi {
     /** Imported source schema identifier. */
     schema_id: string
@@ -238,17 +268,28 @@ export interface ManagedWarehouseSourceTableStatusApi {
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the table's readiness state. */
     detail: string
-    /** Whether the one-time historical copy into the warehouse has completed for this table. */
-    backfilled: boolean
-    /** Backfill chunks already copied into the warehouse. */
-    completed_chunks: number
+    /** Workflow applying the latest source import, or null if no workflow has run.
+     *
+     * * `copy` - copy
+     * * `register` - register */
+    workflow_type: WorkflowTypeEnumApi | null
+    /** State of the latest copy or register workflow, or null if no workflow has run.
+     *
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `skipped` - skipped
+     * * `stale` - stale */
+    workflow_status: WorkflowStatusEnumApi | null
     /**
-     * Total backfill chunks, or null before the copy plan is ready.
+     * When the latest copy or register workflow started, or null if no workflow has run.
      * @nullable
      */
-    total_chunks: number | null
+    workflow_started_at: string | null
+    /** Whether a copy or register workflow has applied this table to the warehouse. */
+    applied: boolean
     /**
-     * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
+     * When a copy or register workflow most recently applied this table, or null if no workflow completed.
      * @nullable
      */
     last_applied_at: string | null
@@ -260,7 +301,7 @@ export interface ManagedWarehouseSourceTableStatusApi {
 }
 
 export interface ManagedWarehouseSourceSchemasResponseApi {
-    /** Per-schema backfill and live import application status for the requested source. */
+    /** Per-schema copy or register workflow status for the requested source. */
     schemas: ManagedWarehouseSourceTableStatusApi[]
 }
 
@@ -707,6 +748,7 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -719,6 +761,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -892,6 +935,20 @@ export type DataWarehouseSavedQueryApiQuery = {
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
+export interface SavedQuerySuspensionApi {
+    /** When materialization was suspended. */
+    at: string
+    /** Error from the materialization run that tripped suspension. */
+    reason: string
+    /** Materialization job that tripped suspension. */
+    job_id: string
+}
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type DataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
+
 /**
  * * `never` - never
  * * `15min` - 15min
@@ -1017,6 +1074,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended: DataWarehouseSavedQueryApiSuspended
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -1035,6 +1094,11 @@ export type PatchedDataWarehouseSavedQueryApiQuery = {
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type PatchedDataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
@@ -1135,6 +1199,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
 }
 
 export interface SavedQueryResumeApi {
@@ -2521,6 +2587,24 @@ export interface CredentialApi {
  * * `FirstPromoter` - FirstPromoter
  * * `Zero` - Zero
  * * `Inth` - Inth
+ * * `BCMS` - BCMS
+ * * `Convonite` - Convonite
+ * * `Hookdeck` - Hookdeck
+ * * `Billit` - Billit
+ * * `Moxie` - Moxie
+ * * `TripleWhale` - TripleWhale
+ * * `Directus` - Directus
+ * * `Clay` - Clay
+ * * `TradableBits` - TradableBits
+ * * `Swan` - Swan
+ * * `Hyros` - Hyros
+ * * `Odoo` - Odoo
+ * * `Airbridge` - Airbridge
+ * * `Snovio` - Snovio
+ * * `GoogleMerchantCenter` - GoogleMerchantCenter
+ * * `Raisely` - Raisely
+ * * `WindsorAi` - WindsorAi
+ * * `Wix` - Wix
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3788,6 +3872,24 @@ export const ExternalDataSourceTypeEnumApi = {
     FirstPromoter: 'FirstPromoter',
     Zero: 'Zero',
     Inth: 'Inth',
+    Bcms: 'BCMS',
+    Convonite: 'Convonite',
+    Hookdeck: 'Hookdeck',
+    Billit: 'Billit',
+    Moxie: 'Moxie',
+    TripleWhale: 'TripleWhale',
+    Directus: 'Directus',
+    Clay: 'Clay',
+    TradableBits: 'TradableBits',
+    Swan: 'Swan',
+    Hyros: 'Hyros',
+    Odoo: 'Odoo',
+    Airbridge: 'Airbridge',
+    Snovio: 'Snovio',
+    GoogleMerchantCenter: 'GoogleMerchantCenter',
+    Raisely: 'Raisely',
+    WindsorAi: 'WindsorAi',
+    Wix: 'Wix',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -3926,20 +4028,39 @@ export interface FileUploadResponseApi {
 
 export interface ViewLinkApi {
     readonly id: string
-    /** @nullable */
+    /**
+     * Whether this join has been soft-deleted.
+     * @nullable
+     */
     deleted?: boolean | null
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 400
+     */
     source_table_name: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 400
+     */
     source_table_key: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 400
+     */
     joining_table_name: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 400
+     */
     joining_table_key: string
-    /** @maxLength 400 */
+    /**
+     * Accessor added to the source table to reach the joined rows, for example person in events.person.
+     * @maxLength 400
+     */
     field_name: string
+    /** Optional join configuration, for example experiments optimization flags. */
     configuration?: unknown
 }
 
@@ -3954,32 +4075,116 @@ export interface PaginatedViewLinkListApi {
 
 export interface PatchedViewLinkApi {
     readonly id?: string
-    /** @nullable */
+    /**
+     * Whether this join has been soft-deleted.
+     * @nullable
+     */
     deleted?: boolean | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 400
+     */
     source_table_name?: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 400
+     */
     source_table_key?: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 400
+     */
     joining_table_name?: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 400
+     */
     joining_table_key?: string
-    /** @maxLength 400 */
+    /**
+     * Accessor added to the source table to reach the joined rows, for example person in events.person.
+     * @maxLength 400
+     */
     field_name?: string
+    /** Optional join configuration, for example experiments optimization flags. */
     configuration?: unknown
 }
 
 export interface ViewLinkValidationApi {
-    /** @maxLength 255 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 255
+     */
     joining_table_name: string
-    /** @maxLength 255 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 255
+     */
     joining_table_key: string
-    /** @maxLength 255 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 255
+     */
     source_table_name: string
-    /** @maxLength 255 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 255
+     */
     source_table_key: string
+}
+
+export interface ViewLinkValidationResponseApi {
+    /** Whether the join compiled and returned rows when executed against a sample of the source table. */
+    is_valid: boolean
+    /**
+     * Warning about the validation result, for example when the sampled join returned no rows.
+     * @nullable
+     */
+    msg: string | null
+    /**
+     * The HogQL statement used to validate the join.
+     * @nullable
+     */
+    hogql: string | null
+    /** Column names for each row in results. */
+    columns: string[]
+    /** Distinct source and joining key pairs from the joined result, at most 5. */
+    results: unknown[][]
+    /**
+     * Number of sampled source rows checked for a join match, at most 10000. Null when the match-rate query failed.
+     * @nullable
+     */
+    total_rows: number | null
+    /**
+     * Number of sampled source rows with at least one match in the joining table. Null when the match-rate query failed.
+     * @nullable
+     */
+    matched_rows: number | null
+    /**
+     * matched_rows divided by total_rows, between 0 and 1. Null when the match-rate query failed or no rows were sampled.
+     * @nullable
+     */
+    match_rate: number | null
+}
+
+export interface ViewLinkValidationErrorApi {
+    /**
+     * Request field the error relates to, if any.
+     * @nullable
+     */
+    attr: string | null
+    /** Machine-readable error code, for example QueryError. */
+    code: string
+    /** Why the join failed to validate. */
+    detail: string
+    /** Error category; always query_error for validation failures. */
+    type: string
+    /**
+     * The HogQL statement that failed to validate.
+     * @nullable
+     */
+    hogql: string | null
 }
 
 export type DataModelingJobsListParams = {

@@ -125,7 +125,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
-    const canShowDebugPanel = isSavedInsight && (user?.is_staff || user?.is_impersonated || !preflight?.cloud)
+    const canShowDebugPanel = isSavedInsight && (user?.is_staff || user?.is_impersonated || preflight?.is_debug)
     const showMetalytics =
         isSavedInsight &&
         metalyticsInstanceId != null &&

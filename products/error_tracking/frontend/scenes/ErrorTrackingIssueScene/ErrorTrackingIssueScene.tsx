@@ -5,7 +5,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconList, IconRefresh, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
+import { IconFilter, IconList, IconRefresh, IconRewindPlay, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -16,7 +16,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { IconRobot } from 'lib/lemon-ui/icons'
 import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 import {
     TabsPrimitive,
@@ -49,7 +48,6 @@ import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
-import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
@@ -64,7 +62,6 @@ import {
 } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
-import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
@@ -305,6 +302,7 @@ const RightHandColumn = ({
 const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
     const { category } = useValues(errorTrackingIssueSceneConfigurationLogic)
     const { setCategory } = useActions(errorTrackingIssueSceneConfigurationLogic)
+    const { issueId } = useValues(errorTrackingIssueSceneLogic)
 
     const ref = useRef<HTMLDivElement>(null)
     const resizerLogicProps: ResizerLogicProps = {
@@ -315,8 +313,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
         persistPrefix: 'error-tracking-issue-view-columns-ratio',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
-    const hasTasks = useFeatureFlag('TASKS')
-    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
 
     return (
         <div
@@ -334,7 +330,10 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
         >
             <TabsPrimitive
                 value={category}
-                onValueChange={(value) => setCategory(value as ErrorTrackingIssueSceneCategory)}
+                onValueChange={(value) => {
+                    setCategory(value as ErrorTrackingIssueSceneCategory)
+                    posthog.capture('error_tracking_issue_tab_viewed', { issue_id: issueId, tab: value })
+                }}
                 className="flex flex-col flex-1 min-h-0"
             >
                 <div>
@@ -348,18 +347,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
                                 <IconFilter className="mr-1" />
                                 <span className="text-nowrap">Breakdowns</span>
                             </TabsPrimitiveTrigger>
-                            {hasTasks && (
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="autofix">
-                                    <IconRobot className="mr-1" />
-                                    <span className="text-nowrap">Autofix</span>
-                                </TabsPrimitiveTrigger>
-                            )}
-                            {hasSimilarIssues && (
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
-                                    <IconSearch className="mr-1" />
-                                    <span className="text-nowrap">Similar issues</span>
-                                </TabsPrimitiveTrigger>
-                            )}
                         </TabsPrimitiveList>
                     </ScrollableShadows>
                 </div>
@@ -369,18 +356,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
                 <TabsPrimitiveContent value="breakdowns" className="flex-1 min-h-0">
                     <BreakdownsTab />
                 </TabsPrimitiveContent>
-                {hasTasks && (
-                    <TabsPrimitiveContent value="autofix">
-                        <div className="p-2">
-                            <IssueTasks />
-                        </div>
-                    </TabsPrimitiveContent>
-                )}
-                {hasSimilarIssues && (
-                    <TabsPrimitiveContent value="similar_issues" className="flex-1 min-h-0">
-                        <SimilarIssuesList />
-                    </TabsPrimitiveContent>
-                )}
             </TabsPrimitive>
 
             {!isMobile && <Resizer {...resizerLogicProps} />}

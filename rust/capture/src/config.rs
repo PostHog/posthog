@@ -456,9 +456,10 @@ pub struct Config {
     #[envconfig(default = "1048576")]
     pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
 
-    // The warnings emitter's own destination. It runs in the v1 analytics
-    // handler but is independent of the v0 `KAFKA_*` block: it reads only these
-    // three vars, never `kafka_hosts` / `kafka_tls` /
+    // The warnings emitter's own destination. It serves every pipeline that
+    // emits (v1 and legacy analytics, both AI endpoints, and replay) but is
+    // independent of the v0 `KAFKA_*` block: it reads only these three vars,
+    // never `kafka_hosts` / `kafka_tls` /
     // `kafka_client_ingestion_warning_topic`. charts sets all three per env,
     // pointed at the MSK cluster the clientwarnings consumer reads from.
     //

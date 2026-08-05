@@ -49,7 +49,6 @@ export const IncrementalFieldTypeEnumApi = {
 
 /**
  * * `never` - never
- * * `1min` - 1min
  * * `5min` - 5min
  * * `15min` - 15min
  * * `30min` - 30min
@@ -60,11 +59,11 @@ export const IncrementalFieldTypeEnumApi = {
  * * `7day` - 7day
  * * `30day` - 30day
  */
-export type SyncFrequencyEnumApi = (typeof SyncFrequencyEnumApi)[keyof typeof SyncFrequencyEnumApi]
+export type ExternalDataSchemaSyncFrequencyEnumApi =
+    (typeof ExternalDataSchemaSyncFrequencyEnumApi)[keyof typeof ExternalDataSchemaSyncFrequencyEnumApi]
 
-export const SyncFrequencyEnumApi = {
+export const ExternalDataSchemaSyncFrequencyEnumApi = {
     Never: 'never',
-    '1min': '1min',
     '5min': '5min',
     '15min': '15min',
     '30min': '30min',
@@ -137,6 +136,9 @@ export type ExternalDataSchemaApiSource = {
     readonly supported_api_versions?: string[]
 } | null
 
+/**
+ * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+ */
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
@@ -186,10 +188,9 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync.
+    /** How often to sync. The fastest sync frequency is 5 minutes.
      *
      * * `never` - never
-     * * `1min` - 1min
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -199,7 +200,7 @@ export interface ExternalDataSchemaApi {
      * * `24hour` - 24hour
      * * `7day` - 7day
      * * `30day` - 30day */
-    sync_frequency?: SyncFrequencyEnumApi | null
+    sync_frequency?: ExternalDataSchemaSyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -243,6 +244,11 @@ export interface ExternalDataSchemaApi {
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
     readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -290,6 +296,9 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly supported_api_versions?: string[]
 } | null
 
+/**
+ * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+ */
 export interface PatchedExternalDataSchemaApi {
     readonly id?: string
     readonly name?: string
@@ -339,10 +348,9 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync.
+    /** How often to sync. The fastest sync frequency is 5 minutes.
      *
      * * `never` - never
-     * * `1min` - 1min
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -352,7 +360,7 @@ export interface PatchedExternalDataSchemaApi {
      * * `24hour` - 24hour
      * * `7day` - 7day
      * * `30day` - 30day */
-    sync_frequency?: SyncFrequencyEnumApi | null
+    sync_frequency?: ExternalDataSchemaSyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -396,6 +404,11 @@ export interface PatchedExternalDataSchemaApi {
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
     readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -1679,6 +1692,24 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `FirstPromoter` - FirstPromoter
  * * `Zero` - Zero
  * * `Inth` - Inth
+ * * `BCMS` - BCMS
+ * * `Convonite` - Convonite
+ * * `Hookdeck` - Hookdeck
+ * * `Billit` - Billit
+ * * `Moxie` - Moxie
+ * * `TripleWhale` - TripleWhale
+ * * `Directus` - Directus
+ * * `Clay` - Clay
+ * * `TradableBits` - TradableBits
+ * * `Swan` - Swan
+ * * `Hyros` - Hyros
+ * * `Odoo` - Odoo
+ * * `Airbridge` - Airbridge
+ * * `Snovio` - Snovio
+ * * `GoogleMerchantCenter` - GoogleMerchantCenter
+ * * `Raisely` - Raisely
+ * * `WindsorAi` - WindsorAi
+ * * `Wix` - Wix
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2946,6 +2977,24 @@ export const ExternalDataSourceTypeEnumApi = {
     FirstPromoter: 'FirstPromoter',
     Zero: 'Zero',
     Inth: 'Inth',
+    Bcms: 'BCMS',
+    Convonite: 'Convonite',
+    Hookdeck: 'Hookdeck',
+    Billit: 'Billit',
+    Moxie: 'Moxie',
+    TripleWhale: 'TripleWhale',
+    Directus: 'Directus',
+    Clay: 'Clay',
+    TradableBits: 'TradableBits',
+    Swan: 'Swan',
+    Hyros: 'Hyros',
+    Odoo: 'Odoo',
+    Airbridge: 'Airbridge',
+    Snovio: 'Snovio',
+    GoogleMerchantCenter: 'GoogleMerchantCenter',
+    Raisely: 'Raisely',
+    WindsorAi: 'WindsorAi',
+    Wix: 'Wix',
 } as const
 
 /**
@@ -4352,12 +4401,30 @@ export interface ExternalDataSourceCreateApi {
      * * `Typesense` - Typesense
      * * `FirstPromoter` - FirstPromoter
      * * `Zero` - Zero
-     * * `Inth` - Inth */
+     * * `Inth` - Inth
+     * * `BCMS` - BCMS
+     * * `Convonite` - Convonite
+     * * `Hookdeck` - Hookdeck
+     * * `Billit` - Billit
+     * * `Moxie` - Moxie
+     * * `TripleWhale` - TripleWhale
+     * * `Directus` - Directus
+     * * `Clay` - Clay
+     * * `TradableBits` - TradableBits
+     * * `Swan` - Swan
+     * * `Hyros` - Hyros
+     * * `Odoo` - Odoo
+     * * `Airbridge` - Airbridge
+     * * `Snovio` - Snovio
+     * * `GoogleMerchantCenter` - GoogleMerchantCenter
+     * * `Raisely` - Raisely
+     * * `WindsorAi` - WindsorAi
+     * * `Wix` - Wix */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
     /**
-     * Table name prefix in HogQL.
+     * Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.
      * @maxLength 100
      * @nullable
      */
@@ -5833,7 +5900,25 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Typesense` - Typesense
      * * `FirstPromoter` - FirstPromoter
      * * `Zero` - Zero
-     * * `Inth` - Inth */
+     * * `Inth` - Inth
+     * * `BCMS` - BCMS
+     * * `Convonite` - Convonite
+     * * `Hookdeck` - Hookdeck
+     * * `Billit` - Billit
+     * * `Moxie` - Moxie
+     * * `TripleWhale` - TripleWhale
+     * * `Directus` - Directus
+     * * `Clay` - Clay
+     * * `TradableBits` - TradableBits
+     * * `Swan` - Swan
+     * * `Hyros` - Hyros
+     * * `Odoo` - Odoo
+     * * `Airbridge` - Airbridge
+     * * `Snovio` - Snovio
+     * * `GoogleMerchantCenter` - GoogleMerchantCenter
+     * * `Raisely` - Raisely
+     * * `WindsorAi` - WindsorAi
+     * * `Wix` - Wix */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7127,7 +7212,25 @@ export interface DatabaseSchemaRequestApi {
      * * `Typesense` - Typesense
      * * `FirstPromoter` - FirstPromoter
      * * `Zero` - Zero
-     * * `Inth` - Inth */
+     * * `Inth` - Inth
+     * * `BCMS` - BCMS
+     * * `Convonite` - Convonite
+     * * `Hookdeck` - Hookdeck
+     * * `Billit` - Billit
+     * * `Moxie` - Moxie
+     * * `TripleWhale` - TripleWhale
+     * * `Directus` - Directus
+     * * `Clay` - Clay
+     * * `TradableBits` - TradableBits
+     * * `Swan` - Swan
+     * * `Hyros` - Hyros
+     * * `Odoo` - Odoo
+     * * `Airbridge` - Airbridge
+     * * `Snovio` - Snovio
+     * * `GoogleMerchantCenter` - GoogleMerchantCenter
+     * * `Raisely` - Raisely
+     * * `WindsorAi` - WindsorAi
+     * * `Wix` - Wix */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -8398,7 +8501,25 @@ export interface DirectConnectionSourceOptionApi {
      * * `Typesense` - Typesense
      * * `FirstPromoter` - FirstPromoter
      * * `Zero` - Zero
-     * * `Inth` - Inth */
+     * * `Inth` - Inth
+     * * `BCMS` - BCMS
+     * * `Convonite` - Convonite
+     * * `Hookdeck` - Hookdeck
+     * * `Billit` - Billit
+     * * `Moxie` - Moxie
+     * * `TripleWhale` - TripleWhale
+     * * `Directus` - Directus
+     * * `Clay` - Clay
+     * * `TradableBits` - TradableBits
+     * * `Swan` - Swan
+     * * `Hyros` - Hyros
+     * * `Odoo` - Odoo
+     * * `Airbridge` - Airbridge
+     * * `Snovio` - Snovio
+     * * `GoogleMerchantCenter` - GoogleMerchantCenter
+     * * `Raisely` - Raisely
+     * * `WindsorAi` - WindsorAi
+     * * `Wix` - Wix */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -9754,7 +9875,25 @@ export interface SourcePreviewRequestApi {
      * * `Typesense` - Typesense
      * * `FirstPromoter` - FirstPromoter
      * * `Zero` - Zero
-     * * `Inth` - Inth */
+     * * `Inth` - Inth
+     * * `BCMS` - BCMS
+     * * `Convonite` - Convonite
+     * * `Hookdeck` - Hookdeck
+     * * `Billit` - Billit
+     * * `Moxie` - Moxie
+     * * `TripleWhale` - TripleWhale
+     * * `Directus` - Directus
+     * * `Clay` - Clay
+     * * `TradableBits` - TradableBits
+     * * `Swan` - Swan
+     * * `Hyros` - Hyros
+     * * `Odoo` - Odoo
+     * * `Airbridge` - Airbridge
+     * * `Snovio` - Snovio
+     * * `GoogleMerchantCenter` - GoogleMerchantCenter
+     * * `Raisely` - Raisely
+     * * `WindsorAi` - WindsorAi
+     * * `Wix` - Wix */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -11060,12 +11199,30 @@ export interface SourceSetupApi {
      * * `Typesense` - Typesense
      * * `FirstPromoter` - FirstPromoter
      * * `Zero` - Zero
-     * * `Inth` - Inth */
+     * * `Inth` - Inth
+     * * `BCMS` - BCMS
+     * * `Convonite` - Convonite
+     * * `Hookdeck` - Hookdeck
+     * * `Billit` - Billit
+     * * `Moxie` - Moxie
+     * * `TripleWhale` - TripleWhale
+     * * `Directus` - Directus
+     * * `Clay` - Clay
+     * * `TradableBits` - TradableBits
+     * * `Swan` - Swan
+     * * `Hyros` - Hyros
+     * * `Odoo` - Odoo
+     * * `Airbridge` - Airbridge
+     * * `Snovio` - Snovio
+     * * `GoogleMerchantCenter` - GoogleMerchantCenter
+     * * `Raisely` - Raisely
+     * * `WindsorAi` - WindsorAi
+     * * `Wix` - Wix */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
     /**
-     * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
+     * Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. Does not filter which tables are imported. Defaults to the source type.
      * @maxLength 100
      * @nullable
      */
@@ -12373,7 +12530,25 @@ export interface SourceCredentialCreateApi {
      * * `Typesense` - Typesense
      * * `FirstPromoter` - FirstPromoter
      * * `Zero` - Zero
-     * * `Inth` - Inth */
+     * * `Inth` - Inth
+     * * `BCMS` - BCMS
+     * * `Convonite` - Convonite
+     * * `Hookdeck` - Hookdeck
+     * * `Billit` - Billit
+     * * `Moxie` - Moxie
+     * * `TripleWhale` - TripleWhale
+     * * `Directus` - Directus
+     * * `Clay` - Clay
+     * * `TradableBits` - TradableBits
+     * * `Swan` - Swan
+     * * `Hyros` - Hyros
+     * * `Odoo` - Odoo
+     * * `Airbridge` - Airbridge
+     * * `Snovio` - Snovio
+     * * `GoogleMerchantCenter` - GoogleMerchantCenter
+     * * `Raisely` - Raisely
+     * * `WindsorAi` - WindsorAi
+     * * `Wix` - Wix */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload

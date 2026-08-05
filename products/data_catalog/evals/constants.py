@@ -121,6 +121,11 @@ DRIFTED_INSIGHT_MUTATED_QUERY: dict = {
 CERTIFIED_SOURCE_NAME = "eval_catalog_billing_ledger"
 DEPRECATED_SOURCE_NAME = "eval_catalog_billing_ledger_legacy"
 
+# Propose-deprecation arm: neither source is pre-marked, so the agent must do the proposing.
+# The canonical companion is the trap — deprecating it instead of the stale copy fails the case.
+DEPRECATION_CANONICAL_SOURCE_NAME = "eval_catalog_payments"
+DEPRECATION_STALE_SOURCE_NAME = "eval_catalog_payments_2024_backup"
+
 RELATIONSHIP_SOURCE_NAME = "eval_catalog_orders"
 ACCEPTED_RELATIONSHIP_TARGET_NAME = "eval_catalog_customers"
 RELATIONSHIP_DECOY_TARGET_NAME = "eval_catalog_accounts"
