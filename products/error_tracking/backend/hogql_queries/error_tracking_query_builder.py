@@ -126,11 +126,20 @@ class ErrorTrackingQueryBuilder:
       mixed-OR semantics across the events/issue boundary.
     """
 
-    def __init__(self, query: ErrorTrackingQuery, team: Team, date_from: datetime.datetime, date_to: datetime.datetime):
+    def __init__(
+        self,
+        query: ErrorTrackingQuery,
+        team: Team,
+        date_from: datetime.datetime,
+        date_to: datetime.datetime,
+        candidate_limit: int,
+    ):
         self.query = query
         self.team = team
         self.date_from = date_from
         self.date_to = date_to
+        self.candidate_limit = candidate_limit
+        self.selected_fingerprints: list[int] | None = None
 
     def build_query(self) -> ast.SelectQuery:
         if self._needs_legacy_shape():
@@ -240,6 +249,55 @@ class ErrorTrackingQueryBuilder:
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
             where=ast.And(exprs=self._inner_where_exprs()),
             group_by=group_by,
+        )
+
+    def build_candidate_query(self) -> ast.SelectQuery | None:
+        if self.query.orderBy != "last_seen" or self._needs_legacy_shape():
+            return None
+
+        event_candidates = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="fp_hash", expr=_fingerprint_hash_expr()),
+                ast.Alias(alias="last_seen_fp", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+            where=ast.And(exprs=self._inner_where_exprs()),
+            group_by=[ast.Field(chain=["fp_hash"])],
+        )
+        outer_where_exprs = self._outer_where_exprs()
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias="fp_hashes",
+                    expr=ast.Call(name="groupArray", args=[ast.Field(chain=["ev", "fp_hash"])]),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=event_candidates,
+                alias="ev",
+                next_join=ast.JoinExpr(
+                    table=ast.Field(chain=["posthog", "error_tracking_fingerprint_issue_state"]),
+                    alias="fp_state",
+                    join_type="INNER JOIN",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["ev", "fp_hash"]),
+                            right=ast.Field(chain=["fp_state", "fp_hash"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+            where=ast.And(exprs=outer_where_exprs) if outer_where_exprs else None,
+            group_by=[ast.Field(chain=["fp_state", "issue_id"])],
+            order_by=[
+                ast.OrderExpr(
+                    expr=ast.Call(name="max", args=[ast.Field(chain=["ev", "last_seen_fp"])]),
+                    order=order_direction(self.query),
+                ),
+            ],
+            limit=ast.Constant(value=self.candidate_limit),
         )
 
     def _inner_select_expressions(self) -> list[ast.Expr]:
@@ -414,6 +472,17 @@ class ErrorTrackingQueryBuilder:
             user_filter = self._filter_value_to_ast(self.query.filterGroup.values[0])
             if user_filter is not None:
                 exprs.append(user_filter)
+
+        if self.selected_fingerprints is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=_fingerprint_hash_expr(),
+                    right=ast.Tuple(exprs=[ast.Constant(value=value) for value in self.selected_fingerprints]),
+                )
+                if self.selected_fingerprints
+                else ast.Constant(value=False)
+            )
 
         return exprs
 

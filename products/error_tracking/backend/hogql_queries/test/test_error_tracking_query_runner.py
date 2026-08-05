@@ -190,6 +190,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         personId=None,
         groupKey=None,
         groupTypeIndex=None,
+        limit=None,
+        offset=None,
     ):
         return (
             ErrorTrackingQueryRunner(
@@ -213,6 +215,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                     personId=personId,
                     groupKey=groupKey,
                     groupTypeIndex=groupTypeIndex,
+                    limit=limit,
+                    offset=offset,
                 ),
             )
             .calculate()
@@ -553,6 +557,12 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
     @freeze_time("2022-01-10T12:11:00")
+    def test_last_seen_candidate_selection_covers_requested_page(self):
+        response = self._calculate(orderBy="last_seen", limit=1, offset=1)
+
+        self.assertEqual(response["results"][0]["id"], self.issue_id_two)
+
+    @freeze_time("2022-01-10T12:11:00")
     def test_status(self):
         resolved_issue = ErrorTrackingIssue.objects.get(id=self.issue_id_one)
         resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
@@ -748,6 +758,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             team=self.team,
             date_from=datetime(2022, 1, 3, tzinfo=UTC),
             date_to=datetime(2022, 1, 10, tzinfo=UTC),
+            candidate_limit=101,
         )
         user_filter_expr = builder._user_filter_expr()
         assert user_filter_expr is not None
