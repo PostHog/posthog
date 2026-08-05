@@ -157,6 +157,40 @@ describe("prCommentThreads", () => {
     expect(thread.resolved).toBe(false);
     expect(thread.origin.kind).toBe("pr-conversation");
   });
+
+  it("omits GitHub bot comments without hiding human threads", () => {
+    const botRoot = {
+      ...reviewThread,
+      nodeId: "bot-root",
+      comments: reviewThread.comments.map((comment) => ({
+        ...comment,
+        user: { ...comment.user, isBot: true },
+      })),
+    };
+    const humanRootWithBotReply = {
+      ...reviewThread,
+      nodeId: "human-root",
+      comments: [
+        reviewThread.comments[0],
+        {
+          ...reviewThread.comments[1],
+          user: { ...reviewThread.comments[1].user, isBot: true },
+        },
+      ],
+    };
+
+    const threads = prCommentThreads(
+      "url",
+      "PR #7",
+      [botRoot, humanRootWithBotReply],
+      [conversation, { ...conversation, id: 901, isBot: true }],
+    );
+
+    expect(threads).toHaveLength(2);
+    expect(
+      threads.map((thread) => thread.entries.map((entry) => entry.body)),
+    ).toEqual([["root"], ["lgtm"]]);
+  });
 });
 
 describe("threadSourceOptions / byNewestActivity", () => {

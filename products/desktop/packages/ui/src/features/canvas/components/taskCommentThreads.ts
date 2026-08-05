@@ -124,14 +124,17 @@ export function prCommentThreads(
 ): TaskCommentThread[] {
   const threads: TaskCommentThread[] = reviewThreads.flatMap((thread) => {
     const root = thread.comments[0];
-    if (!root) return [];
+    if (!root || root.user.isBot) return [];
+    const humanComments = thread.comments.filter(
+      (comment) => !comment.user.isBot,
+    );
     return [
       {
         id: `pr-review-${thread.rootId}`,
         sourceKey: prUrl,
         sourceLabel: prLabel,
         sourceKind: "pr" as const,
-        entries: thread.comments.map((comment) => ({
+        entries: humanComments.map((comment) => ({
           id: `pr-comment-${comment.id}`,
           authorName: comment.user.login,
           user: null,
@@ -141,7 +144,7 @@ export function prCommentThreads(
           format: "markdown" as const,
         })),
         resolved: thread.isResolved,
-        lastActivityAt: thread.comments.at(-1)?.created_at ?? root.created_at,
+        lastActivityAt: humanComments.at(-1)?.created_at ?? root.created_at,
         origin: {
           kind: "pr-review" as const,
           prUrl,
@@ -154,6 +157,7 @@ export function prCommentThreads(
   });
 
   for (const comment of conversation) {
+    if (comment.isBot) continue;
     threads.push({
       // Conversation items mix issue comments and review summaries, whose ids
       // come from different GitHub id spaces — key on the timestamp too.
