@@ -8,7 +8,7 @@ import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
@@ -76,8 +76,6 @@ export const frequencyOptionsPlural: LemonSelectOption<FrequencyOptionValue>[] =
     { value: 'monthly', label: 'months' },
 ]
 
-type Weekday = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
-
 export const weekdayOptions = [
     { value: 'monday', label: 'Monday' },
     { value: 'tuesday', label: 'Tuesday' },
@@ -86,7 +84,7 @@ export const weekdayOptions = [
     { value: 'friday', label: 'Friday' },
     { value: 'saturday', label: 'Saturday' },
     { value: 'sunday', label: 'Sunday' },
-] satisfies LemonSelectOptionLeaf<Weekday>[]
+] satisfies LemonSelectOptionLeaf<WeekdayType>[]
 
 export const ALL_DAYS = weekdayOptions.map(({ value }) => value)
 export const weekdayInputOptions = weekdayOptions.map(({ value, label }) => ({
