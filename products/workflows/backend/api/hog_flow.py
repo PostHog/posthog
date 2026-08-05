@@ -468,6 +468,33 @@ def _looks_like_uuid(value: str) -> bool:
         return False
 
 
+def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: str) -> str:
+    """template_id on fixed-template steps is fully determined by the step type, so infer it when
+    omitted instead of rejecting for leaving out a constant, and move a UUID-shaped value (a saved
+    library template reference, the dominant authoring mistake) into config.template_uuid where it
+    belongs. Returns the template_id the step should resolve."""
+    if not template_id:
+        config["template_id"] = fixed_template_id
+        return fixed_template_id
+    if template_id != fixed_template_id and _looks_like_uuid(template_id):
+        existing_uuid = config.get("template_uuid")
+        if existing_uuid and str(existing_uuid) != str(template_id):
+            raise serializers.ValidationError(
+                {
+                    "template_id": (
+                        f"Ambiguous template reference: template_id holds UUID '{template_id}' but "
+                        f"config.template_uuid is already '{existing_uuid}'. Set template_id to the "
+                        f"literal '{fixed_template_id}' and keep the saved template's UUID in "
+                        "config.template_uuid."
+                    )
+                }
+            )
+        config["template_uuid"] = template_id
+        config["template_id"] = fixed_template_id
+        return fixed_template_id
+    return template_id
+
+
 def _describe_unknown_template(action: dict, template_id: str) -> str:
     fixed_id = _FIXED_TEMPLATE_IDS.get(action.get("type", ""))
     if fixed_id and _looks_like_uuid(template_id):
@@ -990,7 +1017,11 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
 
         if "function" in data.get("type", "") or trigger_is_function:
-            template_id = data.get("config", {}).get("template_id", "")
+            config = data.setdefault("config", {})
+            template_id = config.get("template_id", "")
+            fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
+            if fixed_template_id:
+                template_id = _apply_fixed_template_id(config, template_id, fixed_template_id)
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 if strict:
