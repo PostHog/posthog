@@ -452,6 +452,7 @@ the row lists both.
 | open_meteo                       | HTTP (date windows)         | requests                                                        | ✅                          |
 | openai                           | HTTP                        | requests                                                        | ✅                          |
 | openai_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| openalex                         | HTTP (cursor pagination)    | requests + `rest_source.RESTClient`                             | ✅                          |
 | opinion_stage                    | HTTP                        | requests                                                        | ✅                          |
 | opuswatch                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | orb                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1176,7 +1177,6 @@ doesn't conflict with concurrent PRs.
 - onesignal
 - open_data_dc
 - open_dental
-- openalex
 - opencorporates
 - openfec
 - opn_payments
