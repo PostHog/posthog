@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { getTreeItemsProducts } from '~/products'
 
 import { SELF_DRIVING_TOOLS, toolSetForGoal } from '../goals'
 import { goalSelectionLogic } from '../goalSelectionLogic'
@@ -20,7 +21,17 @@ export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Eleme
         useValues(productEnablementStepLogic)
     const { enableProduct } = useActions(productEnablementStepLogic)
 
-    const tools = toolSetForGoal(selectedGoal).shown.map((key) => SELF_DRIVING_TOOLS[key])
+    const toolSet = toolSetForGoal(selectedGoal)
+    const tools = toolSet.shown.map((key) => SELF_DRIVING_TOOLS[key])
+    // The set's sidebar-only extras, resolved the same way the backend populates the sidebar:
+    // through the products registry's `intents`. Tools already shown above are excluded.
+    const shownNames = new Set(tools.map((tool) => tool.name))
+    const sidebarExtras = getTreeItemsProducts().filter(
+        (item) =>
+            item.intents?.some((intent) => toolSet.sidebar.includes(intent)) &&
+            typeof item.path === 'string' &&
+            !shownNames.has(item.path)
+    )
 
     return (
         <div className="flex flex-col gap-6 py-1">
@@ -71,6 +82,25 @@ export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Eleme
                     )
                 })}
             </div>
+            {sidebarExtras.length > 0 && (
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                    <span className="text-xs text-muted">Also in your sidebar:</span>
+                    {sidebarExtras.map((item) => (
+                        <LemonTag
+                            key={item.path}
+                            icon={
+                                item.iconType ? (
+                                    <span className="flex group/colorful-product-icons colorful-product-icons-true">
+                                        {iconForType(item.iconType)}
+                                    </span>
+                                ) : undefined
+                            }
+                        >
+                            {item.path}
+                        </LemonTag>
+                    ))}
+                </div>
+            )}
             <div className="flex justify-center">
                 <LemonButton type="primary" status="alt" onClick={onContinue}>
                     Continue
