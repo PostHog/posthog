@@ -10,6 +10,7 @@ command that just needs a token imports the module, not this surface.
 
 from __future__ import annotations
 
+import os
 import json
 import time
 
@@ -62,7 +63,7 @@ def posthog_login(host: str, scopes: tuple[str, ...], no_browser: bool) -> None:
     if key := posthog_auth.key_from_env():
         # Otherwise the login appears to have done nothing: every command reads the env var first.
         click.secho(
-            f"\nNote: {key[:8]}… is set in your environment, and env wins over this credential.\n"
+            f"\nNote: {key[:8]}... is set in your environment, and env wins over this credential.\n"
             "Unset it to use the browser login.",
             fg="yellow",
         )
@@ -74,6 +75,9 @@ def posthog_login(host: str, scopes: tuple[str, ...], no_browser: bool) -> None:
 def posthog_status(host: str, as_json: bool) -> None:
     credential = posthog_auth.load(host)
     env_key = posthog_auth.key_from_env()
+    # Both output shapes report the same verdict: a script gating on the exit code must not read
+    # "configured" just because it asked for JSON.
+    configured = bool(env_key or credential)
     if as_json:
         click.echo(
             json.dumps(
@@ -85,12 +89,13 @@ def posthog_status(host: str, as_json: bool) -> None:
                 indent=2,
             )
         )
-        raise SystemExit(0)
+        raise SystemExit(0 if configured else posthog_auth.EXIT_NOT_CONFIGURED)
 
     if env_key:
-        click.echo(f"environment    {posthog_auth.KEY_ENV_VARS[0]} is set — it wins over any cached credential")
+        source = next((var for var in posthog_auth.KEY_ENV_VARS if os.environ.get(var)), posthog_auth.KEY_ENV_VARS[0])
+        click.echo(f"environment    {source} is set, and it wins over any cached credential")
     if credential is None:
-        click.echo(f"credential     none cached for {host.rstrip('/')} — run `hogli auth:posthog:login`")
+        click.echo(f"credential     none cached for {host.rstrip('/')}. Run `hogli auth:posthog:login`")
         raise SystemExit(0 if env_key else posthog_auth.EXIT_NOT_CONFIGURED)
     remaining = None if credential.expires_at is None else int(credential.expires_at - time.time())
     click.echo(f"host           {credential.host}")

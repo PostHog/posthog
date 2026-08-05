@@ -221,19 +221,32 @@ def test_a_login_reuses_the_registered_client_when_its_ceiling_already_covers_th
     assert credential.client_id == "client-abc"
 
 
-def test_a_login_that_did_not_get_every_scope_asked_for_says_so() -> None:
+def test_a_scope_the_server_refuses_is_reported_before_the_browser_opens() -> None:
     """The server strips a scope a self-registering client may not have and only 400s when nothing
-    survives. Returning quietly would surface later as an unactionable 403 on a scope check."""
-    poster = _Poster(
-        register=(200, {"client_id": "client-new", "scope": _SCOPE}),
-        token=(200, {"access_token": "pha_new", "scope": _SCOPE}),
-    )
-    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
-        with pytest.raises(posthog_auth.AuthError) as caught:
-            posthog_auth.login(scopes=[_SCOPE, "llm_gateway:read"], host=_HOST)
+    survives. Consenting first would spend the user's click to mint a token missing what was asked
+    for, and the failure would land after the click as an unactionable 403."""
+    poster = _Poster(register=(200, {"client_id": "client-new", "scope": _SCOPE}))
+    with patch.object(posthog_auth.requests, "post", poster):
+        with patch.object(posthog_auth.webbrowser, "open", side_effect=AssertionError("must not open")):
+            with pytest.raises(posthog_auth.AuthError) as caught:
+                posthog_auth.login(scopes=[_SCOPE, "llm_gateway:read"], host=_HOST)
     assert "llm_gateway:read" in caught.value.message
-    # The partial grant still works for what it does cover, so it is kept rather than thrown away.
-    assert (posthog_auth.load(_HOST) or _credential()).granted == (_SCOPE,)
+    assert not [call for call in poster.calls if call["url"].rstrip("/").endswith("token")]
+
+
+def test_retrying_a_refused_scope_mints_no_grant_and_leaves_the_cache_alone() -> None:
+    """Refusing after the exchange instead of before it left a live access and refresh grant behind
+    on every attempt, each one needing its own revocation, and overwrote a working credential."""
+    posthog_auth.save(_credential())
+    poster = _Poster(register=(200, {"client_id": "client-new", "scope": _SCOPE}))
+    with patch.object(posthog_auth.requests, "post", poster):
+        with patch.object(posthog_auth.webbrowser, "open", side_effect=AssertionError("must not open")):
+            for _ in range(3):
+                with pytest.raises(posthog_auth.AuthError):
+                    posthog_auth.login(scopes=[_SCOPE, "llm_gateway:read"], host=_HOST)
+    assert not [call for call in poster.calls if call["url"].rstrip("/").endswith("token")]
+    survivor = posthog_auth.load(_HOST)
+    assert survivor is not None and survivor.access_token == "pha_cached"
 
 
 def test_the_granted_scopes_come_from_the_server_not_the_request() -> None:
@@ -246,6 +259,36 @@ def test_the_granted_scopes_come_from_the_server_not_the_request() -> None:
     with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
         credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
     assert credential.granted == (_SCOPE, "engineering_analytics:write")
+
+
+def test_a_quoted_environment_value_still_yields_the_bare_key() -> None:
+    """hogli's dotenv loader assigns the raw value, so a quoted .env.local line arrives with its
+    quotes and the `Bearer ` prefix stops matching. The key would be sent quoted."""
+    for raw in ('"Bearer phx_quoted"', "'Bearer phx_quoted'", '"phx_quoted"', "Bearer phx_quoted"):
+        with patch.dict("os.environ", {"POSTHOG_AUTH_HEADER": raw}, clear=False):
+            assert posthog_auth.key_from_env() == "phx_quoted"
+
+
+def test_a_non_object_error_body_reports_the_status_instead_of_crashing() -> None:
+    """A proxy or load balancer can answer with valid JSON that is not an object. Reading `detail`
+    off it raises AttributeError, which escapes the AuthError handling every caller relies on."""
+    posthog_auth.save(_credential(expires_at=time.time() - 10))
+    with patch.object(posthog_auth.requests, "post", _Poster(token=(502, ["gateway", "down"]))):
+        with pytest.raises(posthog_auth.AuthError) as caught:
+            posthog_auth.token(scopes=[_SCOPE], host=_HOST, interactive=False)
+    assert caught.value.exit_code == posthog_auth.EXIT_NOT_CONFIGURED
+
+
+def test_a_token_response_without_a_scope_field_records_what_was_asked_for() -> None:
+    """RFC 6749 §5.1 omits `scope` when it matches the request, so an omission means the whole ask
+    was granted. Recording nothing would read as "scopes unknown" and satisfy every later request."""
+    poster = _Poster(
+        register=(200, {"client_id": "client-new", "scope": _SCOPE}),
+        token=(200, {"access_token": "pha_new", "expires_in": 3600}),
+    )
+    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
+        credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
+    assert credential.granted == (_SCOPE,)
 
 
 # --- the browser handoff ------------------------------------------------------------------------
@@ -361,6 +404,15 @@ def test_status_exits_not_configured_when_nothing_is_cached(runner: CliRunner) -
     result = runner.invoke(posthog_auth_cli.posthog_status, [])
     assert result.exit_code == posthog_auth.EXIT_NOT_CONFIGURED
     assert "auth:posthog:login" in result.output
+
+
+def test_status_reports_the_same_verdict_in_both_output_shapes(runner: CliRunner) -> None:
+    """A script gating on the exit code must not read "configured" just because it asked for JSON."""
+    assert runner.invoke(posthog_auth_cli.posthog_status, []).exit_code == posthog_auth.EXIT_NOT_CONFIGURED
+    assert runner.invoke(posthog_auth_cli.posthog_status, ["--json"]).exit_code == posthog_auth.EXIT_NOT_CONFIGURED
+    posthog_auth.save(_credential())
+    assert runner.invoke(posthog_auth_cli.posthog_status, []).exit_code == 0
+    assert runner.invoke(posthog_auth_cli.posthog_status, ["--json"]).exit_code == 0
 
 
 def test_status_never_prints_the_token(runner: CliRunner) -> None:

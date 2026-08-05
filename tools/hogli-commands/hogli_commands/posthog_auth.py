@@ -20,7 +20,7 @@ rest: the client self-registers via Dynamic Client Registration (RFC 7591), and 
 to an ephemeral port on 127.0.0.1 (RFC 8252 native-app flow, with PKCE). There is deliberately no
 personal API key in this path — a key would carry `<scope>:write` on every non-privileged scope,
 where a token minted here carries exactly the scopes its caller asked for and is revocable from
-Settings → Connected apps.
+Settings → Connected applications.
 
 RFC 8628 device flow is NOT used: PostHog does not advertise that grant. For a machine with no
 browser (a devbox over ssh), `login(open_browser=False)` prints the URL and reads the redirect back
@@ -98,10 +98,10 @@ class AuthError(Exception):
 class Credential:
     """One host's cached OAuth state: the self-registered client, plus the tokens it minted.
 
-    ``granted`` is what the server said it issued, not what was asked for — PostHog widens some
-    requests (a write scope implies its read half), and trusting the request would re-authorize
-    forever. ``registered`` is the client's own scope ceiling: /authorize clamps to it, so a
-    caller needing a scope outside it needs a new client, not just new consent.
+    ``granted`` is what the server said it issued, not what was asked for, because /authorize
+    clamps a request to the client's ceiling and a token can come back narrower than the ask.
+    ``registered`` is that ceiling, so a caller needing a scope outside it needs a new client
+    rather than just new consent.
     """
 
     host: str
@@ -111,6 +111,9 @@ class Credential:
     expires_at: float | None = None
     granted: tuple[str, ...] = ()
     registered: tuple[str, ...] = ()
+    # What we asked the server to register, which is a superset of `registered` when the server
+    # stripped something. Kept so a scope the server refuses is not re-requested on every call.
+    requested: tuple[str, ...] = ()
 
     def is_fresh(self, *, now: float | None = None) -> bool:
         if self.expires_at is None:
@@ -130,6 +133,7 @@ class Credential:
             "expires_at": self.expires_at,
             "granted": list(self.granted),
             "registered": list(self.registered),
+            "requested": list(self.requested),
         }
 
 
@@ -161,6 +165,7 @@ def load(host: str = DEFAULT_HOST) -> Credential | None:
             expires_at=raw.get("expires_at"),
             granted=tuple(raw.get("granted") or ()),
             registered=tuple(raw.get("registered") or ()),
+            requested=tuple(raw.get("requested") or raw.get("registered") or ()),
         )
     except (KeyError, TypeError):
         return None
@@ -205,8 +210,13 @@ def key_from_env() -> str | None:
     """
     for var in KEY_ENV_VARS:
         raw = (os.environ.get(var) or "").strip()
-        if raw:
-            return raw.removeprefix("Bearer ")
+        if not raw:
+            continue
+        # hogli's dotenv loader assigns the raw value, so a quoted `.env.local` line arrives with
+        # its quotes attached and the `Bearer ` prefix no longer matches.
+        if len(raw) > 1 and raw[0] == raw[-1] and raw[0] in "\"'":
+            raw = raw[1:-1].strip()
+        return raw.removeprefix("Bearer ").strip()
     return None
 
 
@@ -241,9 +251,16 @@ def token(
     if interactive is None:
         interactive = sys.stdin.isatty()
     if not interactive:
+        short = credential is not None and not credential.covers(scopes)
+        missing = " ".join(scope for scope in scopes if scope not in (credential.granted if credential else ()))
         raise AuthError(
-            f"hogli is not signed in to {host}.\n"
-            f"  Run `hogli auth:posthog:login` once — it opens a browser, and asks for no API key.\n"
+            (
+                f"hogli is signed in to {host} but not for {missing}.\n"
+                if short
+                else f"hogli is not signed in to {host}.\n"
+            )
+            + f"  Run `hogli auth:posthog:login{f' --scope {missing}' if short else ''}` once. "
+            "It opens a browser and asks for no API key.\n"
             f"  Or set {KEY_ENV_VARS[0]} for an unattended caller."
         )
     return login(scopes=scopes, host=host).access_token
@@ -267,13 +284,28 @@ def login(
         raise AuthError("A login needs at least one scope to ask for.", exit_code=1)
 
     existing = load(host)
-    if existing is not None and set(wanted) <= set(existing.registered):
-        client_id, registered = existing.client_id, existing.registered
+    # Compared against what was asked for, never against what came back. A scope the server strips
+    # is absent from `registered` forever, so keying off that re-registers on every attempt and
+    # leaves a dead OAuth client plus a live grant behind each time.
+    if existing is not None and set(wanted) <= set(existing.requested):
+        client_id, registered, requested = existing.client_id, existing.registered, existing.requested
     else:
         # Carry forward what the old client could do, so authorizing for a new scope doesn't
         # silently narrow another command that was already working.
-        registered = tuple(dict.fromkeys([*(existing.registered if existing else ()), *wanted]))
-        client_id, registered = _register(host, registered)
+        requested = tuple(dict.fromkeys([*(existing.requested if existing else ()), *wanted]))
+        client_id, registered = _register(host, requested)
+
+    refused = [scope for scope in wanted if scope not in registered]
+    if refused:
+        # Refusing here leaves the registration unsaved, so retrying a bad scope name registers a
+        # fresh client each time. Those rows carry no grant and never reach Connected applications,
+        # which is why this is not worth making `access_token` optional to persist.
+        # Known before the browser opens: /authorize clamps to the ceiling above, so consenting
+        # would mint a token missing these and the failure would land after the user's click.
+        raise AuthError(
+            f"{host} will not grant {' '.join(refused)} to a self-registered client.\n"
+            "  Check the scope name, and note that privileged scopes need an admin-registered app."
+        )
 
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -301,19 +333,16 @@ def login(
         verifier=verifier,
         redirect_uri=redirect_uri,
         registered=registered,
+        requested=requested,
+        asked=wanted,
     )
-    # Saved even when short: it is a real grant covering the scopes that were allowed, and
-    # discarding it would log out the commands that only need those.
     save(credential)
     if not credential.covers(wanted):
-        # The server strips a scope a self-registering client may not have, and only 400s when
-        # *nothing* survives. Returning here would hand back a token quietly missing what was
-        # asked for, and the failure would surface later as an unactionable 403 on a scope check.
+        # The ceiling check above cannot see a narrowing that happens at consent time, so this is
+        # the backstop. Returning here would hand back a token quietly missing what was asked for,
+        # and the failure would surface later as an unactionable 403 on a scope check.
         missing = " ".join(scope for scope in wanted if scope not in credential.granted)
-        raise AuthError(
-            f"{host} did not grant {missing}.\n"
-            "  A self-registering client cannot request privileged scopes; the rest were granted."
-        )
+        raise AuthError(f"{host} granted a token without {missing}.")
     return credential
 
 
@@ -347,6 +376,8 @@ def _exchange(
     verifier: str,
     redirect_uri: str,
     registered: tuple[str, ...],
+    requested: tuple[str, ...],
+    asked: tuple[str, ...],
 ) -> Credential:
     body = _post(
         f"{host}/oauth/token/",
@@ -359,7 +390,16 @@ def _exchange(
         },
         action="Exchanging the authorization code",
     )
-    return _credential_from(body, host=host, client_id=client_id, registered=registered)
+    return _credential_from(
+        body,
+        host=host,
+        client_id=client_id,
+        registered=registered,
+        requested=requested,
+        # RFC 6749 §5.1 makes `scope` optional when it matches the request, so an omission means
+        # the ask was granted whole. Recording nothing instead would read as "scopes unknown".
+        fallback_granted=asked,
+    )
 
 
 def _refresh(credential: Credential) -> Credential | None:
@@ -388,6 +428,7 @@ def _refresh(credential: Credential) -> Credential | None:
         host=credential.host,
         client_id=credential.client_id,
         registered=credential.registered,
+        requested=credential.requested,
         # Refresh-token rotation is optional; keep the working one when the server reissues none.
         fallback_refresh=credential.refresh_token,
         fallback_granted=credential.granted,
@@ -400,6 +441,7 @@ def _credential_from(
     host: str,
     client_id: str,
     registered: tuple[str, ...],
+    requested: tuple[str, ...],
     fallback_refresh: str | None = None,
     fallback_granted: tuple[str, ...] = (),
 ) -> Credential:
@@ -416,6 +458,7 @@ def _credential_from(
         expires_at=time.time() + float(expires_in) if expires_in else None,
         granted=granted,
         registered=registered,
+        requested=requested,
     )
 
 
@@ -435,12 +478,16 @@ def _post(
         body = response.json()
     except ValueError:
         body = {}
+    # Before any .get(): a proxy or load balancer can answer with valid JSON that is not an object,
+    # and an AttributeError here escapes the AuthError handling every caller relies on.
+    if not isinstance(body, dict):
+        body = {}
     if response.status_code >= 400:
         # OAuth errors are `error` / `error_description`; DRF's are `detail`.
         detail = body.get("error_description") or body.get("error") or body.get("detail") or response.text[:200]
         raise AuthError(f"{action} failed ({response.status_code}): {detail}")
-    if not isinstance(body, dict):
-        raise AuthError(f"{action} returned {type(body).__name__}, not an object.")
+    if not body:
+        raise AuthError(f"{action} returned no object.")
     return body
 
 
@@ -451,7 +498,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     as the callback would end the wait on the wrong one. Only the registered path counts.
     """
 
-    def do_GET(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler's interface
+    # Without this the read blocks forever on a socket that connects and sends nothing, and the
+    # single-threaded server never returns to check the login deadline.
+    timeout = 10.0
+
+    def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path != _REDIRECT_PATH:
             self.send_error(404)
