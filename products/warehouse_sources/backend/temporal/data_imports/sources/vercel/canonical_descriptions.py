@@ -23,6 +23,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "inspectorUrl": "URL of the deployment's inspector page in the Vercel dashboard.",
         },
     },
+    "events": {
+        "description": "A Vercel team activity event: one action taken on the team, such as a deployment being created, a project renamed, or an environment variable changed. Where the other tables hold current state, this one holds the transitions between states.",
+        "docs_url": "https://vercel.com/docs/rest-api/reference/endpoints/user/list-user-events",
+        "columns": {
+            "id": "Unique identifier for the event.",
+            "type": "The type of action the event records, such as deployment-created or env-variable-edit.",
+            "text": "Human-readable summary of the event.",
+            "createdAt": "Time the event was generated, as a Unix timestamp in milliseconds.",
+            "entities": "Spans within the event text marking the entities it refers to, as JSON.",
+            "categories": "Categories grouping this event with related types. An event can belong to more than one.",
+            "payload": "Event-specific detail about the entity acted on, as JSON. The shape varies by event type.",
+            "principalId": "Identifier of the principal that generated the event, usually a user but sometimes an app or integration.",
+            "userId": "Identifier of the user that generated the event, empty when the principal was not a user.",
+            "user": "Metadata about the user that generated the event, as JSON.",
+            "via": "Chain of principals the authority was delegated through, as JSON, when a user acted through an app.",
+        },
+    },
     "projects": {
         "description": "A Vercel project: a codebase connected to Vercel with its build, environment, and deployment configuration.",
         "docs_url": "https://vercel.com/docs/rest-api/reference/endpoints/projects/retrieve-a-list-of-projects",

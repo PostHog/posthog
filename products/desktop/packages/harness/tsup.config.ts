@@ -6,6 +6,7 @@ export default defineConfig({
     "src/index.ts",
     "src/cli.ts",
     "src/runtime.ts",
+    "src/project-trust.ts",
     "src/extensions/registry.ts",
     "src/extensions/hog-branding/extension.ts",
     "src/extensions/hog-branding/index.ts",

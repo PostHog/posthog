@@ -234,6 +234,7 @@ const inboxReportsList = (): ToolBase<
                 ordering: params.ordering,
                 priority: params.priority,
                 scout: params.scout,
+                scout_prefix: params.scout_prefix,
                 search: params.search,
                 source_id: params.source_id,
                 source_product: params.source_product,

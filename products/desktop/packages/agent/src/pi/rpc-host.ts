@@ -2,14 +2,18 @@ import { readFileSync } from "node:fs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
 import type { PosthogProviderOptions } from "@posthog/harness/extensions/posthog-provider/provider";
+import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
 } from "./queue-persistence";
+import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
 
 interface PiRpcBootstrap {
   providerOptions?: PosthogProviderOptions;
+  projectTrusted?: boolean;
+  channelMode?: boolean;
 }
 
 interface PiHostRequest {
@@ -38,6 +42,17 @@ const sessionManager = sessionFile
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
+  projectTrusted: createPiRuntimeTrustResolver(
+    cwd,
+    bootstrap.projectTrusted ?? false,
+  ),
+  ...(bootstrap.channelMode
+    ? {
+        resourceLoaderOptions: {
+          extensionFactories: [createPiRepositoryToolsExtension(cwd)],
+        },
+      }
+    : {}),
   ...providerOptions,
 });
 
