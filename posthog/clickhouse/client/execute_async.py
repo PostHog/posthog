@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 import orjson as json
 import structlog
@@ -26,7 +26,7 @@ from posthog.renderers import SafeJSONRenderer
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
     from posthog.models.team.team import Team
-    from posthog.shared_link_user import SharedLinkUser
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -179,7 +179,7 @@ class QueryStatusManager:
         self.redis_client.hdel(self.running_queries_key, cache_key)
 
 
-def _shared_link_user_for(sharing_configuration_id: int, team_id: int) -> Optional["SharedLinkUser"]:
+def _shared_link_user_for(sharing_configuration_id: int, team_id: int) -> Optional["User"]:
     """Rebuild the anonymous viewer of a public share so an async recalculation runs as the same
     principal the request did. None if the share was disabled, expired, or deleted in the meantime -
     the query then runs userless and is denied, which is the correct outcome for a revoked share."""
@@ -189,7 +189,11 @@ def _shared_link_user_for(sharing_configuration_id: int, team_id: int) -> Option
     sharing_configuration = SharingConfiguration.objects.filter(
         SharingConfiguration.tokens_active_q(), pk=sharing_configuration_id, team_id=team_id
     ).first()
-    return SharedLinkUser(sharing_configuration) if sharing_configuration else None
+    if sharing_configuration is None:
+        return None
+    # The query stack types its principal as Optional[User] but accepts the anonymous shared-link
+    # viewer at runtime, so cast at the boundary the same way SharingViewerPageViewSet does.
+    return cast("User", SharedLinkUser(sharing_configuration))
 
 
 def execute_process_query(
@@ -212,7 +216,7 @@ def execute_process_query(
     team = Team.objects.get(pk=team_id)
     is_staff_user = False
 
-    user: Optional[User | SharedLinkUser] = None
+    user: Optional[User] = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
