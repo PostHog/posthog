@@ -102,6 +102,17 @@ class TestCommentMentionActivity(CommentMentionTestCase):
         assert page.results[0].latest_comment_scope == "task_artifact"
         assert page.results[0].latest_comment_item_id == "artifact-1"
 
+    def test_reply_mention_links_activity_to_the_root_thread(self):
+        root = self._comment(content="root")
+        reply = self._comment(content="reply", source_comment=root)
+
+        self._record_mentions(reply, [self.author.id])
+
+        activity = tasks_facade.list_task_activity(self.team.id, self.author.id).results[0]
+        assert activity.latest_comment_id == root.id
+        assert activity.latest_comment_scope == "task_artifact"
+        assert activity.latest_comment_item_id == "artifact-1"
+
     def test_artifact_must_belong_to_the_named_task(self):
         comment = self._comment(item_id="not-this-task-artifact")
 

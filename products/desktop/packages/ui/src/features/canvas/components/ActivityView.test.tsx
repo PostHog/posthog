@@ -1,7 +1,20 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { activityHeadline } from "./ActivityView";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const navigation = vi.hoisted(() => ({
+  toChannelTask: vi.fn(),
+  toTaskDetail: vi.fn(),
+}));
+
+vi.mock("@posthog/ui/router/navigationBridge", () => ({
+  navigateToChannelTask: navigation.toChannelTask,
+  navigateToTaskDetail: navigation.toTaskDetail,
+}));
+vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { ActivityRow, activityHeadline } from "./ActivityView";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
   return {
@@ -21,6 +34,14 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
 }
 
 describe("activityHeadline", () => {
+  beforeEach(() => {
+    navigation.toChannelTask.mockReset();
+    navigation.toTaskDetail.mockReset();
+    useCommentNavigationStore.setState({
+      focusByTask: {},
+      resolutionsByTarget: {},
+    });
+  });
   it.each([
     [
       "completed run",
@@ -58,5 +79,43 @@ describe("activityHeadline", () => {
       </div>,
     );
     expect(getByText("#me")).toBeInTheDocument();
+  });
+
+  it("opens an activity mention at its exact comment thread", () => {
+    const activity = item({
+      activityKind: "mention",
+      channelId: "channel-1",
+      commentId: "comment-1",
+      commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+      author: {
+        id: 2,
+        uuid: "author",
+        email: "author@posthog.com",
+        first_name: "Ann",
+      },
+    });
+
+    render(
+      <ActivityRow
+        item={activity}
+        channelId="channel-1"
+        onOpen={vi.fn()}
+        onMarkRead={vi.fn()}
+      />,
+    );
+    const activityButton = screen.getByText("mentioned you").closest("button");
+    if (!activityButton) throw new Error("Expected activity row button");
+    fireEvent.click(activityButton);
+
+    expect(navigation.toChannelTask).toHaveBeenCalledWith(
+      "channel-1",
+      "task-1",
+    );
+    expect(useCommentNavigationStore.getState().focusByTask["task-1"]).toEqual({
+      target: { scope: "desktop_canvas", itemId: "canvas-1" },
+      threadId: "comment-1",
+      nonce: expect.any(Number),
+      openCommentsTab: true,
+    });
   });
 });
