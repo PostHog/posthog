@@ -37,6 +37,7 @@ export interface CanvasFrameInputs {
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
 }
 

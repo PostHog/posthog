@@ -2,6 +2,7 @@ import type { CommentScope } from "@posthog/api-client/posthog-client";
 import { z } from "zod";
 
 const CONTEXT_LENGTH = 32;
+const MAX_QUOTE_LENGTH = 10_000;
 
 /**
  * Addresses one commentable thing. `itemId` must be the resource's STABLE id
@@ -25,14 +26,21 @@ export function isSameCommentTarget(
   return a?.scope === b?.scope && a?.itemId === b?.itemId;
 }
 
-export const textCommentAnchorSchema = z.object({
-  kind: z.literal("text"),
-  quote: z.string().min(1),
-  prefix: z.string(),
-  suffix: z.string(),
+export const textCommentAnchorDataSchema = z.object({
+  quote: z.string().min(1).max(MAX_QUOTE_LENGTH),
+  prefix: z.string().max(CONTEXT_LENGTH),
+  suffix: z.string().max(CONTEXT_LENGTH),
   start: z.number().int().nonnegative(),
   end: z.number().int().positive(),
 });
+
+export const textCommentAnchorSchema = textCommentAnchorDataSchema
+  .extend({
+    kind: z.literal("text"),
+  })
+  .refine(({ start, end }) => end > start, {
+    message: "Text anchor end must follow its start",
+  });
 
 export const regionCommentAnchorSchema = z.object({
   kind: z.literal("region"),
@@ -114,7 +122,7 @@ export function createTextCommentAnchor(
   const safeStart = Math.max(0, Math.min(start, text.length));
   const safeEnd = Math.max(safeStart, Math.min(end, text.length));
   const quote = text.slice(safeStart, safeEnd);
-  if (!quote.trim()) return null;
+  if (!quote.trim() || quote.length > MAX_QUOTE_LENGTH) return null;
 
   return {
     kind: "text",
@@ -124,20 +132,6 @@ export function createTextCommentAnchor(
     start: safeStart,
     end: safeEnd,
   };
-}
-
-function candidateScore(
-  text: string,
-  start: number,
-  anchor: TextCommentAnchor,
-): number {
-  const prefix = text.slice(Math.max(0, start - anchor.prefix.length), start);
-  const end = start + anchor.quote.length;
-  const suffix = text.slice(end, end + anchor.suffix.length);
-  let score = 0;
-  if (anchor.prefix && prefix === anchor.prefix) score += 2;
-  if (anchor.suffix && suffix === anchor.suffix) score += 2;
-  return score;
 }
 
 /**
@@ -172,7 +166,18 @@ export function resolveTextCommentAnchor(
   }
 
   const ranked = candidates
-    .map((start) => ({ start, score: candidateScore(text, start, anchor) }))
+    .map((start) => {
+      const end = start + anchor.quote.length;
+      const prefix = text.slice(
+        Math.max(0, start - anchor.prefix.length),
+        start,
+      );
+      const suffix = text.slice(end, end + anchor.suffix.length);
+      let score = 0;
+      if (anchor.prefix && prefix === anchor.prefix) score += 2;
+      if (anchor.suffix && suffix === anchor.suffix) score += 2;
+      return { start, score };
+    })
     .sort((a, b) => b.score - a.score);
   if (ranked[0].score === 0 || ranked[0].score === ranked[1].score) return null;
 

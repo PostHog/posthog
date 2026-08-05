@@ -1,5 +1,6 @@
 import { isSafePostHogUrl } from "@posthog/shared";
 import { z } from "zod";
+import { textCommentAnchorDataSchema } from "../comments/anchors";
 
 // The template id for freeform-React canvases. Stored on a canvas's meta so the
 // generation path can resolve the right system prompt.
@@ -126,12 +127,7 @@ export type CanvasAnalyticsConfig = z.infer<typeof canvasAnalyticsConfigSchema>;
 export const canvasThemeSchema = z.enum(["light", "dark"]);
 export type CanvasTheme = z.infer<typeof canvasThemeSchema>;
 
-export const canvasTextSelectionSchema = z.object({
-  quote: z.string().min(1).max(10_000),
-  prefix: z.string().max(32),
-  suffix: z.string().max(32),
-  start: z.number().int().nonnegative(),
-  end: z.number().int().positive(),
+const canvasTextSelectionDataSchema = textCommentAnchorDataSchema.extend({
   rect: z.object({
     top: z.number().finite(),
     right: z.number().finite(),
@@ -139,12 +135,15 @@ export const canvasTextSelectionSchema = z.object({
     left: z.number().finite(),
   }),
 });
+export const canvasTextSelectionSchema = canvasTextSelectionDataSchema.refine(
+  ({ start, end }) => end > start,
+);
 export type CanvasTextSelection = z.infer<typeof canvasTextSelectionSchema>;
 
 export const canvasCommentHighlightSchema = z.object({
   id: z.string().min(1).max(128),
   active: z.boolean(),
-  anchor: canvasTextSelectionSchema.omit({ rect: true }),
+  anchor: textCommentAnchorDataSchema.refine(({ start, end }) => end > start),
 });
 export type CanvasCommentHighlight = z.infer<
   typeof canvasCommentHighlightSchema
@@ -261,6 +260,11 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("text-selection-cleared"),
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("comment-activate"),
+    id: z.string().min(1).max(128),
   }),
 ]);
 export type CanvasToHostMessage = z.infer<typeof canvasToHostMessageSchema>;

@@ -5,6 +5,7 @@ import {
   FREEFORM_POSTHOG_JS_URL,
   FREEFORM_QUILL_CSS_URLS,
 } from "@posthog/core/canvas/freeformWhitelist";
+import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
 
 // Builds the HTML document loaded into the freeform-canvas sandbox iframe.
 //
@@ -277,13 +278,10 @@ export function buildSandboxDocument(
     );
 
     const clearTextSelection = () => post({ type: "text-selection-cleared" });
-    document.addEventListener("selectionchange", () => {
-      const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
-        clearTextSelection();
-      }
-    });
-    document.addEventListener("mouseup", () => {
+    let selectionTimer = 0;
+    const reportTextSelection = () => {
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(() => {
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
         clearTextSelection();
@@ -322,12 +320,15 @@ export function buildSandboxDocument(
           rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
         },
       });
-    });
+      }, 80);
+    };
+    document.addEventListener("selectionchange", reportTextSelection);
 
     const commentHighlightStyle = document.createElement("style");
     commentHighlightStyle.textContent = "::highlight(posthog-canvas-comment){background:rgba(250,204,21,.32);color:inherit}::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.48);color:inherit}";
     document.head.appendChild(commentHighlightStyle);
     let currentCommentHighlights = [];
+    let commentRanges = [];
     const commentRangeAt = (start, end) => {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       let offset = 0, startNode, endNode, startOffset = 0, endOffset = 0;
@@ -350,20 +351,10 @@ export function buildSandboxDocument(
       range.setEnd(endNode, endOffset);
       return range;
     };
-    const resolveCommentAnchor = (text, anchor) => {
-      if (text.slice(anchor.start, anchor.end) === anchor.quote) return anchor;
-      let best = null;
-      for (let start = text.indexOf(anchor.quote); start >= 0; start = text.indexOf(anchor.quote, start + 1)) {
-        const end = start + anchor.quote.length;
-        const prefix = text.slice(Math.max(0, start - anchor.prefix.length), start);
-        const suffix = text.slice(end, end + anchor.suffix.length);
-        const score = (prefix === anchor.prefix ? 2 : 0) + (suffix === anchor.suffix ? 2 : 0) - Math.abs(start - anchor.start) / Math.max(1, text.length);
-        if (!best || score > best.score) best = { start, end, score };
-      }
-      return best;
-    };
+    const resolveCommentAnchor = ${resolveTextCommentAnchor.toString()};
     const renderCommentHighlights = (items) => {
       currentCommentHighlights = items || [];
+      commentRanges = [];
       if (!window.Highlight || !window.CSS || !CSS.highlights) return;
       const normal = new Highlight();
       const active = new Highlight();
@@ -374,22 +365,33 @@ export function buildSandboxDocument(
         const resolved = resolveCommentAnchor(text, item.anchor);
         const range = resolved && commentRangeAt(resolved.start, resolved.end);
         if (range) {
+          commentRanges.push({ id: item.id, range });
           (item.active ? active : normal).add(range);
         }
       }
       CSS.highlights.set("posthog-canvas-comment", normal);
       CSS.highlights.set("posthog-canvas-comment-active", active);
     };
-    let commentHighlightFrame = 0;
+    let commentHighlightTimer = 0;
     new MutationObserver(() => {
-      if (!currentCommentHighlights.length || commentHighlightFrame) return;
-      commentHighlightFrame = requestAnimationFrame(() => {
-        commentHighlightFrame = 0;
+      if (!currentCommentHighlights.length || commentHighlightTimer) return;
+      commentHighlightTimer = setTimeout(() => {
+        commentHighlightTimer = 0;
         renderCommentHighlights(currentCommentHighlights);
-      });
+      }, 100);
     }).observe(document.body, { childList: true, characterData: true, subtree: true });
-    addEventListener("scroll", () => renderCommentHighlights(currentCommentHighlights), true);
-    addEventListener("resize", () => renderCommentHighlights(currentCommentHighlights));
+    document.addEventListener("click", (event) => {
+      for (const item of commentRanges) {
+        for (const rect of item.range.getClientRects()) {
+          if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
+            event.preventDefault();
+            event.stopPropagation();
+            post({ type: "comment-activate", id: item.id });
+            return;
+          }
+        }
+      }
+    }, true);
 
     // Boot posthog-js with the PUBLIC key the host passed in (never the read
     // token). Enables session replay so the author/viewer can be watched.

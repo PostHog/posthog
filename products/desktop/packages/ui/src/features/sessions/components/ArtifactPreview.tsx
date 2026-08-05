@@ -190,13 +190,13 @@ export function ArtifactPreview({
   );
 
   const createAnchoredComment = useCallback(
-    (anchor: CommentAnchor, content: string, mentions: number[] = []) => {
-      createComment.mutate(
-        { content, context: { anchor }, mentions },
-        // With no thread list in this pane, focusing the new thread is what
-        // tells the user it landed — and brings the Comments tab forward.
-        { onSuccess: (created) => activateThread(created.id) },
-      );
+    async (anchor: CommentAnchor, content: string, mentions: number[] = []) => {
+      const created = await createComment.mutateAsync({
+        content,
+        context: { anchor },
+        mentions,
+      });
+      activateThread(created.id);
     },
     [createComment, activateThread],
   );

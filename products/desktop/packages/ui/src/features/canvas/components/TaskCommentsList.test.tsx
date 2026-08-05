@@ -2,7 +2,7 @@ import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import type { Task, TaskRun, TaskRunArtifact } from "@posthog/shared";
 import type { TaskThreadMessage } from "@posthog/shared/domain-types";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -108,7 +108,7 @@ vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
   },
   useCreateComment: (target: unknown) => {
     mocks.createdFor.push(target);
-    return { mutate: mocks.createComment, isPending: false };
+    return { mutateAsync: mocks.createComment, isPending: false };
   },
   useSetCommentResolved: (target: unknown) => {
     mocks.resolvedFor.push(target);
@@ -215,6 +215,7 @@ describe("TaskCommentsList", () => {
     mocks.prReply.mockClear();
     mocks.prResolve.mockClear();
     mocks.createComment.mockReset();
+    mocks.createComment.mockResolvedValue({ id: "created-comment" });
     mocks.setResolved.mockReset();
     mocks.createdFor = [];
     mocks.resolvedFor = [];
@@ -225,7 +226,7 @@ describe("TaskCommentsList", () => {
     });
   });
 
-  it("queries and displays only the current canvas when restricted", () => {
+  it("queries and displays only the current canvas when restricted", async () => {
     const onCanvasCommentOpen = vi.fn();
     mocks.comments = [
       comment({
@@ -280,7 +281,9 @@ describe("TaskCommentsList", () => {
     fireEvent.click(screen.getByText("Canvas feedback"));
     expect(onCanvasCommentOpen).toHaveBeenCalledWith("version-2");
 
-    fireEvent.click(screen.getByText(/Comment on this canvas/));
+    await act(async () => {
+      fireEvent.click(screen.getByText(/Comment on this canvas/));
+    });
     expect(mocks.createComment).toHaveBeenCalledWith({
       content: "Composed comment",
       context: {
@@ -569,10 +572,12 @@ describe("TaskCommentsList", () => {
   });
 
   // Not every comment belongs to a deliverable; some are about the work.
-  it("posts a comment on the task itself", () => {
+  it("posts a comment on the task itself", async () => {
     render(<TaskCommentsList task={task} timeline={[]} />);
 
-    fireEvent.click(screen.getByText(/Comment on this task/));
+    await act(async () => {
+      fireEvent.click(screen.getByText(/Comment on this task/));
+    });
 
     expect(mocks.createdFor).toContainEqual({
       scope: "task",

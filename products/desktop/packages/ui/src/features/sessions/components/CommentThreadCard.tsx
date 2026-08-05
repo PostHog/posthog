@@ -105,7 +105,7 @@ export function CommentThreadCard({
   /** Where to read/act on a thread that can't be handled in place. */
   viewHref?: string | null;
   onSelect: () => void;
-  onReply: (content: string, mentions: number[]) => void;
+  onReply: (content: string, mentions: number[]) => void | Promise<void>;
   onResolve: (resolved: boolean) => void;
 }) {
   const [replying, setReplying] = useState(false);
@@ -156,8 +156,8 @@ export function CommentThreadCard({
           <CommentComposer
             value={reply}
             onValueChange={setReply}
-            onSubmit={(content, mentions) => {
-              onReply(content, mentions);
+            onSubmit={async (content, mentions) => {
+              await onReply(content, mentions);
               setReply("");
               setReplying(false);
             }}

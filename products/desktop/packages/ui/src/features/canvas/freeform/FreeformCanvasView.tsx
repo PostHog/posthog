@@ -323,6 +323,16 @@ export function FreeformCanvasView({
   const focusedCommentId = useCommentNavigationStore(
     (state) => state.focusByTask[commentTaskId ?? ""]?.threadId ?? null,
   );
+  const activateComment = useCallback(
+    (id: string) => {
+      if (!commentTaskId) return;
+      useCanvasChatPanelStore.getState().openComments();
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(commentTaskId, commentTarget, id);
+    },
+    [commentTaskId, commentTarget],
+  );
   const commentHighlights = useMemo<CanvasCommentHighlight[]>(() => {
     const threads = buildCommentThreads(commentsQuery.data ?? []);
     return threads.flatMap((thread) => {
@@ -660,6 +670,7 @@ export function FreeformCanvasView({
                     onRendered={onRendered}
                     onNavigate={onNavigate}
                     onTextSelection={setTextSelection}
+                    onCommentActivate={activateComment}
                     commentHighlights={commentHighlights}
                   />
                 </Box>
@@ -711,6 +722,7 @@ export function FreeformCanvasView({
                 onRendered={onRendered}
                 onNavigate={onNavigate}
                 onTextSelection={setTextSelection}
+                onCommentActivate={activateComment}
                 commentHighlights={commentHighlights}
               />
             </Box>
@@ -729,6 +741,7 @@ export function FreeformCanvasView({
                 onRendered={onRendered}
                 onNavigate={onNavigate}
                 onTextSelection={setTextSelection}
+                onCommentActivate={activateComment}
                 commentHighlights={commentHighlights}
               />
             </Box>

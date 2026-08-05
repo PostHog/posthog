@@ -42,6 +42,7 @@ export interface FreeformCanvasProps {
    */
   onNavigate?: (intent: CanvasNavIntent) => void;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
   /**
    * Bootstrap config for in-iframe posthog-js (analytics + session replay).
@@ -62,6 +63,7 @@ export function FreeformCanvas({
   onRendered,
   onNavigate,
   onTextSelection,
+  onCommentActivate,
   commentHighlights = [],
   analytics,
 }: FreeformCanvasProps) {
@@ -90,6 +92,7 @@ export function FreeformCanvas({
     onRendered,
     onNavigate,
     onTextSelection,
+    onCommentActivate,
     code,
     mode,
     analytics,
@@ -102,6 +105,7 @@ export function FreeformCanvas({
     onRendered,
     onNavigate,
     onTextSelection,
+    onCommentActivate,
     code,
     mode,
     analytics,
@@ -172,6 +176,7 @@ export function FreeformCanvas({
             },
           });
         },
+        onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
       openExternal: openExternalUrl,

@@ -49,7 +49,6 @@ from products.tasks.backend.constants import (
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.forwarded_content import frame_forwarded_comment
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -6049,10 +6048,10 @@ def task_comment_target_is_accessible(
     return target_is_accessible(team_id=team_id, user_id=user_id, task_id=task_id, scope=scope, item_id=item_id)
 
 
-def task_comment_mentions_allowed(*, team_id: int, user_id: int | None, task_id: str | UUID) -> bool:
+def task_comment_mentions_allowed(*, team_id: int, task_id: str | UUID) -> bool:
     from products.tasks.backend.logic.services.comment_activity import notifications_allowed
 
-    return notifications_allowed(team_id=team_id, user_id=user_id, task_id=task_id)
+    return notifications_allowed(team_id=team_id, task_id=task_id)
 
 
 def record_comment_activity(
@@ -6060,25 +6059,20 @@ def record_comment_activity(
     team_id: int,
     comment_id: UUID,
     mentioned_user_ids: Sequence[int],
-    target_was_validated: bool = False,
     include_relationship_recipients: bool = True,
     target_owner_id: int | None = None,
     activity_at: datetime | None = None,
 ) -> None:
-    try:
-        from products.tasks.backend.logic.services.comment_activity import project_comment_activity
+    from products.tasks.backend.logic.services.comment_activity import project_comment_activity
 
-        project_comment_activity(
-            team_id=team_id,
-            comment_id=comment_id,
-            mentioned_user_ids=mentioned_user_ids,
-            target_was_validated=target_was_validated,
-            include_relationship_recipients=include_relationship_recipients,
-            target_owner_id=target_owner_id,
-            activity_at=activity_at,
-        )
-    except Exception:
-        logger.exception("Failed to record comment activity", extra={"comment_id": str(comment_id)})
+    project_comment_activity(
+        team_id=team_id,
+        comment_id=comment_id,
+        mentioned_user_ids=mentioned_user_ids,
+        include_relationship_recipients=include_relationship_recipients,
+        target_owner_id=target_owner_id,
+        activity_at=activity_at,
+    )
 
 
 def list_mentions(
@@ -6174,7 +6168,9 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
 
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
     visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
-    return TaskCommentActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
+    return TaskCommentActivity.objects.for_team(team_id).filter(
+        user_id=user_id, task__in=visible_tasks, comment__deleted=False
+    )
 
 
 def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
@@ -6335,7 +6331,7 @@ def forward_thread_message(
 
         author = message.author
         author_name = (author.get_full_name() or author.email) if author else "A teammate"
-        content = frame_forwarded_comment(author_name=author_name, content=message.content)
+        content = f"[Thread comment from {author_name}] {message.content}"
         signal_result = signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[])
         if not signal_result:
             return "signal_failed", None

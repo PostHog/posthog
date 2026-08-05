@@ -16,6 +16,7 @@ import {
   useAuthStateValue,
 } from "@posthog/ui/features/auth/store";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import { toast } from "@posthog/ui/primitives/toast";
 import {
   type QueryClient,
   type QueryKey,
@@ -178,6 +179,9 @@ export function useCreateComment(target: CommentTarget, taskId?: string) {
     },
     onError: (_error, _request, context) => {
       restoreCommentCaches(queryClient, context?.previous);
+      toast.error("Couldn't save comment", {
+        description: "Try again.",
+      });
     },
     onSettled: () => queryClient.invalidateQueries(caches),
   });
@@ -236,6 +240,9 @@ export function useSetCommentResolved(target: CommentTarget) {
     },
     onError: (_error, _variables, context) => {
       restoreCommentCaches(queryClient, context?.previous);
+      toast.error("Couldn't update comment", {
+        description: "Try again.",
+      });
     },
     onSettled: () => queryClient.invalidateQueries(caches),
   });

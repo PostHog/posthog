@@ -191,14 +191,14 @@ function ResourceThreadRow({
         </>
       }
       onSelect={onOpen}
-      onReply={(content, mentions) =>
-        createComment.mutate({
+      onReply={async (content, mentions) => {
+        await createComment.mutateAsync({
           content,
           sourceCommentId: root.id,
           context: readCommentContext(root) ?? { anchor: { kind: "document" } },
           mentions,
-        })
-      }
+        });
+      }}
       onResolve={(resolved) => setResolved.mutate({ root, resolved })}
     />
   );
@@ -535,11 +535,7 @@ export function TaskCommentsList({
                     {sourceIcon(option.kind, option.label)}
                     <span className="min-w-0 truncate">{option.label}</span>
                     <span className="ml-auto shrink-0 pl-3 text-muted-foreground tabular-nums">
-                      {
-                        threads.filter(
-                          (thread) => thread.sourceKey === option.key,
-                        ).length
-                      }
+                      {option.count}
                     </span>
                   </DropdownMenuRadioItem>
                 ))}
@@ -629,8 +625,8 @@ export function TaskCommentsList({
         <CommentComposer
           value={draft}
           onValueChange={setDraft}
-          onSubmit={(content, mentions) => {
-            createComment.mutate({
+          onSubmit={async (content, mentions) => {
+            await createComment.mutateAsync({
               content,
               context: {
                 anchor: { kind: "document" },

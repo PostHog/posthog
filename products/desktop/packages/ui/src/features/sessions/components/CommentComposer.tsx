@@ -19,7 +19,7 @@ export function CommentComposer({
 }: {
   value: string;
   onValueChange: (value: string) => void;
-  onSubmit: (content: string, mentions: number[]) => void;
+  onSubmit: (content: string, mentions: number[]) => void | Promise<void>;
   onCancel?: () => void;
   members: UserBasic[];
   placeholder: string;
@@ -35,7 +35,9 @@ export function CommentComposer({
   const submit = () => {
     const content = value.trim();
     if (!content || disabled) return;
-    onSubmit(content, mentionIdsFromContent(content, mentionMembers));
+    void Promise.resolve(
+      onSubmit(content, mentionIdsFromContent(content, mentionMembers)),
+    ).catch(() => undefined);
   };
 
   return (

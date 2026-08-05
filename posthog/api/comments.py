@@ -75,19 +75,9 @@ def _record_task_comment_activity(
             record_comment_activity,
         )
 
-        task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
-        if not _task_comment_target_is_accessible(
-            team_id=comment.team_id,
-            user_id=comment.created_by_id,
-            task_id=task_id or "",
-            scope=comment.scope,
-            item_id=comment.item_id,
-        ):
-            return
-
         owner_id = None
         if comment.scope == "desktop_canvas" and comment.item_id:
-            from products.canvas.backend.facade.api import canvas_owner_id  # noqa: PLC0415
+            from products.canvas.backend.comment_access import canvas_owner_id  # noqa: PLC0415
 
             owner_id = canvas_owner_id(team_id=comment.team_id, canvas_id=comment.item_id)
 
@@ -95,7 +85,6 @@ def _record_task_comment_activity(
             team_id=comment.team_id,
             comment_id=comment.id,
             mentioned_user_ids=mentions,
-            target_was_validated=True,
             include_relationship_recipients=include_relationship_recipients,
             target_owner_id=owner_id,
             activity_at=activity_at,
@@ -105,7 +94,7 @@ def _record_task_comment_activity(
 
 
 def _mentions_allowed_for_comment_target(
-    *, team_id: int, user_id: int | None, scope: str, item_id: str | None, item_context: dict | None
+    *, team_id: int, scope: str, item_id: str | None, item_context: dict | None
 ) -> bool:
     if scope not in {"task", "task_artifact", "desktop_canvas"}:
         return True
@@ -114,7 +103,7 @@ def _mentions_allowed_for_comment_target(
         return False
     from products.tasks.backend.facade.api import task_comment_mentions_allowed  # noqa: PLC0415
 
-    return task_comment_mentions_allowed(team_id=team_id, user_id=user_id, task_id=task_id)
+    return task_comment_mentions_allowed(team_id=team_id, task_id=task_id)
 
 
 def _task_comment_target_is_accessible(
@@ -139,7 +128,7 @@ def _task_comment_target_is_accessible(
     ):
         return False
 
-    from products.canvas.backend.facade.api import canvas_belongs_to_generation_task  # noqa: PLC0415
+    from products.canvas.backend.comment_access import canvas_belongs_to_generation_task  # noqa: PLC0415
 
     try:
         parsed_task_id = UUID(task_id)
@@ -345,7 +334,6 @@ class CommentSerializer(serializers.ModelSerializer):
         mentions = self._filter_mentions_to_organization(mentions, self.context["get_organization"]().id)
         if not _mentions_allowed_for_comment_target(
             team_id=self.context["team_id"],
-            user_id=self.context["request"].user.id,
             scope=validated_data["scope"],
             item_id=validated_data.get("item_id"),
             item_context=validated_data.get("item_context"),
@@ -374,7 +362,6 @@ class CommentSerializer(serializers.ModelSerializer):
         mentions = self._filter_mentions_to_organization(mentions, self.context["get_organization"]().id)
         if not _mentions_allowed_for_comment_target(
             team_id=instance.team_id,
-            user_id=request.user.id,
             scope=validated_data.get("scope", instance.scope),
             item_id=validated_data.get("item_id", instance.item_id),
             item_context=validated_data.get("item_context", instance.item_context),

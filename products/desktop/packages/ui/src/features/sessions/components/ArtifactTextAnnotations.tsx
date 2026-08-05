@@ -85,7 +85,7 @@ interface ArtifactTextAnnotationsProps {
     anchor: TextCommentAnchor,
     content: string,
     mentions?: number[],
-  ) => void;
+  ) => void | Promise<void>;
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
 }
 
@@ -106,6 +106,13 @@ export function ArtifactTextAnnotations({
     null,
   );
   const [rects, setRects] = useState<HighlightRect[]>([]);
+  const firstRectByThread = useMemo(() => {
+    const first = new Map<string, number>();
+    rects.forEach((rect, index) => {
+      if (!first.has(rect.id)) first.set(rect.id, index);
+    });
+    return first;
+  }, [rects]);
 
   const dismiss = useCallback(() => {
     setSelection(null);
@@ -242,13 +249,13 @@ export function ArtifactTextAnnotations({
 
   return (
     <>
-      <div className="pointer-events-none absolute inset-0 z-10" aria-hidden>
+      <div className="pointer-events-none absolute inset-0 z-10">
         {rects.map((rect, index) => (
           <button
             // A selection can span several DOM rectangles, hence the index.
             key={`${rect.id}-${index}`}
             type="button"
-            tabIndex={-1}
+            tabIndex={firstRectByThread.get(rect.id) === index ? 0 : -1}
             className={`pointer-events-auto absolute rounded-[2px] ${
               rect.active ? "" : "hover:bg-yellow-300/45"
             }`}
@@ -275,9 +282,8 @@ export function ArtifactTextAnnotations({
         showActionText
         members={members}
         onDismiss={dismiss}
-        onSubmit={(_start, _end, content, mentions) => {
-          if (pendingAnchor) onCreate(pendingAnchor, content, mentions);
-          dismiss();
+        onSubmit={async (_start, _end, content, mentions) => {
+          if (pendingAnchor) await onCreate(pendingAnchor, content, mentions);
         }}
       />
     </>

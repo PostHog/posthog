@@ -84,6 +84,7 @@ export interface BuiltCanvasProps {
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
 }
 
@@ -96,6 +97,7 @@ export function BuiltCanvas({
   onRendered,
   onNavigate,
   onTextSelection,
+  onCommentActivate,
   commentHighlights = [],
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -109,6 +111,7 @@ export function BuiltCanvas({
     onRendered,
     onNavigate,
     onTextSelection,
+    onCommentActivate,
     commentHighlights,
   });
   latest.current = {
@@ -119,6 +122,7 @@ export function BuiltCanvas({
     onRendered,
     onNavigate,
     onTextSelection,
+    onCommentActivate,
     commentHighlights,
   };
 
@@ -152,7 +156,7 @@ export function BuiltCanvas({
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
         onTextSelection: (selection) => {
           if (!selection) {
-            onTextSelection?.(null);
+            latest.current.onTextSelection?.(null);
             return;
           }
           const frame = iframeRef.current?.getBoundingClientRect();
@@ -166,6 +170,7 @@ export function BuiltCanvas({
             },
           });
         },
+        onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
       // Built artifacts run arbitrary published code, so an external open asks

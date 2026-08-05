@@ -1,7 +1,13 @@
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import {
   afterEach,
@@ -82,7 +88,7 @@ vi.mock("./useComments", () => ({
     data: artifactComments.data,
     isLoading: false,
   }),
-  useCreateComment: () => ({ mutate: createComment, isPending: false }),
+  useCreateComment: () => ({ mutateAsync: createComment, isPending: false }),
 }));
 
 vi.mock("../../code-editor/components/CodeMirrorEditor", () => ({
@@ -123,6 +129,7 @@ describe("ArtifactPreview", () => {
     });
     artifactComments.data = [];
     createComment.mockReset();
+    createComment.mockResolvedValue({ id: "created-comment" });
     useQuery.mockReset();
     useQuery.mockReturnValue({
       data: previewBlob,
@@ -422,18 +429,17 @@ describe("ArtifactPreview", () => {
       screen.getByPlaceholderText("Add a comment about this selection..."),
       { target: { value: "Tighten this title" } },
     );
-    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    });
 
-    expect(createComment).toHaveBeenCalledWith(
-      {
-        content: "Tighten this title",
-        context: {
-          anchor: expect.objectContaining({ kind: "text", quote: "Report" }),
-        },
-        mentions: [],
+    expect(createComment).toHaveBeenCalledWith({
+      content: "Tighten this title",
+      context: {
+        anchor: expect.objectContaining({ kind: "text", quote: "Report" }),
       },
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
-    );
+      mentions: [],
+    });
   });
 
   it("dismisses the Markdown comment action when clicking away", async () => {
@@ -691,6 +697,8 @@ describe("ArtifactPreview", () => {
     expect(document).toContain('var CHANNEL="test-channel"');
     expect(document).toContain('d.type==="locate"');
     expect(document).toContain("scrollIntoView");
+    expect(document).toContain("new MutationObserver");
+    expect(document).toContain("state.renderTimer");
   });
 
   it("keeps sensitive capabilities blocked in HTML artifacts", () => {

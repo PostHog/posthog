@@ -32,7 +32,7 @@ function ImageCommentCreationLayer({
     anchor: RegionCommentAnchor,
     content: string,
     mentions?: number[],
-  ) => void;
+  ) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const [pendingAnchor, setPendingAnchor] =
@@ -80,9 +80,8 @@ function ImageCommentCreationLayer({
         initiallyExpanded
         members={members}
         onDismiss={onCancel}
-        onSubmit={(_start, _end, content, mentions) => {
-          if (pendingAnchor) onCreate(pendingAnchor, content, mentions);
-          onCancel();
+        onSubmit={async (_start, _end, content, mentions) => {
+          if (pendingAnchor) await onCreate(pendingAnchor, content, mentions);
         }}
       />
     </>
@@ -115,7 +114,7 @@ export function AnnotatedArtifactImage({
     anchor: RegionCommentAnchor,
     content: string,
     mentions?: number[],
-  ) => void;
+  ) => void | Promise<void>;
   onError: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);

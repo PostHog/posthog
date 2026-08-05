@@ -68,7 +68,12 @@ describe("artifact text anchors", () => {
     expect(createTextCommentAnchor("a   b", 1, 4)).toBeNull();
   });
 
-  it("preserves a canvas source version in comment context", () => {
+  it("rejects selections larger than the persisted anchor contract", () => {
+    const text = "x".repeat(10_001);
+    expect(createTextCommentAnchor(text, 0, text.length)).toBeNull();
+  });
+
+  it("validates versioned comment context and anchor bounds", () => {
     expect(
       parseCommentContext({
         anchor: { kind: "document" },
@@ -78,6 +83,18 @@ describe("artifact text anchors", () => {
       anchor: { kind: "document" },
       canvasVersionId: "version-2",
     });
+    expect(
+      parseCommentContext({
+        anchor: {
+          kind: "text",
+          quote: "x".repeat(10_001),
+          prefix: "",
+          suffix: "",
+          start: 0,
+          end: 10_001,
+        },
+      }),
+    ).toBeNull();
   });
 
   it("uses the latest thread-state event for resolution", () => {

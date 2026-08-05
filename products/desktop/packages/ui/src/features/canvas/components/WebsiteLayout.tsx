@@ -35,6 +35,7 @@ import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import {
+  useCanvasVersions,
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
@@ -286,6 +287,7 @@ function CanvasBreadcrumb({
   trailing?: ReactNode;
 }) {
   const { dashboard } = useDashboard(dashboardId);
+  const { versions } = useCanvasVersions(dashboardId);
   const { renameDashboard } = useDashboardMutations();
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
@@ -293,9 +295,13 @@ function CanvasBreadcrumb({
     scope: "desktop_canvas" as const,
     itemId: dashboardId,
   };
+  const commentTaskId =
+    dashboard?.generationTaskId ??
+    versions.find((version) => version.taskId)?.taskId ??
+    null;
   const comments = useCommentsQuery(
-    dashboard?.generationTaskId ? commentTarget : null,
-    dashboard?.generationTaskId ?? "",
+    commentTaskId ? commentTarget : null,
+    commentTaskId ?? "",
     { live: true },
   );
   const openCommentCount = buildCommentThreads(comments.data ?? []).filter(
@@ -317,7 +323,7 @@ function CanvasBreadcrumb({
       onRename={(next) => void renameDashboard(dashboardId, next)}
       trailing={
         <>
-          {dashboard?.generationTaskId && (
+          {commentTaskId && (
             <Button size="sm" variant="outline" onClick={openComments}>
               <ChatCircleIcon />
               Comments

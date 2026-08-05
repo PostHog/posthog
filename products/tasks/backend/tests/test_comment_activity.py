@@ -47,7 +47,6 @@ class CommentActivityTestCase(TestCase):
             team_id=comment.team_id,
             comment_id=comment.id,
             mentioned_user_ids=user_ids or [],
-            target_was_validated=comment.scope == "desktop_canvas",
         )
 
 
@@ -62,7 +61,6 @@ class TestCommentActivity(CommentActivityTestCase):
         assert row.comment_id == comment.id
         assert row.read_at is None
 
-    # A task-scoped comment names its task in item_id, so it needs no client-supplied hint.
     def test_task_scoped_comment_resolves_from_its_item_id(self):
         comment = self._comment(scope="task", item_id=str(self.task.id), item_context={"anchor": {"kind": "document"}})
 
@@ -123,13 +121,6 @@ class TestCommentActivity(CommentActivityTestCase):
         assert activity.latest_comment_scope == "task_artifact"
         assert activity.latest_comment_item_id == "artifact-1"
 
-    def test_artifact_must_belong_to_the_named_task(self):
-        comment = self._comment(item_id="not-this-task-artifact")
-
-        self._record_activity(comment, [self.author.id])
-
-        assert not TaskCommentActivity.objects.filter(team=self.team, user=self.author).exists()
-
     def test_author_is_not_notified_of_their_own_mention(self):
         comment = self._comment(created_by=self.author)
 
@@ -146,8 +137,48 @@ class TestCommentActivity(CommentActivityTestCase):
 
         assert not TaskCommentActivity.objects.filter(team=self.team, user=self.author).exists()
 
-    # The task id rides in on the request for resource-scoped comments, so a caller must not
-    # be able to point a mention at a task in another team or one that does not exist.
+    def test_team_readable_personal_task_does_not_create_activity(self):
+        self.channel.channel_type = Channel.ChannelType.PERSONAL
+        self.channel.save(update_fields=["channel_type"])
+        self.task.origin_product = Task.OriginProduct.EXPERIMENTS
+        self.task.save(update_fields=["origin_product"])
+        comment = self._comment()
+
+        self._record_activity(comment, [self.author.id])
+
+        assert not TaskCommentActivity.objects.filter(team=self.team, user=self.author).exists()
+
+    def test_team_readable_channel_less_task_creates_activity(self):
+        self.task.channel = None
+        self.task.origin_product = Task.OriginProduct.EXPERIMENTS
+        self.task.save(update_fields=["channel", "origin_product"])
+        comment = self._comment()
+
+        self._record_activity(comment)
+
+        assert TaskCommentActivity.objects.filter(team=self.team, user=self.author).exists()
+
+    def test_deleted_channel_mentions_do_not_create_activity(self):
+        self.channel.deleted = True
+        self.channel.save(update_fields=["deleted"])
+        comment = self._comment()
+
+        self._record_activity(comment, [self.author.id])
+
+        assert not TaskCommentActivity.objects.filter(team=self.team, user=self.author).exists()
+
+    def test_deleted_comments_are_hidden_from_activity(self):
+        unread_before = tasks_facade.count_unread_task_activity(self.team.id, self.author.id)
+        comment = self._comment()
+        self._record_activity(comment, [self.author.id])
+        comment.deleted = True
+        comment.save(update_fields=["deleted"])
+
+        page = tasks_facade.list_task_activity(self.team.id, self.author.id)
+
+        assert not any(row.latest_comment_id == comment.id for row in page.results)
+        assert page.unread_count == unread_before
+
     @parameterized.expand(
         [
             ("unknown_task", {"anchor": {"kind": "document"}, "taskId": "3f1d4b7e-0000-4000-8000-000000000000"}),

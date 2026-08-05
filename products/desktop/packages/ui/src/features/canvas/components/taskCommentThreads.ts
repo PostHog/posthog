@@ -193,6 +193,7 @@ export type ThreadSourceOption = {
   key: string;
   label: string;
   kind: SourceKind;
+  count: number;
 };
 
 /**
@@ -205,12 +206,16 @@ export function threadSourceOptions(
 ): ThreadSourceOption[] {
   const byKey = new Map<string, ThreadSourceOption>();
   for (const thread of threads) {
-    if (!byKey.has(thread.sourceKey)) {
+    const source = byKey.get(thread.sourceKey);
+    if (!source) {
       byKey.set(thread.sourceKey, {
         key: thread.sourceKey,
         label: thread.sourceLabel,
         kind: thread.sourceKind,
+        count: 1,
       });
+    } else {
+      source.count += 1;
     }
   }
   return [...byKey.values()].sort(

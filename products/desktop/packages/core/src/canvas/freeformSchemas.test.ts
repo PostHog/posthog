@@ -68,6 +68,16 @@ describe("canvasToHostMessageSchema", () => {
     ).toBe(true);
   });
 
+  it("accepts a bounded comment activation", () => {
+    expect(
+      canvasToHostMessageSchema.safeParse({
+        channel: "posthog-canvas",
+        type: "comment-activate",
+        id: "comment-1",
+      }).success,
+    ).toBe(true);
+  });
+
   it("accepts bounded comment highlights", () => {
     expect(
       hostToCanvasMessageSchema.safeParse({

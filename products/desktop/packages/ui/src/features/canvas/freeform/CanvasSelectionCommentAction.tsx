@@ -59,27 +59,20 @@ export function CanvasSelectionCommentAction({
       showActionText
       members={members}
       onDismiss={onDismiss}
-      onSubmit={(_start, _end, content, mentions) => {
+      onSubmit={async (_start, _end, content, mentions) => {
         if (!anchor || !taskId) return;
-        createComment.mutate(
-          {
-            content,
-            context: {
-              anchor,
-              ...(versionId ? { canvasVersionId: versionId } : {}),
-            },
-            mentions,
+        const comment = await createComment.mutateAsync({
+          content,
+          context: {
+            anchor,
+            ...(versionId ? { canvasVersionId: versionId } : {}),
           },
-          {
-            onSuccess: (comment) => {
-              openComments();
-              useCommentNavigationStore
-                .getState()
-                .requestCommentFocus(taskId, target, comment.id);
-              onDismiss();
-            },
-          },
-        );
+          mentions,
+        });
+        openComments();
+        useCommentNavigationStore
+          .getState()
+          .requestCommentFocus(taskId, target, comment.id);
       }}
     />
   );

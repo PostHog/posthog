@@ -524,7 +524,7 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
-    "backend\\.facade\\.api.*",
+    "backend\\.facade.*",
     "backend\\.presentation\\.api.*",
 ]
 from = [
@@ -810,7 +810,14 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.routes.*",
-    "backend\\.facade.*",
+]
+from = [
+    "products.canvas",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.comment_access.*",
 ]
 from = [
     "products.canvas",

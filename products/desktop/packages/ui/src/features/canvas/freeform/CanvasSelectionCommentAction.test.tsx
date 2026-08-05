@@ -1,15 +1,15 @@
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CanvasSelectionCommentAction } from "./CanvasSelectionCommentAction";
 
-const { mutate } = vi.hoisted(() => ({ mutate: vi.fn() }));
+const { mutateAsync } = vi.hoisted(() => ({ mutateAsync: vi.fn() }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
   useOrgMembers: () => ({ members: [] }),
 }));
 vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
-  useCreateComment: () => ({ mutate }),
+  useCreateComment: () => ({ mutateAsync }),
 }));
 vi.mock(
   "@posthog/ui/features/code-editor/components/SelectionCommentOverlay",
@@ -39,14 +39,12 @@ vi.mock(
 
 describe("CanvasSelectionCommentAction", () => {
   beforeEach(() => {
-    mutate.mockReset();
+    mutateAsync.mockReset();
     useCanvasChatPanelStore.setState({ collapsed: true, tab: "chat" });
   });
 
-  it("creates the text-anchored comment and opens the comments tab", () => {
-    mutate.mockImplementation((_request, options) =>
-      options.onSuccess({ id: "comment-1" }),
-    );
+  it("creates the text-anchored comment and opens the comments tab", async () => {
+    mutateAsync.mockResolvedValue({ id: "comment-1" });
     render(
       <CanvasSelectionCommentAction
         selection={{
@@ -67,27 +65,26 @@ describe("CanvasSelectionCommentAction", () => {
 
     fireEvent.click(screen.getByText("Submit selection comment"));
 
-    expect(mutate).toHaveBeenCalledWith(
-      {
-        content: "Please revise this",
-        context: {
-          anchor: {
-            kind: "text",
-            quote: "selected text",
-            prefix: "before ",
-            suffix: " after",
-            start: 7,
-            end: 20,
-          },
-          canvasVersionId: "version-2",
+    expect(mutateAsync).toHaveBeenCalledWith({
+      content: "Please revise this",
+      context: {
+        anchor: {
+          kind: "text",
+          quote: "selected text",
+          prefix: "before ",
+          suffix: " after",
+          start: 7,
+          end: 20,
         },
-        mentions: [4],
+        canvasVersionId: "version-2",
       },
-      expect.any(Object),
-    );
-    expect(useCanvasChatPanelStore.getState()).toMatchObject({
-      collapsed: false,
-      tab: "comments",
+      mentions: [4],
+    });
+    await waitFor(() => {
+      expect(useCanvasChatPanelStore.getState()).toMatchObject({
+        collapsed: false,
+        tab: "comments",
+      });
     });
   });
 });

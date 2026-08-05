@@ -1202,23 +1202,29 @@ class TaskCommentActivity(TeamScopedRootMixin):
         ]
 
     @classmethod
-    def record(
+    def record_many(
         cls,
         *,
         team_id: int,
-        user_id: int,
         task_id: uuid.UUID | str,
         comment_id: uuid.UUID,
         root_comment_id: uuid.UUID,
-        kind: str,
         activity_at: datetime,
+        recipients: dict[int, str],
     ) -> None:
+        if not recipients:
+            return
+        values = []
+        params: list[Any] = []
+        for user_id, kind in recipients.items():
+            values.append("(%s, %s, %s, %s, %s, %s, %s, %s, NULL)")
+            params.extend([uuid7(), team_id, user_id, task_id, comment_id, root_comment_id, kind, activity_at])
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
                 INSERT INTO {cls._meta.db_table}
                        (id, team_id, user_id, task_id, comment_id, root_comment_id, kind, activity_at, read_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                VALUES {", ".join(values)}
                 ON CONFLICT (team_id, user_id, comment_id) DO UPDATE
                    SET task_id = EXCLUDED.task_id,
                        root_comment_id = EXCLUDED.root_comment_id,
@@ -1231,16 +1237,7 @@ class TaskCommentActivity(TeamScopedRootMixin):
                        END
                  WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
                 """,
-                [
-                    uuid7(),
-                    team_id,
-                    user_id,
-                    task_id,
-                    comment_id,
-                    root_comment_id,
-                    kind,
-                    activity_at,
-                ],
+                params,
             )
 
 

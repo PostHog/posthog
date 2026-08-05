@@ -4,7 +4,7 @@ import type { UserBasic } from "@posthog/shared/domain-types";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { CommentAnnotation } from "@posthog/ui/features/code-review/components/CommentAnnotation";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
-import { Tooltip } from "@radix-ui/themes";
+import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -29,7 +29,7 @@ interface SelectionCommentOverlayProps {
     endLine: number,
     text: string,
     mentions?: number[],
-  ) => void;
+  ) => void | Promise<void>;
   onDismiss: () => void;
   actionLabel?: string;
   placeholder?: string;
@@ -97,7 +97,7 @@ function SelectionComposerCard({
     endLine: number,
     text: string,
     mentions?: number[],
-  ) => void;
+  ) => void | Promise<void>;
   onDismiss: () => void;
   actionLabel: string;
   placeholder?: string;
@@ -163,8 +163,8 @@ function SelectionComposerCard({
           <CommentComposer
             value={draft}
             onValueChange={setDraft}
-            onSubmit={(content, mentions) => {
-              onSubmit(fromLine, toLine, content, mentions);
+            onSubmit={async (content, mentions) => {
+              await onSubmit(fromLine, toLine, content, mentions);
               onDismiss();
             }}
             onCancel={onDismiss}

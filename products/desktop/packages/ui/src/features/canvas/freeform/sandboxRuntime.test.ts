@@ -83,6 +83,15 @@ describe("buildSandboxDocument", () => {
     expect(html).toContain("posthog-canvas-comment-active");
     expect(html).not.toContain("ph-canvas-comment-outline");
     expect(html).toContain("renderCommentHighlights(currentCommentHighlights)");
+    expect(html).toContain('type: "comment-activate"');
+    expect(html).toContain("event.preventDefault()");
+    expect(html).toContain("event.stopPropagation()");
+    expect(html).toContain(
+      "if (!currentCommentHighlights.length || commentHighlightTimer) return",
+    );
+    expect(html).not.toContain("clearTimeout(commentHighlightTimer)");
+    expect(html).toContain('document.addEventListener("selectionchange"');
+    expect(html).not.toContain('document.addEventListener("mouseup"');
   });
 });
 

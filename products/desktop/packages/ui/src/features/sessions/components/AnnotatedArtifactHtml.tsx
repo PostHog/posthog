@@ -55,7 +55,7 @@ export function AnnotatedArtifactHtml({
     anchor: TextCommentAnchor,
     content: string,
     mentions?: number[],
-  ) => void;
+  ) => void | Promise<void>;
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -217,9 +217,8 @@ export function AnnotatedArtifactHtml({
         initiallyExpanded
         members={members}
         onDismiss={dismiss}
-        onSubmit={(_start, _end, content, mentions) => {
-          if (pendingAnchor) onCreate(pendingAnchor, content, mentions);
-          dismiss();
+        onSubmit={async (_start, _end, content, mentions) => {
+          if (pendingAnchor) await onCreate(pendingAnchor, content, mentions);
         }}
       />
     </div>

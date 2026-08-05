@@ -141,6 +141,32 @@ describe("FreeformCanvas", () => {
     );
   });
 
+  it("opens a comment selected inside the canvas", () => {
+    const onCommentActivate = vi.fn();
+    render(
+      <FreeformCanvas
+        code="export default function Canvas() { return null }"
+        mode="edit"
+        onDataRequest={vi.fn()}
+        onCommentActivate={onCommentActivate}
+      />,
+    );
+    const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: iframe.contentWindow,
+        data: {
+          channel: "posthog-canvas",
+          type: "comment-activate",
+          id: "comment-1",
+        },
+      }),
+    );
+
+    expect(onCommentActivate).toHaveBeenCalledWith("comment-1");
+  });
+
   describe("open-external", () => {
     let userActivationIsActive = true;
 

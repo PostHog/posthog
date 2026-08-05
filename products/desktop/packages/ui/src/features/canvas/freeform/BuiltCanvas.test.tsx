@@ -122,4 +122,38 @@ describe("BuiltCanvas", () => {
     });
     expect(onDataRequest).not.toHaveBeenCalled();
   });
+
+  it("opens a comment selected inside the built artifact", async () => {
+    const onCommentActivate = vi.fn();
+    render(
+      <BuiltCanvas
+        artifactUrl="https://usercontent.example/build/index.html"
+        capabilities={capabilities}
+        onDataRequest={vi.fn()}
+        onCommentActivate={onCommentActivate}
+      />,
+    );
+    const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
+    if (!iframe.contentWindow) throw new Error("Canvas iframe has no window");
+    const postMessage = vi
+      .spyOn(iframe.contentWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    fireEvent.load(iframe);
+    const calls = postMessage.mock.calls as unknown as [
+      unknown,
+      string,
+      Transferable[],
+    ][];
+    const canvasPort = calls.at(-1)?.[2]?.[0] as MessagePort;
+    canvasPort.postMessage({
+      channel: "posthog-canvas",
+      type: "comment-activate",
+      id: "comment-1",
+    });
+
+    await waitFor(() =>
+      expect(onCommentActivate).toHaveBeenCalledWith("comment-1"),
+    );
+  });
 });

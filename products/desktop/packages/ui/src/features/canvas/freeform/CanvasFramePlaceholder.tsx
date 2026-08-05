@@ -21,6 +21,7 @@ export function CanvasFramePlaceholder({
   onRendered,
   onNavigate,
   onTextSelection,
+  onCommentActivate,
   commentHighlights,
 }: {
   dashboardId: string;
@@ -31,6 +32,7 @@ export function CanvasFramePlaceholder({
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -49,6 +51,7 @@ export function CanvasFramePlaceholder({
       onRendered,
       onNavigate,
       onTextSelection,
+      onCommentActivate,
       commentHighlights,
     }),
     [
@@ -59,6 +62,7 @@ export function CanvasFramePlaceholder({
       onRendered,
       onNavigate,
       onTextSelection,
+      onCommentActivate,
       commentHighlights,
     ],
   );

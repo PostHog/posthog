@@ -53,6 +53,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useDashboard,
   useDashboardMutations: () => ({}),
+  useCanvasVersions: () => ({ versions: [{ taskId: "version-task" }] }),
 }));
 vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
   useCommentsQuery: () => ({
@@ -110,7 +111,7 @@ function renderLayout({
   dashboard?: {
     name: string;
     templateId: string;
-    generationTaskId: string;
+    generationTaskId: string | null;
   };
 }) {
   usePathname.mockReturnValue(pathname);
@@ -132,27 +133,33 @@ function renderLayout({
 }
 
 describe("WebsiteLayout task header actions", () => {
-  it("shows the open comment count and opens canvas comments", () => {
-    renderLayout({
-      pathname: "/website/chan-1/dashboards/canvas-1",
-      params: { channelId: "chan-1", dashboardId: "canvas-1" },
-      dashboard: {
-        name: "Launch",
-        templateId: "freeform",
-        generationTaskId: "task-1",
-      },
-    });
+  it.each([
+    ["while generating", "task-1"],
+    ["after generation", null],
+  ])(
+    "shows the comment count and opens comments %s",
+    (_label, generationTaskId) => {
+      renderLayout({
+        pathname: "/website/chan-1/dashboards/canvas-1",
+        params: { channelId: "chan-1", dashboardId: "canvas-1" },
+        dashboard: {
+          name: "Launch",
+          templateId: "freeform",
+          generationTaskId,
+        },
+      });
 
-    expect(screen.getByRole("button", { name: /Comments/ })).toHaveTextContent(
-      "Comments2",
-    );
-    useCanvasChatPanelStore.setState({ collapsed: true, tab: "chat" });
-    fireEvent.click(screen.getByRole("button", { name: /Comments/ }));
-    expect(useCanvasChatPanelStore.getState()).toMatchObject({
-      collapsed: false,
-      tab: "comments",
-    });
-  });
+      expect(
+        screen.getByRole("button", { name: /Comments/ }),
+      ).toHaveTextContent("Comments2");
+      useCanvasChatPanelStore.setState({ collapsed: true, tab: "chat" });
+      fireEvent.click(screen.getByRole("button", { name: /Comments/ }));
+      expect(useCanvasChatPanelStore.getState()).toMatchObject({
+        collapsed: false,
+        tab: "comments",
+      });
+    },
+  );
 
   it("renders the task action row on a channel task detail", () => {
     renderLayout({

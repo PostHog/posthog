@@ -54,19 +54,16 @@ def target_is_accessible(
     )
 
 
-def notifications_allowed(*, team_id: int, user_id: int | None, task_id: str | UUID) -> bool:
+def _notification_tasks(team_id: int):
+    return _visible_tasks(team_id, None).exclude(channel__channel_type=Channel.ChannelType.PERSONAL)
+
+
+def notifications_allowed(*, team_id: int, task_id: str | UUID) -> bool:
     try:
         parsed_task_id = UUID(str(task_id))
     except ValueError:
         return False
-    return (
-        _visible_tasks(team_id, user_id)
-        .filter(
-            id=parsed_task_id,
-            channel__channel_type=Channel.ChannelType.PUBLIC,
-        )
-        .exists()
-    )
+    return _notification_tasks(team_id).filter(id=parsed_task_id).exists()
 
 
 def _task_id(comment: Comment) -> UUID | None:
@@ -86,7 +83,6 @@ def project_comment_activity(
     team_id: int,
     comment_id: UUID,
     mentioned_user_ids: Sequence[int],
-    target_was_validated: bool,
     include_relationship_recipients: bool,
     target_owner_id: int | None,
     activity_at: datetime | None,
@@ -95,18 +91,9 @@ def project_comment_activity(
     if comment is None or comment.created_by_id is None:
         return
     task_id = _task_id(comment)
-    if task_id is None or not notifications_allowed(team_id=team_id, user_id=comment.created_by_id, task_id=task_id):
+    if task_id is None:
         return
-    if not target_was_validated and not target_is_accessible(
-        team_id=team_id,
-        user_id=comment.created_by_id,
-        task_id=task_id,
-        scope=comment.scope,
-        item_id=comment.item_id,
-    ):
-        return
-
-    task = Task.objects.filter(team_id=team_id, id=task_id).only("created_by_id").first()
+    task = _notification_tasks(team_id).filter(id=task_id).only("created_by_id").first()
     if task is None:
         return
 
@@ -142,13 +129,11 @@ def project_comment_activity(
 
     recipients.update((user_id, TaskCommentActivity.Kind.MENTION) for user_id in mentioned_user_ids)
     recipients.pop(comment.created_by_id, None)
-    for user_id, kind in recipients.items():
-        TaskCommentActivity.record(
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            activity_at=activity_at or comment.created_at,
-            comment_id=comment_id,
-            root_comment_id=root_comment_id,
-            kind=kind,
-        )
+    TaskCommentActivity.record_many(
+        team_id=team_id,
+        task_id=task_id,
+        activity_at=activity_at or comment.created_at,
+        comment_id=comment_id,
+        root_comment_id=root_comment_id,
+        recipients=recipients,
+    )
