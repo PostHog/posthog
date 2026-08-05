@@ -298,6 +298,9 @@ export interface accountsLogicActions {
         }
         user: UserType | null
     } // userLogic
+    addTagToFilter: (tag: string) => {
+        tag: string
+    }
     openAccount: (
         accountId: string,
         externalId: string | null,
@@ -551,6 +554,8 @@ export const accountsLogic = kea<accountsLogicType>([
             userIds,
         }),
         updateAccountTags: (accountId: string, tags: string[]) => ({ accountId, tags }),
+        // Clicking a tag in a row's tags cell adds it to the tags filter (compounding).
+        addTagToFilter: (tag: string) => ({ tag }),
         tagsUpdateStarted: (accountId: string) => ({ accountId }),
         tagsUpdateFinished: (accountId: string) => ({ accountId }),
         // null drops the override, falling back to the fetched cell value.
@@ -1070,6 +1075,13 @@ export const accountsLogic = kea<accountsLogicType>([
             } finally {
                 actions.roleUpdateFinished(accountId, column)
             }
+        },
+        addTagToFilter: ({ tag }) => {
+            if (values.tagsFilter.includes(tag)) {
+                return
+            }
+            actions.setTagsFilter([...values.tagsFilter, tag])
+            actions.reportFilterChange('tag')
         },
         updateAccountTags: async ({ accountId, tags }, breakpoint) => {
             const previous = values.tagOverrides[accountId] ?? null

@@ -135,7 +135,7 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 
 function TagsCell({ record }: { record: unknown }): JSX.Element {
     const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
-    const { updateAccountTags } = useActions(accountsLogic)
+    const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
     const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
     const getCell = useGetCell()
@@ -150,6 +150,7 @@ function TagsCell({ record }: { record: unknown }): JSX.Element {
         <ObjectTags
             tags={tags}
             onChange={(newTags) => updateAccountTags(accountId, newTags)}
+            onTagClick={addTagToFilter}
             saving={isTagsSaving(accountId)}
             tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
             data-attr="accounts-tags-cell"

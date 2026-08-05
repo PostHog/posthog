@@ -777,4 +777,15 @@ describe('accountsLogic', () => {
             expect(logic.values.isTagsSaving('acc-1')).toBe(false)
         })
     })
+
+    describe('addTagToFilter', () => {
+        it('compounds clicked tags into the filter and ignores tags already filtered', async () => {
+            logic.actions.addTagToFilter('vip')
+            logic.actions.addTagToFilter('churn-risk')
+            logic.actions.addTagToFilter('vip')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tagsFilter).toEqual(['vip', 'churn-risk'])
+        })
+    })
 })
