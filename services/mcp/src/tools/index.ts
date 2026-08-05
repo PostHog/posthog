@@ -1,8 +1,6 @@
 import { hasScopes } from '@/lib/api'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
-// Agent platform (hand-written — CRUD is codegen in generated/agent_platform.ts)
-import resolveResource from './agentPlatform/resolveResource'
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
 // Debug
@@ -20,9 +18,15 @@ import { GENERATED_TOOL_MAP } from './generated'
 import queryInsight from './insights/query'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
-// Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
+import loopsReview from './loops/loopsReview'
+// Notebooks (edit + cell tools are hand-written — generated CRUD lives in generated/notebooks.ts)
+import notebookAddCell from './notebooks/addCell'
+import notebookCreateMarkdown from './notebooks/createMarkdown'
+import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
+import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
+import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import {
@@ -39,6 +43,7 @@ import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 import updatePathCleaning from './projects/updatePathCleaning'
+import updatePropertyDefinition from './projects/updatePropertyDefinition'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
@@ -52,20 +57,26 @@ import {
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 // Workflows (batch — orchestration over existing REST endpoints with a blast-radius guard)
 import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from './workflows/batch'
-// Workflows (lifecycle — CRUD lives in generated/workflows.ts). workflows-disable is intentionally
-// not registered: editing active workflows is blocked, and exposing disable invited a
-// disable→edit→enable workaround. The factory stays in lifecycle.ts for easy re-enable.
+// Workflows (lifecycle — CRUD lives in generated/workflows.ts). workflows-disable is intentionally not
+// registered: draft routing is gated on ACTIVE status, so disable→edit→enable lands the edit straight on
+// the live row and resumes it, skipping the impact preview and signed confirm token that workflows-publish
+// makes unskippable. A tool description telling the agent not to do that isn't enforcement — prompt
+// injection reaching the agent would just ignore it. Register this only once edits made while disabled
+// stage a draft too, or re-enabling a workflow edited while disabled requires publish confirmation.
+// The factory stays in lifecycle.ts for that day.
 import { workflowsArchive, workflowsEnable } from './workflows/lifecycle'
 
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
+    'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
 
     // Projects
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definition-update': updateEventDefinition,
+    'property-definition-update': updatePropertyDefinition,
 
     // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
     'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
@@ -88,15 +99,17 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Notebooks
     'notebook-edit': notebookEdit,
+    'notebooks-add-cell': notebookAddCell,
+    'notebooks-create-markdown': notebookCreateMarkdown,
+    'notebooks-delete-cell': notebookDeleteCell,
+    'notebooks-update-cell': notebookUpdateCell,
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
+    'loops-review': loopsReview,
 
     // Feedback
     'agent-feedback': submitFeedback,
-
-    // Agent platform (read-only playbook resolver — CRUD lives in generated/agent_platform.ts)
-    'agent-resolve-resource': resolveResource,
 
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,

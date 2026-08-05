@@ -10,8 +10,8 @@
     Some data warehouse syncs are failing in project <strong>{{ team.name }}</strong>.
     {% if has_paused %}
     Syncs marked <strong>paused</strong> hit an error we can't retry (for example invalid credentials or an
-    unreachable host) &mdash; fix the source configuration, then re-enable syncing to resume. Other syncs will
-    be retried automatically on their next scheduled run.
+    unreachable host) &mdash; each sync's error message says how to fix it and get syncing again. Other syncs
+    will be retried automatically on their next scheduled run.
     {% else %}
     They will be retried automatically on their next scheduled run, but the data in these tables may be out of
     date until a sync succeeds.

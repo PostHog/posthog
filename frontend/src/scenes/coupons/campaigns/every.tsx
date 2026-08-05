@@ -56,6 +56,6 @@ export const everyCampaign: CampaignConfig = {
         'Active EVERY Goodie Bag annual subscriber',
         'Active paid subscription to PostHog',
         `No non-$0 PostHog invoices before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} to qualify for PostHog core credits`,
-        'PostHog Code and AI Gateway are currently excluded from this offer',
+        'PostHog Desktop and AI Gateway are currently excluded from this offer',
     ],
 }

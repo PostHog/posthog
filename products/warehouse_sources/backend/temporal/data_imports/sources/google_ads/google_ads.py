@@ -8,6 +8,7 @@ from django.db import OperationalError, close_old_connections
 
 import grpc
 import pyarrow as pa
+import structlog
 from dateutil import parser as dateutil_parser
 from google.ads.googleads import client as google_ads_client_module
 from google.ads.googleads.client import GoogleAdsClient
@@ -21,6 +22,12 @@ from google.ads.googleads.v23.services.services.google_ads_field_service import 
     pagers as field_service_pagers,
 )
 from google.ads.googleads.v23.services.services.google_ads_service import GoogleAdsServiceClient, pagers
+from google.ads.googleads.v24.common import types as ga_common_v24
+from google.ads.googleads.v24.enums import types as ga_enums_v24
+from google.ads.googleads.v24.resources import types as ga_resources_v24
+from google.ads.googleads.v25.common import types as ga_common_v25
+from google.ads.googleads.v25.enums import types as ga_enums_v25
+from google.ads.googleads.v25.resources import types as ga_resources_v25
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 from google.oauth2 import service_account
@@ -30,11 +37,13 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Column, Table
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
+    GoogleAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     GoogleAdsSourceConfigUnion,
@@ -45,6 +54,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     RESOURCE_SCHEMAS,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+logger = structlog.get_logger()
 
 # Host used to label the tracked gRPC transport's logs/metrics. Matches
 # `GoogleAdsServiceClient.DEFAULT_ENDPOINT`.
@@ -306,39 +317,37 @@ class GoogleAdsColumn(Column):
         return pa.field(self.name, arrow_type)
 
 
+# Per-version proto module sets used to resolve a search response's type URLs back to their Python
+# classes. A response's type URL carries the API version it was produced under, so we decode enums
+# and messages against the matching version's modules. Enum *data-type* constants used elsewhere
+# (`GoogleAdsColumn`) are stable across versions and keep using the v23 modules.
+_PROTO_MODULES_BY_VERSION: dict[str, dict[str, typing.Any]] = {
+    "v23": {"common": ga_common, "enums": ga_enums, "resources": ga_resources},
+    "v24": {"common": ga_common_v24, "enums": ga_enums_v24, "resources": ga_resources_v24},
+    "v25": {"common": ga_common_v25, "enums": ga_enums_v25, "resources": ga_resources_v25},
+}
+
+
 def _resolve_protobuf_message_type_url(type_url: str) -> type:
-    """Traverse a protobuf message type URL to find it's Python type."""
+    """Traverse a protobuf message type URL to find it's Python type.
+
+    The version segment of the URL selects the matching SDK module set, so a response produced
+    under any supported API version resolves against that version's protos.
+    """
     match type_url.split("."):
-        case ["google", "ads", "googleads", "v23", "common", *rest] | [
+        case ["google", "ads", "googleads", version, category, *rest] | [
             "com",
             "google",
             "ads",
             "googleads",
-            "v23",
-            "common",
+            version,
+            category,
             *rest,
         ]:
-            return _traverse_attributes(ga_common, *rest)
-        case ["google", "ads", "googleads", "v23", "enums", *rest] | [
-            "com",
-            "google",
-            "ads",
-            "googleads",
-            "v23",
-            "enums",
-            *rest,
-        ]:
-            return _traverse_attributes(ga_enums, *rest)
-        case ["google", "ads", "googleads", "v23", "resources", *rest] | [
-            "com",
-            "google",
-            "ads",
-            "googleads",
-            "v23",
-            "resources",
-            *rest,
-        ]:
-            return _traverse_attributes(ga_resources, *rest)
+            module = _PROTO_MODULES_BY_VERSION.get(version, {}).get(category)
+            if module is not None:
+                return _traverse_attributes(module, *rest)
+            raise ValueError(f"Type url could not be found: '{type_url}'")
         case _:
             raise ValueError(f"Type url could not be found: '{type_url}'")
 
@@ -392,7 +401,7 @@ class GoogleAdsTable(Table[GoogleAdsColumn]):
 TableSchemas = dict[str, GoogleAdsTable]
 
 
-def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchemas:
+def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: str) -> TableSchemas:
     """Obtain Google Ads schemas.
 
     This is a two step process:
@@ -402,7 +411,9 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     Only selectable fields are, well, selected.
     """
     client = google_ads_client(config, team_id)
-    gaf_service = client.get_service("GoogleAdsFieldService", interceptors=tracked_interceptors(GOOGLE_ADS_HOST))
+    gaf_service = client.get_service(
+        "GoogleAdsFieldService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+    )
     fields_query = _search_fields_with_transient_retry(
         gaf_service, "select name, data_type, is_repeated, type_url where selectable = true"
     )
@@ -483,6 +494,7 @@ def google_ads_source(
     resource_name: str,
     team_id: int,
     resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
@@ -499,7 +511,7 @@ def google_ads_source(
     """
 
     name = NamingConvention.normalize_identifier(resource_name)
-    table = get_schemas(config, team_id)[resource_name]
+    table = get_schemas(config, team_id, api_version)[resource_name]
 
     if table.requires_filter and not should_use_incremental_field:
         should_use_incremental_field = True
@@ -534,11 +546,8 @@ def google_ads_source(
         return query
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
-        client = google_ads_client(config, team_id)
-        service: GoogleAdsServiceClient = client.get_service(
-            "GoogleAdsService", version="v23", interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
-        )
         customer_id = clean_customer_id(config.customer_id)
+        service = GoogleAdsSearchService(google_ads_client(config, team_id), api_version, customer_id)
 
         if not should_use_incremental_field:
             yield from _search_as_arrow_tables(
@@ -688,7 +697,7 @@ def _call_with_transient_retry(
 
 
 def _search_with_transient_retry(
-    service: GoogleAdsServiceClient,
+    service: "GoogleAdsSearchService | GoogleAdsServiceClient",
     request: dict,
     *,
     max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
@@ -765,8 +774,124 @@ def _is_rejected_page_token_error(exc: GoogleAdsException, page_token: str) -> b
     return False
 
 
+# Google Ads only serves a request for a client account the authenticated login reaches *through* a
+# manager (MCC) account when the request carries a `login-customer-id` header naming that manager.
+# We set that header only when the source has the MCC option switched on, so a client account the
+# login can no longer reach directly — moved under a manager, or direct access removed while manager
+# access remains — starts failing every sync with PERMISSION_DENIED / USER_PERMISSION_DENIED, which
+# no amount of retrying clears. The account list at setup time already walks the hierarchy to find
+# which manager an account sits under, so the sync can do the same on demand: find a manager we can
+# still authenticate as, set the header, and repeat the request.
+_MANAGER_LOOKUP_QUERY = "SELECT customer_client.id FROM customer_client WHERE customer_client.id = {customer_id}"
+
+# The ads-level code Google returns alongside a PERMISSION_DENIED status when the login can't reach
+# the requested customer. Matched on the failure text so it is recognised whether the SDK surfaces
+# the transport status, the ads failure, or both.
+_PERMISSION_DENIED_FAILURE_SIGNATURE = "USER_PERMISSION_DENIED"
+
+
+def _is_permission_denied_error(exc: BaseException) -> bool:
+    """Return True when Google refused the request because the login can't reach the customer."""
+    if isinstance(exc, google_api_exceptions.PermissionDenied):
+        return True
+    # The SDK re-wraps the transport error in a ``GoogleAdsException`` when it can pull an ads
+    # failure from the trailing metadata, so the gRPC status may live on the wrapped ``error``.
+    candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
+    code = getattr(candidate, "code", None)
+    if callable(code) and code() == grpc.StatusCode.PERMISSION_DENIED:
+        return True
+    failure = getattr(exc, "failure", None)
+    return failure is not None and _PERMISSION_DENIED_FAILURE_SIGNATURE in str(failure)
+
+
+def _find_manager_customer_id(client: GoogleAdsClient, customer_id: str, api_version: str) -> str | None:
+    """Return an accessible manager account whose hierarchy contains ``customer_id``, if there is one.
+
+    ``list_accessible_customers`` returns only the accounts the login can reach directly, so a
+    client account under a manager never appears there. Querying ``customer_client`` from each of
+    those accounts lists everything below it, which tells us which one to authenticate as. Returns
+    None when the customer is directly accessible (the header isn't what's missing) or when no
+    accessible account can reach it (access really is gone). The probe never raises: a failure here
+    must not replace the permission error the caller is recovering from.
+    """
+    # The id is interpolated into a GAQL query below, so only ever accept the bare digits Google
+    # Ads uses (`clean_customer_id` already normalizes to that on the sync path).
+    if not customer_id.isdigit():
+        return None
+
+    original_login_customer_id = client.login_customer_id
+    try:
+        customer_service = client.get_service(
+            "CustomerService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+        )
+        resource_names = customer_service.list_accessible_customers().resource_names
+        candidates = [name.rsplit("/", 1)[-1] for name in resource_names]
+        if customer_id in candidates:
+            return None
+
+        query = _MANAGER_LOOKUP_QUERY.format(customer_id=customer_id)
+        for candidate in candidates:
+            client.login_customer_id = candidate
+            service: GoogleAdsServiceClient = client.get_service(
+                "GoogleAdsService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+            )
+            try:
+                response = service.search(request={"customer_id": candidate, "query": query})
+                page = next(iter(response.pages), None)
+            except Exception:
+                continue
+            if page is not None and len(page.results) > 0:
+                return candidate
+        return None
+    except Exception:
+        return None
+    finally:
+        client.login_customer_id = original_login_customer_id
+
+
+class GoogleAdsSearchService:
+    """``GoogleAdsService.search`` that recovers from a missing ``login-customer-id`` header.
+
+    The header is a client-level setting the SDK reads when a service is built, so recovering means
+    resetting it on the client and rebuilding the service. Recovery is attempted at most once per
+    sync: if the retry still fails, or no manager can reach the customer, the original error
+    propagates to the caller's non-retryable handling.
+    """
+
+    def __init__(self, client: GoogleAdsClient, api_version: str, customer_id: str | None) -> None:
+        self._client = client
+        self._api_version = api_version
+        self._customer_id = customer_id
+        self._recovery_attempted = False
+        self._service = self._build_service()
+
+    def _build_service(self) -> GoogleAdsServiceClient:
+        return self._client.get_service(
+            "GoogleAdsService", version=self._api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+        )
+
+    def search(self, request: dict) -> pagers.SearchPager:
+        try:
+            return self._service.search(request=request)
+        except Exception as e:
+            if self._recovery_attempted or not self._customer_id or not _is_permission_denied_error(e):
+                raise
+            self._recovery_attempted = True
+            manager_customer_id = _find_manager_customer_id(self._client, self._customer_id, self._api_version)
+            if manager_customer_id is None:
+                raise
+            logger.info(
+                "Retrying Google Ads request as the manager account that can reach this customer",
+                customer_id=self._customer_id,
+                login_customer_id=manager_customer_id,
+            )
+            self._client.login_customer_id = manager_customer_id
+            self._service = self._build_service()
+            return self._service.search(request=request)
+
+
 def _search_as_arrow_tables(
-    service: GoogleAdsServiceClient,
+    service: GoogleAdsSearchService | GoogleAdsServiceClient,
     customer_id: str | None,
     query: str,
     table: GoogleAdsTable,

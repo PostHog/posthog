@@ -328,7 +328,7 @@ class SelectFinder(TraversingVisitor):
 
 def _internal_user_settings_url(team_id: int) -> str:
     site_url = settings.SITE_URL.rstrip("/")
-    return f"{site_url}/project/{team_id}/settings/project#internal-user-filtering"
+    return f"{site_url}/project/{team_id}/settings/project-customization#internal-user-filtering"
 
 
 class _LowerConstantMembership(CloningVisitor):

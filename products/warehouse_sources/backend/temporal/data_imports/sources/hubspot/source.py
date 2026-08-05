@@ -10,10 +10,6 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -23,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubspot import (
+    HubspotSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.auth import (
     hubspot_access_token_is_valid,
     hubspot_refresh_access_token,
@@ -38,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_API_VERSION_2026_03,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
+    HUBSPOT_METADATA_ENDPOINTS as HUBSPOT_METADATA_ENDPOINT_CONFIGS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -51,10 +51,7 @@ class HubspotSourceOldConfig(config.Config):
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
     supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03)
-    # 2026-03 is available for opt-in, but new sources stay on v3 until the date-versioned
-    # objects/search/association-batch-read paths are confirmed against the live HubSpot API.
-    # Flip the default once a real 2026-03 sync has been verified end to end.
-    default_version = HUBSPOT_API_VERSION_V3
+    default_version = HUBSPOT_API_VERSION_2026_03
     api_docs_url = "https://developers.hubspot.com/docs/api-reference/latest/overview"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -131,6 +128,22 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             "Integration not found": "The linked HubSpot integration no longer exists. Please reconnect your HubSpot account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `hubspot.py`/`helpers.py` already retry these in-process via tenacity (5 attempts,
+        # exponential backoff) before re-raising `HubspotRetryableError`. A 429/5xx/malformed-body
+        # that survives all 5 attempts is a transient HubSpot/edge blip (e.g. Cloudflare 522), not
+        # a bug — Temporal's activity retry recovers once the upstream issue clears, so keep it out
+        # of error tracking as noise. Match the stable message prefix HubSpot's own status/url are
+        # appended to, not the volatile status code or URL.
+        return {
+            "Hubspot API error (retryable): status=",
+            "Hubspot API malformed JSON response (retryable)",
+            "Hubspot search error (retryable): status=",
+            "Hubspot search malformed JSON response (retryable)",
+            "Hubspot v4 associations error (retryable): status=",
+            "Hubspot v4 associations malformed JSON response (retryable)",
+        }
+
     # TODO: clean up hubspot job inputs to not have two auth config options
     def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:
         if "hubspot_integration_id" in job_inputs.keys():
@@ -145,9 +158,24 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint in HUBSPOT_ENDPOINTS:
+            metadata_config = HUBSPOT_METADATA_ENDPOINT_CONFIGS.get(endpoint)
+            if metadata_config is not None:
+                # Lookup tables have no server-side timestamp filter, so they are full refresh only.
+                schemas.append(
+                    SourceSchema(
+                        name=endpoint,
+                        supports_incremental=False,
+                        supports_append=False,
+                        incremental_fields=[],
+                        should_sync_default=metadata_config.should_sync_default,
+                    )
+                )
+                continue
+
             endpoint_config = HUBSPOT_ENDPOINT_CONFIGS[endpoint]
             supports_incremental = bool(endpoint_config.cursor_filter_property_field)
             schemas.append(
@@ -156,6 +184,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                     supports_incremental=supports_incremental,
                     supports_append=supports_incremental,
                     incremental_fields=endpoint_config.incremental_fields,
+                    should_sync_default=endpoint_config.should_sync_default,
                 )
             )
 

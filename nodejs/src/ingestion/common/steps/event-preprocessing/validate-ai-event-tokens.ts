@@ -10,6 +10,8 @@ const TOKEN_PROPERTIES = [
     '$ai_reasoning_tokens',
     '$ai_cache_read_input_tokens',
     '$ai_cache_creation_input_tokens',
+    '$ai_cache_creation_5m_input_tokens',
+    '$ai_cache_creation_1h_input_tokens',
 ] as const
 
 /**

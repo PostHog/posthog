@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RetentlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retently import (
+    RetentlySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently.retently import RetentlyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently.source import RetentlySource

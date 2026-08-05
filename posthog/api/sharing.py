@@ -35,12 +35,24 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
+from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    SharePasswordThrottle,
+    SharePasswordVolumeThrottle,
+    SustainedRateThrottle,
+)
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import (
+    UserAccessControl,
+    UserAccessControlSerializerMixin,
+    access_level_satisfied_for_resource,
+)
 from posthog.scopes import APIScopeObject
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
@@ -312,14 +324,22 @@ class SharePasswordCreateSerializer(serializers.Serializer):
         return value
 
 
-class SharingConfigurationSerializer(serializers.ModelSerializer):
+class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     settings = serializers.JSONField(required=False, allow_null=True)
     share_passwords = serializers.SerializerMethodField()
 
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token", "settings", "password_required", "share_passwords"]
-        read_only_fields = ["created_at", "access_token", "share_passwords"]
+        fields = [
+            "created_at",
+            "enabled",
+            "access_token",
+            "settings",
+            "password_required",
+            "share_passwords",
+            "user_access_level",
+        ]
+        read_only_fields = ["created_at", "access_token", "share_passwords", "user_access_level"]
 
     def validate_settings(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         if value is None:
@@ -345,7 +365,9 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(extensions={"x-product": "core"})
-class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class SharingConfigurationViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet
+):
     scope_object = "sharing_configuration"
     scope_object_write_actions = [
         "create",
@@ -816,6 +838,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     # Only use sharing-specific authentication, ignore regular PostHog auth
     authentication_classes = [SharingPasswordProtectedAuthentication, SharingAccessTokenAuthentication]
     permission_classes = []
+    # SharePasswordThrottle is deliberately not here - it's charged manually in retrieve(),
+    # only on a wrong password, so a correct one always succeeds regardless of its budget.
+    throttle_classes = [BurstRateThrottle, SustainedRateThrottle, SharePasswordVolumeThrottle]
     serializer_class = SharingConfigurationSerializer  # Required by DRF but not used in practice
 
     # Set by get_object() when the resolved resource is an ExportedAsset whose token carried a purpose claim.
@@ -974,6 +999,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # serialize raw cached result bytes (orjson.Fragment)
             "require_parsed_results": True,
             "dashboard_access_method": dashboard_access_method(request, is_shared=True, is_embedded=embedded),
+            "compute_surface": ComputeSurface.SHARED,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
@@ -986,7 +1012,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # Check if user is already authenticated via JWT token (Bearer or cookie)
             is_jwt_authenticated = isinstance(request.successful_authenticator, SharingPasswordProtectedAuthentication)
 
-            if request.method == "GET" and not is_jwt_authenticated:
+            # Anything that isn't a password submission needs the unlock page unless it already
+            # carries a valid share token - DRF routes HEAD through the same action as GET
+            if request.method != "POST" and not is_jwt_authenticated:
                 exported_data["type"] = "unlock"
 
                 settings_data = getattr(resource, "settings", {}) or {}
@@ -1007,7 +1035,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "add_og_tags": None,
                     },
                 )
-            elif request.method == "GET" and is_jwt_authenticated:
+            elif request.method != "POST":
                 # JWT authenticated (via cookie or Bearer) - render full app context
 
                 # Include the JWT token from the cookie so frontend can use it for API calls
@@ -1021,6 +1049,19 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     validated_password = self._validate_share_password(resource, request.data["password"])
 
                 if not validated_password:
+                    # Charged only on a wrong guess, so a correct password always succeeds even
+                    # if an attacker has driven this link's wrong-guess budget to its cap -
+                    # SharePasswordVolumeThrottle bounds the total POST rate this depends on.
+                    wrong_password_throttle = SharePasswordThrottle()
+                    if not wrong_password_throttle.allow_request(request, self):
+                        # Logged only below the cap, not here: logging every throttled guess too would
+                        # write activity-log rows at SharePasswordVolumeThrottle's rate instead of this one's.
+                        throttle_response = response.Response(
+                            {"error": "Too many attempts on this link. Wait a minute and try again."}, status=429
+                        )
+                        throttle_response["Retry-After"] = str(int(wrong_password_throttle.wait()))
+                        return throttle_response
+
                     _log_share_password_attempt(resource, request, success=False)
                     return response.Response({"error": "Incorrect password"}, status=401)
 
@@ -1209,6 +1250,51 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No heatmap found")
+        elif isinstance(resource, ExportedAsset) and resource.export_context and resource.export_context.get("source"):
+            # Ad-hoc query export (no saved insight): compute the query server-side and inline the
+            # result so the exporter page can render `<Query cachedResults={…} />` without POSTing
+            # to the query API (which the asset token can't authenticate). The image exporter warms
+            # the cache right before rendering, so this is normally a cache hit.
+            # Render-once assets: only the exporter's short-lived render token may trigger this compute.
+            if self._token_purpose != EXPORTED_ASSET_PURPOSE_RENDER:
+                raise NotFound()
+            source_query = resource.export_context["source"]
+            execution_mode = shared_insights_execution_mode(
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            ).execution_mode
+            try:
+                query_response = process_query_dict(
+                    resource.team,
+                    source_query,
+                    execution_mode=execution_mode,
+                    # Anonymous render surface; attribute the read to the export owner so
+                    # warehouse HogQL access control resolves against their access.
+                    user=resource.created_by,
+                )
+            except Exception as e:
+                logger.warning("exported_query_calculation_failed", asset_id=resource.id, exc_info=True)
+                capture_exception(e)
+                raise NotFound("Query could not be calculated")
+
+            serialized_response: Any = None
+            if isinstance(query_response, BaseModel):
+                serialized_response = query_response.model_dump(mode="json")
+            elif isinstance(query_response, dict):
+                serialized_response = query_response
+            # `process_query_dict` swallows validation errors and returns a response with `error`
+            # populated — don't ship those to the anonymous exporter page.
+            if not isinstance(serialized_response, dict) or serialized_response.get("error"):
+                logger.warning("exported_query_returned_error", asset_id=resource.id)
+                raise NotFound("Query could not be calculated")
+
+            asset_title = "Query"
+            exported_data.update(
+                {
+                    "query": source_query,
+                    "query_results": serialized_response,
+                    "themes": get_themes_for_team(resource.team),
+                }
+            )
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
             from products.user_interviews.backend.facade.api import (
                 has_replied,

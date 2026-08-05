@@ -12,10 +12,12 @@ export const AssigneeSelect = ({
     assignee,
     onChange,
     children,
+    disabledReason,
 }: {
     assignee: TicketAssignee
     onChange: (assignee: TicketAssignee) => void
     children: (assignee: Assignee, isOpen: boolean) => JSX.Element
+    disabledReason?: string
 }): JSX.Element => {
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
@@ -29,6 +31,16 @@ export const AssigneeSelect = ({
     useEffect(() => {
         ensureAssigneeTypesLoaded()
     }, [ensureAssigneeTypesLoaded])
+
+    if (disabledReason) {
+        return (
+            <div>
+                <AssigneeResolver assignee={assignee}>
+                    {({ assignee: resolvedAssignee }) => children(resolvedAssignee, false)}
+                </AssigneeResolver>
+            </div>
+        )
+    }
 
     return (
         <LemonDropdown

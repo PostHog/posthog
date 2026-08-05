@@ -5,7 +5,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PersonaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.persona import (
+    PersonaSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona import PersonaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.source import PersonaSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

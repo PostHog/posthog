@@ -4,6 +4,13 @@ import express from 'ultimate-express'
 import { ModifiedRequest } from '~/common/api/router'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
+import { LogRecord } from '~/logs/log-record-avro'
+import {
+    DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS,
+    buildLogRecordGlobals,
+    executeLogTransformation,
+    resolveLogTransformationInputs,
+} from '~/logs/transformations/hog-log-exec'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import {
@@ -28,7 +35,9 @@ import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
-import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
+import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogInputsService } from './services/hog-inputs.service'
 import {
     BatchResolverState,
     HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -56,7 +65,9 @@ import {
     sanitizeLogMessage,
 } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+import { buildHogFunctionInvocations } from './utils/invocation-utils'
 import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
+import { mirrorCall, mirrorCompare } from './utils/mirror-call'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -105,7 +116,8 @@ export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
 
 export class CdpApi {
-    private hogExecutor: HogExecutorService
+    private hogExecutorAsync: HogExecutorAsyncService
+    private hogInputsService: HogInputsService
     private nativeDestinationExecutorService: NativeDestinationExecutorService
     private segmentDestinationExecutorService: SegmentDestinationExecutorService
 
@@ -114,6 +126,7 @@ export class CdpApi {
 
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
+    private hogWatcherMirror: HogWatcherService | null
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
     private rerunJobManager: RerunJobManager | null = null
@@ -141,11 +154,13 @@ export class CdpApi {
         this.hogFunctionManager = services.hogFunctionManager
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
-        this.hogExecutor = services.hogExecutor
+        this.hogExecutorAsync = services.hogExecutorAsync
+        this.hogInputsService = services.hogInputsService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
         this.hogWatcher = services.hogWatcher
+        this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
 
         // API-only services. The hog-transformer's monitoring service reuses the same
@@ -163,7 +178,6 @@ export class CdpApi {
             services.hogFunctionMonitoringService,
             services.capturedEventsService,
             services.teamWorkflowsConfigService,
-            services.recipientsManager,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
             services.emailSuppressionService
         )
@@ -173,9 +187,10 @@ export class CdpApi {
             deps.teamManager,
             this.groupsManager,
             this.hogFunctionManager,
-            this.hogExecutor,
+            this.hogExecutorAsync,
             this.hogWatcher,
-            this.invocationResultsService
+            this.invocationResultsService,
+            this.hogWatcherMirror
         )
         this.batchResolverProducer = batchResolverProducer
         this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
@@ -294,7 +309,11 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await this.hogWatcher.getPersistedState(id)
+            const summary = await mirrorCompare(
+                'hog-watcher.getPersistedState',
+                () => this.hogWatcher.getPersistedState(id),
+                () => this.hogWatcherMirror?.getPersistedState(id)
+            )
 
             res.json(summary)
         }
@@ -311,7 +330,11 @@ export class CdpApi {
                 return
             }
 
-            const summary = await this.hogWatcher.getPersistedState(id)
+            const summary = await mirrorCompare(
+                'hog-watcher.getPersistedState',
+                () => this.hogWatcher.getPersistedState(id),
+                () => this.hogWatcherMirror?.getPersistedState(id)
+            )
             const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
 
             if (!hogFunction) {
@@ -322,20 +345,35 @@ export class CdpApi {
             // Only allow patching the status if it is different from the current status
 
             if (summary.state !== state) {
-                await this.hogWatcher.forceStateChange(hogFunction, state)
+                await Promise.all([
+                    this.hogWatcher.forceStateChange(hogFunction, state),
+                    mirrorCall('hog-watcher.forceStateChange', () =>
+                        this.hogWatcherMirror?.forceStateChange(hogFunction, state)
+                    ),
+                ])
             }
 
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
-            res.json(await this.hogWatcher.getPersistedState(id))
+            res.json(
+                await mirrorCompare(
+                    'hog-watcher.getPersistedState',
+                    () => this.hogWatcher.getPersistedState(id),
+                    () => this.hogWatcherMirror?.getPersistedState(id)
+                )
+            )
         }
 
     private getFunctionStates =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             try {
-                const allStates = await this.hogWatcher.getAllFunctionStates()
+                const allStates = await mirrorCompare(
+                    'hog-watcher.getAllFunctionStates',
+                    () => this.hogWatcher.getAllFunctionStates(),
+                    () => this.hogWatcherMirror?.getAllFunctionStates()
+                )
 
                 // Transform the data for better consumption by Grafana and sort by tokens ascending
                 const statesArray = Object.entries(allStates)
@@ -405,7 +443,15 @@ export class CdpApi {
                 ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.config.SITE_URL)
                 : globals
 
-            if (!globals || !globals.event) {
+            const functionType: string | undefined = configuration?.type ?? hogFunction?.type
+
+            if (functionType === 'transformation_log') {
+                // Log transformations run against a log record, not an event
+                if (!globals?.record || typeof globals.record !== 'object' || Array.isArray(globals.record)) {
+                    res.status(400).json({ error: 'Missing record' })
+                    return
+                }
+            } else if (!globals || !globals.event) {
                 res.status(400).json({ error: 'Missing event' })
                 return
             }
@@ -442,7 +488,7 @@ export class CdpApi {
                     invocations,
                     logs: filterLogs,
                     metrics: filterMetrics,
-                } = await this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
+                } = await buildHogFunctionInvocations(this.hogInputsService, [compoundConfiguration], triggerGlobals)
 
                 // Add metrics to the logs
                 filterMetrics.forEach((metric) => {
@@ -462,7 +508,7 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
-                    const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                    const sensitiveValues = this.hogExecutorAsync.hogExecutor.getSensitiveValues(
                         invocation.hogFunction,
                         invocation.state.globals.inputs ?? {}
                     )
@@ -471,7 +517,7 @@ export class CdpApi {
                         logs,
                         sensitiveValues
                     )
-                    options.sendEmailsInline = true
+                    options.isTest = true
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -479,7 +525,7 @@ export class CdpApi {
                     } else if (isSegmentPluginHogFunction(compoundConfiguration)) {
                         response = await this.segmentDestinationExecutorService.execute(invocation)
                     } else {
-                        response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
+                        response = await this.hogExecutorAsync.executeWithAsyncFunctions(invocation, options)
                     }
 
                     logs = logs.concat(response.logs)
@@ -528,6 +574,101 @@ export class CdpApi {
                 res.json({
                     result: result,
                     status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
+                    errors: errors.map((e) => String(e)),
+                    logs: logs,
+                })
+            } else if (compoundConfiguration.type === 'transformation_log') {
+                const mock = globals.record as Record<string, unknown>
+
+                const toStringMap = (value: unknown): Record<string, string> => {
+                    const map: Record<string, string> = {}
+                    if (value && typeof value === 'object' && !Array.isArray(value)) {
+                        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+                            if (entry !== null && entry !== undefined) {
+                                map[key] = typeof entry === 'string' ? entry : JSON.stringify(entry)
+                            }
+                        }
+                    }
+                    return map
+                }
+
+                // Mock log record from the request; trace/span ids stay null (they are
+                // read-only in transformations and not meaningful for a test run).
+                const record: LogRecord = {
+                    uuid: invocationID,
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: typeof mock.timestamp === 'number' ? mock.timestamp : DateTime.now().toMillis() * 1e6,
+                    observed_timestamp: typeof mock.observed_timestamp === 'number' ? mock.observed_timestamp : null,
+                    body: typeof mock.body === 'string' ? mock.body : null,
+                    severity_text: typeof mock.severity_text === 'string' ? mock.severity_text : null,
+                    severity_number: typeof mock.severity_number === 'number' ? mock.severity_number : null,
+                    service_name: typeof mock.service_name === 'string' ? mock.service_name : null,
+                    resource_attributes: toStringMap(mock.resource_attributes),
+                    instrumentation_scope:
+                        typeof mock.instrumentation_scope === 'string' ? mock.instrumentation_scope : null,
+                    event_name: typeof mock.event_name === 'string' ? mock.event_name : null,
+                    attributes: toStringMap(mock.attributes),
+                    bytes_uncompressed: null,
+                }
+
+                const hogGlobals = buildLogRecordGlobals(record, triggerGlobals.project, {})
+
+                try {
+                    hogGlobals.inputs = resolveLogTransformationInputs(
+                        compoundConfiguration,
+                        hogGlobals,
+                        DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS
+                    ).inputs
+                } catch (e) {
+                    return res.json({
+                        result: null,
+                        status: 'error',
+                        errors: [String(e)],
+                        logs,
+                    })
+                }
+
+                // Derive from the resolved inputs (which merge inputs + encrypted_inputs) like the
+                // destination test path does — Django resolves stored secrets into `inputs`, so
+                // collecting from `encrypted_inputs` alone would leave them unredacted in test logs.
+                const sensitiveValues = this.hogExecutorAsync.hogExecutor.getSensitiveValues(
+                    compoundConfiguration,
+                    (hogGlobals.inputs ?? {}) as Record<string, any>
+                )
+
+                const outcome = executeLogTransformation(compoundConfiguration.bytecode, record, hogGlobals, {
+                    sensitiveValues,
+                })
+
+                logs = logs.concat(
+                    outcome.logs.map((message) => ({
+                        level: 'info' as const,
+                        timestamp: DateTime.now(),
+                        message,
+                    }))
+                )
+
+                if (outcome.status === 'failed') {
+                    errors.push(outcome.error)
+                } else if (outcome.status === 'dropped') {
+                    logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: 'Record dropped by transformation.',
+                    })
+                }
+
+                // Same record shape the function saw (hex ids, string maps) — null when dropped
+                result =
+                    outcome.status === 'dropped'
+                        ? null
+                        : buildLogRecordGlobals(record, triggerGlobals.project, {}).record
+
+                res.json({
+                    result: result,
+                    status: errors.length > 0 ? 'error' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
                 })
@@ -662,8 +803,15 @@ export class CdpApi {
                 })
             }
 
-            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
-            options.sendEmailsInline = true
+            // Redact the flow's decrypted secret inputs from the mocked async-function logs, so a test
+            // run can't echo a stored credential (e.g. an Authorization header) back to the caller.
+            const sensitiveValues = await this.hogFlowExecutor.getSensitiveValues(compoundConfiguration)
+            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
+                mock_async_functions,
+                logs,
+                sensitiveValues
+            )
+            options.isTest = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
@@ -844,8 +992,12 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Workflow not found' })
             }
 
-            const count = await this.batchResolverProducer.countInFlightJobs(team.id, id)
-            return res.json({ count })
+            const counts = await this.batchResolverProducer.countInFlightJobs(team.id, id)
+            return res.json({
+                count: counts.count,
+                by_action: counts.byAction,
+                position_unknown: counts.positionUnknown,
+            })
         } catch (e) {
             logger.error('Error counting in-flight hog flow jobs', {
                 error: e instanceof Error ? e.message : String(e),
@@ -975,13 +1127,25 @@ export class CdpApi {
                 throw new Error('Batch resolver producer is not configured (missing CYCLOTRON_NODE_DATABASE_URL)')
             }
 
+            const audienceType = req.body.filters?.audience_type ?? hogFlow.trigger.filters.audience_type
             const initialState: BatchResolverState = {
                 batchJobId: parent_run_id,
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
                 filters: {
-                    properties: hogFlow.trigger.filters.properties || [],
-                    filter_test_accounts: req.body.filters?.filter_test_accounts || false,
+                    // Prefer the audience snapshot validated at dispatch time - re-reading the live
+                    // trigger here would let an edit landing after the confirm check widen the send.
+                    // Fallback covers callers that predate the snapshot.
+                    audience_type: audienceType,
+                    properties: req.body.filters?.properties ?? (hogFlow.trigger.filters.properties || []),
+                    filter_test_accounts:
+                        req.body.filters?.filter_test_accounts ??
+                        (hogFlow.trigger.filters.filter_test_accounts || false),
+                    tag_names: req.body.filters?.tag_names ?? hogFlow.trigger.filters.tag_names,
+                    assigned_to_user_ids:
+                        req.body.filters?.assigned_to_user_ids ?? hogFlow.trigger.filters.assigned_to_user_ids,
+                    all_roles_unassigned:
+                        req.body.filters?.all_roles_unassigned ?? hogFlow.trigger.filters.all_roles_unassigned,
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,
@@ -989,7 +1153,8 @@ export class CdpApi {
                 // `{{ person.properties.email }}`. Custom recipients (work_email, computed Liquid, static
                 // strings) would make the dedupe key diverge from the actual send target — better to skip
                 // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
-                dedupeKey: canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
+                // Account audiences carry no person (and external ids are already unique), so never dedupe.
+                dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

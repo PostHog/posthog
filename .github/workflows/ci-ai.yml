@@ -150,7 +150,10 @@ jobs:
         name: AI evals / summary
         runs-on: ubuntu-latest
         needs: eval
-        if: always() && needs.eval.result != 'skipped'
+        # A status function is required to summarize even when some eval groups errored.
+        # !cancelled() rather than always() so a superseded run does not post an eval
+        # summary comment for a commit that is no longer HEAD.
+        if: ${{ !cancelled() && needs.eval.result != 'skipped' }}
 
         permissions:
             contents: read
@@ -183,7 +186,9 @@ jobs:
 
             - name: Post eval summary to CI report comment
               # always() because we want to post even if some eval groups errored
-              if: always() && github.event_name == 'pull_request'
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -202,8 +207,8 @@ jobs:
                   path: eval-artifacts/*/junit.xml
 
             # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs
+            # and master, never on fork PRs or Dependabot, which have no secret.
             # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
             # this upload skips.
             - name: Upload test results to Trunk

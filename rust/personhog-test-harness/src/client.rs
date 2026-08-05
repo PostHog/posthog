@@ -1,41 +1,32 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use personhog_common::client::RouterClient;
 use personhog_proto::personhog::{
-    service::v1::person_hog_service_client::PersonHogServiceClient,
+    identity::v1::{
+        person_hog_identity_client::PersonHogIdentityClient, GetOrCreatePersonEntry,
+        GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
+    },
     types::v1::{
-        ConsistencyLevel, GetPersonRequest, Person, ReadOptions, UpdatePersonPropertiesRequest,
-        UpdatePersonPropertiesResponse,
+        ConsistencyLevel, Person, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     },
 };
-use tonic::metadata::MetadataValue;
 use tonic::transport::Channel;
 use tonic::Request;
 
-/// Routing headers the leader-mode router requires on leader-bound calls.
-/// `UpdatePersonProperties` always routes to a leader; `GetPerson` routes to
-/// a leader only when `x-read-consistency: strong` is present.
-const TEAM_ID_HEADER: &str = "x-team-id";
-const PERSON_ID_HEADER: &str = "x-person-id";
-const READ_CONSISTENCY_HEADER: &str = "x-read-consistency";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Harness wrapper over the shared router client: same wire behavior,
+/// anyhow-flavored results for scenario code.
 #[derive(Clone)]
 pub struct HarnessClient {
-    inner: PersonHogServiceClient<Channel>,
+    inner: RouterClient,
 }
 
 impl HarnessClient {
     pub async fn connect(url: &str) -> Result<Self> {
-        let channel = Channel::from_shared(url.to_string())
-            .context("invalid router URL")?
-            .timeout(Duration::from_secs(10))
-            .connect_timeout(Duration::from_secs(5))
-            .tcp_nodelay(true)
-            .connect_lazy();
-
-        Ok(Self {
-            inner: PersonHogServiceClient::new(channel),
-        })
+        let inner = RouterClient::new(url, REQUEST_TIMEOUT).context("invalid router URL")?;
+        Ok(Self { inner })
     }
 
     pub async fn get_person(
@@ -44,30 +35,10 @@ impl HarnessClient {
         person_id: i64,
         consistency: ConsistencyLevel,
     ) -> Result<Option<Person>> {
-        let mut request = Request::new(GetPersonRequest {
-            team_id,
-            person_id,
-            read_options: Some(ReadOptions {
-                consistency: consistency.into(),
-                ..Default::default()
-            }),
-        });
-        if consistency == ConsistencyLevel::Strong {
-            stamp_routing_headers(&mut request, team_id, person_id)?;
-            request.metadata_mut().insert(
-                READ_CONSISTENCY_HEADER,
-                MetadataValue::from_static("strong"),
-            );
-        }
-
-        let resp = self
-            .inner
-            .clone()
-            .get_person(request)
+        self.inner
+            .get_person(team_id, person_id, consistency)
             .await
-            .context("GetPerson failed")?;
-
-        Ok(resp.into_inner().person)
+            .context("GetPerson failed")
     }
 
     pub async fn update_properties(
@@ -78,36 +49,53 @@ impl HarnessClient {
         set_once_properties: serde_json::Value,
         unset_properties: Vec<String>,
     ) -> Result<UpdatePersonPropertiesResponse> {
-        let mut request = Request::new(UpdatePersonPropertiesRequest {
-            team_id,
-            person_id,
-            event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&set_properties)?,
-            set_once_properties: serde_json::to_vec(&set_once_properties)?,
-            unset_properties,
-        });
-        stamp_routing_headers(&mut request, team_id, person_id)?;
-
-        let resp = self
-            .inner
-            .clone()
-            .update_person_properties(request)
+        self.inner
+            .update_person_properties(UpdatePersonPropertiesRequest {
+                team_id,
+                person_id,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&set_properties)?,
+                set_once_properties: serde_json::to_vec(&set_once_properties)?,
+                unset_properties,
+            })
             .await
-            .context("UpdatePersonProperties failed")?;
-
-        Ok(resp.into_inner())
+            .context("UpdatePersonProperties failed")
     }
 }
 
-fn stamp_routing_headers<T>(request: &mut Request<T>, team_id: i64, person_id: i64) -> Result<()> {
-    let metadata = request.metadata_mut();
-    metadata.insert(
-        TEAM_ID_HEADER,
-        MetadataValue::try_from(team_id.to_string()).context("invalid team id header")?,
-    );
-    metadata.insert(
-        PERSON_ID_HEADER,
-        MetadataValue::try_from(person_id.to_string()).context("invalid person id header")?,
-    );
-    Ok(())
+/// Client for the personhog-identity service — the get-or-create entry
+/// point. Called directly, not through the router, so no routing headers.
+#[derive(Clone)]
+pub struct IdentityClient {
+    inner: PersonHogIdentityClient<Channel>,
+}
+
+impl IdentityClient {
+    pub async fn connect(url: &str) -> Result<Self> {
+        let channel = Channel::from_shared(url.to_string())
+            .context("invalid identity URL")?
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(Duration::from_secs(5))
+            .tcp_nodelay(true)
+            .connect_lazy();
+
+        Ok(Self {
+            inner: PersonHogIdentityClient::new(channel),
+        })
+    }
+
+    pub async fn get_or_create_persons(
+        &self,
+        entries: Vec<GetOrCreatePersonEntry>,
+    ) -> Result<Vec<GetOrCreatePersonResult>> {
+        let resp = self
+            .inner
+            .clone()
+            .get_or_create_persons_by_distinct_ids(Request::new(
+                GetOrCreatePersonsByDistinctIdsRequest { entries },
+            ))
+            .await
+            .context("GetOrCreatePersonsByDistinctIds failed")?;
+        Ok(resp.into_inner().results)
+    }
 }

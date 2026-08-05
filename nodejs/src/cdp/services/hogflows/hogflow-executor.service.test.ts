@@ -14,6 +14,7 @@ import { Hub } from '../../../types'
 import { createHub } from '~/common/utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
+import { HogExecutorAsyncService } from '../hog-executor-async.service'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
 import { EmailService } from '../messaging/email.service'
@@ -76,28 +77,35 @@ describe('Hogflow Executor', () => {
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
                 sesEndpoint: hub.SES_ENDPOINT,
+                sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            emailSuppressionService
+            emailSuppressionService,
+            new RecipientsManagerService(hub.postgres)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        const hogExecutor = new HogExecutorService(
+        const hogExecutor = new HogExecutorAsyncService(
+            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                siteUrl: hub.SITE_URL,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService,
-            undefined as any
+            {
+                teamManager: hub.teamManager,
+                hogInputsService,
+                emailService,
+                recipientTokensService,
+                pushNotificationService: undefined as any,
+            }
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         const hogFlowFunctionsService = new HogFlowFunctionsService(
@@ -276,7 +284,7 @@ describe('Hogflow Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
-                emailAssets: [],
+                messageAssets: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,
@@ -675,6 +683,174 @@ describe('Hogflow Executor', () => {
                 expect(result.error).toBe('No next action found for action delay')
                 expect(result.metrics.map((m) => m.metric_name)).toContain('failed')
                 expect(result.metrics.map((m) => m.metric_name)).not.toContain('exited_workflow_changed')
+            })
+
+            describe('skip-forward for deleted steps (action_redirects)', () => {
+                const parkOnDeleted = (
+                    hogFlow: HogFlow,
+                    actionId = 'delay'
+                ): ReturnType<typeof createExampleHogFlowInvocation> => {
+                    const invocation = createExampleHogFlowInvocation(hogFlow)
+                    invocation.state.currentAction = {
+                        id: actionId,
+                        startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                    }
+                    hogFlow.actions = hogFlow.actions.filter((action) => action.id !== actionId)
+                    hogFlow.updated_at = DateTime.now().toMillis()
+                    return invocation
+                }
+
+                // A run can be parked on any async step type. The redirect never inspects the
+                // deleted step - it was removed before the run executed it - so every park type
+                // must take the identical path: same metric, same log, same landing spot.
+                it.each([
+                    ['delay', { type: 'delay', config: { delay_duration: '2h' } }],
+                    [
+                        'wait_until_condition',
+                        {
+                            type: 'wait_until_condition',
+                            config: {
+                                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                                max_wait_duration: '10m',
+                            },
+                        },
+                    ],
+                    [
+                        'wait_until_time_window',
+                        {
+                            type: 'wait_until_time_window',
+                            config: { time: ['10:00', '11:00'], day: 'any', timezone: 'UTC' },
+                        },
+                    ],
+                ] as const)(
+                    'continues at the surviving successor instead of exiting (parked on %s)',
+                    async (_parkType, parkedAction) => {
+                        const hogFlow = createHogFlow({
+                            actions: { parked: parkedAction as any },
+                            edges: [
+                                { from: 'trigger', to: 'parked', type: 'continue' },
+                                { from: 'parked', to: 'exit', type: 'continue' },
+                            ],
+                        })
+                        const invocation = parkOnDeleted(hogFlow, 'parked')
+                        hogFlow.action_redirects = { parked: 'exit' }
+
+                        const result = await executor.execute(invocation)
+
+                        expect(result.finished).toBe(true)
+                        expect(result.error).toBeUndefined()
+                        const redirectMetric = result.metrics.find(
+                            (m) => m.metric_name === 'redirected_workflow_changed'
+                        )
+                        expect(redirectMetric).toMatchObject({ metric_kind: 'other', instance_id: 'parked' })
+                        expect(result.metrics.map((m) => m.metric_name)).not.toContain('exited_workflow_changed')
+                        expect(result.metrics.map((m) => m.metric_name)).not.toContain('failed')
+                        expect(result.logs.map((l) => l.message).join('\n')).toContain('continuing at [Action:exit]')
+                    }
+                )
+
+                it('enters the redirect target fresh, so a delay there parks from redirect time', async () => {
+                    // The run spent 3h on the deleted step; the 2h delay it redirects into must still
+                    // park for its full 2h rather than treating the old step entry time as its own
+                    const hogFlow = createHogFlow({
+                        actions: { delay_2: { type: 'delay', config: { delay_duration: '2h' } } },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'delay_2', type: 'continue' },
+                            { from: 'delay_2', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    const invocation = parkOnDeleted(hogFlow)
+                    hogFlow.action_redirects = { delay: 'delay_2' }
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueScheduledAt?.toMillis()).toEqual(
+                        DateTime.now().plus({ hours: 2 }).toMillis()
+                    )
+                })
+
+                it.each([
+                    [
+                        'the dead position has no map entry',
+                        (hogFlow: HogFlow) => {
+                            hogFlow.actions = hogFlow.actions.filter((action) => action.id !== 'delay')
+                        },
+                    ],
+                    [
+                        'the surviving position lost its edge (map keys are deleted steps only)',
+                        (hogFlow: HogFlow) => {
+                            hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'delay')
+                        },
+                    ],
+                ])('still exits gracefully when %s', async (_desc, mutateFlow) => {
+                    const hogFlow = buildFlow()
+                    const invocation = createExampleHogFlowInvocation(hogFlow)
+                    invocation.state.currentAction = {
+                        id: 'delay',
+                        startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                    }
+                    mutateFlow(hogFlow)
+                    hogFlow.updated_at = DateTime.now().toMillis()
+                    // An entry for an unrelated deleted step must not capture this run
+                    hogFlow.action_redirects = { some_other_step: 'exit' }
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeUndefined()
+                    expect(result.metrics.map((m) => m.metric_name)).toContain('exited_workflow_changed')
+                    expect(result.metrics.map((m) => m.metric_name)).not.toContain('redirected_workflow_changed')
+                })
+
+                it('never redirects a graph that was malformed all along, even with a map entry', async () => {
+                    const hogFlow = buildFlow()
+                    const invocation = createExampleHogFlowInvocation(hogFlow)
+                    invocation.state.currentAction = {
+                        id: 'delay',
+                        startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                    }
+                    hogFlow.actions = hogFlow.actions.filter((action) => action.id !== 'delay')
+                    hogFlow.action_redirects = { delay: 'exit' }
+                    // No edit since the run arrived: the timestamp guard must run before any redirect
+                    hogFlow.updated_at = DateTime.now().minus({ hours: 4 }).toMillis()
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBe('Action delay not found')
+                    // Deleting the current action itself throws in ensureCurrentAction, before the
+                    // per-action failure metric is emitted - so the loud failure surfaces via
+                    // result.error rather than a 'failed' metric (unlike a deleted *edge*, which
+                    // throws inside the action handler where the metric is tracked).
+                    expect(result.metrics.map((m) => m.metric_name)).not.toContain('redirected_workflow_changed')
+                })
+
+                it('fails the run (no loop) when the redirect target itself dead-ends', async () => {
+                    // The target enters with a fresh step timestamp, so its own structural miss no
+                    // longer classifies as a live edit - it must surface as a plain failure. Uses a
+                    // trigger target so the dead end throws synchronously on entry (a delay would
+                    // park first and only fail on the next wake, which one execute() can't observe).
+                    const hogFlow = createHogFlow({
+                        actions: { hop: { type: 'trigger', config: { type: 'schedule' } } },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'hop', type: 'continue' },
+                            { from: 'hop', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    const invocation = parkOnDeleted(hogFlow)
+                    hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'hop')
+                    hogFlow.action_redirects = { delay: 'hop' }
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBe('No next action found for action hop')
+                    expect(result.metrics.map((m) => m.metric_name)).toContain('redirected_workflow_changed')
+                    expect(result.metrics.map((m) => m.metric_name)).toContain('failed')
+                })
             })
         })
 
@@ -1308,7 +1484,11 @@ describe('Hogflow Executor', () => {
                 expect(conversionEvents).toHaveLength(1)
                 expect(conversionEvents[0]).toMatchObject({
                     distinct_id: 'distinct_id',
-                    properties: { $workflow_id: hogFlow.id, $workflow_conversion_type: 'property' },
+                    properties: {
+                        $workflow_id: hogFlow.id,
+                        $workflow_version: hogFlow.version,
+                        $workflow_conversion_type: 'property',
+                    },
                 })
             })
 
@@ -1914,6 +2094,15 @@ describe('Hogflow Executor', () => {
 
             // Should not match because email contains @posthog.com
             expect(result.invocations).toHaveLength(0)
+            // These metrics are queued straight by the pipeline, not via an invocation result, so they
+            // need the version stamped here or a trigger change that filters everyone out is invisible
+            // in the per-version series.
+            expect(result.metrics).toEqual([
+                expect.objectContaining({
+                    metric_name: 'filtered',
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                }),
+            ])
         })
 
         it('should allow external users without @posthog.com email', async () => {

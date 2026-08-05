@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PipelinerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipeliner import (
+    PipelinerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.pipeliner import PipelinerResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.source import PipelinerSource

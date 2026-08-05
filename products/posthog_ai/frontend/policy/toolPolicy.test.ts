@@ -63,6 +63,11 @@ describe('toolPolicy', () => {
             'delete',
             'workflows-patch-graph',
             'workflows-patch-email-template',
+            // Destructive-annotated names with no verb segment come from the exact-name set.
+            'workflows-publish',
+            'experiment-ship-variant',
+            'skill-archive',
+            'error-tracking-issues-merge-create',
         ])('%s is destructive', (sub) => expect(isPostHogDestructiveSubTool(sub)).toBe(true))
         it.each([
             'experiment-get',
@@ -90,6 +95,9 @@ describe('toolPolicy', () => {
             ['exec discovery verb', makeRecord({ input: { command: 'tools' } }), 'auto_allow'],
             ['exec create', makeRecord({ input: { command: 'call insight-create {"name":"Signups"}' } }), 'auto_allow'],
             ['exec update', makeRecord({ input: { command: 'call insight-update {"id":"abc"}' } }), 'prompt'],
+            // A destructive-annotated name without a verb segment must resolve through the
+            // exact-name set, not just the verb regex.
+            ['exec publish', makeRecord({ input: { command: 'call workflows-publish {"id":"w1"}' } }), 'prompt'],
             ['exec delete', makeRecord({ input: { command: 'call feature-flag-delete {"key":"new-nav"}' } }), 'prompt'],
             // A destructive sub-tool hidden behind --confirm/--json (in any order) must still prompt —
             // the inner tool name is resolved after the flags, not as the flag token.

@@ -278,6 +278,26 @@ export function buildBarLayers({
     return layers
 }
 
+/** Push a bar's value-axis edge out to `minBarSize` px from its baseline-side edge when the bar
+ *  would otherwise be thinner, so a tiny non-zero value still reads as a bar. Zero-valued bars keep
+ *  their exact (empty) extent. The direction to grow is taken from the segment's own geometry
+ *  (`valuePixel` vs `basePixel`), not from `raw`'s sign — a stacked/percent layout clamps negative
+ *  data to a zero-extent segment (`raw !== 0` but `valuePixel === basePixel`), and a diverging
+ *  stack's negative segment has `valuePixel > basePixel`, both of which disagree with `raw`'s sign.
+ *  The `raw === 0` guard still keys off the value, not the geometry: on the grouped path a clamped
+ *  baseline (e.g. a fixed `valueDomain` excluding 0) can make a zero-valued bar geometrically
+ *  non-empty, and that must stay unfloored. */
+function floorValuePixel(valuePixel: number, basePixel: number, raw: number, minBarSize: number | undefined): number {
+    const direction = Math.sign(valuePixel - basePixel)
+    if (!minBarSize || minBarSize <= 0 || raw === 0 || direction === 0) {
+        return valuePixel
+    }
+    if (Math.abs(valuePixel - basePixel) >= minBarSize) {
+        return valuePixel
+    }
+    return basePixel + direction * minBarSize
+}
+
 export interface ComputeBarAtIndexOptions {
     series: Series
     label: string
@@ -341,16 +361,36 @@ export function computeBarAtIndex({
         // plot, so the bar would bleed through the axis. Clamp the baseline to the scale's range.
         const [r0, r1] = valueScale.range()
         const baseline = Math.min(Math.max(valueScale(0), Math.min(r0, r1)), Math.max(r0, r1))
-        return makeBarRect(isHorizontal, slot.x, slot.width, baseline, valuePixel, corners, dataIndex)
+        const cap = floorValuePixel(valuePixel, baseline, raw, scales.minBarSize)
+        return makeBarRect(isHorizontal, slot.x, slot.width, baseline, cap, corners, dataIndex)
     }
 
     // Resolve against the series' own axis (mirrors the grouped branch above), so a stacked bar on
     // a non-default `yAxisId` — only ComboChart combines stacking with per-series axes — is hit-tested
     // and drawn against the same scale. For single-axis charts `valueScale` is `scales.value`.
-    const topPixel = valueScale(stackedBand!.top[dataIndex])
+    const rawTopPixel = valueScale(stackedBand!.top[dataIndex])
     const bottomPixel = valueScale(stackedBand!.bottom[dataIndex])
-    if (!isFinite(topPixel) || !isFinite(bottomPixel)) {
+    if (!isFinite(rawTopPixel) || !isFinite(bottomPixel)) {
         return null
+    }
+    // Only the outermost segment is floored. Flooring an interior one oversizes its rect without
+    // moving the segment above it, so the extension is invisible — immediately overpainted — yet
+    // still wins hit-testing, since `resolveBarsAtCursor` takes the first rect containing the cursor:
+    // the tooltip and click would resolve to a series that isn't drawn there.
+    //
+    // Floored against this segment's own bottom, not the axis baseline, so a floored segment grows
+    // out of where it actually starts in the stack. Only a pixel the floor itself pushed out is
+    // clamped back into the value scale's range (mirrors the grouped branch's baseline clamp above)
+    // — an unfloored `rawTopPixel` outside the range is legitimate (e.g. a `valueDomain` narrower
+    // than the stack total) and hit-testing above the plot still needs to resolve to it, so clamping
+    // unconditionally would break that.
+    const flooredTopPixel = floorValuePixel(rawTopPixel, bottomPixel, raw, isTopOfStack ? scales.minBarSize : undefined)
+    let topPixel = flooredTopPixel
+    if (flooredTopPixel !== rawTopPixel) {
+        const [valueRangeA, valueRangeB] = valueScale.range()
+        const valueRangeMin = Math.min(valueRangeA, valueRangeB)
+        const valueRangeMax = Math.max(valueRangeA, valueRangeB)
+        topPixel = Math.min(Math.max(flooredTopPixel, valueRangeMin), valueRangeMax)
     }
     // For stacked/percent the bar's "positive direction" depends on which pixel is further from baseline,
     // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).

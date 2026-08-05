@@ -25,6 +25,7 @@ from products.replay_vision.backend.temporal.activities import (
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
     reap_orphaned_observations_activity,
+    reap_stuck_vision_action_runs_activity,
     record_evaluation_result_activity,
     refresh_prompt_suggestion_activity,
     refresh_scanner_estimate_activity,
@@ -38,7 +39,6 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
 )
-from products.replay_vision.backend.temporal.logs import install_vision_log_bridge
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.vision_actions import (
@@ -52,10 +52,6 @@ from products.replay_vision.backend.temporal.vision_actions import (
     validate_vision_action_activity,
 )
 from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
-
-# Ship this package's pipeline logs into the PostHog Logs product wherever the worker imports it.
-# A no-op until OTLP_LOGS_INGEST_* are configured.
-install_vision_log_bridge()
 
 WORKFLOWS = [
     ApplyScannerWorkflow,
@@ -96,6 +92,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     list_stale_scanner_estimates_activity,
     refresh_scanner_estimate_activity,
     reap_orphaned_observations_activity,
+    reap_stuck_vision_action_runs_activity,
     sweep_gemini_files_activity,
     evaluate_alert_activity,
     evaluate_due_vision_actions_activity,
@@ -146,6 +143,7 @@ __all__ = [
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
     "reap_orphaned_observations_activity",
+    "reap_stuck_vision_action_runs_activity",
     "record_evaluation_result_activity",
     "refresh_scanner_estimate_activity",
     "select_evaluation_sessions_activity",

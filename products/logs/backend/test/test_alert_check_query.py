@@ -190,6 +190,17 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert result.count > 0
 
     @freeze_time("2025-12-16T10:33:00Z")
+    def test_null_filter_values_treated_as_empty(self):
+        # The frontend/API can persist explicit `null` for these keys (as opposed to
+        # omitting them), which previously crashed every check with a pydantic
+        # ValidationError because `dict.get(key, default)` only falls back when the
+        # key is absent, not when its value is None.
+        alert = self._make_alert(filters={"serviceNames": None, "severityLevels": None})
+        result = self._make_query(alert).execute()
+        assert isinstance(result, AlertCheckCountResult)
+        assert result.count > 0
+
+    @freeze_time("2025-12-16T10:33:00Z")
     def test_raw_scan_path_body_filter(self):
         alert = self._make_alert(
             filters={

@@ -45,7 +45,7 @@ const DEFAULT_SHORT_CHIPS: DateRangeChip[] = [
     { label: '1m', selection: { kind: 'rolling', count: 1, unit: 'months' } },
     { label: '1y', selection: { kind: 'rolling', count: 1, unit: 'years' } },
 ]
-const DEFAULT_NAMED_CHIPS = ['Today', 'Yesterday', 'This week', 'This month', 'Year to date', 'All time']
+const DEFAULT_NAMED_CHIPS = ['Today', 'Yesterday', 'This week', 'This month', 'This year', 'All time']
 
 export function dateRangeSelectionLabel(selection: DateRangeSelection): string {
     if (selection.kind === 'rolling') {
@@ -81,7 +81,7 @@ function fixedRange(name: string, now: Dayjs, weekStartsOn: 0 | 1): { start: Day
             return { start: now.startOf('month'), end: now }
         case 'Last month':
             return { start: now.subtract(1, 'month').startOf('month'), end: now.subtract(1, 'month').endOf('month') }
-        case 'Year to date':
+        case 'This year':
             return { start: now.startOf('year'), end: now }
         default:
             return { start: now.subtract(ALL_TIME_SEED_YEARS, 'years'), end: now }

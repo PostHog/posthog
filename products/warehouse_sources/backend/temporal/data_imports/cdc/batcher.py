@@ -11,6 +11,11 @@ CDC_OP_COLUMN = "_ph_cdc_op"
 CDC_TIMESTAMP_COLUMN = "_ph_cdc_timestamp"
 DELETED_COLUMN = "_ph_deleted"
 DELETED_AT_COLUMN = "_ph_deleted_at"
+# Per-row list of source columns the change stream omitted because they are
+# unchanged from the previous row version (Postgres: unchanged TOAST values).
+# Consumed by enrich_toast_omitted_rows; the load processor drops it before
+# writing to DeltaLake.
+TOAST_OMITTED_COLUMN = "_ph_toast_omitted"
 
 # SCD Type 2 columns added to the _cdc history table
 SCD2_VALID_FROM_COLUMN = "valid_from"
@@ -24,6 +29,7 @@ _CDC_METADATA_COLUMNS: frozenset[str] = frozenset(
         CDC_TIMESTAMP_COLUMN,
         DELETED_COLUMN,
         DELETED_AT_COLUMN,
+        TOAST_OMITTED_COLUMN,
         SCD2_VALID_FROM_COLUMN,
         SCD2_VALID_TO_COLUMN,
     }
@@ -102,6 +108,8 @@ class ChangeEventBatcher:
                 size += len(val)
             elif val is not None:
                 size += 8
+        for name in event.omitted_columns:
+            size += len(name) + 50  # marker name + set entry overhead
         return size
 
 
@@ -249,6 +257,116 @@ def enrich_delete_rows(
     return result
 
 
+def enrich_toast_omitted_rows(
+    table: pa.Table,
+    pk_columns: list[str],
+    existing_rows: pa.Table | None = None,
+) -> pa.Table:
+    """Fill unchanged-TOAST (omitted) UPDATE columns from the last known row state.
+
+    Postgres does not send a TOASTed column's value in an UPDATE when it is
+    unchanged (default REPLICA IDENTITY). The batcher stores such columns as null
+    and records their names per row in TOAST_OMITTED_COLUMN. Left as-is, the null
+    would overwrite the real value in the consolidated merge and be recorded in
+    the _cdc history row.
+
+    Resolution order per omitted column (mirrors enrich_delete_rows):
+    1. The last preceding row with the same PK in this batch where the column was
+       not omitted — its value may legitimately be null (an explicit SET col=NULL).
+    2. The corresponding row in `existing_rows` (current DeltaLake state, passed
+       in by the load processor for cross-batch enrichment).
+
+    Columns still unresolved keep their marker entry so a later stage can retry;
+    the load processor drops the marker column just before writing, leaving the
+    column null only when the previous value is genuinely unknowable (PK absent
+    from the target table).
+    """
+    if not pk_columns or table.num_rows == 0 or TOAST_OMITTED_COLUMN not in table.column_names:
+        return table
+
+    omitted_per_row: list[list[str] | None] = table.column(TOAST_OMITTED_COLUMN).to_pylist()
+    if not any(omitted_per_row):
+        return table
+
+    present_pks = [col for col in pk_columns if col in table.column_names]
+    if not present_pks:
+        return table
+
+    target_cols = sorted({col for row in omitted_per_row if row for col in row if col in table.column_names})
+    if not target_cols:
+        return table
+
+    ops = table.column(CDC_OP_COLUMN).to_pylist()
+    pk_arrays = [table.column(col).to_pylist() for col in present_pks]
+    row_data: dict[str, list] = {col: table.column(col).to_pylist() for col in target_cols}
+
+    existing_lookup: dict[tuple, dict[str, object]] = {}
+    if existing_rows is not None and existing_rows.num_rows > 0:
+        ex_present_pks = [col for col in present_pks if col in existing_rows.column_names]
+        if len(ex_present_pks) == len(present_pks):
+            ex_pk_arrays = [existing_rows.column(col).to_pylist() for col in present_pks]
+            for i in range(existing_rows.num_rows):
+                key = tuple(arr[i] for arr in ex_pk_arrays)
+                existing_lookup[key] = {
+                    col: existing_rows.column(col)[i].as_py()
+                    for col in target_cols
+                    if col in existing_rows.column_names
+                }
+
+    # Walk rows in WAL order, carrying the last known value per (PK, column).
+    # "Known" and "null" are distinct here: a null carried by a non-omitted row is
+    # a real value and must propagate, not be skipped.
+    batch_state: dict[tuple, dict[str, object]] = {}
+    new_omitted: list[list[str] | None] = list(omitted_per_row)
+    for i in range(table.num_rows):
+        key = tuple(arr[i] for arr in pk_arrays)
+        omitted = omitted_per_row[i]
+        if omitted:
+            state = batch_state.get(key)
+            existing = existing_lookup.get(key)
+            remaining: list[str] = []
+            for col in omitted:
+                if state is not None and col in state:
+                    row_data[col][i] = state[col]
+                elif existing is not None and col in existing:
+                    row_data[col][i] = existing[col]
+                else:
+                    remaining.append(col)
+            new_omitted[i] = remaining or None
+
+        # DELETE rows carry only identity columns — they neither resolve nor
+        # invalidate the last known state.
+        if ops[i] != "D":
+            still_omitted = set(new_omitted[i] or [])
+            state = batch_state.setdefault(key, {})
+            for col in target_cols:
+                if col not in still_omitted:
+                    state[col] = row_data[col][i]
+
+    new_columns: dict[str, pa.Array | pa.ChunkedArray] = {}
+    new_fields: list[pa.Field] = []
+    for field in table.schema:
+        col = field.name
+        if col in row_data:
+            col_type = field.type
+            # Same all-null type upgrade as enrich_delete_rows: a column PyArrow
+            # inferred as null() needs a real type before non-null fills.
+            if col_type == pa.null() and existing_rows is not None and col in existing_rows.column_names:
+                col_type = existing_rows.schema.field(col).type
+            arr = _safe_pa_array(row_data[col], col_type)
+            new_columns[col] = arr
+            new_fields.append(pa.field(col, arr.type))
+        elif col == TOAST_OMITTED_COLUMN:
+            arr = pa.array(new_omitted, type=pa.list_(pa.string()))
+            new_columns[col] = arr
+            new_fields.append(pa.field(col, arr.type))
+        else:
+            new_columns[col] = table.column(col)
+            new_fields.append(field)
+
+    return pa.table(new_columns, schema=pa.schema(new_fields))
+
+
 def deduplicate_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     """Keep only the last row per primary key in a CDC batch.
 
@@ -329,10 +447,16 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
 
 def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
     """Convert a list of ChangeEvents (same table) to a PyArrow table with CDC metadata."""
-    # Collect all column names across all events (order-preserving)
+    # Collect all column names across all events (order-preserving). Omitted
+    # (unchanged-TOAST) columns are included so the batch table always carries a
+    # column for them — as null plus a TOAST_OMITTED_COLUMN marker — otherwise the
+    # load path would align the batch to the target schema with a plain null column
+    # and merge that null over the real value.
     all_columns: dict[str, None] = {}
     for event in events:
         for col_name in event.columns:
+            all_columns[col_name] = None
+        for col_name in event.omitted_columns:
             all_columns[col_name] = None
     column_names = list(all_columns.keys())
 
@@ -346,6 +470,7 @@ def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
     cdc_timestamps: list[int] = []  # microseconds since epoch
     deleted_flags: list[bool] = []
     deleted_at: list[int | None] = []
+    omitted_lists: list[list[str] | None] = []
 
     for event in events:
         for col_name in column_names:
@@ -357,6 +482,7 @@ def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
         is_delete = event.operation == "D"
         deleted_flags.append(is_delete)
         deleted_at.append(ts_us if is_delete else None)
+        omitted_lists.append(sorted(event.omitted_columns) if event.omitted_columns else None)
 
     # Build PyArrow arrays for source columns.
     # If type inference fails (e.g. mixed int/str from a schema change mid-WAL),
@@ -393,6 +519,11 @@ def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
 
     arrays.append(pa.array(deleted_at, type=pa.timestamp("us", tz="UTC")))
     fields.append(pa.field(DELETED_AT_COLUMN, pa.timestamp("us", tz="UTC")))
+
+    # Only batches that actually contain omissions carry the marker column.
+    if any(omitted_lists):
+        arrays.append(pa.array(omitted_lists, type=pa.list_(pa.string())))
+        fields.append(pa.field(TOAST_OMITTED_COLUMN, pa.list_(pa.string())))
 
     schema = pa.schema(fields)
     return pa.table(arrays, schema=schema)

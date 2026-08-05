@@ -79,6 +79,78 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
 const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
 const SINGLE_TRACE_PAGE_LOADED_EVENT = 'llma single trace loaded'
 
+export interface FeedbackAttachmentMap {
+    byNodeId: Map<string, LLMTraceEvent[]>
+    rootLevel: LLMTraceEvent[]
+}
+
+function getNodeIdentity(event: LLMTraceEvent): string {
+    return event.properties.$ai_generation_id ?? event.properties.$ai_span_id ?? event.id
+}
+
+function isValidMetricOrFeedback(event: LLMTraceEvent): boolean {
+    if (event.event === '$ai_metric') {
+        return !!event.properties.$ai_metric_value
+    }
+    if (event.event === '$ai_feedback') {
+        return !!event.properties.$ai_feedback_text
+    }
+    return false
+}
+
+const EVENT_TYPE_ORDER: Record<string, number> = {
+    $ai_metric: 0,
+    $ai_feedback: 1,
+}
+
+function sortByEventType(events: LLMTraceEvent[]): LLMTraceEvent[] {
+    return [...events].sort((a, b) => EVENT_TYPE_ORDER[a.event] - EVENT_TYPE_ORDER[b.event])
+}
+
+/**
+ * Resolves each $ai_metric/$ai_feedback event on a trace to either the specific
+ * span/generation it targets (via $ai_parent_id) or the root/header pool, when
+ * untargeted or the target can't be found among the trace's other events.
+ */
+export function buildFeedbackAttachmentMap(events: LLMTraceEvent[], traceId: string): FeedbackAttachmentMap {
+    const validNodeIds = new Set<string>()
+    for (const event of events) {
+        if (FEEDBACK_EVENTS.has(event.event)) {
+            continue
+        }
+        validNodeIds.add(getNodeIdentity(event))
+    }
+
+    const byNodeIdRaw = new Map<string, LLMTraceEvent[]>()
+    const rootLevel: LLMTraceEvent[] = []
+
+    for (const event of events) {
+        if (!FEEDBACK_EVENTS.has(event.event) || !isValidMetricOrFeedback(event)) {
+            continue
+        }
+
+        const targetId = event.properties.$ai_parent_id ?? event.properties.$ai_trace_id
+
+        if (targetId && targetId !== traceId && validNodeIds.has(targetId)) {
+            const existing = byNodeIdRaw.get(targetId)
+            if (existing) {
+                existing.push(event)
+            } else {
+                byNodeIdRaw.set(targetId, [event])
+            }
+        } else {
+            rootLevel.push(event)
+        }
+    }
+
+    const byNodeId = new Map<string, LLMTraceEvent[]>()
+    for (const [nodeId, nodeEvents] of byNodeIdRaw) {
+        byNodeId.set(nodeId, sortByEventType(nodeEvents))
+    }
+
+    return { byNodeId, rootLevel }
+}
+
 export interface SingleTraceLoadTiming {
     min_trace_timestamp_utc: string | null
     max_trace_timestamp_utc: string | null
@@ -258,13 +330,14 @@ export interface aiObservabilityTraceDataLogicValues {
     enrichedTree: EnrichedTraceTreeNode[]
     event: LLMTrace | LLMTraceEvent | null
     eventMetadata: Record<string, unknown> | undefined
-    feedbackEvents: LLMTraceEvent[] | undefined
+    feedbackAttachmentMap: FeedbackAttachmentMap
+    feedbackEvents: LLMTraceEvent[]
     filteredEvents: LLMTraceEvent[]
     filteredTree: TraceTreeNode[]
     hasScrolledToEvent: boolean
     highlightedEventId: string | null
     initialFocusEventId: string | null
-    metricEvents: LLMTraceEvent[] | undefined
+    metricEvents: LLMTraceEvent[]
     metricsAndFeedbackEvents: {
         metric: string
         value: any
@@ -331,12 +404,13 @@ export interface aiObservabilityTraceDataLogicMeta {
             searchQuery: string,
             trace: LLMTrace | undefined
         ) => SearchOccurrence[]
-        metricEvents: (trace: LLMTrace | undefined) => LLMTraceEvent[] | undefined
-        feedbackEvents: (trace: LLMTrace | undefined) => LLMTraceEvent[] | undefined
+        feedbackAttachmentMap: (trace: LLMTrace | undefined, traceId: string) => FeedbackAttachmentMap
+        metricEvents: (feedbackAttachmentMap: FeedbackAttachmentMap) => LLMTraceEvent[]
+        feedbackEvents: (feedbackAttachmentMap: FeedbackAttachmentMap) => LLMTraceEvent[]
         traceGitMetadata: (trace: LLMTrace | undefined) => TraceGitMetadata | null
         metricsAndFeedbackEvents: (
-            metricEvents: LLMTraceEvent[] | undefined,
-            feedbackEvents: LLMTraceEvent[] | undefined
+            metricEvents: LLMTraceEvent[],
+            feedbackEvents: LLMTraceEvent[]
         ) => {
             metric: string
             value: any
@@ -354,7 +428,10 @@ export interface aiObservabilityTraceDataLogicMeta {
             showableEvents: LLMTraceEvent[]
         ) => LLMTrace | LLMTraceEvent | null
         tree: (filteredTree: TraceTreeNode[]) => TraceTreeNode[]
-        enrichedTree: (filteredTree: TraceTreeNode[]) => EnrichedTraceTreeNode[]
+        enrichedTree: (
+            filteredTree: TraceTreeNode[],
+            feedbackAttachmentMap: FeedbackAttachmentMap
+        ) => EnrichedTraceTreeNode[]
         eventMetadata: (event: LLMTrace | LLMTraceEvent | null) => Record<string, unknown> | undefined
         highlightedEventId: (event: LLMTrace | LLMTraceEvent | null) => string | null
         selectedNode: (
@@ -547,15 +624,20 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 return [...traceOccurrences, ...sidebarOccurrences, ...messageOccurrences]
             },
         ],
+        feedbackAttachmentMap: [
+            (s, p) => [s.trace, p.traceId],
+            (trace: LLMTrace | undefined, traceId: string): FeedbackAttachmentMap =>
+                trace ? buildFeedbackAttachmentMap(trace.events, traceId) : { byNodeId: new Map(), rootLevel: [] },
+        ],
         metricEvents: [
-            (s) => [s.trace],
-            (trace: LLMTrace | undefined): LLMTraceEvent[] | undefined =>
-                trace?.events.filter((event) => event.event === '$ai_metric' && event.properties.$ai_metric_value),
+            (s) => [s.feedbackAttachmentMap],
+            (feedbackAttachmentMap: FeedbackAttachmentMap): LLMTraceEvent[] =>
+                feedbackAttachmentMap.rootLevel.filter((event) => event.event === '$ai_metric'),
         ],
         feedbackEvents: [
-            (s) => [s.trace],
-            (trace: LLMTrace | undefined): LLMTraceEvent[] | undefined =>
-                trace?.events.filter((event) => event.event === '$ai_feedback' && event.properties.$ai_feedback_text),
+            (s) => [s.feedbackAttachmentMap],
+            (feedbackAttachmentMap: FeedbackAttachmentMap): LLMTraceEvent[] =>
+                feedbackAttachmentMap.rootLevel.filter((event) => event.event === '$ai_feedback'),
         ],
         traceGitMetadata: [
             (s) => [s.trace],
@@ -563,11 +645,8 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
         ],
         metricsAndFeedbackEvents: [
             (s) => [s.metricEvents, s.feedbackEvents],
-            (
-                metricEvents: LLMTraceEvent[] | undefined,
-                feedbackEvents: LLMTraceEvent[] | undefined
-            ): { metric: string; value: any }[] =>
-                [...(metricEvents ?? []), ...(feedbackEvents ?? [])].map((event) => ({
+            (metricEvents: LLMTraceEvent[], feedbackEvents: LLMTraceEvent[]): { metric: string; value: any }[] =>
+                [...metricEvents, ...feedbackEvents].map((event) => ({
                     metric:
                         event.event === '$ai_metric' ? (event.properties.$ai_metric_name ?? 'Metric') : 'User feedback',
                     value: event.properties.$ai_metric_value ?? event.properties.$ai_feedback_text,
@@ -607,8 +686,9 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
         ],
         tree: [(s) => [s.filteredTree], (filteredTree: TraceTreeNode[]): TraceTreeNode[] => filteredTree],
         enrichedTree: [
-            (s) => [s.filteredTree],
-            (filteredTree: TraceTreeNode[]): EnrichedTraceTreeNode[] => filteredTree.map(enrichNode),
+            (s) => [s.filteredTree, s.feedbackAttachmentMap],
+            (filteredTree: TraceTreeNode[], feedbackAttachmentMap: FeedbackAttachmentMap): EnrichedTraceTreeNode[] =>
+                filteredTree.map((node) => enrichNode(node, feedbackAttachmentMap.byNodeId)),
         ],
         eventMetadata: [
             (s) => [s.event],
@@ -757,6 +837,7 @@ export interface EnrichedTraceTreeNode extends TraceTreeNode {
     displayTotalCost: number
     displayLatency: number
     displayUsage: string | null
+    attachedFeedback: LLMTraceEvent[]
 }
 
 export interface SpanAggregation {
@@ -775,13 +856,14 @@ function extractLatency(event: LLMTraceEvent): number {
     return event.properties.$ai_latency || 0
 }
 
-function enrichNode(node: TraceTreeNode): EnrichedTraceTreeNode {
+function enrichNode(node: TraceTreeNode, byNodeId: Map<string, LLMTraceEvent[]>): EnrichedTraceTreeNode {
     return {
         ...node,
-        children: node.children?.map(enrichNode),
+        children: node.children?.map((child) => enrichNode(child, byNodeId)),
         displayTotalCost: node.aggregation?.totalCost ?? extractTotalCost(node.event),
         displayLatency: node.aggregation?.totalLatency ?? extractLatency(node.event),
         displayUsage: node.aggregation ? formatLLMUsage(node.aggregation) : formatLLMUsage(node.event),
+        attachedFeedback: byNodeId.get(getNodeIdentity(node.event)) ?? [],
     }
 }
 
