@@ -9,11 +9,9 @@ import pyarrow as pa
 
 from products.batch_exports.backend.service import BackfillDetails
 from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
-from products.batch_exports.backend.temporal.spmc import (
-    RecordBatchQueue,
-    slice_record_batch,
-    use_distributed_events_recent_table,
-)
+from products.batch_exports.backend.temporal.pipeline.producer import slice_record_batch
+from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
+from products.batch_exports.backend.temporal.spmc import RecordBatchQueue
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
