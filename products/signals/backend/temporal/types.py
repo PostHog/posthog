@@ -189,7 +189,10 @@ class SignalTypeExample:
 
 @dataclass
 class SignalData:
-    """Data about a signal fetched from ClickHouse."""
+    """Normalized signal data used by report workflows.
+
+    ClickHouse-backed instances include `inserted_at`; synthetic or adapted instances may omit it.
+    """
 
     signal_id: str
     content: str
@@ -198,6 +201,7 @@ class SignalData:
     source_id: str
     weight: float
     timestamp: datetime
+    inserted_at: Optional[datetime] = None
     extra: dict = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     # Optional fix guidance (separate from `extra`); see EmitSignalInputs.remediation.
