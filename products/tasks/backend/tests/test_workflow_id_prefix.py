@@ -10,8 +10,8 @@ from posthog.models import Organization, Team, User
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import (
-    execute_repository_detection_workflow,
     execute_task_processing_workflow,
+    execute_wizard_repository_detection_workflow,
     redispatch_orphaned_task_run,
 )
 
@@ -80,7 +80,7 @@ class TestWorkflowIdPrefix(TestCase):
         assert task_run.workflow_id == started_id
 
     def test_detection_dispatch_records_the_id_it_starts_under(self) -> None:
-        # detect-repository runs under its own prefix, so without the recorded id TaskRun.workflow_id
+        # wizard-repository-detection runs under its own prefix, so without the recorded id TaskRun.workflow_id
         # resolves to a task-processing id that does not exist. Cancellation reads that miss as
         # "workflow gone" and tears the sandbox down under the still-running scan.
         task_run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
@@ -88,11 +88,11 @@ class TestWorkflowIdPrefix(TestCase):
         temporal_client.start_workflow = AsyncMock()
 
         with patch("products.tasks.backend.temporal.client.sync_connect", return_value=temporal_client):
-            execute_repository_detection_workflow(str(self.task.id), str(task_run.id), self.team.id)
+            execute_wizard_repository_detection_workflow(str(self.task.id), str(task_run.id), self.team.id)
 
         started_id = temporal_client.start_workflow.await_args.kwargs["id"]
         task_run.refresh_from_db()
-        assert started_id == f"detect-repository-{self.task.id}-{task_run.id}"
+        assert started_id == f"wizard-repository-detection-{self.task.id}-{task_run.id}"
         assert task_run.workflow_id == started_id
 
     def test_redispatch_recovers_the_prefix_from_pending_dispatch(self) -> None:

@@ -84,7 +84,7 @@ export interface DetectionErrorApi {
 /**
  * Input: validates the JSON a detection agent posts. team_id is derived from URL.
  */
-export interface UpsertRepositoryDetectionRequestApi {
+export interface UpsertWizardRepositoryDetectionRequestApi {
     /** The detection result. Exactly one of `report` / `error` must be set. */
     report?: DetectionReportApi | null
     /** Why the run failed. Exactly one of `report` / `error` must be set. */
@@ -107,9 +107,9 @@ export interface UpsertRepositoryDetectionRequestApi {
 }
 
 /**
- * Output: serialises a RepositoryDetectionDTO returned by the facade.
+ * Output: serialises a WizardRepositoryDetectionDTO returned by the facade.
  */
-export interface RepositoryDetectionDTOApi {
+export interface WizardRepositoryDetectionDTOApi {
     /** The detection result, or null when the run failed (see `error`). */
     report: DetectionReportApi | null
     /** Why the run failed, or null when it succeeded (see `report`). */

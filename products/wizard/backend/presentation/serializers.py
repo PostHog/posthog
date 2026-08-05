@@ -6,9 +6,9 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.wizard.backend.facade.contracts import (
-    RepositoryDetectionDTO,
-    UpsertRepositoryDetectionRequest,
+    UpsertWizardRepositoryDetectionRequest,
     UpsertWizardSessionRequest,
+    WizardRepositoryDetectionDTO,
     WizardSessionDTO,
 )
 
@@ -165,8 +165,8 @@ class DetectionErrorSerializer(serializers.Serializer):
     )
 
 
-class RepositoryDetectionSerializer(DataclassSerializer):
-    """Output: serialises a RepositoryDetectionDTO returned by the facade."""
+class WizardRepositoryDetectionSerializer(DataclassSerializer):
+    """Output: serialises a WizardRepositoryDetectionDTO returned by the facade."""
 
     report = DetectionReportSerializer(
         allow_null=True,
@@ -178,7 +178,7 @@ class RepositoryDetectionSerializer(DataclassSerializer):
     )
 
     class Meta:
-        dataclass = RepositoryDetectionDTO
+        dataclass = WizardRepositoryDetectionDTO
         extra_kwargs = {
             "repository": {
                 "help_text": "Repository the detection ran against, in 'org/repo' form.",
@@ -192,7 +192,7 @@ class RepositoryDetectionSerializer(DataclassSerializer):
         }
 
 
-class UpsertRepositoryDetectionRequestSerializer(DataclassSerializer):
+class UpsertWizardRepositoryDetectionRequestSerializer(DataclassSerializer):
     """Input: validates the JSON a detection agent posts. team_id is derived from URL."""
 
     report = DetectionReportSerializer(
@@ -212,7 +212,7 @@ class UpsertRepositoryDetectionRequestSerializer(DataclassSerializer):
     )
 
     class Meta:
-        dataclass = UpsertRepositoryDetectionRequest
+        dataclass = UpsertWizardRepositoryDetectionRequest
         extra_kwargs = {
             "repository": {
                 "max_length": 255,
@@ -235,7 +235,7 @@ class UpsertRepositoryDetectionRequestSerializer(DataclassSerializer):
     def validate_repository(self, value: str) -> str:
         # This value is half the idempotency anchor and is stored verbatim under a unique
         # constraint, so anything the shape check lets through splits into a second row instead of
-        # replacing the first. Matches the shape SetupWizardDetectionSerializer accepts on the
+        # replacing the first. Matches the shape SetupWizardRepositoryDetectionSerializer accepts on the
         # trigger side, which local (non-cloud) runs would otherwise bypass entirely.
         repository = value.strip()
         parts = repository.split("/")
@@ -243,7 +243,7 @@ class UpsertRepositoryDetectionRequestSerializer(DataclassSerializer):
             raise serializers.ValidationError("Repository must be in 'owner/repo' format.")
         return repository
 
-    def validate(self, attrs: UpsertRepositoryDetectionRequest) -> UpsertRepositoryDetectionRequest:
+    def validate(self, attrs: UpsertWizardRepositoryDetectionRequest) -> UpsertWizardRepositoryDetectionRequest:
         # DataclassSerializer hands validate() the built dataclass, not a dict.
         if (attrs.report is not None) == (attrs.error is not None):
             raise serializers.ValidationError("Exactly one of `report` or `error` must be provided.")

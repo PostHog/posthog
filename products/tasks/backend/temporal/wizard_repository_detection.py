@@ -27,7 +27,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.constants import WIZARD_DETECTION_PROGRAMS
+from products.tasks.backend.constants import WIZARD_REPOSITORY_DETECTION_PROGRAMS
 from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.activities import (
@@ -62,14 +62,14 @@ _SANDBOX_EXEC_TIMEOUT_SECONDS = WIZARD_RUN_TIMEOUT_SECONDS + 120
 
 
 @dataclass
-class RunWizardDetectionInput:
+class RunWizardRepositoryDetectionInput:
     context: TaskProcessingContext
     sandbox_id: str
     repository: str
 
 
-def _build_detection_command(kind: str, repo_path: str, project_id: int, repository: str) -> str:
-    program = WIZARD_DETECTION_PROGRAMS.get(kind)
+def _build_wizard_repository_detection_command(kind: str, repo_path: str, project_id: int, repository: str) -> str:
+    program = WIZARD_REPOSITORY_DETECTION_PROGRAMS.get(kind)
     if program is None:
         raise ValueError(f"Unknown detection kind: {kind}")
     # The wizard reads its access token from the POSTHOG_WIZARD_API_KEY env var injected into the
@@ -100,7 +100,7 @@ def _build_detection_command(kind: str, repo_path: str, project_id: int, reposit
 
 @activity.defn
 @asyncify
-def run_wizard_detection(input: RunWizardDetectionInput) -> None:
+def run_wizard_repository_detection(input: RunWizardRepositoryDetectionInput) -> None:
     """Run the wizard's detection program in the sandbox.
 
     The wizard posts its report (or its failure) to the repository-detections API itself;
@@ -110,7 +110,7 @@ def run_wizard_detection(input: RunWizardDetectionInput) -> None:
     kind = (ctx.wizard_config or {}).get("kind") or ""
 
     with log_activity_execution(
-        "run_wizard_detection",
+        "run_wizard_repository_detection",
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
@@ -119,7 +119,7 @@ def run_wizard_detection(input: RunWizardDetectionInput) -> None:
 
         emit_agent_log(ctx.run_id, "info", f"Running repository detection ({kind})")
         sandbox = Sandbox.get_by_id(input.sandbox_id)
-        command = _build_detection_command(kind, repo_path, ctx.team_id, input.repository)
+        command = _build_wizard_repository_detection_command(kind, repo_path, ctx.team_id, input.repository)
 
         result = sandbox.execute(command, timeout_seconds=_SANDBOX_EXEC_TIMEOUT_SECONDS)
 
@@ -146,26 +146,26 @@ def run_wizard_detection(input: RunWizardDetectionInput) -> None:
 
 
 @dataclass
-class DetectRepositoryInput:
+class WizardRepositoryDetectionInput:
     run_id: str
 
 
 @dataclass
-class DetectRepositoryOutput:
+class WizardRepositoryDetectionOutput:
     success: bool
     error: str | None = None
     sandbox_id: str | None = None
 
 
-@workflow.defn(name="detect-repository")
-class DetectRepositoryWorkflow(PostHogWorkflow):
+@workflow.defn(name="wizard-repository-detection")
+class WizardRepositoryDetectionWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> DetectRepositoryInput:
+    def parse_inputs(inputs: list[str]) -> WizardRepositoryDetectionInput:
         loaded = json.loads(inputs[0])
-        return DetectRepositoryInput(run_id=loaded["run_id"])
+        return WizardRepositoryDetectionInput(run_id=loaded["run_id"])
 
     @workflow.run
-    async def run(self, input: DetectRepositoryInput) -> DetectRepositoryOutput:
+    async def run(self, input: WizardRepositoryDetectionInput) -> WizardRepositoryDetectionOutput:
         sandbox_id: str | None = None
         try:
             # Inside the try so a context failure (TaskInvalidStateError, or the row-not-visible-yet
@@ -214,8 +214,8 @@ class DetectRepositoryWorkflow(PostHogWorkflow):
                 )
 
             await workflow.execute_activity(
-                run_wizard_detection,
-                RunWizardDetectionInput(context=context, sandbox_id=sandbox_id, repository=repository),
+                run_wizard_repository_detection,
+                RunWizardRepositoryDetectionInput(context=context, sandbox_id=sandbox_id, repository=repository),
                 # Above WIZARD_RUN_TIMEOUT_SECONDS (45 min) so the wizard's own timeout bounds
                 # the run. Not idempotent enough to retry blindly: the wizard upserts its report,
                 # but a retry doubles the scan cost, so fail the run and let the user re-trigger.
@@ -224,14 +224,14 @@ class DetectRepositoryWorkflow(PostHogWorkflow):
             )
 
             await self._update_status(input.run_id, "completed")
-            return DetectRepositoryOutput(success=True, sandbox_id=sandbox_id)
+            return WizardRepositoryDetectionOutput(success=True, sandbox_id=sandbox_id)
 
         except Exception as e:
             # str(ActivityError) is Temporal's opaque wrapper; surface the cause instead.
             cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else None
             message = (getattr(cause, "message", None) or (str(cause) if cause else None) or str(e))[:2000]
             await self._update_status(input.run_id, "failed", error_message=message, error_type=type(e).__name__)
-            return DetectRepositoryOutput(success=False, error=message, sandbox_id=sandbox_id)
+            return WizardRepositoryDetectionOutput(success=False, error=message, sandbox_id=sandbox_id)
 
         finally:
             if sandbox_id is not None:

@@ -9,10 +9,10 @@ from posthog.models import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.wizard.backend.models import RepositoryDetection
+from products.wizard.backend.models import WizardRepositoryDetection
 from products.wizard.backend.presentation.serializers import (
     MAX_DETECTED_PROJECTS,
-    UpsertRepositoryDetectionRequestSerializer,
+    UpsertWizardRepositoryDetectionRequestSerializer,
 )
 
 
@@ -41,7 +41,7 @@ def _report(**overrides) -> dict:
     return report
 
 
-class TestRepositoryDetectionViewSet(APIBaseTest):
+class TestWizardRepositoryDetectionViewSet(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/wizard/repository_detections/"
 
@@ -79,8 +79,8 @@ class TestRepositoryDetectionViewSet(APIBaseTest):
         self.assertEqual(second.json()["report"]["repo_type"], "single")
 
         with team_scope(self.team.id):
-            self.assertEqual(RepositoryDetection.objects.count(), 1)
-            detection = RepositoryDetection.objects.get()
+            self.assertEqual(WizardRepositoryDetection.objects.count(), 1)
+            detection = WizardRepositoryDetection.objects.get()
         assert detection.report is not None
         self.assertEqual(detection.report["repo_type"], "single")
         self.assertEqual(detection.created_by, self.user)
@@ -94,7 +94,7 @@ class TestRepositoryDetectionViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         with team_scope(self.team.id):
-            detection = RepositoryDetection.objects.get()
+            detection = WizardRepositoryDetection.objects.get()
         self.assertIsNone(detection.report)
         assert detection.error is not None
         self.assertEqual(detection.error["type"], "no-manifests")
@@ -115,7 +115,7 @@ class TestRepositoryDetectionViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class TestUpsertRepositoryDetectionValidation(SimpleTestCase):
+class TestUpsertWizardRepositoryDetectionValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("report_only", {"report": _report()}, True),
@@ -140,7 +140,7 @@ class TestUpsertRepositoryDetectionValidation(SimpleTestCase):
         ]
     )
     def test_exactly_one_of_report_or_error(self, _name, body_part, expected_valid):
-        serializer = UpsertRepositoryDetectionRequestSerializer(
+        serializer = UpsertWizardRepositoryDetectionRequestSerializer(
             data={"repository": "posthog/posthog", "kind": "error-tracking-source-maps", **body_part}
         )
         self.assertEqual(serializer.is_valid(), expected_valid)
@@ -158,7 +158,7 @@ class TestUpsertRepositoryDetectionValidation(SimpleTestCase):
     def test_repository_must_be_org_slash_repo(self, _name, repository, expected):
         # repository is half the idempotency anchor under a unique constraint, so a value the shape
         # check lets through splits into a second row instead of replacing the first.
-        serializer = UpsertRepositoryDetectionRequestSerializer(
+        serializer = UpsertWizardRepositoryDetectionRequestSerializer(
             data={"repository": repository, "kind": "error-tracking-source-maps", "report": _report()}
         )
         self.assertEqual(serializer.is_valid(), expected is not None)

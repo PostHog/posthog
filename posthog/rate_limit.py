@@ -1028,7 +1028,7 @@ class SetupWizardCloudRunSustainedRateThrottle(SetupWizardCloudRunOutcomeAwareTh
     rate = "5/day"
 
 
-class SetupWizardDetectionOutcomeAwareThrottle(UserRateThrottle):
+class SetupWizardRepositoryDetectionOutcomeAwareThrottle(UserRateThrottle):
     """Counts a user's recent repository detection RUNS (not requests), excluding failed and cancelled.
 
     Same outcome-aware design as the cloud-run throttle above, over a different population and its
@@ -1046,16 +1046,16 @@ class SetupWizardDetectionOutcomeAwareThrottle(UserRateThrottle):
         if user is None or not user.is_authenticated:
             # The detection action requires IsAuthenticated; anything else is rejected by permissions.
             return True
-        memo = getattr(request, "_wizard_detection_run_times_memo", None)
+        memo = getattr(request, "_wizard_repository_detection_run_times_memo", None)
         if memo is None:
             memo = {}
-            setattr(request, "_wizard_detection_run_times_memo", memo)  # noqa: B010 — dynamic attr the stubs don't know
+            setattr(request, "_wizard_repository_detection_run_times_memo", memo)  # noqa: B010 — dynamic attr the stubs don't know
         if self.duration not in memo:
             # Deferred: rate_limit is core and imports at module scope would pull the tasks
             # product into every process's import path.
-            from products.tasks.backend.facade.api import recent_wizard_detection_run_times  # noqa: PLC0415
+            from products.tasks.backend.facade.api import recent_wizard_repository_detection_run_times  # noqa: PLC0415
 
-            memo[self.duration] = recent_wizard_detection_run_times(
+            memo[self.duration] = recent_wizard_repository_detection_run_times(
                 user.pk, timezone.now() - timedelta(seconds=self.duration)
             )
         self._recent_run_times = memo[self.duration]
@@ -1068,13 +1068,13 @@ class SetupWizardDetectionOutcomeAwareThrottle(UserRateThrottle):
         return max((run_times[0] + timedelta(seconds=self.duration) - timezone.now()).total_seconds(), 0)
 
 
-class SetupWizardDetectionBurstRateThrottle(SetupWizardDetectionOutcomeAwareThrottle):
-    scope = "wizard_detection_burst"
+class SetupWizardRepositoryDetectionBurstRateThrottle(SetupWizardRepositoryDetectionOutcomeAwareThrottle):
+    scope = "wizard_repository_detection_burst"
     rate = "6/hour"
 
 
-class SetupWizardDetectionSustainedRateThrottle(SetupWizardDetectionOutcomeAwareThrottle):
-    scope = "wizard_detection_day"
+class SetupWizardRepositoryDetectionSustainedRateThrottle(SetupWizardRepositoryDetectionOutcomeAwareThrottle):
+    scope = "wizard_repository_detection_day"
     rate = "20/day"
 
 

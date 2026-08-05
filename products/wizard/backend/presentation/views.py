@@ -30,8 +30,8 @@ from posthog.sync import database_sync_to_async
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
-    UpsertRepositoryDetectionInput,
-    UpsertRepositoryDetectionRequest,
+    UpsertWizardRepositoryDetectionInput,
+    UpsertWizardRepositoryDetectionRequest,
     UpsertWizardSessionInput,
     UpsertWizardSessionRequest,
     WizardSessionDTO,
@@ -39,9 +39,9 @@ from products.wizard.backend.facade.contracts import (
 )
 from products.wizard.backend.facade.enums import RunPhase
 from products.wizard.backend.presentation.serializers import (
-    RepositoryDetectionSerializer,
-    UpsertRepositoryDetectionRequestSerializer,
+    UpsertWizardRepositoryDetectionRequestSerializer,
     UpsertWizardSessionRequestSerializer,
+    WizardRepositoryDetectionSerializer,
     WizardSessionSerializer,
 )
 from products.wizard.backend.presentation.utils import pagination_window
@@ -370,7 +370,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return sse_streaming_response(generator, endpoint="wizard_session")
 
 
-class RepositoryDetectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class WizardRepositoryDetectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Detection results a wizard agent posted for a team's repositories.
 
     Rides the `wizard_session` scope: both are wizard-produced run data, and the
@@ -388,22 +388,22 @@ class RepositoryDetectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             "anchor — reposting the same pair replaces the existing row. Returns 201 on "
             "create, 200 on update."
         ),
-        request=UpsertRepositoryDetectionRequestSerializer,
+        request=UpsertWizardRepositoryDetectionRequestSerializer,
         responses={
-            200: RepositoryDetectionSerializer,
-            201: RepositoryDetectionSerializer,
+            200: WizardRepositoryDetectionSerializer,
+            201: WizardRepositoryDetectionSerializer,
         },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = UpsertRepositoryDetectionRequestSerializer(data=request.data)
+        serializer = UpsertWizardRepositoryDetectionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        req: UpsertRepositoryDetectionRequest = serializer.save()
+        req: UpsertWizardRepositoryDetectionRequest = serializer.save()
 
         user = getattr(request, "user", None)
         created_by_id = user.id if user is not None and not user.is_anonymous else None
 
-        dto, created = wizard_facade.upsert_repository_detection(
-            UpsertRepositoryDetectionInput(
+        dto, created = wizard_facade.upsert_wizard_repository_detection(
+            UpsertWizardRepositoryDetectionInput(
                 team_id=self.team_id,
                 repository=req.repository,
                 kind=req.kind,
@@ -414,7 +414,7 @@ class RepositoryDetectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             )
         )
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-        return Response(RepositoryDetectionSerializer(dto).data, status=response_status)
+        return Response(WizardRepositoryDetectionSerializer(dto).data, status=response_status)
 
 
 async def _wizard_session_event_stream(

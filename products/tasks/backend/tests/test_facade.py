@@ -732,12 +732,12 @@ class TestFacadeReadsAndMappers(TestCase):
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
 
-    @patch("products.tasks.backend.temporal.client.execute_repository_detection_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_wizard_repository_detection_workflow")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_detection_run_dispatches_the_detection_workflow(self, mock_process_task, mock_detection):
         Integration.objects.create(team=self.team, kind="github", config={})
         with self.captureOnCommitCallbacks(execute=True):
-            created = facade.create_detection_run(
+            created = facade.create_wizard_repository_detection_run(
                 team=self.team,
                 user_id=self.user.id,
                 repository="acme-co/web",
@@ -757,12 +757,12 @@ class TestFacadeReadsAndMappers(TestCase):
         task = Task.objects.get(id=created.task_id)
         # Cloud wizard runs stamp wizard_config too, so the origin is what keeps this run out of the
         # process-task reconciler and off the cloud-run quota window.
-        self.assertEqual(task.origin_product, Task.OriginProduct.REPOSITORY_DETECTION)
+        self.assertEqual(task.origin_product, Task.OriginProduct.WIZARD_REPOSITORY_DETECTION)
 
     def test_create_detection_run_rejects_unknown_kind(self):
         Integration.objects.create(team=self.team, kind="github", config={})
         with self.assertRaises(ValueError):
-            facade.create_detection_run(
+            facade.create_wizard_repository_detection_run(
                 team=self.team,
                 user_id=self.user.id,
                 repository="acme-co/web",
@@ -855,7 +855,7 @@ class TestRecentWizardCloudRunTimes(TestCase):
             (
                 "detection_run",
                 {
-                    "origin_product": Task.OriginProduct.REPOSITORY_DETECTION,
+                    "origin_product": Task.OriginProduct.WIZARD_REPOSITORY_DETECTION,
                     "state": {"wizard_config": {"kind": "error-tracking-source-maps"}},
                 },
                 0,
@@ -871,7 +871,7 @@ class TestRecentWizardCloudRunTimes(TestCase):
         self._make_run(**run_kwargs)
         since = django_timezone.now() - timedelta(hours=1)
         self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), cloud_count)
-        self.assertEqual(len(facade.recent_wizard_detection_run_times(self.user.id, since)), detection_count)
+        self.assertEqual(len(facade.recent_wizard_repository_detection_run_times(self.user.id, since)), detection_count)
 
     def test_scopes_by_user_across_teams_and_respects_window(self):
         self._make_run()

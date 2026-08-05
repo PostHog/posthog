@@ -4,11 +4,13 @@ Business logic for repository detections.
 
 from django.db import transaction
 
-from products.wizard.backend.facade.contracts import RepositoryDetectionDTO, UpsertRepositoryDetectionInput
-from products.wizard.backend.models import RepositoryDetection
+from products.wizard.backend.facade.contracts import UpsertWizardRepositoryDetectionInput, WizardRepositoryDetectionDTO
+from products.wizard.backend.models import WizardRepositoryDetection
 
 
-def upsert_detection(params: UpsertRepositoryDetectionInput) -> tuple[RepositoryDetectionDTO, bool]:
+def upsert_wizard_repository_detection(
+    params: UpsertWizardRepositoryDetectionInput,
+) -> tuple[WizardRepositoryDetectionDTO, bool]:
     """Upsert a detection row and return (dto, created).
 
     Each push fully replaces `report` / `error` / `task_run_id` — the row always
@@ -23,7 +25,7 @@ def upsert_detection(params: UpsertRepositoryDetectionInput) -> tuple[Repository
             "task_run_id": params.task_run_id,
         }
         # created_by only in create_defaults so a later push for the same key can't reattribute it.
-        instance, created = RepositoryDetection.objects.update_or_create(
+        instance, created = WizardRepositoryDetection.objects.update_or_create(
             team_id=params.team_id,
             repository=params.repository,
             kind=params.kind,
@@ -33,8 +35,8 @@ def upsert_detection(params: UpsertRepositoryDetectionInput) -> tuple[Repository
     return _to_dto(instance), created
 
 
-def _to_dto(instance: RepositoryDetection) -> RepositoryDetectionDTO:
-    return RepositoryDetectionDTO(
+def _to_dto(instance: WizardRepositoryDetection) -> WizardRepositoryDetectionDTO:
+    return WizardRepositoryDetectionDTO(
         id=str(instance.id),
         team_id=instance.team_id,
         repository=instance.repository,

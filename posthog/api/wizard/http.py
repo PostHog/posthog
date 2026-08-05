@@ -38,9 +38,9 @@ from posthog.rate_limit import (
     SetupWizardAuthenticationRateThrottle,
     SetupWizardCloudRunBurstRateThrottle,
     SetupWizardCloudRunSustainedRateThrottle,
-    SetupWizardDetectionBurstRateThrottle,
-    SetupWizardDetectionSustainedRateThrottle,
     SetupWizardQueryRateThrottle,
+    SetupWizardRepositoryDetectionBurstRateThrottle,
+    SetupWizardRepositoryDetectionSustainedRateThrottle,
 )
 from posthog.user_permissions import UserPermissions
 
@@ -66,7 +66,7 @@ WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 # The same ceiling for detection scans, on its own counter. A scan boots a sandbox but runs no
 # agent, and a user scanning several repositories must not exhaust the budget that gets them through
 # onboarding, so the two budgets are separate and this one is higher.
-WIZARD_DETECTION_DAILY_ATTEMPT_CAP = 30
+WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP = 30
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
@@ -146,7 +146,7 @@ class SetupWizardCloudRunResponseSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Initial status of the run (e.g. 'queued').")
 
 
-class SetupWizardDetectionSerializer(serializers.Serializer):
+class SetupWizardRepositoryDetectionSerializer(serializers.Serializer):
     project_id = serializers.IntegerField(
         help_text="ID of the PostHog project the detection result belongs to. The authenticated user must have access to it."
     )
@@ -165,9 +165,9 @@ class SetupWizardDetectionSerializer(serializers.Serializer):
     )
 
     def validate_kind(self, value: str) -> str:
-        # Checked here rather than left to create_detection_run so an unknown kind is rejected
-        # before _reserve_detection_attempt charges the user's daily budget for it.
-        if value not in tasks_facade.supported_detection_kinds():
+        # Checked here rather than left to create_wizard_repository_detection_run so an unknown kind is rejected
+        # before _reserve_wizard_repository_detection_attempt charges the user's daily budget for it.
+        if value not in tasks_facade.supported_wizard_repository_detection_kinds():
             raise serializers.ValidationError(f"Unknown detection kind: {value}")
         return value
 
@@ -537,21 +537,21 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.Throttled(detail="You've reached today's limit for cloud setup runs. Try again tomorrow.")
 
     @staticmethod
-    def _reserve_detection_attempt(user_id: int) -> None:
+    def _reserve_wizard_repository_detection_attempt(user_id: int) -> None:
         """Atomically consume one of the user's daily detection attempts or raise Throttled.
 
         The detection counterpart of ``_reserve_cloud_run_attempt``, on its own counter and cap;
         see that method for why the reservation is atomic and where it sits in the request.
         """
         window = int(time.time()) // 86400
-        key = f"wizard_detection_attempts:{user_id}:{window}"
+        key = f"wizard_repository_detection_attempts:{user_id}:{window}"
         cache.add(key, 0, timeout=86400)
         try:
             count = cache.incr(key)
         except ValueError:
             # The key expired between add and incr; this request is the window's first.
             count = 1
-        if count > WIZARD_DETECTION_DAILY_ATTEMPT_CAP:
+        if count > WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP:
             raise exceptions.Throttled(detail="You've reached today's limit for repository scans. Try again tomorrow.")
 
     @staticmethod
@@ -601,21 +601,21 @@ class SetupWizardViewSet(viewsets.ViewSet):
         )
 
     @extend_schema(
-        request=SetupWizardDetectionSerializer,
+        request=SetupWizardRepositoryDetectionSerializer,
         responses={200: SetupWizardCloudRunResponseSerializer},
     )
     @action(
         methods=["POST"],
         detail=False,
-        url_path="detection",
+        url_path="repository_detection",
         authentication_classes=[SessionAuthentication],
         permission_classes=[IsAuthenticated],
         throttle_classes=[
-            SetupWizardDetectionBurstRateThrottle,
-            SetupWizardDetectionSustainedRateThrottle,
+            SetupWizardRepositoryDetectionBurstRateThrottle,
+            SetupWizardRepositoryDetectionSustainedRateThrottle,
         ],
     )
-    def detection(self, request: Request) -> Response:
+    def repository_detection(self, request: Request) -> Response:
         """Run a repository detection scan of the given kind, in the cloud.
 
         Provisions a task-run sandbox that clones the repository and runs the wizard detection
@@ -630,14 +630,14 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
             raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")
 
-        serializer = SetupWizardDetectionSerializer(data=request.data)
+        serializer = SetupWizardRepositoryDetectionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         project = self._resolve_visible_project(request, serializer.validated_data["project_id"])
 
-        self._reserve_detection_attempt(cast(User, request.user).id)
+        self._reserve_wizard_repository_detection_attempt(cast(User, request.user).id)
 
         try:
-            result = tasks_facade.create_detection_run(
+            result = tasks_facade.create_wizard_repository_detection_run(
                 team=project.passthrough_team,
                 user_id=cast(User, request.user).id,
                 repository=serializer.validated_data["repository"],

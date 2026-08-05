@@ -368,15 +368,15 @@ def execute_task_processing_workflow(
         )
 
 
-def execute_repository_detection_workflow(task_id: str, run_id: str, team_id: int) -> None:
-    """Start the detect-repository workflow synchronously. Fire-and-forget.
+def execute_wizard_repository_detection_workflow(task_id: str, run_id: str, team_id: int) -> None:
+    """Start the wizard-repository-detection workflow synchronously. Fire-and-forget.
 
     The detection sibling of ``execute_task_processing_workflow``: same terminalization
     contract (a failed start must not orphan the run in QUEUED), none of the agent-run
     plumbing (Slack context, prewarm, initial message).
     """
-    from products.tasks.backend.temporal.detect_repository import (
-        DetectRepositoryInput,  # noqa: PLC0415 — avoid an import cycle via temporal/__init__
+    from products.tasks.backend.temporal.wizard_repository_detection import (
+        WizardRepositoryDetectionInput,  # noqa: PLC0415 — avoid an import cycle via temporal/__init__
     )
 
     task_run_for_metrics: TaskRun | None = None
@@ -385,7 +385,7 @@ def execute_repository_detection_workflow(task_id: str, run_id: str, team_id: in
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         Team.objects.get(id=team_id)
 
-        workflow_id = f"detect-repository-{task_id}-{run_id}"
+        workflow_id = f"wizard-repository-detection-{task_id}-{run_id}"
         # Persist before starting: the prefixed ID isn't derivable from (task_id, run_id), so
         # without this `TaskRun.workflow_id` resolves to `task-processing-*` and every row-to-workflow
         # lookup misses. Cancellation reads that miss as "workflow gone" and tears the sandbox down
@@ -394,21 +394,21 @@ def execute_repository_detection_workflow(task_id: str, run_id: str, team_id: in
         client = sync_connect()
         asyncio.run(
             client.start_workflow(
-                "detect-repository",
-                DetectRepositoryInput(run_id=run_id),
+                "wizard-repository-detection",
+                WizardRepositoryDetectionInput(run_id=run_id),
                 id=workflow_id,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                 task_queue=settings.TASKS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         )
-        logger.info("repository_detection_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        logger.info("wizard_repository_detection_workflow_started", extra={"task_id": task_id, "run_id": run_id})
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
     except Team.DoesNotExist as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="permission_validation")
         logger.exception(
-            "repository_detection_permission_validation_failed",
+            "wizard_repository_detection_permission_validation_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
         _terminalize_unstarted_task_run(
@@ -418,7 +418,7 @@ def execute_repository_detection_workflow(task_id: str, run_id: str, team_id: in
     except Exception as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
         logger.exception(
-            "repository_detection_workflow_start_failed",
+            "wizard_repository_detection_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
         _terminalize_unstarted_task_run(
@@ -470,7 +470,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     Returns an outcome for metrics/logs: ``recovered`` (workflow started), ``already_running``
     (a workflow already exists), ``left_queue`` (row is no longer QUEUED), ``skipped_prewarmed``
     (owned by the prewarmed reaper), ``skipped_local`` (desktop-driven run, nothing to recover),
-    ``skipped_detection`` (detect-repository run, not recoverable as a process-task run),
+    ``skipped_wizard_repository_detection`` (wizard-repository-detection run, not recoverable as a process-task run),
     ``error`` (transient).
     """
     from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
@@ -497,13 +497,13 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         return "skipped_prewarmed"
 
     task = task_run.task
-    # Detection runs are driven by detect-repository, not process-task, and this reconciler only
+    # Detection runs are driven by wizard-repository-detection, not process-task, and this reconciler only
     # knows how to start the latter. Recovering one here would swap an agentless read-only scan for
     # a full agent run: they are created with start_workflow=False, so they carry no
     # pending_dispatch, and the fallbacks below resolve to create_pr=True plus "full" MCP scopes.
     # Their recovery path is the 24h killer, which fails the run so the user can retrigger it.
-    if task.origin_product == Task.OriginProduct.REPOSITORY_DETECTION:
-        return "skipped_detection"
+    if task.origin_product == Task.OriginProduct.WIZARD_REPOSITORY_DETECTION:
+        return "skipped_wizard_repository_detection"
 
     task_id = str(task.id)
     # create_and_run persists these on the row; the bootstrap/start path does not, so fall back to

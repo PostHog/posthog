@@ -342,6 +342,7 @@ rules:
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
                               |WebAnalyticsVisit
+                              |WizardRepositoryDetection
                               |WizardSession
                           )$
                 - focus-metavariable: $SINK
@@ -680,6 +681,7 @@ rules:
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
                         |WebAnalyticsVisit
+                        |WizardRepositoryDetection
                         |WizardSession
                     )$
           # Exclude when team filter is present

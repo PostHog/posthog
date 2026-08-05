@@ -65,7 +65,7 @@ class WizardSession(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
         ]
 
 
-class RepositoryDetection(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
+class WizardRepositoryDetection(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
     """What a wizard detection agent found in a repository.
 
     One row per (team, repository, kind) — each detection run replaces the
@@ -104,7 +104,7 @@ class RepositoryDetection(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
 
     class Meta(TeamScopedRootMixin.Meta):
         constraints = [
-            models.UniqueConstraint(fields=["team", "repository", "kind"], name="unique_repo_detection_per_team")
+            models.UniqueConstraint(fields=["team", "repository", "kind"], name="unique_wizard_repo_detection_per_team")
         ]
         indexes = [
             # the UI lists a kind's detections newest-first

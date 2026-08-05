@@ -44523,7 +44523,7 @@ export namespace Schemas {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
-     * * `repo_detection` - Repository Detection
+     * * `repo_detection` - Wizard Repository Detection
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -57430,7 +57430,7 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `repo_detection` - Repository Detection */
+       * * `repo_detection` - Wizard Repository Detection */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -64358,29 +64358,6 @@ export namespace Schemas {
       report: SignalReport;
       /** All signals contributing to the report. */
       signals: SignalNode[];
-    }
-
-    /**
-     * Output: serialises a RepositoryDetectionDTO returned by the facade.
-     */
-    export interface RepositoryDetectionDTO {
-      /** The detection result, or null when the run failed (see `error`). */
-      report: DetectionReport | null;
-      /** Why the run failed, or null when it succeeded (see `report`). */
-      error: DetectionError | null;
-      id: string;
-      team_id: number;
-      /** Repository the detection ran against, in 'org/repo' form. */
-      repository: string;
-      /** Detection flavor, e.g. 'error-tracking-source-maps'. */
-      kind: string;
-      /**
-         * TaskRun UUID of the cloud run that produced this result, when it ran in the cloud.
-         * @nullable
-         */
-      task_run_id: string | null;
-      created_at: string;
-      updated_at: string;
     }
 
     export interface ScanEvidence {
@@ -72412,7 +72389,7 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `repo_detection` - Repository Detection */
+       * * `repo_detection` - Wizard Repository Detection */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -73502,7 +73479,7 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `repo_detection` - Repository Detection */
+       * * `repo_detection` - Wizard Repository Detection */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -74278,7 +74255,7 @@ export namespace Schemas {
     /**
      * Input: validates the JSON a detection agent posts. team_id is derived from URL.
      */
-    export interface UpsertRepositoryDetectionRequest {
+    export interface UpsertWizardRepositoryDetectionRequest {
       /** The detection result. Exactly one of `report` / `error` must be set. */
       report?: DetectionReport | null;
       /** Why the run failed. Exactly one of `report` / `error` must be set. */
@@ -75051,6 +75028,29 @@ export namespace Schemas {
          * @nullable
          */
       started_at?: string | null;
+    }
+
+    /**
+     * Output: serialises a WizardRepositoryDetectionDTO returned by the facade.
+     */
+    export interface WizardRepositoryDetectionDTO {
+      /** The detection result, or null when the run failed (see `error`). */
+      report: DetectionReport | null;
+      /** Why the run failed, or null when it succeeded (see `report`). */
+      error: DetectionError | null;
+      id: string;
+      team_id: number;
+      /** Repository the detection ran against, in 'org/repo' form. */
+      repository: string;
+      /** Detection flavor, e.g. 'error-tracking-source-maps'. */
+      kind: string;
+      /**
+         * TaskRun UUID of the cloud run that produced this result, when it ran in the cloud.
+         * @nullable
+         */
+      task_run_id: string | null;
+      created_at: string;
+      updated_at: string;
     }
 
     export interface WorkflowHealthBucket {

@@ -12,7 +12,6 @@ from .create_snapshot.activities import (
     setup_repository as snapshot_setup_repository,
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
-from .detect_repository import DetectRepositoryWorkflow, run_wizard_detection
 from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
     await_agent_server_ready,
@@ -58,10 +57,11 @@ from .process_task.activities.slack_agent_design import (
 from .process_task.slack_agent_design_relay import SlackAgentDesignRelayWorkflow
 from .process_task.workflow import ProcessTaskWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
+from .wizard_repository_detection import WizardRepositoryDetectionWorkflow, run_wizard_repository_detection
 
 WORKFLOWS = [
     ProcessTaskWorkflow,
-    DetectRepositoryWorkflow,
+    WizardRepositoryDetectionWorkflow,
     SlackAgentDesignRelayWorkflow,
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
@@ -84,7 +84,7 @@ ACTIVITIES = [
     get_sandbox_for_repository,
     execute_task_in_sandbox,
     run_wizard,
-    run_wizard_detection,
+    run_wizard_repository_detection,
     forward_pending_user_message,
     relay_agent_design_signals,
     relay_sandbox_events,

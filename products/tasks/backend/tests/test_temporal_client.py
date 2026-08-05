@@ -526,14 +526,14 @@ class TestRedispatchOrphanedTaskRun(TestCase):
             created_by=self.user,
             title="Repository detection",
             description="Scan the repository",
-            origin_product=Task.OriginProduct.REPOSITORY_DETECTION,
+            origin_product=Task.OriginProduct.WIZARD_REPOSITORY_DETECTION,
         )
         run = self._orphaned_run(task=detection_task)
         start_workflow = AsyncMock()
 
         outcome = self._run_reconcile(run, start_workflow)
 
-        self.assertEqual(outcome, "skipped_detection")
+        self.assertEqual(outcome, "skipped_wizard_repository_detection")
         start_workflow.assert_not_called()
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)

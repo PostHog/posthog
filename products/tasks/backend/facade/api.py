@@ -47,7 +47,7 @@ from products.tasks.backend.constants import (
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_SESSION_MAX_SIZE_BYTES,
-    WIZARD_DETECTION_PROGRAMS,
+    WIZARD_REPOSITORY_DETECTION_PROGRAMS,
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
@@ -1044,27 +1044,27 @@ def create_wizard_cloud_run(
     )
 
 
-def supported_detection_kinds() -> frozenset[str]:
-    """Detection kinds ``create_detection_run`` accepts.
+def supported_wizard_repository_detection_kinds() -> frozenset[str]:
+    """Detection kinds ``create_wizard_repository_detection_run`` accepts.
 
     Exposed so callers can reject an unknown kind up front, before doing anything that costs the
-    user quota. ``create_detection_run`` re-checks, since it is reachable without going through a
+    user quota. ``create_wizard_repository_detection_run`` re-checks, since it is reachable without going through a
     caller that pre-validates.
     """
-    return frozenset(WIZARD_DETECTION_PROGRAMS)
+    return frozenset(WIZARD_REPOSITORY_DETECTION_PROGRAMS)
 
 
-def create_detection_run(
+def create_wizard_repository_detection_run(
     *,
     team,
     user_id: int,
     repository: str,
     kind: str,
 ) -> contracts.CreatedTaskDTO:
-    """Create a task and start the dedicated detect-repository workflow for it.
+    """Create a task and start the dedicated run-wizard-repository-detection workflow for it.
 
-    ``kind`` selects the wizard detection program (see ``WIZARD_DETECTION_PROGRAMS``) and is
-    the same identifier the wizard posts its report under to the wizard product's
+    ``kind`` selects the wizard detection program (see ``WIZARD_REPOSITORY_DETECTION_PROGRAMS``)
+    and is the same identifier the wizard posts its report under to the wizard product's
     repository-detections API, using its scoped cloud-run token — so nothing flows back
     through this task except run status. The detection workflow is a sibling of
     process-task with none of its agent machinery: no agent boots, no PR is opened.
@@ -1073,22 +1073,22 @@ def create_detection_run(
     makes provisioning inject the wizard's own OAuth token into the sandbox — the same gate a
     cloud wizard run uses, because a detection scan runs the same wizard binary.
 
-    ``REPOSITORY_DETECTION`` is what separates the two wherever both are visible: the reconciler
+    ``WIZARD_REPOSITORY_DETECTION`` is what separates the two wherever both are visible: the reconciler
     skips these runs (it only knows how to start process-task) and each origin holds its own quota
     window. It is a server-set origin, rejected from API task creation, so neither can be forged
     into the other.
     """
-    if kind not in WIZARD_DETECTION_PROGRAMS:
+    if kind not in WIZARD_REPOSITORY_DETECTION_PROGRAMS:
         raise ValueError(f"Unknown detection kind: {kind}")
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        execute_repository_detection_workflow,
+        execute_wizard_repository_detection_workflow,
     )
 
     created = create_and_run_task(
         team=team,
         title=f"Repository detection: {kind}",
         description=f"Scan the repository ({kind} detection).",
-        origin_product=Task.OriginProduct.REPOSITORY_DETECTION,
+        origin_product=Task.OriginProduct.WIZARD_REPOSITORY_DETECTION,
         user_id=user_id,
         repository=repository,
         create_pr=False,
@@ -1103,7 +1103,7 @@ def create_detection_run(
     # exists. On autocommit the callback fires immediately.
     transaction.on_commit(
         partial(
-            execute_repository_detection_workflow,
+            execute_wizard_repository_detection_workflow,
             str(created.task_id),
             str(latest_run.id),
             created.team_id,
@@ -1126,7 +1126,7 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
     local must keep consuming quota, or flipping it would launder sandbox boots out of the limits.
 
     Detection runs stamp ``wizard_config`` too (it is what makes provisioning inject the wizard
-    token), so they are excluded by origin and counted by ``recent_wizard_detection_run_times``
+    token), so they are excluded by origin and counted by ``recent_wizard_repository_detection_run_times``
     against their own window instead.
 
     Deliberately user-scoped across teams: the throttle is per user, and a user can run the
@@ -1139,13 +1139,13 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
             created_at__gte=since,
         )
         .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
-        .exclude(task__origin_product=Task.OriginProduct.REPOSITORY_DETECTION)
+        .exclude(task__origin_product=Task.OriginProduct.WIZARD_REPOSITORY_DETECTION)
         .order_by("created_at")
         .values_list("created_at", flat=True)
     )
 
 
-def recent_wizard_detection_run_times(user_id: int, since: datetime) -> list[datetime]:
+def recent_wizard_repository_detection_run_times(user_id: int, since: datetime) -> list[datetime]:
     """Creation times of a user's recent repository detection runs that still count against quota.
 
     Backs the outcome-aware detection throttles, on a window of their own: a scan boots a sandbox
@@ -1164,7 +1164,7 @@ def recent_wizard_detection_run_times(user_id: int, since: datetime) -> list[dat
     return list(
         TaskRun.objects.filter(
             task__created_by_id=user_id,
-            task__origin_product=Task.OriginProduct.REPOSITORY_DETECTION,
+            task__origin_product=Task.OriginProduct.WIZARD_REPOSITORY_DETECTION,
             created_at__gte=since,
         )
         .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
@@ -1317,7 +1317,7 @@ def redispatch_task_run(run_id: str | UUID) -> str:
     """Re-dispatch a QUEUED run whose create-time workflow dispatch was lost. Cross-team janitor call.
 
     Idempotent recover-only wrapper over the temporal client — never fails the run. Returns the
-    outcome (``recovered`` / ``already_running`` / ``left_queue`` / ``skipped_detection`` / ``error``).
+    outcome (``recovered`` / ``already_running`` / ``left_queue`` / ``skipped_wizard_repository_detection`` / ``error``).
     """
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         redispatch_orphaned_task_run,

@@ -4,19 +4,19 @@ import pytest
 
 from django.test import SimpleTestCase
 
-from products.tasks.backend.constants import WIZARD_DETECTION_PROGRAMS
-from products.tasks.backend.temporal import detect_repository as detect_repository_module
-from products.tasks.backend.temporal.detect_repository import (
-    DetectRepositoryInput,
-    DetectRepositoryWorkflow,
-    RunWizardDetectionInput,
-    _build_detection_command,
+from products.tasks.backend.constants import WIZARD_REPOSITORY_DETECTION_PROGRAMS
+from products.tasks.backend.temporal import wizard_repository_detection as wizard_repository_detection_module
+from products.tasks.backend.temporal.wizard_repository_detection import (
+    RunWizardRepositoryDetectionInput,
+    WizardRepositoryDetectionInput,
+    WizardRepositoryDetectionWorkflow,
+    _build_wizard_repository_detection_command,
     cleanup_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
     get_task_processing_context,
     prepare_sandbox_for_repository,
-    run_wizard_detection,
+    run_wizard_repository_detection,
     update_task_run_status,
 )
 
@@ -27,7 +27,7 @@ class TestBuildDetectionCommand(SimpleTestCase):
         # declared on the wizard's base command, so leaking it here would crash yargs
         # strictOptions. The subcommand must come before the flags, and --repository must be
         # passed explicitly because the sandbox clone's origin remote carries a token URL.
-        command = _build_detection_command(
+        command = _build_wizard_repository_detection_command(
             "error-tracking-source-maps", "/tmp/workspace/repos/acme/app", 123, "acme/app"
         )
 
@@ -41,13 +41,13 @@ class TestBuildDetectionCommand(SimpleTestCase):
     def test_every_registered_kind_maps_to_a_subcommand(self) -> None:
         # A registry entry whose args accidentally start with a flag would run the default
         # interactive TUI flow in the sandbox and hang until the timeout.
-        for kind, program in WIZARD_DETECTION_PROGRAMS.items():
+        for kind, program in WIZARD_REPOSITORY_DETECTION_PROGRAMS.items():
             assert program, kind
             assert not program[0].startswith("-"), kind
 
     def test_unknown_kind_raises(self) -> None:
         with self.assertRaises(ValueError):
-            _build_detection_command("no-such-kind", "/tmp/workspace/repos/a/b", 1, "a/b")
+            _build_wizard_repository_detection_command("no-such-kind", "/tmp/workspace/repos/a/b", 1, "a/b")
 
 
 @dataclass
@@ -88,17 +88,17 @@ class TestDetectRepositoryWorkflow:
                 return _FakePrepared()
             if activity_fn is create_sandbox_for_repository:
                 return _FakeCreated()
-            if activity_fn is run_wizard_detection and detection_error is not None:
+            if activity_fn is run_wizard_repository_detection and detection_error is not None:
                 raise detection_error
             return None
 
-        monkeypatch.setattr(detect_repository_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(wizard_repository_detection_module.workflow, "execute_activity", fake_execute_activity)
         return calls
 
     async def test_happy_path_runs_the_full_sequence_and_completes_the_run(self, monkeypatch):
         calls = self._install_fake_activities(monkeypatch)
 
-        result = await DetectRepositoryWorkflow().run(DetectRepositoryInput(run_id="run-id"))
+        result = await WizardRepositoryDetectionWorkflow().run(WizardRepositoryDetectionInput(run_id="run-id"))
 
         assert result.success is True
         assert result.sandbox_id == "sandbox-123"
@@ -108,12 +108,12 @@ class TestDetectRepositoryWorkflow:
             prepare_sandbox_for_repository,
             create_sandbox_for_repository,
             clone_repository_in_sandbox,
-            run_wizard_detection,
+            run_wizard_repository_detection,
             update_task_run_status,  # completed
             cleanup_sandbox,
         ]
-        detection_input = next(inp for fn, inp in calls if fn is run_wizard_detection)
-        assert isinstance(detection_input, RunWizardDetectionInput)
+        detection_input = next(inp for fn, inp in calls if fn is run_wizard_repository_detection)
+        assert isinstance(detection_input, RunWizardRepositoryDetectionInput)
         assert detection_input.repository == "acme/app"
         statuses = [inp.status for fn, inp in calls if fn is update_task_run_status]
         assert statuses == ["in_progress", "completed"]
@@ -123,7 +123,7 @@ class TestDetectRepositoryWorkflow:
         # on failure) and a run orphaned in in_progress (no terminal status written).
         calls = self._install_fake_activities(monkeypatch, detection_error=RuntimeError("scan exploded"))
 
-        result = await DetectRepositoryWorkflow().run(DetectRepositoryInput(run_id="run-id"))
+        result = await WizardRepositoryDetectionWorkflow().run(WizardRepositoryDetectionInput(run_id="run-id"))
 
         assert result.success is False
         assert result.error is not None and "scan exploded" in result.error
@@ -138,7 +138,7 @@ class TestDetectRepositoryWorkflow:
         # workflow and leaves the run in QUEUED with no error until the 24h killer sweeps it.
         calls = self._install_fake_activities(monkeypatch, context_error=RuntimeError("run row not ready"))
 
-        result = await DetectRepositoryWorkflow().run(DetectRepositoryInput(run_id="run-id"))
+        result = await WizardRepositoryDetectionWorkflow().run(WizardRepositoryDetectionInput(run_id="run-id"))
 
         assert result.success is False
         assert result.error is not None and "run row not ready" in result.error
@@ -155,9 +155,11 @@ class TestDetectRepositoryWorkflow:
                 return _FakeContext(repository=None)
             return None
 
-        monkeypatch.setattr(detect_repository_module.workflow, "execute_activity", fake_execute_activity_no_repo)
+        monkeypatch.setattr(
+            wizard_repository_detection_module.workflow, "execute_activity", fake_execute_activity_no_repo
+        )
 
-        result = await DetectRepositoryWorkflow().run(DetectRepositoryInput(run_id="run-id"))
+        result = await WizardRepositoryDetectionWorkflow().run(WizardRepositoryDetectionInput(run_id="run-id"))
 
         assert result.success is False
         assert prepare_sandbox_for_repository not in [fn for fn, _ in calls]

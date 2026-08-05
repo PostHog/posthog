@@ -14,9 +14,9 @@ from typing import Any
 
 from products.wizard.backend import metrics
 from products.wizard.backend.facade.contracts import (
-    RepositoryDetectionDTO,
-    UpsertRepositoryDetectionInput,
+    UpsertWizardRepositoryDetectionInput,
     UpsertWizardSessionInput,
+    WizardRepositoryDetectionDTO,
     WizardSessionDTO,
 )
 from products.wizard.backend.logic import pubsub, repository_detections, sessions
@@ -27,9 +27,11 @@ def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
     return sessions.upsert_session(params)
 
 
-def upsert_repository_detection(params: UpsertRepositoryDetectionInput) -> tuple[RepositoryDetectionDTO, bool]:
+def upsert_wizard_repository_detection(
+    params: UpsertWizardRepositoryDetectionInput,
+) -> tuple[WizardRepositoryDetectionDTO, bool]:
     """Returns `(dto, created)` so callers can pick 201 vs 200."""
-    return repository_detections.upsert_detection(params)
+    return repository_detections.upsert_wizard_repository_detection(params)
 
 
 def get(team_id: int, session_id: str) -> WizardSessionDTO | None:

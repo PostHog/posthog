@@ -85,7 +85,7 @@ class UpsertWizardSessionInput:
 
 
 @dataclass(frozen=True)
-class RepositoryDetectionDTO:
+class WizardRepositoryDetectionDTO:
     id: str
     team_id: int
     repository: str
@@ -98,7 +98,7 @@ class RepositoryDetectionDTO:
 
 
 @dataclass(frozen=True)
-class UpsertRepositoryDetectionRequest:
+class UpsertWizardRepositoryDetectionRequest:
     """What a detection agent POSTs. team_id is derived from the URL, not the body."""
 
     repository: str
@@ -109,7 +109,7 @@ class UpsertRepositoryDetectionRequest:
 
 
 @dataclass(frozen=True)
-class UpsertRepositoryDetectionInput:
+class UpsertWizardRepositoryDetectionInput:
     team_id: int
     repository: str
     kind: str

@@ -10,9 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedWizardSessionDTOListApi,
-    RepositoryDetectionDTOApi,
-    UpsertRepositoryDetectionRequestApi,
+    UpsertWizardRepositoryDetectionRequestApi,
     UpsertWizardSessionRequestApi,
+    WizardRepositoryDetectionDTOApi,
     WizardSessionDTOApi,
     WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
@@ -28,14 +28,14 @@ export const getWizardRepositoryDetectionsCreateUrl = (projectId: string) => {
  */
 export const wizardRepositoryDetectionsCreate = async (
     projectId: string,
-    upsertRepositoryDetectionRequestApi: UpsertRepositoryDetectionRequestApi,
+    upsertWizardRepositoryDetectionRequestApi: UpsertWizardRepositoryDetectionRequestApi,
     options?: RequestInit
-): Promise<RepositoryDetectionDTOApi> => {
-    return apiMutator<RepositoryDetectionDTOApi>(getWizardRepositoryDetectionsCreateUrl(projectId), {
+): Promise<WizardRepositoryDetectionDTOApi> => {
+    return apiMutator<WizardRepositoryDetectionDTOApi>(getWizardRepositoryDetectionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(upsertRepositoryDetectionRequestApi),
+        body: JSON.stringify(upsertWizardRepositoryDetectionRequestApi),
     })
 }
 
