@@ -204,7 +204,7 @@ class _ResourceDisplayModel:
 # index, so they have no ENTITY_MAP entry to borrow. Add one when a resource's rules render raw ids
 # instead of names; delete one when search starts indexing the resource, since ENTITY_MAP is
 # consulted first and the entry goes dead. Resources in neither place fall back to the raw id.
-_NAME_RESOLUTION_MODELS_NOT_IN_SEARCH: dict[str, _ResourceDisplayModel] = {
+_MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
     "warehouse_view": _ResourceDisplayModel(
         app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
     ),
@@ -263,7 +263,7 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
             # The rules list falls back to raw ids, but report the error: it likely affects the whole resource type
             capture_exception(e, {"resource": resource})
             return {}
-    registry = _NAME_RESOLUTION_MODELS_NOT_IN_SEARCH.get(resource)
+    registry = _MODELS_NOT_IN_ENTITY_MAP.get(resource)
     if not registry:
         return {}
     try:
