@@ -84,13 +84,14 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                                 </span>
                                 <br />
                                 <span>
-                                    To reuse a capture group from the regex, reference it with{' '}
+                                    To keep part of the original path, reference a capture group from the regex with{' '}
                                     <span className="font-mono text-accent text-xs">{'\\1'}</span>,{' '}
                                     <span className="font-mono text-accent text-xs">{'\\2'}</span>, and so on. For
                                     example, regex{' '}
                                     <span className="font-mono text-accent text-xs">{'/user/(\\d+)/profile'}</span> with
                                     alias <span className="font-mono text-accent text-xs">{'/user/\\1'}</span> keeps the
-                                    id.
+                                    id. Capture groups slow queries down, so use them when one rule can replace several
+                                    near-identical ones.
                                 </span>
                             </p>
                         </div>
