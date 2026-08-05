@@ -2026,11 +2026,28 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
+            # Tool cache steps inlined rather than the setup-python-cached composite:
+            # this job checks out the PR head ref, which cannot resolve a local
+            # action that only exists on master until the branch rebases.
+            - name: Restore Python tool cache
+              id: python-toolcache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/3.13.13
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.13.13
+
             - name: Set up Python
-              uses: ./.github/actions/setup-python-cached
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Save Python tool cache
+              if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/3.13.13
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.13.13
 
             - name: Install uv
               id: setup-uv
@@ -2588,9 +2605,21 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
+            # Tool cache steps inlined rather than the setup-python-cached composite:
+            # this job checks out the PR head ref, which cannot resolve a local
+            # action that only exists on master until the branch rebases. The
+            # restore sits before the parallel block so the tool cache is warm
+            # when setup-python starts.
+            - name: Restore Python tool cache
+              id: python-toolcache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
+
             - parallel:
                   - name: Set up Python
-                    uses: ./.github/actions/setup-python-cached
+                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
                     with:
                         python-version: ${{ matrix.python-version }}
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -2601,6 +2630,13 @@ jobs:
                     with:
                         toolchain: 1.91.1
                         components: cargo
+
+            - name: Save Python tool cache
+              if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
 
             - name: Install uv
               id: setup-uv-tests
