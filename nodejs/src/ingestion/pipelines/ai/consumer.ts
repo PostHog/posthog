@@ -197,7 +197,11 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
             cdpHogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
             eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres),
+            // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
+            // failure can surface as an unhandled rejection and restart the worker.
+            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres, {
+                loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+            }),
             topHog: container.topHog,
             aiBlobStore: container.aiBlobStore.store,
             aiBlobOffloadConfig,

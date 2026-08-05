@@ -419,7 +419,11 @@ export class IngestionApiServer implements NodeServer {
             aiSubpipelineFactory: createAiEventSubpipeline,
             eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
-            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),
+            // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
+            // failure can surface as an unhandled rejection and restart the worker.
+            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres, {
+                loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+            }),
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService,
             overflowLaneTTLRefreshService,

@@ -172,7 +172,11 @@ export class IngestionConsumer {
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
         this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres)
-        this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres)
+        // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
+        // failure can surface as an unhandled rejection and restart the worker.
+        this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres, {
+            loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+        })
 
         this.name = `ingestion-consumer-${this.topic}`
 
