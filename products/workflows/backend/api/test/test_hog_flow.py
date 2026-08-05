@@ -344,6 +344,48 @@ class TestHogFlowAPI(APIBaseTest):
         assert config["template_id"] == "template-email"
         assert config["template_uuid"] == library_uuid
 
+    @parameterized.expand(
+        [
+            # uuid.UUID also accepts these, but the CDP worker validates function_push's
+            # template_uuid with a strict hyphenated-form schema - persisting the raw string
+            # would save a workflow the worker then rejects at parse time.
+            ("hex_without_hyphens", "0199aabbccdd00001122334455667788"),
+            ("urn_form", "urn:uuid:0199aabb-ccdd-0000-1122-334455667788"),
+        ]
+    )
+    def test_non_canonical_uuid_template_id_is_canonicalized(self, _name, template_id):
+        sync_template_to_db(_email_function_template())
+        hog_flow, action = self._create_hog_flow_with_action(
+            {"template_id": template_id, "inputs": _valid_email_inputs()}
+        )
+        action["type"] = "function_email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 201, response.json()
+        stored = HogFlow.objects.get(pk=response.json()["id"])
+        config = next(a for a in stored.actions if a["type"] == "function_email")["config"]
+        assert config["template_uuid"] == "0199aabb-ccdd-0000-1122-334455667788"
+
+    def test_equivalent_uuid_representations_do_not_conflict(self):
+        # The same saved template referenced in two spellings is one reference, not a conflict.
+        sync_template_to_db(_email_function_template())
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "0199aabbccdd00001122334455667788",
+                "template_uuid": "0199aabb-ccdd-0000-1122-334455667788",
+                "inputs": _valid_email_inputs(),
+            }
+        )
+        action["type"] = "function_email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 201, response.json()
+        stored = HogFlow.objects.get(pk=response.json()["id"])
+        config = next(a for a in stored.actions if a["type"] == "function_email")["config"]
+        assert config["template_uuid"] == "0199aabb-ccdd-0000-1122-334455667788"
+
     def test_uuid_template_id_conflicting_with_template_uuid_is_rejected(self):
         # Coercion would silently overwrite one of two different saved-template references;
         # that ambiguity is the caller's to resolve.
