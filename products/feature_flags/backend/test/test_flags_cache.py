@@ -1147,6 +1147,7 @@ class TestServiceFlagsDataFormat(BaseTest):
             },
             last_backfill_person_properties_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
             last_backfill_events_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+            last_realtime_cohort_calculation_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
         # 1) full-flag: exercises all optional nested structures.
@@ -3613,6 +3614,7 @@ class TestSerializeCohort(BaseTest):
             team=self.team,
             name="Test",
             description="A test cohort",
+            last_realtime_cohort_calculation_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
             filters={
                 "properties": {
                     "type": "OR",
@@ -3622,7 +3624,7 @@ class TestSerializeCohort(BaseTest):
         )
         result = _serialize_cohort(cohort)
 
-        # Hypercache/service cohort schema: these 19 fields must always be present in the serialized payload
+        # Hypercache/service cohort schema: every one of these fields must be present in the serialized payload
         expected_fields = {
             "id",
             "name",
@@ -3643,6 +3645,7 @@ class TestSerializeCohort(BaseTest):
             "condition_type",
             "last_backfill_person_properties_at",
             "last_backfill_events_at",
+            "last_realtime_cohort_calculation_at",
         }
         assert set(result.keys()) == expected_fields
         assert result["id"] == cohort.id
@@ -3651,6 +3654,10 @@ class TestSerializeCohort(BaseTest):
         assert result["deleted"] is False
         assert result["is_static"] is False
         assert result["is_calculating"] is False
+        assert result["last_realtime_cohort_calculation_at"] == "2024-01-15T12:00:00+00:00"
+
+        cohort.last_realtime_cohort_calculation_at = None
+        assert _serialize_cohort(cohort)["last_realtime_cohort_calculation_at"] is None
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
