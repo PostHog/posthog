@@ -2,11 +2,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use personhog_coordination::error::Result;
+use personhog_coordination::error::{Error, Result};
 use personhog_coordination::pod::HandoffHandler;
 use tracing::info;
 
 use crate::cache::{DirtyIndex, PartitionedCache};
+use crate::emitted::EmittedVersions;
+use crate::fencing::{FenceGuard, FencedChangelogProducers};
 use crate::inflight::InflightTracker;
 use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
 
@@ -46,6 +48,22 @@ pub struct LeaderHandoffHandler {
     dirty_index: Arc<DirtyIndex>,
     warming: WarmingConfig,
     pools: Arc<WarmClientPools>,
+    /// Present when broker-enforced epoch fencing is on: acquiring a
+    /// partition initializes its transactional producer (fencing every
+    /// predecessor), and releasing it drops the producer.
+    fenced: Option<Arc<FencedChangelogProducers>>,
+    /// Shared with the service, so that giving up a partition also gives
+    /// up the version floors held for its persons.
+    emitted_versions: Arc<EmittedVersions>,
+    /// Partitions whose fence this pod took during the convergence that
+    /// is still running.
+    ///
+    /// A convergence to `Serving` can both warm and resume, in that
+    /// order, and warming re-admits writes as its last act. Without this,
+    /// the resume that follows re-acquires and bumps the epoch out from
+    /// under every write admitted in between — the pod fencing its own
+    /// live window.
+    freshly_fenced: Arc<dashmap::DashSet<u32>>,
 }
 
 impl LeaderHandoffHandler {
@@ -55,6 +73,8 @@ impl LeaderHandoffHandler {
         dirty_index: Arc<DirtyIndex>,
         warming: WarmingConfig,
         pools: Arc<WarmClientPools>,
+        fenced: Option<Arc<FencedChangelogProducers>>,
+        emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
         Self {
             cache,
@@ -62,11 +82,28 @@ impl LeaderHandoffHandler {
             dirty_index,
             warming,
             pools,
+            fenced,
+            emitted_versions,
+            freshly_fenced: Arc::new(dashmap::DashSet::new()),
         }
     }
 
     pub fn owns_partition(&self, partition: u32) -> bool {
         self.cache.has_partition(partition)
+    }
+    /// Stage the mark warming leaves behind. Warming itself needs a
+    /// broker, and what these tests pin is the mark's lifetime across the
+    /// convergences that follow, not how it comes to exist.
+    #[cfg(test)]
+    fn mark_freshly_fenced_for_test(&self, partition: u32) {
+        self.freshly_fenced.insert(partition);
+    }
+
+    /// Whether a resume would take the fence rather than trust an earlier
+    /// acquisition — the decision the mark exists to make.
+    #[cfg(test)]
+    fn would_reacquire_on_resume(&self, partition: u32) -> bool {
+        !self.freshly_fenced.contains(&partition)
     }
 }
 
@@ -79,15 +116,65 @@ impl HandoffHandler for LeaderHandoffHandler {
         // DrainedAck where a late write could advance the Kafka HWM past
         // the point warming snapshots.
         self.inflight.fence(partition);
+        // From here the partition is moving, so a fence taken by an
+        // earlier convergence stops counting as fresh: the incoming owner
+        // can take the epoch before the handoff is cancelled, and a
+        // resume that skipped its re-acquire on the strength of that
+        // stale mark would re-admit writes onto a producer the broker has
+        // already moved past.
+        self.freshly_fenced.remove(&partition);
         self.inflight
             .wait_until_empty(partition, DRAIN_POLL_INTERVAL)
             .await;
+        // A request cancelled mid-produce takes its handler — and the
+        // count above — with it, leaving the record it enqueued in a
+        // window nobody is waiting on. Committing that window here lands
+        // the cancelled write below the cutoff the successor is about to
+        // read, rather than leaving it to be aborted by whichever side
+        // acts first.
+        //
+        // Best-effort by construction, and the drain proceeds either way:
+        // the successor's `init_transactions` aborts whatever is left,
+        // exactly as it did before this wait existed — pinned by
+        // `a_successors_init_aborts_the_predecessors_open_window`.
+        if let Some(fenced) = &self.fenced {
+            fenced.settle(partition).await;
+        }
         info!(partition, "inflight drained; writes fenced");
         Ok(())
     }
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "warming partition cache from kafka");
+        // Broker-side fencing before the warm read, not after: acquiring
+        // the fence bumps the producer epoch and aborts any in-flight
+        // transaction from a predecessor, so every write a stale owner
+        // ever committed sits below the watermark the warm is about to
+        // read. Fencing after the read would leave a gap where a zombie
+        // commits an acked write the warm never sees.
+        // Deliberately re-acquired even when this pod already holds a
+        // fence from a convergence torn down before it could record the
+        // warm. Skipping would spare the writes that warm admitted, but
+        // it leaves this pod's own uncommitted records between the read
+        // and the high watermark, and the warm below then waits for
+        // records it can never read. Re-acquiring aborts that window,
+        // which is what lets the read complete; the admitted writes fail
+        // as fenced and their versions stay spent.
+        let fence_guard = if let Some(fenced) = &self.fenced {
+            fenced
+                .acquire(partition)
+                .await
+                .map_err(Error::invalid_state)?;
+            info!(partition, "changelog fence acquired");
+            // From here the fence is held for a warm that has not
+            // happened yet. If the warm fails — or never returns,
+            // because the attempt was torn down by a lost lease — the
+            // guard gives the epoch back rather than leaving this
+            // process holding a partition it does not own.
+            Some(FenceGuard::new(Arc::clone(fenced), partition))
+        } else {
+            None
+        };
         warm_from_kafka(
             &self.warming,
             &self.pools,
@@ -100,23 +187,69 @@ impl HandoffHandler for LeaderHandoffHandler {
         // the partition (a drain whose handoff never completed); taking
         // ownership through a fresh warm re-admits writes.
         self.inflight.unfence(partition);
+        if let Some(guard) = fence_guard {
+            guard.keep();
+            self.freshly_fenced.insert(partition);
+        }
         info!(partition, "partition warmed");
         Ok(())
     }
 
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
+        if let Some(fenced) = &self.fenced {
+            fenced.release(partition);
+        }
         self.inflight.unfence(partition);
         self.cache.drop_partition(partition);
         // The new owner's warming rebuilds its own marks; stale marks here
         // would only pin memory for a partition this pod no longer serves.
         self.dirty_index.clear_partition(partition);
+        // The incoming owner derives versions from the changelog, which
+        // is the authority these floors stood in for; carrying them would
+        // only constrain a partition this pod no longer serves.
+        self.emitted_versions.clear_partition(partition);
+        self.freshly_fenced.remove(&partition);
         info!(partition, "partition released");
         Ok(())
     }
 
     async fn resume_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "handoff cancelled; re-admitting writes");
+        // The cancelled handoff's target may have gotten as far as
+        // acquiring the changelog fence, which leaves this pod's producer
+        // epoch-stale — every write would fail as fenced until the next
+        // handoff. Re-acquiring bumps the epoch back to this pod before
+        // writes are re-admitted. (No acked write can predate this: the
+        // target never serves before the assignment flips.)
+        //
+        // Unless this convergence already took the fence on its way here.
+        // Warming re-admits writes as its last act, so acquiring again
+        // would bump the epoch out from under everything admitted since —
+        // the pod fencing its own live window, and handing the successor
+        // of a genuinely moved partition an epoch nobody asked for.
+        if self.freshly_fenced.contains(&partition) {
+            info!(
+                partition,
+                "fence already taken by this convergence; not re-acquiring on resume"
+            );
+            self.inflight.unfence(partition);
+            return Ok(());
+        }
+        if let Some(fenced) = &self.fenced {
+            fenced
+                .acquire(partition)
+                .await
+                .map_err(Error::invalid_state)?;
+            // Mark it the same way warming does. A convergence torn down
+            // between here and the point `apply` records the resume
+            // retries with the partition still listed as fenced, and
+            // without this mark that retry would acquire again — this
+            // time bumping the epoch out from under the writes the line
+            // below is about to admit.
+            self.freshly_fenced.insert(partition);
+            info!(partition, "changelog fence re-acquired on resume");
+        }
         self.inflight.unfence(partition);
         Ok(())
     }
@@ -157,7 +290,7 @@ mod tests {
         };
         let pools = Arc::new(WarmClientPools::new(&kafka, "test", "personhog-writer"));
         LeaderHandoffHandler::new(
-            Arc::new(PartitionedCache::new(100)),
+            Arc::new(PartitionedCache::new(1 << 20)),
             Arc::new(InflightTracker::new()),
             Arc::new(DirtyIndex::new(1_000_000)),
             WarmingConfig {
@@ -176,6 +309,8 @@ mod tests {
                 },
             },
             pools,
+            None,
+            Arc::new(EmittedVersions::new(1_000_000)),
         )
     }
 
@@ -190,6 +325,28 @@ mod tests {
 
         handler.release_partition(42).await.unwrap();
         assert!(!handler.owns_partition(42));
+    }
+
+    /// The incoming owner derives versions from the changelog, which is
+    /// the authority these floors stand in for. Carrying one across a
+    /// release would constrain a partition this pod no longer serves.
+    #[tokio::test]
+    async fn releasing_a_partition_forgets_the_versions_it_emitted() {
+        let handler = handler();
+        handler.cache.create_partition(3);
+        let key = crate::cache::PersonCacheKey {
+            team_id: 1,
+            person_id: 7,
+        };
+        handler.emitted_versions.raise_for_test(3, key.clone(), 900);
+
+        handler.release_partition(3).await.unwrap();
+
+        assert_eq!(
+            handler.emitted_versions.floor_for(3, &key, 5),
+            5,
+            "a departed owner's floor must not survive the release"
+        );
     }
 
     #[tokio::test]
@@ -227,5 +384,41 @@ mod tests {
         // The protocol relies on this for partitions that never
         // received traffic between Freezing and the actual drain call.
         handler.drain_partition_inflight(7).await.unwrap();
+    }
+
+    /// A fence taken while warming only licenses skipping the re-acquire
+    /// for the convergence that took it. Once a handoff drains the
+    /// partition it is moving, and the incoming owner can take the epoch
+    /// before the handoff is cancelled — so a resume that still trusted
+    /// that mark would re-admit writes onto a producer the broker has
+    /// moved past, which is exactly what the re-acquire exists to stop.
+    #[tokio::test]
+    async fn a_handoff_drain_retires_an_earlier_convergences_fence() {
+        let handler = handler();
+        handler.mark_freshly_fenced_for_test(7);
+        assert!(
+            !handler.would_reacquire_on_resume(7),
+            "the convergence that just warmed holds a current fence"
+        );
+
+        handler.drain_partition_inflight(7).await.unwrap();
+
+        assert!(
+            handler.would_reacquire_on_resume(7),
+            "a resume after a handoff drain must take the fence again"
+        );
+    }
+
+    /// The mark is per partition: draining one must not force an unrelated
+    /// partition's resume to bump its own epoch out from under live writes.
+    #[tokio::test]
+    async fn a_drain_retires_only_its_own_partitions_fence() {
+        let handler = handler();
+        handler.mark_freshly_fenced_for_test(7);
+        handler.mark_freshly_fenced_for_test(8);
+
+        handler.drain_partition_inflight(7).await.unwrap();
+
+        assert!(!handler.would_reacquire_on_resume(8));
     }
 }

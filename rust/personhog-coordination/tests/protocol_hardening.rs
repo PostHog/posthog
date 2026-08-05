@@ -22,10 +22,12 @@ use assignment_coordination::store::parse_watch_value;
 use async_trait::async_trait;
 use common::{
     revoke_lease_of_key, start_coordinator, start_coordinator_named,
-    start_coordinator_reconcile_parked, start_pod, start_pod_gated, start_pod_with_lease_ttl,
-    start_router_with_lease_ttl, store_at, test_store, test_store_with_prefix, wait_for_condition,
-    CutoverEvent, FlakyProxy, HandoffEvent, MockCutoverHandler, MockHandoffHandler, ETCD_ENDPOINT,
-    POLL_INTERVAL, WAIT_TIMEOUT,
+    start_coordinator_reconcile_parked, start_pod, start_pod_gated, start_pod_with_failing_release,
+    start_pod_with_flaky_release, start_pod_with_flaky_resume, start_pod_with_hanging_drain,
+    start_pod_with_lease_ttl, start_pod_with_stuck_drain, start_router_with_lease_ttl, store_at,
+    test_store, test_store_with_prefix, wait_for_condition, wait_for_condition_named, CutoverEvent,
+    FlakyProxy, HandoffEvent, MockCutoverHandler, MockHandoffHandler, ETCD_ENDPOINT, POLL_INTERVAL,
+    WAIT_TIMEOUT,
 };
 use personhog_coordination::error::Result;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -133,20 +135,25 @@ async fn pod_self_fences_locally_and_rejoins_after_lease_loss() {
     // Lease loss must self-fence: the held partition is released
     // locally before any rejoin, because the coordinator already treats
     // the expired lease as death and may be reassigning. The fence must
-    // drain before it releases — release alone unfences and drops the
-    // cache without waiting, letting an already-admitted write ack
-    // after the replacement owner's warm — so `Drained` must precede
-    // `Released` in the fence sequence.
-    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
-        let events = Arc::clone(&events);
-        async move {
-            events
-                .lock()
-                .await
-                .iter()
-                .any(|e| matches!(e, HandoffEvent::Released(0)))
-        }
-    })
+    // drain before it releases — draining leaves nothing in flight, so
+    // the release that follows unfences a partition with no admitted
+    // write remaining and drops a cache no handler is still using — so
+    // `Drained` must precede `Released` in the fence sequence.
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "the lease-loss self-fence to release the held partition",
+        || {
+            let events = Arc::clone(&events);
+            async move {
+                events
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|e| matches!(e, HandoffEvent::Released(0)))
+            }
+        },
+    )
     .await;
     {
         let events = events.lock().await;
@@ -605,6 +612,7 @@ async fn guarded_handoff_delete_skips_recreated_handoff() {
             router_name: "router-0".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -677,6 +685,7 @@ async fn ack_for_previous_handoff_does_not_satisfy_quorum() {
             router_name: "r-live".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "a-previous-handoff".to_string(),
         })
         .await
@@ -716,6 +725,7 @@ async fn ack_for_previous_handoff_does_not_satisfy_quorum() {
             router_name: "r-live".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -795,6 +805,7 @@ async fn router_departure_advances_a_waiting_freeze() {
             router_name: "r-live".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -911,6 +922,7 @@ async fn legacy_ack_without_handoff_id_does_not_satisfy_quorum() {
             router_name: "r-legacy".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -1229,6 +1241,7 @@ async fn freezing_handoff_advances_when_unacked_router_departs() {
             router_name: "router-acked".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -1371,6 +1384,7 @@ async fn stale_freeze_ack_does_not_satisfy_quorum_for_live_router() {
             router_name: "router-departed".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -1428,6 +1442,7 @@ async fn stale_freeze_ack_does_not_satisfy_quorum_for_live_router() {
             router_name: "router-silent".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -3126,4 +3141,487 @@ async fn budget_exhaustion_fences_before_deregistering() {
         !pods.iter().any(|p| p.pod_name == "fatal-fence-pod"),
         "the teardown must deregister on the way out"
     );
+}
+
+/// A resume that fails must leave the partition still marked fenced, so
+/// a later convergence retries it. Clearing the local fence before the
+/// handler succeeds strands the data plane fenced with no branch left to
+/// re-enter: writes rejected forever while every convergence reports
+/// success and no budget escalates.
+#[tokio::test]
+async fn pod_retries_resume_after_a_failed_attempt() {
+    let store = test_store("handoff-cancel-resume-retry").await;
+    let cancel = CancellationToken::new();
+
+    let pod = start_pod_with_flaky_resume(Arc::clone(&store), "resume-flaky-a", 1, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "resume-flaky-a"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    put_handoff(&store, 0, None, "resume-flaky-a", HandoffPhase::Warming).await;
+    wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
+    assert!(store.complete_handoff(0).await.expect("complete"));
+    store.delete_handoff(0).await.expect("cleanup");
+
+    put_handoff(
+        &store,
+        0,
+        Some("resume-flaky-a"),
+        "resume-flaky-b",
+        HandoffPhase::Draining,
+    )
+    .await;
+    wait_for_event(&pod.events, HandoffEvent::Drained(0)).await;
+
+    // Cancel the handoff. The first resume fails; the pod must come back
+    // to it rather than treating the partition as resumed.
+    store.delete_handoff(0).await.expect("delete handoff");
+    wait_for_event(&pod.events, HandoffEvent::Resumed(0)).await;
+
+    cancel.cancel();
+}
+
+/// A drain that cannot quiesce must not keep the pod serving everything
+/// else it no longer owns.
+///
+/// Self-fencing runs because the pod has lost the right to serve, so the
+/// release is the point of it. Returning on the first drain failure left
+/// every other held partition still served by a pod with no lease —
+/// precisely the zombie the fence exists to prevent.
+#[tokio::test]
+async fn a_stuck_drain_does_not_strand_the_other_partitions_on_lease_loss() {
+    let (store, prefix) = test_store_with_prefix("stuck-drain-fence").await;
+    let cancel = CancellationToken::new();
+    let pod = start_pod_with_stuck_drain(Arc::clone(&store), "stuck-pod-0", 1, 5, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "stuck-pod-0"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    // Two partitions: one whose drain refuses, one ordinary.
+    for partition in [0, 1] {
+        put_handoff(
+            &store,
+            partition,
+            None,
+            "stuck-pod-0",
+            HandoffPhase::Warming,
+        )
+        .await;
+    }
+    let events = Arc::clone(&pod.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            let seen = events.lock().await;
+            [0u32, 1u32].iter().all(|p| {
+                seen.iter()
+                    .any(|e| matches!(e, HandoffEvent::Warmed(w) if w == p))
+            })
+        }
+    })
+    .await;
+
+    revoke_lease_of_key(&format!("{prefix}pods/stuck-pod-0")).await;
+
+    // Partition 0's drain succeeds and 1's never will, so 0 must still
+    // be given up.
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "partition 0 to be released despite partition 1's drain refusing",
+        || {
+            let events = Arc::clone(&events);
+            async move {
+                events
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|e| matches!(e, HandoffEvent::Released(0)))
+            }
+        },
+    )
+    .await;
+
+    // And 1 must not be. Its writes are still in flight and will ack
+    // whatever we do — so releasing would unfence fresh admissions on a
+    // leaseless pod, drop the cache out from under those handlers, and
+    // erase the one record that the partition was never given up.
+    assert!(
+        !events
+            .lock()
+            .await
+            .iter()
+            .any(|e| matches!(e, HandoffEvent::Released(1))),
+        "a partition whose drain never quiesced must stay held, not be released"
+    );
+
+    cancel.cancel();
+}
+
+/// A drain that outlives the self-fence's bound is a failure, not a
+/// quiesce.
+///
+/// The timeout arm is the only exit for in-flight work that never
+/// finishes, and it must not count the partition as drained: its writes
+/// are still in flight and will ack whatever happens next, so releasing
+/// would unfence fresh admissions on a leaseless pod, drop the cache
+/// out from under the handlers still using it, and erase the one record
+/// that the partition was never given up. The timed-out partition stays
+/// held, and the recorded failure ends the run so the process restart
+/// clears the stuck work by death.
+#[tokio::test]
+async fn a_drain_that_times_out_is_a_failure_not_a_quiesce() {
+    let (store, prefix) = test_store_with_prefix("hung-drain-fence").await;
+    let cancel = CancellationToken::new();
+    let mut pod =
+        start_pod_with_hanging_drain(Arc::clone(&store), "hung-pod-0", 1, 5, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "hung-pod-0"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    // Two partitions: one whose drain hangs past the bound, one ordinary.
+    for partition in [0, 1] {
+        put_handoff(&store, partition, None, "hung-pod-0", HandoffPhase::Warming).await;
+    }
+    let events = Arc::clone(&pod.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            let seen = events.lock().await;
+            [0u32, 1u32].iter().all(|p| {
+                seen.iter()
+                    .any(|e| matches!(e, HandoffEvent::Warmed(w) if w == p))
+            })
+        }
+    })
+    .await;
+
+    revoke_lease_of_key(&format!("{prefix}pods/hung-pod-0")).await;
+
+    // The run must end: a partition it could neither drain nor release
+    // still has its cache and authority, so in-place recovery is refused.
+    // Under a timeout that counts as a quiesce there is no failure to
+    // report, the pod starts a new session, and this bound expires.
+    let run = pod.join_handle.take().expect("the pod is running");
+    let outcome = tokio::time::timeout(WAIT_TIMEOUT, run)
+        .await
+        .expect("a pod whose drain timed out must stop rather than start a new session")
+        .expect("the pod task must not panic");
+    assert!(
+        outcome.is_err(),
+        "a drain cut off by the self-fence bound must end the run, not recover in place"
+    );
+
+    // The ordinary partition was still given up, and the hung one was
+    // not: release without a quiesce is the acked-write loss the drain
+    // phase exists to prevent.
+    let seen = events.lock().await;
+    assert!(
+        seen.iter().any(|e| matches!(e, HandoffEvent::Released(0))),
+        "partition 0 quiesced and must be released despite partition 1 hanging: {seen:?}"
+    );
+    assert!(
+        !seen.iter().any(|e| matches!(e, HandoffEvent::Released(1))),
+        "a partition whose drain timed out must stay held, not be released: {seen:?}"
+    );
+    drop(seen);
+
+    cancel.cancel();
+}
+
+/// A drain that fails must still leave the partition recorded as fenced.
+///
+/// The handler fences the data plane as its first act and can fail
+/// afterwards. `resume_partition` — the only branch that lifts that
+/// fence — is reachable only through `fenced_partitions`, so a record
+/// written only on success leaves writes rejected with no branch left to
+/// re-enter, while reads carry on and the convergence reports healthy.
+#[tokio::test]
+async fn a_failed_drain_still_leaves_a_partition_that_can_be_resumed() {
+    let (store, _prefix) = test_store_with_prefix("failed-drain-resume").await;
+    let cancel = CancellationToken::new();
+    let pod = start_pod_with_stuck_drain(Arc::clone(&store), "stuck-pod-1", 0, 30, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "stuck-pod-1"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    // Own it, then start a handoff away whose drain refuses.
+    put_handoff(&store, 0, None, "stuck-pod-1", HandoffPhase::Warming).await;
+    let events = Arc::clone(&pod.events);
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+    put_handoff(
+        &store,
+        0,
+        Some("stuck-pod-1"),
+        "other-pod",
+        HandoffPhase::Draining,
+    )
+    .await;
+
+    // Sequence on the failed attempt, not the write: overwriting the
+    // handoff before the pod has observed Draining would skip the drain
+    // entirely, and with it the fence record this test exists to check.
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "the pod to attempt (and fail) the drain, recording the partition as fenced",
+        || {
+            let events = Arc::clone(&events);
+            async move {
+                events
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|e| matches!(e, HandoffEvent::DrainFailed(0)))
+            }
+        },
+    )
+    .await;
+
+    // Cancel the handoff. The pod is serving again, so it must resume —
+    // which it can only do if the failed drain was still recorded.
+    put_handoff(&store, 0, None, "stuck-pod-1", HandoffPhase::Complete).await;
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "the partition to resume, which needs the failed drain to have been recorded as fenced",
+        || {
+            let events = Arc::clone(&events);
+            async move {
+                events
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|e| matches!(e, HandoffEvent::Resumed(0)))
+            }
+        },
+    )
+    .await;
+
+    cancel.cancel();
+}
+
+/// A release that fails must not stop the pod giving up the rest.
+///
+/// Phase 2 is the point of self-fencing: it drops each partition's cache
+/// and serving authority. Returning on the first release failure leaves
+/// every partition after it in the loop still served by a pod with no
+/// lease — the same zombie the drain phase collects its failures to
+/// avoid, one phase later.
+#[tokio::test]
+async fn a_failing_release_does_not_stop_the_pod_giving_up_the_rest() {
+    let (store, prefix) = test_store_with_prefix("failing-release-fence").await;
+    let cancel = CancellationToken::new();
+    let (pod, attempts) =
+        start_pod_with_failing_release(Arc::clone(&store), "failing-rel-0", 5, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "failing-rel-0"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    for partition in [0, 1] {
+        put_handoff(
+            &store,
+            partition,
+            None,
+            "failing-rel-0",
+            HandoffPhase::Warming,
+        )
+        .await;
+    }
+    let events = Arc::clone(&pod.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            let seen = events.lock().await;
+            [0u32, 1u32].iter().all(|p| {
+                seen.iter()
+                    .any(|e| matches!(e, HandoffEvent::Warmed(w) if w == p))
+            })
+        }
+    })
+    .await;
+
+    revoke_lease_of_key(&format!("{prefix}pods/failing-rel-0")).await;
+
+    // Both partitions must be asked, not just whichever the release loop
+    // reached first. Polled by hand rather than through
+    // `wait_for_condition` so the failure names what was missing instead
+    // of reporting a bare timeout.
+    let mut tried = Vec::new();
+    for _ in 0..(WAIT_TIMEOUT.as_millis() / POLL_INTERVAL.as_millis()) {
+        tried = attempts.lock().await.clone();
+        if tried.contains(&0) && tried.contains(&1) {
+            break;
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+    assert!(
+        tried.contains(&0) && tried.contains(&1),
+        "a failed release must not strand the partitions after it; only {tried:?} of [0, 1] \
+         were ever attempted"
+    );
+
+    cancel.cancel();
+}
+
+/// A self-fence that could not finish must refuse in-place recovery.
+///
+/// The pod's serving state no longer matches what it owns — a partition
+/// it could neither drain nor release still has its cache and its
+/// authority. Starting a fresh session on top of that is the zombie the
+/// fence exists to prevent, so the run has to end and let the process
+/// restart clear it. Reporting the failure is what sets that flag; the
+/// release loop above runs first precisely so the report is not what
+/// stops it.
+#[tokio::test]
+async fn a_self_fence_that_could_not_finish_refuses_in_place_recovery() {
+    let (store, prefix) = test_store_with_prefix("poisoned-self-fence").await;
+    let cancel = CancellationToken::new();
+    let mut pod =
+        start_pod_with_stuck_drain(Arc::clone(&store), "poisoned-pod-0", 0, 5, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "poisoned-pod-0"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    put_handoff(&store, 0, None, "poisoned-pod-0", HandoffPhase::Warming).await;
+    let events = Arc::clone(&pod.events);
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    revoke_lease_of_key(&format!("{prefix}pods/poisoned-pod-0")).await;
+
+    let run = pod.join_handle.take().expect("the pod is running");
+    let outcome = tokio::time::timeout(WAIT_TIMEOUT, run)
+        .await
+        .expect("a pod whose self-fence failed must stop rather than start a new session")
+        .expect("the pod task must not panic");
+    assert!(
+        outcome.is_err(),
+        "a pod that could not give up a partition must end its run, not recover in place"
+    );
+
+    cancel.cancel();
+}
+
+/// A release that fails must leave the pod still remembering it holds
+/// the partition, so the retry can release it.
+///
+/// The arm used to forget first — remove from both ownership maps, then
+/// call the handler — so a failed (or torn-down) release left the
+/// partition in neither map, where no convergence ever dispatched for it
+/// again: its cache, version floors, and installed producer leaked for
+/// the life of the process, and a stale-tabled router was served from
+/// the leaked cache instead of the bounce dropping it exists to produce.
+#[tokio::test]
+async fn a_failed_release_is_retried_rather_than_forgotten() {
+    let (store, _prefix) = test_store_with_prefix("flaky-release").await;
+    let cancel = CancellationToken::new();
+    let pod =
+        start_pod_with_flaky_release(Arc::clone(&store), "flaky-release-pod", 1, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "flaky-release-pod"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    put_handoff(&store, 0, None, "flaky-release-pod", HandoffPhase::Warming).await;
+    wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
+
+    put_handoff(
+        &store,
+        0,
+        Some("flaky-release-pod"),
+        "other-pod",
+        HandoffPhase::Complete,
+    )
+    .await;
+
+    // The first attempt fails and the convergence retries. The retry can
+    // only release what the pod still remembers holding.
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "the retried release to succeed, which needs the failed attempt to not have \
+         forgotten the partition",
+        || {
+            let events = Arc::clone(&pod.events);
+            async move {
+                events
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|e| matches!(e, HandoffEvent::Released(0)))
+            }
+        },
+    )
+    .await;
+
+    cancel.cancel();
 }

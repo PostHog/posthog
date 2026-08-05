@@ -20,6 +20,7 @@ import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { GeoIPService } from '~/common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { PubSub } from '~/common/utils/pubsub'
@@ -106,6 +107,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
@@ -235,7 +237,7 @@ export class IngestionApiServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const teamManager = new TeamManager(this.postgres)
+        const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -285,7 +287,9 @@ export class IngestionApiServer implements NodeServer {
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
 
-        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager, {
+            loaderRetry: DEFAULT_LOADER_RETRY,
+        })
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
         this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
@@ -308,7 +312,6 @@ export class IngestionApiServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
-            teamManager,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()
@@ -385,7 +388,6 @@ export class IngestionApiServer implements NodeServer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
-            cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             outputs: ingestionOutputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -398,9 +400,11 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
                 PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: this.config.PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST,
+                PERSONLESS_WRITES_DISABLED_TEAMS: this.config.PERSONLESS_WRITES_DISABLED_TEAMS,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+                EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: this.config.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
@@ -417,7 +421,11 @@ export class IngestionApiServer implements NodeServer {
             aiSubpipelineFactory: createAiEventSubpipeline,
             eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
-            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),
+            // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
+            // failure can surface as an unhandled rejection and restart the worker.
+            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres, {
+                loaderRetry: DEFAULT_LOADER_RETRY,
+            }),
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService,
             overflowLaneTTLRefreshService,

@@ -81,6 +81,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
     get_impersonated_session_expires_at,
@@ -534,6 +535,12 @@ class UserSerializer(serializers.ModelSerializer):
         try:
             organization = Organization.objects.get(id=value)
             if organization.memberships.filter(user=self.context["request"].user).exists():
+                # A member the org no longer admits can't point their session back at it — this
+                # endpoint is on the enforcement whitelist, so it must refuse on its own.
+                if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+                    self.context["request"].user.email, organization
+                ):
+                    raise serializers.ValidationError(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
                 return organization
         except Organization.DoesNotExist:
             pass
@@ -1135,6 +1142,10 @@ class UserViewSet(
         # must not become a password-backend login path around the IdP. The user logs in via SSO.
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
             return Response({"success": True, "token": token, "requires_sso": True})
+
+        # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+        if not resolve_login_organization(user):
+            return Response({"success": True, "token": token, "requires_login": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)

@@ -19,10 +19,15 @@ from dataclasses import dataclass
 import structlog
 import posthoganalytics
 
-from posthog.ducklake import cp_teams
-from posthog.ducklake.common import _get_org_id_for_team, is_dev_mode
-from posthog.ducklake.team_state import CPUnavailableError
 from posthog.exceptions_capture import capture_exception
+
+from products.managed_warehouse.backend.facade.api import (
+    get_org_id_for_team,
+    is_dev_mode,
+    sink_concurrency_by_trusted_organization_ids,
+)
+from products.managed_warehouse.backend.facade.contracts import CPUnavailableError
+from products.managed_warehouse.backend.facade.cp_teams import list_org_team_memberships, list_team_memberships
 
 logger = structlog.get_logger(__name__)
 
@@ -36,8 +41,8 @@ def is_duckgres_sink_team_member(team_id: int) -> bool:
     or pins its schema names is intentionally not part of this check. Raises when the
     control plane can't answer — the caller decides how to degrade.
     """
-    organization_id = _get_org_id_for_team(team_id)
-    teams = cp_teams.list_org_teams(organization_id, use_cache=False)
+    organization_id = get_org_id_for_team(team_id)
+    teams = list_org_team_memberships(organization_id, use_cache=False)
     if teams is None:
         raise RuntimeError(f"duckgres control plane unreachable resolving sink membership for team {team_id}")
     return any(team.team_id == team_id for team in teams)
@@ -74,10 +79,9 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
     if is_dev_mode():
         return None
 
-    from posthog.ducklake.models import DuckgresServer
     from posthog.models.team.team import Team
 
-    rows = cp_teams.list_member_teams(use_cache=False)
+    rows = list_team_memberships(use_cache=False)
     if rows is None:
         raise CPUnavailableError("duckgres control plane unreachable; keeping the previous sink enablement")
 
@@ -91,12 +95,7 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
     # that value is an external, unvalidated string (the CP has test/dev rows keyed by
     # human-readable slugs, not UUIDs), and passing it straight into a UUID FK lookup
     # raises ValidationError before the org_id match-up below ever runs.
-    budgets = {
-        str(org_id): sink_max_concurrency
-        for org_id, sink_max_concurrency in DuckgresServer.objects.filter(
-            organization_id__in={org_id for _, org_id in team_info.values()}
-        ).values_list("organization_id", "sink_max_concurrency")
-    }
+    budgets = sink_concurrency_by_trusted_organization_ids({org_id for _, org_id in team_info.values()})
 
     enabled: list[int] = []
     team_org_budgets: list[tuple[int, str, int]] = []

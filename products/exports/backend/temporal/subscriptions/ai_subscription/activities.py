@@ -223,6 +223,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             failed_step_count=failed_count,
             total_step_count=total_count,
             query_error_types=error_types,
+            target_type=subscription.target_type,
         )
 
     # Consent is gated once here, before any LLM cost — creation-time gates don't catch an
@@ -230,7 +231,9 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
     if not subscription.team.organization.is_ai_data_processing_approved:
         LOGGER.warning("generate_ai_subscription_report.consent_revoked", subscription_id=subscription.id)
         aborted = await auto_disable_and_return(subscription, AI_CONSENT_REVOKED_DISABLE_REASON, [])
-        return GenerateAIReportResult(aborted=True, recipient_results=aborted.recipient_results)
+        return GenerateAIReportResult(
+            aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
+        )
 
     # Gate on AI credits before any LLM cost — but only past the idempotency check above, so an
     # already-generated report (its tokens already spent) still ships. The interactive Max path
@@ -267,7 +270,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         )
         # skipped=True → the workflow records SKIPPED (not FAILED — the sub isn't broken) and skips
         # delivery; the sub stays enabled and advance_next_delivery_date recomputes from the reset.
-        return GenerateAIReportResult(skipped=True)
+        return GenerateAIReportResult(skipped=True, target_type=subscription.target_type)
 
     try:
         report_result = await build_ai_subscription_report(subscription)
@@ -283,15 +286,19 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         # Seed a recipient result with the exception detail first — it carries planner
         # context that the disable reason (appended next by `auto_disable_and_return`)
         # doesn't.
+        # PromptRejectedError messages are handcrafted rejections (empty/too long/no creator), safe to show.
         recipient_results = [
             RecipientResult(
                 recipient=subscription.target_value,
                 status="failed",
                 error={"message": str(exc), "type": "PromptRejectedError"},
+                human_readable_error=str(exc),
             )
         ]
         aborted = await auto_disable_and_return(subscription, AI_PROMPT_INVALID_DISABLE_REASON, recipient_results)
-        return GenerateAIReportResult(aborted=True, recipient_results=aborted.recipient_results)
+        return GenerateAIReportResult(
+            aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
+        )
 
     await _persist_ai_report(inputs.delivery_id, report_result, subscription.prompt)
     failed_count, total_count, error_types = _report_diagnostic_counts(report_result)
@@ -300,6 +307,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         failed_step_count=failed_count,
         total_step_count=total_count,
         query_error_types=error_types,
+        target_type=subscription.target_type,
     )
 
 

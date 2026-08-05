@@ -207,6 +207,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
         # make sure we don't collapse duplicate rows
         sync_execute("SYSTEM STOP MERGES")
+        # Server-global and not scoped to this database, so it outlives the process and would
+        # leave every later test on this ClickHouse unable to merge.
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
 
         materialize("events", "$exception_values")
 
@@ -4802,6 +4805,64 @@ class TestTaskSandboxUsageReport(APIBaseTest):
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "task_sandbox_seconds_in_period": 5})))
 
 
+class TestPostHogCodeComputeUsageReport(SimpleTestCase):
+    def test_component_contract_uses_integer_historical_metric_types(self) -> None:
+        from posthog.tasks.usage_report import UsageReportCounters
+
+        component_metrics = {
+            "posthog_code_token_credits_used_in_period",
+            "sandbox_compute_credits_used_in_period",
+            "sandbox_compute_cpu_millicore_seconds_in_period",
+            "sandbox_compute_memory_mib_seconds_in_period",
+        }
+
+        assert all(UsageReportCounters.__annotations__[metric] is int for metric in component_metrics)
+        assert "sandbox_compute_cpu_core_seconds_in_period" not in UsageReportCounters.__annotations__
+        assert "sandbox_compute_memory_gib_seconds_in_period" not in UsageReportCounters.__annotations__
+
+    def test_combined_credits_reconcile_with_components(self) -> None:
+        from posthog.tasks.usage_report import combine_posthog_code_credits
+
+        assert combine_posthog_code_credits(123, 45) == 168
+
+    @patch("posthog.tasks.usage_report.capture_exception")
+    @patch("posthog.tasks.usage_report.get_billable_sandbox_compute_usage_by_team")
+    def test_invalid_compute_configuration_is_observed_without_breaking_report(
+        self, mock_compute: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import get_teams_with_billable_sandbox_compute_usage_in_period
+
+        from products.tasks.backend.facade.billing import ComputeRateCardConfigurationError, SandboxComputeUsageByTeam
+
+        error = ComputeRateCardConfigurationError("invalid")
+        mock_compute.side_effect = error
+
+        result = get_teams_with_billable_sandbox_compute_usage_in_period(
+            datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
+        )
+
+        assert result == SandboxComputeUsageByTeam([], [], [])
+        mock_capture.assert_called_once_with(error)
+
+    @patch("retry.api.time.sleep")
+    @patch("posthog.tasks.usage_report.capture_exception")
+    @patch("posthog.tasks.usage_report.get_billable_sandbox_compute_usage_by_team")
+    def test_transient_compute_failure_propagates_after_retries(
+        self, mock_compute: MagicMock, mock_capture: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import QUERY_RETRIES, get_teams_with_billable_sandbox_compute_usage_in_period
+
+        mock_compute.side_effect = RuntimeError("transient database failure")
+
+        with self.assertRaises(RuntimeError):
+            get_teams_with_billable_sandbox_compute_usage_in_period(
+                datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
+            )
+
+        assert mock_compute.call_count == QUERY_RETRIES
+        mock_capture.assert_not_called()
+
+
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -4855,6 +4916,21 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         TEST_clear_instance_license_cache()
         materialize("events", "$exception_values")
 
+    def _assert_queued_report(self, mock_producer: MagicMock, expected_report: dict[str, Any]) -> None:
+        # Assert on the decoded payload rather than the compressed bytes: `teams` is keyed by
+        # team id in whatever order Postgres hands the rows back, so two runs of an identical
+        # report serialize to different JSON — and therefore different gzip — bytes.
+        mock_producer.send_message.assert_called_once()
+        kwargs = mock_producer.send_message.call_args.kwargs
+        assert kwargs["message_attributes"] == {
+            "content_encoding": "gzip",
+            "content_type": "application/json",
+        }
+        assert json.loads(gzip.decompress(base64.b64decode(kwargs["message_body"]))) == {
+            "organization_id": str(self.organization.id),
+            "usage_report": expected_report,
+        }
+
     def _usage_report_response(self) -> Any:
         # A roughly correct billing response
         return {
@@ -4905,27 +4981,12 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         full_report_as_dict = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
         )
-        json_data = json.dumps(
-            {
-                "organization_id": str(self.organization.id),
-                "usage_report": full_report_as_dict,
-            },
-            separators=(",", ":"),
-        )
-        compressed_bytes = gzip.compress(json_data.encode("utf-8"))
-        compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
 
         send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
 
-        mock_producer.send_message.assert_called_once_with(
-            message_attributes={
-                "content_encoding": "gzip",
-                "content_type": "application/json",
-            },
-            message_body=compressed_b64,
-        )
+        self._assert_queued_report(mock_producer, full_report_as_dict)
 
         # mock_posthog.capture.assert_any_call(
         #     get_machine_id(),
@@ -4959,27 +5020,11 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                     get_instance_metadata(period),
                 )
             )
-            json_data = json.dumps(
-                {
-                    "organization_id": str(self.organization.id),
-                    "usage_report": full_report_as_dict,
-                },
-                separators=(",", ":"),
-            )
-            compressed_bytes = gzip.compress(json_data.encode("utf-8"))
-            compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
-
             send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
             assert license
 
-            mock_producer.send_message.assert_called_once_with(
-                message_attributes={
-                    "content_encoding": "gzip",
-                    "content_type": "application/json",
-                },
-                message_body=compressed_b64,
-            )
+            self._assert_queued_report(mock_producer, full_report_as_dict)
 
             # mock_posthog.capture.assert_any_call(
             #     self.user.distinct_id,
@@ -5416,6 +5461,16 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 person_mode="full",
             )
 
+        for i in range(3):
+            _create_event(
+                event="$experiment_exposure",
+                team=self.team,
+                distinct_id=f"exposure_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i),
+                properties={"$feature_flag": f"flag_{i}"},
+                person_mode="full",
+            )
+
         # Create various types of AI events that should NOT be counted in billable events
         # $ai_generation events
         for i in range(3):
@@ -5608,7 +5663,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         result = get_teams_with_billable_event_count_in_period(self.begin, self.end)
 
         # We should get 15 events for our team (10 test_event + 5 enhanced_event)
-        # NOT counting: 3 survey sent, 3 $feature_flag_called, 10 AI events
+        # NOT counting: 3 survey sent, 3 $feature_flag_called, 3 $experiment_exposure, 10 AI events
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.team.id)
         self.assertEqual(result[0][1], 15)

@@ -689,6 +689,7 @@ impl RoutingTable {
                         router_name: self.config.router_name.clone(),
                         partition: handoff.partition,
                         acked_at: util::now_seconds(),
+                        acked_at_ms: 0,
                         handoff_id: handoff.handoff_id.clone(),
                     };
                     self.store.put_freeze_ack(&ack).await?;
@@ -959,6 +960,7 @@ impl RoutingTable {
                             router_name: router_name.to_string(),
                             partition: handoff.partition,
                             acked_at: util::now_seconds(),
+                            acked_at_ms: 0,
                             handoff_id: handoff.handoff_id.clone(),
                         };
                         store.put_freeze_ack(&ack).await?;
@@ -1044,6 +1046,7 @@ impl RoutingTable {
                 return Ok(false);
             }
         };
+        util::record_phase_watch_delivery("router", handoff.phase, handoff.phase_entered_at_ms);
 
         match handoff.phase {
             HandoffPhase::Freezing | HandoffPhase::Draining | HandoffPhase::Warming => {
@@ -1073,6 +1076,7 @@ impl RoutingTable {
                         router_name: router_name.to_string(),
                         partition: handoff.partition,
                         acked_at: util::now_seconds(),
+                        acked_at_ms: 0,
                         handoff_id: handoff.handoff_id.clone(),
                     };
                     store.put_freeze_ack(&ack).await?;
@@ -1108,11 +1112,11 @@ impl RoutingTable {
                 }
 
                 // Pre-update the routing table before draining so that any
-                // new request arriving between drain and the independent
-                // assignment-watch dispatch routes to the new owner rather
-                // than to the old owner (which has already released). The
-                // assignment watch will later re-set the same value
-                // idempotently.
+                // new request arriving mid-drain routes to the new owner
+                // rather than to the old owner (which has already
+                // released). The reconcile pass converges the table
+                // against the assignment keys each tick and re-sets the
+                // same value idempotently.
                 table
                     .write()
                     .await

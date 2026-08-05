@@ -14,6 +14,7 @@ from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
+from django.db.models.functions import JSONObject
 
 import grpc
 import requests
@@ -2896,19 +2897,15 @@ class FeatureFlagViewSet(
             )
         )
 
-        # Annotate with replay settings usage to avoid N+1 queries
-        # This checks if any team in the same project uses this flag for session recording
-        # Extract the 'id' key from the JSONB field and cast to integer for safe comparison
-        from django.db.models import IntegerField
-        from django.db.models.functions import Cast
-
+        # Matches the containment check in FeatureFlagSerializer.get_is_used_in_replay_settings,
+        # so the annotated and unannotated paths agree. Containment never casts, so a
+        # non-integer id in the JSON yields False instead of erroring the query.
         queryset = queryset.annotate(
             is_used_in_replay_settings_annotation=Exists(
                 Team.objects.filter(
                     project_id=OuterRef("team__project_id"),
+                    session_recording_linked_flag__contains=JSONObject(id=OuterRef("id")),
                 )
-                .annotate(json_flag_id=Cast("session_recording_linked_flag__id", IntegerField()))
-                .filter(json_flag_id=OuterRef("id"))
             )
         )
 

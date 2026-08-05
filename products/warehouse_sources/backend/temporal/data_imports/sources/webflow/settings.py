@@ -102,6 +102,37 @@ WEBFLOW_ENDPOINTS: dict[str, WebflowEndpointConfig] = {
 
 STATIC_ENDPOINTS = tuple(WEBFLOW_ENDPOINTS.keys())
 
+# Webhook registrations live under the site, one registration per trigger type.
+WEBHOOK_PATH = "/sites/{site_id}/webhooks"
+WEBHOOK_DELETE_PATH = "/webhooks/{webhook_id}"
+
+# Only `orders` can be fed by webhooks. The ecomm order triggers deliver the whole Order
+# object under `payload`, with the same field names the /sites/{site_id}/orders list
+# endpoint returns (`orderId`, `status`, `acceptedOn`, `customerPaid`, …), so pushed rows
+# merge into the polled table on `orderId`. The other triggers Webflow offers either
+# describe a resource we don't sync (`form_submission` carries a submission, our `forms`
+# table carries form definitions), rename the object's fields (`page_created` sends
+# `pageId`/`pageTitle` where the Pages API sends `id`/`title`), or carry only publish
+# metadata rather than the resource (`site_publish`, `ecomm_inventory_changed`).
+SCHEMA_TO_WEBHOOK_EVENTS: dict[str, list[str]] = {
+    "orders": ["ecomm_new_order", "ecomm_order_changed"],
+}
+
+WEBHOOK_SCHEMA_NAMES = tuple(SCHEMA_TO_WEBHOOK_EVENTS)
+
+ALL_WEBHOOK_EVENTS = sorted({event for events in SCHEMA_TO_WEBHOOK_EVENTS.values() for event in events})
+
+# Trigger type -> the schema its payload belongs to. Several triggers feed one table, so the
+# Hog template collapses the trigger to this resource key before looking up the schema id.
+# Keep in sync with `resourceByTrigger` in webhook_template.py.
+WEBHOOK_EVENT_TO_RESOURCE: dict[str, str] = {
+    event: name for name, events in SCHEMA_TO_WEBHOOK_EVENTS.items() for event in events
+}
+
+# Schema name -> the `schema_mapping` key incoming deliveries are routed by. Identity here:
+# the template already collapses trigger types down to the schema name.
+WEBHOOK_RESOURCE_MAP: dict[str, str] = {name: name for name in SCHEMA_TO_WEBHOOK_EVENTS}
+
 
 def collection_items_endpoint_config(collection_id: str) -> WebflowEndpointConfig:
     """Build the endpoint config for a single CMS collection's items.

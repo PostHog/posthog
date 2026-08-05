@@ -65,6 +65,7 @@ Examples:
 
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
+**Shape:** invoke `/writing-pr-descriptions` before writing the body. Lead with the effect a person sees rather than the code path behind it, make the body stand alone for a reader who opens no files, and let its size track the change. Then one fact per bullet, sentences under 25 words, active voice, no idioms. A description that got longer as bullets was not cut.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
@@ -97,8 +98,12 @@ Guarding it inside the workflow is worse: skipping the gate job cascades to the 
 
 #### Stacked PRs
 
+GitHub's native stacked PRs are enabled on this repo — use the `gh stack` CLI and the `/stacking-prs` skill instead of hand-managing branch chains.
+A stack lands bottom-first: merge the layer based on `master` the usual way (see "Merging PRs" below), then `gh stack sync --prune` and repeat.
+Never `gh stack merge` — it merges the whole chain straight through GitHub's API, so the bottom layer reaches `master` outside that path.
+
 Restacking force-pushes every branch, and each push triggers a full CI fan-out.
-If the Trunk merge queue is re-enabled (it is paused, see below), never restack while any branch in the stack is sitting in it: the force-push removes the PR from the queue.
+Never restack while any branch in the stack is sitting in the merge queue — the force-push removes it from the queue.
 Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s).
 The overflow fails as `startup_failure` and takes unrelated runs in the same window down too.
 Draft status doesn't help, since runs are dispatched before draft/skip logic applies.
@@ -115,15 +120,14 @@ In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix
 
 ### Merging PRs
 
-Merges into `master` currently go through `gh pr merge <number> --squash`.
-Squash is the only merge method the repo allows, so `--merge` and `--rebase` are rejected.
+All merges into `master` go through the Trunk merge queue.
+Never run `gh pr merge` or click the GitHub merge button — both are blocked by branch ruleset.
 
-**The Trunk merge queue is paused.** Its ruleset is disabled, so `/trunk merge` and `/trunk cancel` comments and the `trunk-merge-queue-submit` label are no-ops: no `Trunk Merge Queue (master)` check run appears and the bot never replies. Don't reach for them.
-
-- Branch protection on `master` is unchanged and still enforced: an approving review, code owner review, the required status checks, and signed commits. `gh pr merge` refuses until all of those pass.
-- Shortly after a force-push or a label change, GitHub's mergeability cache can be stale and the first attempt fails with "the base branch policy prohibits the merge". Retrying a moment later works.
-- [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) is still written for the Trunk flow, so it's stale pending a follow-up. Its preflight and CI failure-handling advice still applies; its enqueue and queue-watching steps don't.
-- If Trunk is re-enabled, the old flow was: enqueue with `gh pr comment <number> --body "/trunk merge"`, watch the `Trunk Merge Queue (master)` check run on the head commit rather than the PR's own checks, and never force-push while the PR sits in the queue.
+- Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`.
+- After enqueueing, babysit the PR until it merges or fails — follow [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) for the preflight, watch, and failure-handling loop.
+- Queue progress is the `Trunk Merge Queue (master)` check run on the PR's head commit. The PR's own checks don't reflect the queue's testing — it runs CI on a `trunk-merge/**` branch.
+- On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
+- Never force-push a branch while it is in the queue — it removes the PR from the queue.
 
 ### Public open source repo guidance
 
@@ -169,6 +173,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - **Object storage is SeaweedFS — do not add new MinIO dependencies.** Both S3-compatible stores in the dev/CI stack are SeaweedFS: the `objectstorage` service (S3 API on `:19000`) backs general object storage (`OBJECT_STORAGE_*` settings — exports, media uploads, error-tracking source maps, query cache, tasks), and the `seaweedfs` service (S3 API on `:8333`) backs session replay v2 (`SESSION_RECORDING_V2_S3_*` settings). MinIO now survives only as migration tooling: `docker-compose.hobby.yml` keeps it as a source for `bin/migrate-storage-hobby`, and `bin/upgrade-objectstorage` starts a throwaway MinIO to salvage objects off the pre-swap volume. Outside that, don't add docker-compose services, scripts, tests, or docs that stand up a `minio/minio` container. Code that talks to object storage should go through the existing `OBJECT_STORAGE_*` / `SESSION_RECORDING_V2_S3_*` config and a standard S3 client rather than hardcoding an endpoint — that keeps backends swappable. Note the `objectstorage` service registers its credentials at runtime via a bootstrap loop and returns `InvalidAccessKeyId` until that completes, so anything depending on it must wait for its readiness sentinel rather than just for the container to start.
 - **Temporal activity payloads have a ~2 MiB hard limit — pass large data by reference, not by value.** Activity inputs and outputs are serialized across a gRPC boundary that Temporal caps at ~2 MiB per payload (the server rejects larger payloads via `blobSizeLimitError`). As a conservative field-level rule, if a field could exceed ~256 KB once serialized (serialized query results, exported file contents, LLM context, rendered HTML, image bytes, unbounded `list[dict[str, Any]]`), write it to Postgres / S3 / object storage from _inside_ the activity and return only the reference (row ID, S3 key). The workflow already has access to any row ID created earlier in the same run; it does not need the content to flow back through. Shuttling large data through the workflow on the way to persistence is a foreseeable failure mode that produces `PayloadSizeError` (`TMPRL1103`) the moment the underlying data crosses the limit.
 - **Outbound calls to a third-party API that need rate-limiting or egress telemetry belong in `posthog/egress/` — add a `<domain>/` incarnation (GitHub is the reference) and route callers through its gated, recorded transport, never hand-rolled `requests`. See `posthog/egress/README.md`.**
+- **`services/llm-gateway` is under an unofficial code freeze while callers move to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway).** New callers and features belong on the Go gateway by default. A Python gateway change needs a documented parity blocker for an active caller and must stay limited to that blocker. Read [`services/llm-gateway/PARITY.md`](services/llm-gateway/PARITY.md). Invoke `/auditing-llm-gateway-parity` for gateway contract changes and parity refreshes, `/finding-llm-gateway-migration-candidates` when deciding what to migrate next, and `/migrating-llm-gateway-callers` when moving a selected caller.
 
 ## Code Style
 
@@ -179,7 +184,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Frontend (quill design system): before writing UI that imports `@posthog/quill` / `lib/ui/quill`, read [packages/quill/packages/primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) — component choice (dropdown vs select vs combobox, accordion vs collapsible, etc.), composition, and spacing rules. Charts: [packages/quill/packages/charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md); DataTable/DateTimePicker: [packages/quill/packages/components/AGENTS.md](packages/quill/packages/components/AGENTS.md)
-- Frontend (quill vs LemonUI): LemonUI is the default in the main app. Use quill for menus, comboboxes, and autocompletes (`DropdownMenu`, `Combobox`, `Autocomplete` from `@posthog/quill`), with the trigger styled to match the surrounding scene's existing UI (LemonButton / ButtonPrimitive). Don't add new `LemonMenu` or `lib/ui/DropdownMenu` (Radix) menus — those are legacy. Don't mix quill and Lemon components within one component's internals. Quill uses Base UI's `render` prop, not Radix's `asChild` — don't carry `asChild` over when converting
+- Frontend (quill vs LemonUI): quill is for MCP apps and the desktop app. It is deliberately more compact than LemonUI, so its components look out of place in the main app, and there is no active migration of the main app onto it. In `frontend/src/` and `products/*/frontend/`, use LemonUI, including for menus — `LemonMenu` with a `LemonButton` trigger is the default there. `lib/ui/DropdownMenu` (Radix) is legacy; don't add new ones. Where quill is the right library, don't mix quill and Lemon components within one component's internals, and note that quill uses Base UI's `render` prop rather than Radix's `asChild`, so don't carry `asChild` over when converting
 - Frontend: Any button or form submit that triggers a network request must guard against double-submission — disable the button and show a loading state (`loading` / `disabledReason` on `LemonButton`, or equivalent) while the request is in flight. Never leave a submit button clickable during an active mutation; reset the state in both success and error paths. This applies to `<form onSubmit>` handlers, `onClick` handlers that call `api.*`, and any kea `listener` that issues a request — wire the in-flight state (loader `*Loading` selectors, local `useState`, or a reducer) into the trigger's disabled/loading props.
 - Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
 - CSS: Use tailwind utility classes instead of inline styles
@@ -231,10 +236,12 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
+- `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
 
 **Invoke when in the area:**
 
-- `/merging-prs` — merging a PR, or babysitting one through CI (written for the Trunk queue, so partly stale while it's paused)
+- `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
+- `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support
@@ -243,3 +250,6 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/reviewing-personhog-protocol` — any personhog coordination-protocol change (leases, fencing, handoffs, supervisors, budgets, warming, changelog semantics), and any request for an exhaustive review of personhog code
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy
+- `/auditing-llm-gateway-parity` — changing either gateway's auth, attribution, billing, endpoints, providers, models, routing, or metadata contract; reviewing a `services/llm-gateway` change; or refreshing `services/llm-gateway/PARITY.md`
+- `/finding-llm-gateway-migration-candidates` — finding, auditing, or ranking callers that could move from `services/llm-gateway` to `PostHog/ai-gateway`, including requests for the next or lowest-risk migration candidate
+- `/migrating-llm-gateway-callers` — adding an LLM gateway caller or migrating an existing caller from `services/llm-gateway` to `PostHog/ai-gateway`, including shared client and gateway setting changes made for that migration
