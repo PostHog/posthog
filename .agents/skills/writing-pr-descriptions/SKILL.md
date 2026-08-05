@@ -137,6 +137,10 @@ Small does not mean partial. Three bullets still have to carry why the change is
 The description is the only artifact in a PR that nothing validates. The code has CI. This has you.
 So make every claim cheap to disprove, and expect the reader to discount anything that is not.
 
+This governs claims about the world: what you ran, what you measured, what you saw in production.
+A statement about how the code behaves needs no link, because the reader checks it against the code.
+"The fallback never fires" is the second kind. "One source has failed every run since May" is the first.
+
 - Link the evidence: the failing run, the error tracking issue, a line-range permalink, the dashboard.
 - Delete the claims CI already makes. "24 passed" and "mypy clean" cost a line, cannot be checked from the body, and the checks carry more authority.
 - State what you did not check. "Not run: the database-backed suites, because this sandbox has no database" is the most credible line in most bodies and the cheapest to write.
@@ -223,7 +227,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 7. Count the words in the longest sentence. Over 25, split it.
 8. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
 9. Is any fact in the wrong form? A visual change needs a screenshot, a change to a flow needs the before and after diagrams, a comparison across the same dimensions needs a table.
-10. Does every claim link its evidence or say what you did not check?
+10. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
 11. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
 12. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
 13. Does the body claim manual testing that did not happen? Delete it.

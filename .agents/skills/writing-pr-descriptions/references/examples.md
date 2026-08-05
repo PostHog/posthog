@@ -154,6 +154,8 @@ Pass 1 came later than this rewrite, and the rewrite fails it: the lead is a fac
 > - Data warehouse syncs from a Neon pooled endpoint have never worked. One source has failed every extraction run since the day it was created.
 > - The user is told to check a database that is reachable and healthy, because the failure classifies as a retryable `connection_failed`.
 
+That first bullet is also the one claim here the claim rules in pass 3 reach. "Never worked" and "every run" are things the author saw, not behavior a reader can check against the code, so the bullet owes a link to the run or the error tracking issue behind it. Every other bullet in this example describes behavior and needs none.
+
 ---
 
 ## Example 3: two independent reasons in one paragraph
