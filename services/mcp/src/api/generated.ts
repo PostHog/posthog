@@ -19536,6 +19536,7 @@ export namespace Schemas {
      * * `Raisely` - Raisely
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
+     * * `Sevalla` - Sevalla
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -20821,6 +20822,7 @@ export namespace Schemas {
       Raisely: 'Raisely',
       WindsorAi: 'WindsorAi',
       Wix: 'Wix',
+      Sevalla: 'Sevalla',
     } as const;
 
     /**
@@ -22119,7 +22121,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -24031,7 +24034,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -27069,30 +27073,30 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
+     * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
      */
     export type EvaluationTargetConfig = {
       /** Wait a fixed window after the first matching generation, then evaluate. */
-      strategy?: 'fixed_window';
+      strategy: 'fixed_window';
       /**
-         * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+         * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 10
-         * @maximum 7200
+         * @maximum 604800
          */
       window_seconds?: number;
     } | {
-      /** Evaluate once the trace has had no new activity for the quiet period. */
+      /** Evaluate once the unit has had no new activity for the quiet period. */
       strategy: 'inactivity';
       /**
-         * Seconds without new trace activity before the trace counts as settled.
+         * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 10
-         * @maximum 1800
+         * @maximum 86400
          */
       quiet_period_seconds?: number;
       /**
-         * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+         * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 60
-         * @maximum 7200
+         * @maximum 604800
          */
       max_age_seconds?: number;
     };
@@ -27187,6 +27191,7 @@ export namespace Schemas {
     /**
      * * `generation` - Generation
      * * `trace` - Trace
+     * * `session` - Session
      */
     export type EvaluationTargetEnum = typeof EvaluationTargetEnum[keyof typeof EvaluationTargetEnum];
 
@@ -27194,6 +27199,7 @@ export namespace Schemas {
     export const EvaluationTargetEnum = {
       Generation: 'generation',
       Trace: 'trace',
+      Session: 'session',
     } as const;
 
     /**
@@ -27273,12 +27279,13 @@ export namespace Schemas {
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
-      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.
        *
        * * `generation` - Generation
-       * * `trace` - Trace */
+       * * `trace` - Trace
+       * * `session` - Session */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
+      /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
       target_config?: EvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -27454,6 +27461,8 @@ export namespace Schemas {
       generation_id?: string;
       /** Identifier of the trace cited by this report. */
       trace_id?: string;
+      /** Optional session identifier for session-target report citations. */
+      session_id?: string;
       /** Short explanation of why this example is cited. */
       reason?: string;
     }
@@ -27543,7 +27552,8 @@ export namespace Schemas {
       /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
        *
        * * `generation` - Generation
-       * * `trace` - Trace */
+       * * `trace` - Trace
+       * * `session` - Session */
       evaluation_target?: EvaluationTargetEnum;
       /** Agent-generated report headline. */
       title?: string;
@@ -31445,7 +31455,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -32762,7 +32773,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -43593,6 +43605,13 @@ export namespace Schemas {
       output_name?: string;
       /** Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames. */
       refs?: NotebookSQLV2RunRequestRefs;
+      /**
+         * SQL nodes only: id of a direct-query-capable external data source to run against instead of PostHog's ClickHouse. Omit to query PostHog.
+         * @nullable
+         */
+      connection_id?: string | null;
+      /** Send the code to the selected connection verbatim instead of compiling it from HogQL first. Ignored without connection_id, and incompatible with references to other cells. */
+      send_raw_query?: boolean;
     }
 
     export interface NotebookSQLV2RunResponse {
@@ -52286,30 +52305,30 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
+     * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
      */
     export type PatchedEvaluationTargetConfig = {
       /** Wait a fixed window after the first matching generation, then evaluate. */
-      strategy?: 'fixed_window';
+      strategy: 'fixed_window';
       /**
-         * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+         * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 10
-         * @maximum 7200
+         * @maximum 604800
          */
       window_seconds?: number;
     } | {
-      /** Evaluate once the trace has had no new activity for the quiet period. */
+      /** Evaluate once the unit has had no new activity for the quiet period. */
       strategy: 'inactivity';
       /**
-         * Seconds without new trace activity before the trace counts as settled.
+         * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 10
-         * @maximum 1800
+         * @maximum 86400
          */
       quiet_period_seconds?: number;
       /**
-         * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+         * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 60
-         * @maximum 7200
+         * @maximum 604800
          */
       max_age_seconds?: number;
     };
@@ -52349,12 +52368,13 @@ export namespace Schemas {
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
-      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.
        *
        * * `generation` - Generation
-       * * `trace` - Trace */
+       * * `trace` - Trace
+       * * `session` - Session */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
+      /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
       target_config?: PatchedEvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -68222,7 +68242,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -69547,7 +69568,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -70864,7 +70886,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -73851,6 +73874,12 @@ export namespace Schemas {
          * @maximum 7200
          */
       window_seconds?: number;
+      /**
+         * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.
+         * @minimum 10
+         * @maximum 86400
+         */
+      quiet_period_seconds?: number;
     }
 
     export interface TestHogRequest {
@@ -73869,25 +73898,27 @@ export namespace Schemas {
       allows_na?: boolean;
       /** Optional trigger conditions to filter which events are sampled. */
       conditions?: TestHogRequestConditionsItem[];
-      /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.
+      /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
        *
        * * `generation` - Generation
-       * * `trace` - Trace */
+       * * `trace` - Trace
+       * * `session` - Session */
       target?: EvaluationTargetEnum;
       /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
       target_config?: TestHogTargetConfig;
     }
 
     export interface TestHogResultItem {
-      /** Stable identifier for the sampled generation or trace. */
+      /** Stable identifier for the sampled generation, trace, or session. */
       sample_id: string;
-      /** Type of sampled unit: generation or trace.
+      /** Type of sampled unit: generation, trace, or session.
        *
        * * `generation` - Generation
-       * * `trace` - Trace */
+       * * `trace` - Trace
+       * * `session` - Session */
       sample_type: EvaluationTargetEnum;
       /**
-         * UUID of the sampled $ai_generation event, or null for a trace sample.
+         * UUID of the sampled $ai_generation event, or null for a trace or session sample.
          * @nullable
          */
       event_uuid: string | null;
