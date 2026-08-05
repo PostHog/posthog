@@ -1099,6 +1099,12 @@ jobs:
                   components: cargo
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
+            # Checking out master below drops this script, since master does not have it until
+            # this lands. Stage the PR's copy first: it has to be the one that computes the key,
+            # exactly as the inline block it replaced ran from the PR's workflow file.
+            - name: Stage the schema cache key script
+              run: cp -p bin/ci-schema-cache-key "$RUNNER_TEMP/ci-schema-cache-key"
+
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1117,7 +1123,7 @@ jobs:
               if: github.event_name != 'push'
               id: master-schema-key
               run: |
-                  MIGRATIONS_KEY=$(bin/ci-schema-cache-key HEAD)
+                  MIGRATIONS_KEY=$("$RUNNER_TEMP/ci-schema-cache-key" HEAD)
                   echo "key=$MIGRATIONS_KEY" >> $GITHUB_OUTPUT
             - name: Restore master schema dump from cache
               if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
@@ -1212,7 +1218,7 @@ jobs:
               if: github.event_name == 'push'
               id: mig-schema-key
               run: |
-                  MIGRATIONS_KEY=$(bin/ci-schema-cache-key HEAD)
+                  MIGRATIONS_KEY=$("$RUNNER_TEMP/ci-schema-cache-key" HEAD)
                   echo "key=$MIGRATIONS_KEY" >> $GITHUB_OUTPUT
                   if [ -z "$MIGRATIONS_KEY" ]; then
                       echo "::notice::no migration files matched — skipping migration-set schema save"
