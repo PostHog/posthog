@@ -48,20 +48,16 @@ _delivery_failure_last_logged: dict[tuple[str, str], float] = {}
 
 
 def _log_delivery_failure(topic: str, error_name: str, msg: Optional[Message]) -> None:
-    """Log a broker-side delivery failure, throttled per (topic, error), optionally with the message key.
+    """Log a broker-side delivery failure, throttled per (topic, error).
 
-    librdkafka reports delivery failures asynchronously, after its own retries
-    are exhausted, so no produce() caller can catch them; without this log they
-    surface only as an unattributed KAFKA_PRODUCER_MESSAGES_COUNTER tick.
-    `msg` is `None` unless the caller opted in via `produce(...,
-    log_key_on_delivery_failure=True)`: several callers key on customer-controlled
-    values (for example a warehouse sync distinct_id or group_key), and those
-    must not end up in logs, so the key is logged only for callers that have
-    confirmed theirs is safe (for example the team id on
-    flags_cache_invalidation). Throttled because a broker outage fails every
-    queued message at once and one warning per message would flood the logs;
-    the counter still counts each failure. The throttle is lock-free on purpose:
-    concurrent callbacks may occasionally double-log, which is harmless.
+    librdkafka reports delivery failures asynchronously, after its own retries,
+    so no produce() caller can catch them; without this log they surface only
+    as an unattributed counter tick. `msg` is `None` unless the caller opted in
+    via `log_key_on_delivery_failure` (see `produce`), since some callers key
+    on customer-controlled values that must not reach logs. The log is
+    throttled because an outage fails every queued message at once; the counter
+    still counts each failure. The throttle takes no lock, and an occasional
+    double-log from concurrent callbacks is harmless.
     """
     now = time.monotonic()
     last = _delivery_failure_last_logged.get((topic, error_name))
@@ -332,10 +328,8 @@ class _KafkaProducer:
         headers: Optional[list[tuple[str, str | bytes]]] = None,
         log_key_on_delivery_failure: bool = False,
     ) -> ProduceResult:
-        """Set `log_key_on_delivery_failure=True` only when `key` is known not to carry
-        customer-controlled data (e.g. an internal id like a team id). It is off by default
-        because several callers key on customer-controlled values (e.g. a distinct_id or
-        group_key), and those must never reach logs."""
+        """Set `log_key_on_delivery_failure=True` only when `key` cannot carry
+        customer-controlled data (e.g. it is an internal id like a team id)."""
         if not value_serializer:
             value_serializer = self.json_serializer
         b = value_serializer(data)
