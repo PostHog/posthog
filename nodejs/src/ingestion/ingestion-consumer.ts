@@ -65,7 +65,7 @@ import { AiEventSubpipelineFactory } from './common/subpipelines/ai-subpipeline.
 import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
-    Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'> &
+    Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
     // The general server builds the consumer from a config that includes IngestionOutputsConfig; the
     // merge-events gate reads the topic, so surface it here rather than relying on the runtime shape.
     Pick<IngestionOutputsConfig, 'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC'>
@@ -279,7 +279,6 @@ export class IngestionConsumer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
-            cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             outputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
