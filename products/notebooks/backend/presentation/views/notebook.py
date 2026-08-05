@@ -1312,12 +1312,18 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         if run is None:
             raise Http404()
-        self._require_run_connection_access(run, user)
 
         # Direct (hogql) runs have no callback: this poll advances the row from the async
         # query status, and while the manager's result is alive it also returns the full
         # capped row set for client-side paging (`rows`, absent once expired).
+        #
+        # It runs before the access gate on purpose. This poll is the only thing that moves a
+        # direct run to a terminal state, and the only place its expiry watchdog fires, so
+        # gating first would strand the run RUNNING forever if the source was deleted or the
+        # caller lost access mid-query. Advancing the row leaks nothing — the gate below still
+        # decides whether any of it is returned.
         rows = sync_direct_run(run)
+        self._require_run_connection_access(run, user)
 
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
         # captured stdout/stderr arrive with the final envelope even when the user stopped it.

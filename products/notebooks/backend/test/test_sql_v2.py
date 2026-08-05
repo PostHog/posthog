@@ -192,6 +192,16 @@ class TestSQLV2ApplyPageBounds(SimpleTestCase):
         assert out.startswith("select * from (-- daily totals\nselect * from users")
         assert out.endswith(") as posthog_notebook_page limit 301 offset 0")
 
+    def test_terminator_is_stripped_even_behind_a_trailing_comment(self) -> None:
+        # `select 1; -- note` is a single statement to sqlparse, so it passes the engine's
+        # single-statement guard and lands here with the ';' mid-string. Wrapping that as a
+        # derived table is a hard syntax error on Postgres and MySQL. The comment stays put.
+        out = apply_raw_page_bounds("select * from users; -- daily totals", limit=301, offset=0)
+        assert ";" not in out.split(") as posthog_notebook_page")[0]
+        assert (
+            out == "select * from (select * from users -- daily totals\n) as posthog_notebook_page limit 301 offset 0"
+        )
+
 
 class TestSQLV2Callback(APIBaseTest):
     def setUp(self):
@@ -843,6 +853,27 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
 
         self.mock_resolve_source.return_value = None
         self.assertEqual(self.client.get(url).status_code, 403)
+
+    def test_losing_source_access_mid_run_still_lets_the_run_reach_a_terminal_state(self, _mock_enabled):
+        # This poll is the only thing that advances a direct run, and the only place its expiry
+        # watchdog fires. Gating before that would strand the run RUNNING forever once access
+        # went away — so the row must still finish even though the caller is refused its rows.
+        with freeze_time("2026-07-01T00:00:00Z"), team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                code="select * from public.users",
+                connection_id=self.source_id,
+                status=NotebookNodeRun.Status.RUNNING,
+            )
+        self.mock_resolve_source.return_value = None
+
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run.id}/"
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")

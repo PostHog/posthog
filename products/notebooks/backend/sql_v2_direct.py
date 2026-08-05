@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.utils import timezone
 
+import sqlparse
 import structlog
 
 from posthog.hogql import ast
@@ -85,11 +86,33 @@ def _leading_keyword(query: str) -> str:
 
 
 def _strip_statement_terminator(query: str) -> str:
-    """Drop a trailing ``;``, which parses cleanly but breaks once a LIMIT is appended or the
-    query is wrapped as a subquery. Both HogQL and the direct engines are single-statement
-    here, so this only ever removes the terminator, never a second statement."""
+    """Drop the statement's ``;``, which parses cleanly but breaks once a LIMIT is appended or
+    the query is wrapped as a subquery.
+
+    The terminator is not always the last character: ``select 1; -- note`` is still one
+    statement to sqlparse, so it reaches here with the ``;`` buried mid-string, and wrapping
+    that as a subquery is a hard syntax error on Postgres and MySQL. Only the ``;`` token is
+    removed; a trailing comment is left where the user put it. (A trailing *block* comment
+    splits into a second statement, which the engine's single-statement guard rejects before
+    this point, so it never gets here.)
+    """
     query = query.rstrip()
-    return query[:-1].rstrip() if query.endswith(";") else query
+    if query.endswith(";"):
+        return query[:-1].rstrip()
+
+    statements = sqlparse.parse(query)
+    if len(statements) != 1:
+        return query
+
+    tokens = list(statements[0].flatten())
+    for index in range(len(tokens) - 1, -1, -1):
+        token = tokens[index]
+        if token.is_whitespace or token.ttype in sqlparse.tokens.Comment:
+            continue
+        if token.ttype is sqlparse.tokens.Punctuation and token.value == ";":
+            return "".join(t.value for position, t in enumerate(tokens) if position != index).rstrip()
+        break
+    return query
 
 
 def _wrap_page_query(query: str, limit: int, offset: int) -> str:
