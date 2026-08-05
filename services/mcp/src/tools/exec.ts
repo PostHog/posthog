@@ -276,20 +276,73 @@ const MAX_VALIDATION_DESCRIPTORS = 20
 const MAX_KEY_LENGTH = 64
 
 /**
+ * Issue codes where the type of the rejected value is the diagnostic signal: a
+ * parameter that is absent and one that is present under the right name but the
+ * wrong shape are different bugs with different fixes, and both otherwise read as
+ * a bare `invalid_type`.
+ */
+const TYPE_REVEALING_CODES = new Set(['invalid_type', 'invalid_union'])
+
+/**
+ * Joins an issue path into a descriptor, collapsing array indices to `N`.
+ *
+ * `series.0.event` and `series.1.event` describe one defect. Without the collapse
+ * a malformed 50-element array yields 50 distinct descriptors that fill
+ * `MAX_VALIDATION_DESCRIPTORS` with restatements of itself — and because the cap
+ * truncates in schema-traversal order, it evicts genuinely different fields that
+ * failed later. The dedupe is what keeps the cap meaningful.
+ */
+function normalizeDescriptorPath(segments: readonly PropertyKey[]): string {
+    if (!segments.length) {
+        return '(root)'
+    }
+    return segments
+        .map((segment) => (typeof segment === 'number' || /^\d+$/.test(String(segment)) ? 'N' : String(segment)))
+        .join('.')
+        .slice(0, MAX_KEY_LENGTH)
+}
+
+/** The JSON-shaped type of a rejected value — never the value, never its length. */
+function describeReceivedType(value: unknown): string {
+    if (value === null) {
+        return 'null'
+    }
+    if (Array.isArray(value)) {
+        return 'array'
+    }
+    return typeof value
+}
+
+/**
+ * Builds a descriptor in the same `path:code[:received]` shape
+ * `describeValidationError` emits, for a rejection that came from the PostHog API
+ * rather than the local schema — so both kinds of validation failure answer one
+ * query instead of requiring `$mcp_error_message` to be string-parsed.
+ *
+ * `attr` is one of our own serializer field names and `code` a DRF code; neither
+ * carries caller input, unlike the API's free-text `detail`.
+ */
+export function describeApiValidationError(attr: string | undefined, code: string | undefined): string[] {
+    const path = normalizeDescriptorPath((attr ?? '').split('.').filter(Boolean))
+    return [`${path}:${code ?? 'unknown'}`]
+}
+
+/**
  * Derives a value-free descriptor of a validation failure for telemetry, so a
  * contract regression (agents sending a field name the schema doesn't accept) is
  * diagnosable from the `$mcp_tool_call` event alone — without ever recording the
  * request payload.
  *
- * `fields` are the offending top-level field + issue code (e.g. `orgId:invalid_type`);
- * for a union rejection the path is empty and it reads `(root):invalid_union`, which
- * is why `inputKeys` — the top-level keys the caller actually sent — carries the real
- * signal there (it surfaces the unaccepted alias, e.g. `organizationId`).
+ * `fields` are the offending field path + issue code, plus the received type where
+ * that distinguishes the bug (e.g. `id:invalid_type:undefined` for an omitted
+ * parameter vs `query:invalid_union:string` for an envelope the agent flattened).
+ * `inputKeys` — the top-level keys the caller actually sent — is what surfaces an
+ * unaccepted alias (e.g. `organizationId` where the schema wants `orgId`).
  *
- * Records only structural information (field names, issue codes). It never touches
- * input VALUES: the ZodError embeds raw values in `issue.input` and `.message` (see
- * `formatInputValidationError`), so we read `issue.path[0]`/`issue.code` and the
- * input's own key names only.
+ * Records only structural information: field names, issue codes, and the TYPE of a
+ * rejected value. It never records input VALUES — the ZodError embeds those in
+ * `issue.input` and in `.message` (see `formatInputValidationError`), so this reads
+ * `typeof issue.input` and never the value behind it.
  */
 export function describeValidationError(
     error: z.ZodError,
@@ -298,8 +351,14 @@ export function describeValidationError(
     const fields = [
         ...new Set(
             error.issues.map((issue) => {
-                const top = issue.path.length ? String(issue.path[0]) : '(root)'
-                return `${top.slice(0, MAX_KEY_LENGTH)}:${issue.code}`
+                const descriptor = `${normalizeDescriptorPath(issue.path)}:${issue.code}`
+                // `input` is only present under `safeParse(..., { reportInput: true })`;
+                // without it there is no type to report, and an absent value and an
+                // unreported one must not both read as `undefined`.
+                if (!TYPE_REVEALING_CODES.has(issue.code) || !('input' in issue)) {
+                    return descriptor
+                }
+                return `${descriptor}:${describeReceivedType(issue.input)}`
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)

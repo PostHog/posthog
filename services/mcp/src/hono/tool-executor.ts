@@ -21,6 +21,7 @@ import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     createExecTool,
+    describeApiValidationError,
     describeExecCommand,
     describeValidationError,
     formatInputValidationError,
@@ -616,8 +617,13 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     if (apiError instanceof PostHogValidationError) {
         const errorCode = apiError.code ? sanitizeErrorToken(apiError.code) : undefined
         const errorField = apiError.attr ? normalizeErrorField(apiError.attr) : undefined
+        // Same descriptor property and format as a local schema rejection, so one
+        // query covers both layers. There is no `validationInputKeys` counterpart:
+        // the request body reached the API, so the keys it carried aren't ours to
+        // reconstruct here.
         return {
             errorType: 'validation',
+            validationFields: describeApiValidationError(apiError.attr, apiError.code),
             ...(errorCode ? { errorCode } : {}),
             ...(errorField ? { errorField } : {}),
         }

@@ -12,6 +12,7 @@ import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
     createExecTool,
+    describeApiValidationError,
     describeExecCommand,
     describeValidationError,
     type ExecInnerCallProperties,
@@ -1425,8 +1426,74 @@ describe('exec tool', () => {
 
             const detail = describeValidationError(result.error!, input)
 
-            expect(detail.fields).toContain('projectId:invalid_type')
+            expect(detail.fields).toContain('projectId:invalid_type:string')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
+        })
+
+        // `invalid_type` alone conflates an omitted parameter with one sent under the
+        // right name but the wrong shape — the two dominant rejection classes, and
+        // they need different fixes (aliasing vs coercion/envelope). The received
+        // type is what separates them.
+        it.each([
+            ['omitted entirely', {}, 'id:invalid_type:undefined'],
+            ['sent as the wrong primitive', { id: 42 }, 'id:invalid_type:number'],
+            ['sent as an envelope object', { id: { value: 'x' } }, 'id:invalid_type:object'],
+            ['sent as an array', { id: ['x'] }, 'id:invalid_type:array'],
+            ['sent as null', { id: null }, 'id:invalid_type:null'],
+        ])('distinguishes a required param %s', (_label, input, expected) => {
+            const result = z.object({ id: z.string() }).safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input as Record<string, unknown>).fields).toEqual([expected])
+        })
+
+        // The received type is only meaningful for the type-shaped codes; appending it
+        // to every code would bloat the descriptor and say nothing (`too_big:string`).
+        it('omits the received type for a code the type does not explain', () => {
+            const input = { description: 'far too long' }
+            const result = z.object({ description: z.string().max(3) }).safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input).fields).toEqual(['description:too_big'])
+        })
+
+        // A malformed array produces one issue per element. Collapsing indices keeps
+        // them a single descriptor — otherwise they fill the 20-descriptor cap with
+        // restatements of one defect and evict the genuinely different field that
+        // failed after them, which is the information the event exists to carry.
+        it('collapses array indices so one bad array cannot evict other failed fields', () => {
+            const schema = z.object({
+                series: z.array(z.object({ event: z.string() })),
+                dateRange: z.string(),
+            })
+            const input = {
+                series: Array.from({ length: 50 }, () => ({ event: 123 })),
+                dateRange: 456,
+            }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const { fields } = describeValidationError(result.error!, input as Record<string, unknown>)
+
+            expect(fields).toEqual(['series.N.event:invalid_type:number', 'dateRange:invalid_type:number'])
+        })
+    })
+
+    describe('describeApiValidationError', () => {
+        // API-layer rejections carried no structured field at all, so they could only
+        // be reached by string-parsing $mcp_error_message. Same format as the schema
+        // path so a single query spans both.
+        it.each([
+            ['name', 'required', 'name:required'],
+            ['series.0.event', 'invalid', 'series.N.event:invalid'],
+            [undefined, 'invalid', '(root):invalid'],
+            ['name', undefined, 'name:unknown'],
+        ])('describes attr=%s code=%s as %s', (attr, code, expected) => {
+            expect(describeApiValidationError(attr, code)).toEqual([expected])
+        })
+
+        it('bounds an over-long attr to the shared key-length cap', () => {
+            expect(describeApiValidationError('a'.repeat(200), 'invalid')[0]).toBe(`${'a'.repeat(64)}:invalid`)
         })
     })
 

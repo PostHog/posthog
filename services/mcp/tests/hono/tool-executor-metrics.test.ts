@@ -274,6 +274,35 @@ describe('ToolExecutor metrics', () => {
             expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_message: expected })
         })
 
+        // An API-layer rejection used to carry no structured field, so it was only
+        // reachable by string-parsing $mcp_error_message. It now populates the same
+        // property a local schema rejection does — the API's free-text `detail` still
+        // never reaches analytics.
+        it('stamps $mcp_validation_fields for an API validation error, without the detail body', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new PostHogValidationError({
+                        detail: 'Unable to resolve field: SECRET=sk_live_abc123',
+                        attr: 'series.0.event',
+                        code: 'invalid_input',
+                        extra: undefined,
+                        url: 'https://us.posthog.com/api/environments/2/query/',
+                        method: 'POST',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({
+                $mcp_error_type: 'validation',
+                // Array indices collapse here too, matching the schema path.
+                $mcp_validation_fields: ['series.N.event:invalid_input'],
+            })
+            expect(JSON.stringify(extras)).not.toContain('sk_live_abc123')
+        })
+
         it('rebuilds PostHogApiError messages from status + path, never the response body or query string', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('fail-tool', async () => {
@@ -403,7 +432,9 @@ describe('ToolExecutor metrics', () => {
             expect(call![1]).toBe(0)
             expect(trackToolCallExtras('strict-tool')).toMatchObject({
                 $mcp_error_type: 'validation',
-                $mcp_validation_fields: ['required_field:invalid_type'],
+                // `:undefined` is the received type — the param was absent, not
+                // mistyped, which is what separates an alias slip from a coercion bug.
+                $mcp_validation_fields: ['required_field:invalid_type:undefined'],
                 $mcp_validation_input_keys: ['requiredField'],
             })
         })
