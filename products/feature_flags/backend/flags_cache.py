@@ -1001,20 +1001,27 @@ def _route_to_kafka(team_id: int) -> bool:
 def _produce_invalidation(team_id: int) -> None:
     """Produce a single invalidation message; swallow Kafka errors.
 
-    A produce failure here must not raise out of a signal handler — see
-    `_enqueue_invalidation` for why that means the invalidation is dropped
-    rather than retried via Celery. Per-message delivery success/failure is
-    also counted in KAFKA_PRODUCER_MESSAGES_COUNTER (wired in `_KafkaProducer.produce`).
+    A produce failure here must not raise out of a signal handler, and it is
+    deliberately not retried via Celery (see `_enqueue_invalidation` for why).
+    The `except` below only sees errors `produce` raises synchronously: a full
+    local producer queue (`BufferError`) or serialization/config errors.
+    Broker-side delivery failures surface after this function returns, via the
+    delivery callback in `_KafkaProducer._on_delivery`: a
+    KAFKA_PRODUCER_MESSAGES_COUNTER failure tick plus a throttled
+    `kafka_producer_delivery_failed` warning carrying the message key (the
+    team id). So the `flags_cache_invalidation_produce_failed` log below
+    covers only the synchronous slice; watch both signals during rollout.
 
     `data` must be a dict (not pre-encoded bytes): `_KafkaProducer.produce`
     runs it through `json_serializer` (`json.dumps` + utf-8 encode). Passing
     bytes would `TypeError` inside `json.dumps` and silently fail the swallow
     path. `mode="json"` converts `datetime` to ISO string.
 
-    `flush_timeout=0` keeps this off the request hot path — librdkafka's
-    background thread drains the singleton's queue, and the next call flushes
-    again. A blocking flush would stall every flag-edit on-commit hook on an
-    unhealthy cluster.
+    `flush_timeout=0` keeps this off the request hot path and is why delivery
+    failures are asynchronous: the call returns without waiting for acks, and
+    librdkafka's background thread drains the singleton's queue, with the next
+    call flushing again. A blocking flush would stall every flag-edit
+    on-commit hook on an unhealthy cluster.
     """
     try:
         msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC))
@@ -1040,13 +1047,26 @@ def _enqueue_invalidation(team_id: int) -> None:
 
     The two paths are mutually exclusive so the rollout proves the Kafka path
     actually works end to end: Celery is not a fallback when the flag is on,
-    so a stuck Kafka producer shows up as a stale cache for that team instead
-    of being masked by Celery quietly picking up the slack. `_produce_invalidation`
-    still swallows its own errors — a produce failure must not raise out of a
-    signal handler — but for a flagged team that failure means the invalidation
-    is dropped, not retried via Celery. Watch `flags_cache_invalidation_produce_failed`
-    logs during rollout. Celery's `.delay()` is allowed to raise when the flag
-    is off — it's the sole path in that case and operators want broker failures loud.
+    so a broken Kafka path shows up as a stale cache for the flagged team
+    instead of being masked by Celery quietly picking up the slack. Do not add
+    a Celery fallback on produce failure. It would hide the exact signal the
+    exclusive routing exists to surface, it would couple this path to a Celery
+    path that is deleted at cutover, and it could not catch the realistic
+    failure mode anyway: broker-side delivery failures are reported
+    asynchronously, after `_produce_invalidation` has already returned (see its
+    docstring for how they surface).
+
+    A dropped invalidation does not mean a cache stale until its TTL.
+    `verify_and_fix_flags_cache_task` periodically sweeps every team with
+    flags and repairs cache-vs-DB mismatches, so worst-case staleness is
+    roughly one sweep interval plus the grace period for just-updated flags,
+    not the TTL (cadence in `posthog/tasks/scheduled.py`, grace period in
+    `FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES`; well under an hour at
+    current settings). One narrow exception: a team whose last flag is
+    deleted leaves the sweep's scope (`get_teams_with_flags_queryset`), so a
+    dropped removal invalidation heals only when the TTL-edge refresh reaches
+    it. Celery's `.delay()` is allowed to raise when the flag is off, since
+    it is the sole path in that case and operators want broker failures loud.
 
     Guarded on FLAGS_REDIS_URL here (not just at each call site) so every caller, including
     ones outside a signal handler, gets the same no-op-when-unconfigured behavior for free.
