@@ -6,7 +6,7 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { insertHogFunction as _insertHogFunction } from '~/cdp/_tests/fixtures'
-import { HogTransformerService, createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
+import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
@@ -1312,82 +1312,6 @@ describe('IngestionConsumer', () => {
 
             ingester = await createIngestionConsumer(infra)
         })
-
-        it(
-            'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
-            async () => {
-                // Create a new ingester with the sample rate we want to test
-                infra.config.CDP_HOG_WATCHER_SAMPLE_RATE = 1
-                const localIngester = await createIngestionConsumer(infra)
-
-                // Create spies for methods after the service is configured. The consumer exposes the
-                // transformer via its interface, so cast to the concrete service for these internal spies.
-                const concreteTransformer = localIngester.hogTransformer as HogTransformerService
-                const fetchAndCacheSpy = jest.spyOn(concreteTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(concreteTransformer, 'clearHogFunctionStates')
-                const observeResultsSpy = jest.spyOn(concreteTransformer['hogWatcher'], 'observeResults')
-
-                // Process batch with hogwatcher enabled
-                // in this stage we do not have the teamId on the event but the token is in kafka headers
-                const event = createEvent({
-                    ip: '89.160.20.129',
-                    properties: { $ip: '89.160.20.129' },
-                })
-                const messages = createKafkaMessages([event])
-
-                await localIngester.handleKafkaBatch(messages)
-
-                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were called
-                expect(fetchAndCacheSpy).toHaveBeenCalled()
-                expect(clearStatesSpy).toHaveBeenCalled()
-
-                // Verify the full integration flow worked
-                expect(observeResultsSpy).toHaveBeenCalled()
-
-                // Verify that results were passed to observeResults with the correct structure
-                const results = observeResultsSpy.mock.calls[0][0]
-                expect(results).toBeInstanceOf(Array)
-                expect(results.length).toBeGreaterThan(0)
-
-                // Check that the results contain our transformation function
-                const functionResult = results.find((r) => r.invocation.functionId === transformationFunction.id)
-                expect(functionResult).toBeDefined()
-                expect(functionResult?.finished).toBe(true)
-
-                await localIngester.stop()
-            },
-            TRANSFORMATION_TEST_TIMEOUT
-        )
-
-        it(
-            'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
-            async () => {
-                // Create a new ingester with the sample rate we want to test
-                infra.config.CDP_HOG_WATCHER_SAMPLE_RATE = 0
-                const localIngester = await createIngestionConsumer(infra)
-
-                // Create spies for methods after the service is configured (cast to the concrete service)
-                const concreteTransformer = localIngester.hogTransformer as HogTransformerService
-                const fetchAndCacheSpy = jest.spyOn(concreteTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(concreteTransformer, 'clearHogFunctionStates')
-
-                // Process batch with hogwatcher disabled
-                const event = createEvent({
-                    ip: '89.160.20.129',
-                    properties: { $ip: '89.160.20.129' },
-                })
-                const messages = createKafkaMessages([event])
-
-                await localIngester.handleKafkaBatch(messages)
-
-                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
-                expect(fetchAndCacheSpy).not.toHaveBeenCalled()
-                expect(clearStatesSpy).not.toHaveBeenCalled()
-
-                await localIngester.stop()
-            },
-            TRANSFORMATION_TEST_TIMEOUT
-        )
 
         it(
             'should invoke transformation for matching team with error case',

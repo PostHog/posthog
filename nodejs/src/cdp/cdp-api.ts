@@ -35,7 +35,9 @@ import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
-import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
+import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogInputsService } from './services/hog-inputs.service'
 import {
     BatchResolverState,
     HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -63,6 +65,7 @@ import {
     sanitizeLogMessage,
 } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+import { buildHogFunctionInvocations } from './utils/invocation-utils'
 import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
 import { mirrorCall, mirrorCompare } from './utils/mirror-call'
 
@@ -113,7 +116,8 @@ export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
 
 export class CdpApi {
-    private hogExecutor: HogExecutorService
+    private hogExecutorAsync: HogExecutorAsyncService
+    private hogInputsService: HogInputsService
     private nativeDestinationExecutorService: NativeDestinationExecutorService
     private segmentDestinationExecutorService: SegmentDestinationExecutorService
 
@@ -150,7 +154,8 @@ export class CdpApi {
         this.hogFunctionManager = services.hogFunctionManager
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
-        this.hogExecutor = services.hogExecutor
+        this.hogExecutorAsync = services.hogExecutorAsync
+        this.hogInputsService = services.hogInputsService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
@@ -182,7 +187,7 @@ export class CdpApi {
             deps.teamManager,
             this.groupsManager,
             this.hogFunctionManager,
-            this.hogExecutor,
+            this.hogExecutorAsync,
             this.hogWatcher,
             this.invocationResultsService,
             this.hogWatcherMirror
@@ -483,7 +488,7 @@ export class CdpApi {
                     invocations,
                     logs: filterLogs,
                     metrics: filterMetrics,
-                } = await this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
+                } = await buildHogFunctionInvocations(this.hogInputsService, [compoundConfiguration], triggerGlobals)
 
                 // Add metrics to the logs
                 filterMetrics.forEach((metric) => {
@@ -503,7 +508,7 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
-                    const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                    const sensitiveValues = this.hogExecutorAsync.hogExecutor.getSensitiveValues(
                         invocation.hogFunction,
                         invocation.state.globals.inputs ?? {}
                     )
@@ -520,7 +525,7 @@ export class CdpApi {
                     } else if (isSegmentPluginHogFunction(compoundConfiguration)) {
                         response = await this.segmentDestinationExecutorService.execute(invocation)
                     } else {
-                        response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
+                        response = await this.hogExecutorAsync.executeWithAsyncFunctions(invocation, options)
                     }
 
                     logs = logs.concat(response.logs)
@@ -628,7 +633,7 @@ export class CdpApi {
                 // Derive from the resolved inputs (which merge inputs + encrypted_inputs) like the
                 // destination test path does — Django resolves stored secrets into `inputs`, so
                 // collecting from `encrypted_inputs` alone would leave them unredacted in test logs.
-                const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                const sensitiveValues = this.hogExecutorAsync.hogExecutor.getSensitiveValues(
                     compoundConfiguration,
                     (hogGlobals.inputs ?? {}) as Record<string, any>
                 )

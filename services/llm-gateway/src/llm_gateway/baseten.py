@@ -9,6 +9,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
 
+from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive
 from llm_gateway.anthropic_stream import observe_anthropic_stream
 from llm_gateway.config import Settings
 
@@ -56,6 +57,7 @@ def _inject_baseten_params(kwargs: dict[str, Any], api_base: str, api_key: str) 
 
 def make_baseten_anthropic_call(api_base: str, api_key: str) -> Callable[..., Awaitable[Any]]:
     async def llm_call(**kwargs: Any) -> Any:
+        kwargs = convert_enabled_thinking_to_adaptive(kwargs)
         _inject_baseten_params(kwargs, api_base, api_key)
         response = await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
         if isinstance(response, AsyncIterator):

@@ -40,7 +40,10 @@ from products.marketing_analytics.backend.services.native_integrations import (
 from products.marketing_analytics.backend.services.types import Campaign, TeamMappings
 from products.marketing_analytics.backend.services.utm_matching import (
     build_campaign_lookup,
-    get_match_field,
+    get_match_value,
+    get_match_value_raw,
+    group_campaigns_by_source,
+    normalize_source_name,
     resolve_source,
 )
 
@@ -163,10 +166,10 @@ def suggest_campaign_name_mappings(
     """Propose `campaign_name_mappings` for orphaned `utm_campaign` values."""
     already_matched = set(build_campaign_lookup(campaigns, mappings))
     already_mapped = {raw for aliases in mappings.campaign_aliases.values() for raw in aliases}
-    campaigns_by_source = _campaigns_by_source(campaigns)
+    campaigns_by_source = group_campaigns_by_source(campaigns)
     # Every integration's match values, so we can tell "typo" from "collision".
     all_match_values = {
-        _match_value(campaign, mappings).lower() for group in campaigns_by_source.values() for campaign in group
+        get_match_value(campaign, mappings) for group in campaigns_by_source.values() for campaign in group
     }
 
     # Campaigns whose match value already shows up in the catalogue are linked and
@@ -181,7 +184,9 @@ def suggest_campaign_name_mappings(
     for utm_campaign, utm_source in utm_events:
         if not utm_campaign:
             continue
-        seen_by_source.setdefault(resolve_source(utm_source.lower().strip(), mappings), set()).add(utm_campaign.lower())
+        seen_by_source.setdefault(resolve_source(normalize_source_name(utm_source), mappings), set()).add(
+            utm_campaign.lower()
+        )
 
     orphans = _orphans(utm_events, already_matched | already_mapped)
     considered = [o for o in orphans if o.event_count >= min_event_count][:max_unmatched_values]
@@ -247,28 +252,6 @@ def _orphans(utm_events: dict[tuple[str, str], int], excluded: set[str]) -> list
         dominant = min(sources.most_common(), key=lambda item: (-item[1], item[0]))[0] if sources else ""
         orphans.append(_Orphan(raw_utm_campaign=raw, event_count=count, dominant_utm_source=dominant))
     return orphans
-
-
-def _campaigns_by_source(campaigns: list[Campaign]) -> dict[str, list[Campaign]]:
-    grouped: dict[str, list[Campaign]] = defaultdict(list)
-    for campaign in campaigns:
-        source_name = campaign.source_name.lower().strip()
-        if source_name:
-            grouped[source_name].append(campaign)
-    return dict(grouped)
-
-
-def _match_value(campaign: Campaign, mappings: TeamMappings) -> str:
-    """The platform-side value a mapping has to produce, in original casing.
-
-    Must track `get_match_value` — the query runner rewrites a mapped utm_campaign
-    to `clean_name` and then joins it against `match_key`, which is the campaign's
-    name or id depending on `campaign_field_preferences`. Proposing a name while the
-    integration matches on id would write a mapping that silently never joins.
-    """
-    if get_match_field(campaign.source_name, mappings) == "campaign_id":
-        return campaign.campaign_id.strip()
-    return campaign.campaign_name.strip()
 
 
 def _tokens(value: str) -> list[str]:
@@ -340,7 +323,7 @@ def _classify(
 
     by_value: dict[str, Campaign] = {}
     for campaign in candidates:
-        value = _match_value(campaign, mappings)
+        value = get_match_value_raw(campaign, mappings)
         if not value or value.lower() in seen:
             # Empty, or already receiving traffic under its own name — not an orphan.
             continue
@@ -424,7 +407,7 @@ def _classify(
         return
     claimed_clean_names[top_value] = orphan.dominant_utm_source
 
-    expected_utm_source = campaign.source_name.lower().strip()
+    expected_utm_source = normalize_source_name(campaign.source_name)
     display_name = display_name_for_key(NATIVE_TO_KEY[native])
     result.proposals.append(
         CampaignMappingProposal(
