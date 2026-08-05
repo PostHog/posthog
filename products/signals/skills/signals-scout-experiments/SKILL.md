@@ -103,7 +103,7 @@ GROUP BY variant
 ORDER BY exposures DESC
 ```
 
-If `exposure_criteria.exposure_event` is set, the experiment uses a custom exposure event — query that event name instead and read the variant from `properties.$feature/<flag-key>` (a different property; the default's `$feature_flag_response` won't exist there).
+If `exposure_criteria.exposure_config.event` is set, the experiment uses a custom exposure event — query that event name instead and read the variant from `properties.$feature/<flag-key>` (a different property; the default's `$feature_flag_response` won't exist there).
 
 Reading the output:
 
@@ -147,12 +147,12 @@ Both are report-worthy: the team thinks they're collecting evidence and they are
 
 #### Exposure stall / dormant experiment
 
-A running experiment should accrue exposures continuously. Read the per-variant `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**: default experiments use `resolved_exposure_event` from `experiment-get` (`$feature_flag_called` or `$experiment_exposure`), but if `exposure_criteria.exposure_event` is set, query that event name instead (filtering on `properties.$feature/<flag-key>` rather than `$feature_flag`) — running the wrong event's query returns zero rows and fakes a stall:
+A running experiment should accrue exposures continuously. Read the per-variant `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**: default experiments use `resolved_exposure_event` from `experiment-get` (`$feature_flag_called` or `$experiment_exposure`), but if `exposure_criteria.exposure_config.event` is set, query that event name instead (filtering on `properties.$feature/<flag-key>` rather than `$feature_flag`) — running the wrong event's query returns zero rows and fakes a stall:
 
 ```sql
 SELECT toDate(timestamp) AS day, count() AS exposures
 FROM events
-WHERE event = '<resolved_exposure_event>'  -- or exposure_criteria.exposure_event
+WHERE event = '<resolved_exposure_event>'  -- or exposure_criteria.exposure_config.event
   AND properties.$feature_flag = '<flag-key>'
   AND timestamp >= toDateTime('<start_date>', 'UTC')
 GROUP BY day ORDER BY day
@@ -231,7 +231,7 @@ Direct calls (read-only):
 
 - `experiment-list` — cheap candidate discovery: id, name, status (draft / running / paused / stopped), dates, `feature_flag_key`. Filter by `status`; start here.
 - `experiment-results-get` — **the flagship detector**: exposure block (`total_exposures`, daily `timeseries`, native `sample_ratio_mismatch.p_value`, `bias_risk.multiple_variant_percentage`) plus per-metric `validation_failures` / `data: null`. Heavy response with many metrics — read the exposure + validation fields, skip the per-metric stats. New-engine experiments only; pass `refresh: false`.
-- `experiment-get` — full config for a candidate: `parameters.feature_flag_variants` (configured split), `parameters.rollout_percentage`, `recommended_sample_size`, `parameters.excluded_variants`, `exposure_criteria` (custom `exposure_event`, `multiple_variant_handling`, `filterTestAccounts`), `resolved_exposure_event` (the default exposure event to query), `stats_config.method`, `holdout_id`, linked `feature_flag` (active, `version`, `bucketing_identifier`, `ensure_experience_continuity`, `filters.groups[].variant` overrides), `metrics` (each with `uuid` + fingerprint). Large response — candidates only.
+- `experiment-get` — full config for a candidate: `parameters.feature_flag_variants` (configured split), `parameters.rollout_percentage`, `recommended_sample_size`, `parameters.excluded_variants`, `exposure_criteria` (custom `exposure_config.event`, `multiple_variant_handling`, `filterTestAccounts`), `resolved_exposure_event` (the default exposure event to query), `stats_config.method`, `holdout_id`, linked `feature_flag` (active, `version`, `bucketing_identifier`, `ensure_experience_continuity`, `filters.groups[].variant` overrides), `metrics` (each with `uuid` + fingerprint). Large response — candidates only.
 - `experiment-stats` — project-wide velocity aggregate (launched / completed last 30d, active count). Cheap context for the hygiene pass.
 - `experiment-timeseries-results` — day-by-day per-variant results for one metric (`metric_uuid` + `fingerprint` from the metrics array). Use sparingly, for the zombie "decide now" check.
 - `feature-flag-get-definition` / `feature-flags-activity-retrieve` — flag state and edit-history diffs; the latter is how you date mid-run mutations.

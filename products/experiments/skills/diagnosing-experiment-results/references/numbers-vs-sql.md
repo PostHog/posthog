@@ -70,7 +70,7 @@ WITH exposures AS (
     argMin(properties.$feature_flag_response, timestamp) AS variant,
     min(timestamp) AS first_exposure
   FROM events
-  WHERE event = '<exposure-event>'  -- resolved_exposure_event from experiment-get; exposure_criteria.exposure_event when set
+  WHERE event = '<exposure-event>'  -- resolved_exposure_event from experiment-get; exposure_criteria.exposure_config.event when set
     AND properties.$feature_flag = '<flag-key>'
     AND properties.$feature_flag_response != '$multiple'  -- source 2 (drop if multiple_variant_handling='first_seen')
     AND timestamp >= '<start_date>'                       -- source 4

@@ -25,9 +25,9 @@ Call `experiment-get` and pull these fields. They are inputs for almost every di
 - `parameters.feature_flag_variants[].rollout_percentage` — the variant split
 - `parameters.rollout_percentage` — the overall rollout (% of users entering the experiment)
 - `exposure_criteria.multiple_variant_handling` — defaults to `"exclude"` if absent
-- `exposure_criteria.exposure_event` — `null` means the default exposure event; read which one from
-  `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved server-side,
-  same properties either way)
+- `exposure_criteria.exposure_config.event` — unset means the default exposure event; read which one
+  from `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved
+  server-side, same properties either way)
 - `exposure_criteria.filterTestAccounts` — defaults to `true`
 - `feature_flag.active`, status (`draft` / `running` / `paused` / `exposure_frozen` / `stopped`), `start_date`, `end_date`
 - `feature_flag.filters.groups[]` — for each group read `variant`, `properties`, and
