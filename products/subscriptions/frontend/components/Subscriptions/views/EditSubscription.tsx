@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconChevronLeft } from '@posthog/icons'
+import { IconChevronLeft, IconSend } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
@@ -351,10 +351,18 @@ function EditSubscriptionForm({
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
-        useValues(logic)
+    const {
+        subscription,
+        subscriptionLoading,
+        isSubscriptionSubmitting,
+        subscriptionChanged,
+        subscriptionErrors,
+        lastDelivery,
+        summaryQuota,
+        testDeliveryLoading,
+    } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -644,108 +652,180 @@ function EditSubscriptionForm({
                         ) : null}
 
                         <div>
-                            <div className="flex items-baseline justify-between w-full">
-                                <LemonLabel className="mb-2">Recurrence</LemonLabel>
-                                <div className="text-xs text-secondary text-right">{currentTimezone}</div>
-                            </div>
-                            <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
-                                <span>Send every</span>
-                                <LemonField name="interval">
-                                    <LemonSelect options={intervalOptions} />
-                                </LemonField>
-                                <LemonField name="frequency">
-                                    <LemonSelect options={availableFrequencyOptions} />
-                                </LemonField>
+                            <LemonLabel className="mb-2">Recurrence</LemonLabel>
+                            <div className="rounded border p-2">
+                                <div className="flex gap-2 items-center flex-wrap">
+                                    <span>Send every</span>
+                                    <LemonField name="interval">
+                                        <LemonSelect options={intervalOptions} />
+                                    </LemonField>
+                                    <LemonField name="frequency" renderError={() => null}>
+                                        <LemonSelect options={availableFrequencyOptions} />
+                                    </LemonField>
 
-                                {(subscription.frequency === 'daily' || subscription.frequency === 'weekly') && (
-                                    <>
-                                        <span>on</span>
-                                        <LemonField name="byweekday">
-                                            {({ value, onChange }) => (
-                                                <LemonInputSelect
-                                                    mode="multiple"
-                                                    options={weekdayInputOptions}
-                                                    value={value ?? []}
-                                                    onChange={onChange}
-                                                />
-                                            )}
-                                        </LemonField>
-                                    </>
-                                )}
-                                {subscription.frequency === 'monthly' && (
-                                    <>
-                                        <span>on the</span>
-                                        <LemonField name="bysetpos">
-                                            {({ value, onChange }) => (
-                                                <LemonSelect
-                                                    options={bysetposOptions}
-                                                    value={value ? String(value) : null}
-                                                    onChange={(val) => {
-                                                        onChange(typeof val === 'string' ? parseInt(val, 10) : null)
-                                                    }}
-                                                />
-                                            )}
-                                        </LemonField>
-                                        <LemonField name="byweekday">
-                                            {({ value, onChange }) => {
-                                                const isWeekday =
-                                                    value?.length === 5 && value.every((d: string) => WEEKDAYS.has(d))
-                                                const displayValue = value
-                                                    ? isWeekday
-                                                        ? 'weekday'
-                                                        : value.length === 1
-                                                          ? value[0]
-                                                          : 'day'
-                                                    : null
+                                    {(subscription.frequency === 'weekly' ||
+                                        (subscription.frequency === 'daily' && subscription.interval === 1)) && (
+                                        <>
+                                            <LemonField name="byweekday">
+                                                {({ value, onChange }) => {
+                                                    const selectedDays = value ?? []
+                                                    let countLabel = `on ${selectedDays.length} days`
+                                                    if (selectedDays.length === 0) {
+                                                        countLabel = 'Select at least one day'
+                                                    } else if (selectedDays.length === weekdayOptions.length) {
+                                                        countLabel = 'on Monday to Sunday'
+                                                    } else if (
+                                                        selectedDays.length === WEEKDAYS.size &&
+                                                        selectedDays.every((day: string) => WEEKDAYS.has(day))
+                                                    ) {
+                                                        countLabel = 'on weekdays'
+                                                    } else if (
+                                                        selectedDays.length === 2 &&
+                                                        selectedDays.includes('saturday') &&
+                                                        selectedDays.includes('sunday')
+                                                    ) {
+                                                        countLabel = 'on weekends'
+                                                    } else if (selectedDays.length === 1) {
+                                                        const dayLabel =
+                                                            weekdayOptions
+                                                                .find(({ value }) => value === selectedDays[0])
+                                                                ?.label?.toString() ?? selectedDays[0]
+                                                        countLabel = `on ${dayLabel}`
+                                                    }
 
-                                                return (
-                                                    <LemonSelect
-                                                        dropdownMatchSelectWidth={false}
-                                                        options={monthlyWeekdayOptions}
-                                                        value={displayValue}
-                                                        onChange={(val) =>
-                                                            onChange(
-                                                                val === 'day'
-                                                                    ? Object.values(weekdayOptions).map((v) => v.value)
-                                                                    : val === 'weekday'
-                                                                      ? [...WEEKDAYS]
-                                                                      : [val]
-                                                            )
-                                                        }
-                                                    />
-                                                )
-                                            }}
-                                        </LemonField>
-                                    </>
-                                )}
-                                <span>by</span>
-                                <LemonField name="start_date">
-                                    {({ value, onChange }) => (
-                                        <LemonSelect
-                                            options={timeOptions}
-                                            value={dayjs(value).hour().toString()}
-                                            onChange={(val) => {
-                                                onChange(
-                                                    dayjs()
-                                                        .hour(typeof val === 'string' ? parseInt(val, 10) : 0)
-                                                        .minute(0)
-                                                        .second(0)
-                                                        .toISOString()
-                                                )
-                                            }}
-                                        />
+                                                    return (
+                                                        <LemonInputSelect
+                                                            mode="multiple"
+                                                            displayMode="count"
+                                                            countLabel={countLabel}
+                                                            showDropdownIcon
+                                                            bulkActions="select-and-clear-all"
+                                                            options={weekdayInputOptions}
+                                                            value={selectedDays}
+                                                            onChange={onChange}
+                                                            status={subscriptionErrors.frequency ? 'danger' : undefined}
+                                                            className="LemonInputSelect--raised"
+                                                        />
+                                                    )
+                                                }}
+                                            </LemonField>
+                                        </>
                                     )}
-                                </LemonField>
+                                    {subscription.frequency === 'monthly' && (
+                                        <>
+                                            <span>on the</span>
+                                            <LemonField name="bysetpos">
+                                                {({ value, onChange }) => (
+                                                    <LemonSelect
+                                                        options={bysetposOptions}
+                                                        value={value ? String(value) : null}
+                                                        onChange={(val) => {
+                                                            onChange(typeof val === 'string' ? parseInt(val, 10) : null)
+                                                        }}
+                                                    />
+                                                )}
+                                            </LemonField>
+                                            <LemonField name="byweekday">
+                                                {({ value, onChange }) => {
+                                                    const isWeekday =
+                                                        value?.length === 5 &&
+                                                        value.every((d: string) => WEEKDAYS.has(d))
+                                                    const displayValue = value
+                                                        ? isWeekday
+                                                            ? 'weekday'
+                                                            : value.length === 1
+                                                              ? value[0]
+                                                              : 'day'
+                                                        : null
+
+                                                    return (
+                                                        <LemonSelect
+                                                            dropdownMatchSelectWidth={false}
+                                                            options={monthlyWeekdayOptions}
+                                                            value={displayValue}
+                                                            onChange={(val) =>
+                                                                onChange(
+                                                                    val === 'day'
+                                                                        ? Object.values(weekdayOptions).map(
+                                                                              (v) => v.value
+                                                                          )
+                                                                        : val === 'weekday'
+                                                                          ? [...WEEKDAYS]
+                                                                          : [val]
+                                                                )
+                                                            }
+                                                        />
+                                                    )
+                                                }}
+                                            </LemonField>
+                                        </>
+                                    )}
+                                    <span>at</span>
+                                    <LemonField name="start_date">
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                options={timeOptions}
+                                                value={dayjs(value).hour().toString()}
+                                                onChange={(val) => {
+                                                    onChange(
+                                                        dayjs()
+                                                            .hour(typeof val === 'string' ? parseInt(val, 10) : 0)
+                                                            .minute(0)
+                                                            .second(0)
+                                                            .toISOString()
+                                                    )
+                                                }}
+                                            />
+                                        )}
+                                    </LemonField>
+                                </div>
                             </div>
                             {nextDeliveryDate && (
-                                <div className="text-xs text-secondary mt-1">
+                                <div className="text-sm text-secondary mt-1">
                                     Next delivery:{' '}
                                     <TZLabel
                                         time={dayjs(nextDeliveryDate)}
                                         formatDate="ddd, MMM D"
-                                        formatTime="HH:mm"
+                                        formatTime="h:mm A"
                                         timestampStyle="absolute"
-                                    />
+                                    />{' '}
+                                    {currentTimezone}
+                                </div>
+                            )}
+                            {id !== 'new' && (
+                                <div className="flex items-center justify-between gap-2 mt-1">
+                                    <div className="text-sm text-secondary">
+                                        {lastDelivery ? (
+                                            <>
+                                                Last run:{' '}
+                                                <TZLabel
+                                                    time={lastDelivery.finished_at ?? lastDelivery.created_at}
+                                                    formatDate="ddd, MMM D"
+                                                    formatTime="h:mm A"
+                                                    timestampStyle="absolute"
+                                                />{' '}
+                                                {currentTimezone}
+                                            </>
+                                        ) : (
+                                            <>No deliveries yet</>
+                                        )}
+                                        {' · '}
+                                        <Link to={urls.subscription(id)}>View history</Link>
+                                    </div>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconSend />}
+                                        onClick={sendTestDelivery}
+                                        loading={testDeliveryLoading}
+                                        disabledReason={
+                                            subscription.enabled === false
+                                                ? 'Re-enable this subscription before sending a test delivery'
+                                                : undefined
+                                        }
+                                    >
+                                        Send test delivery
+                                    </LemonButton>
                                 </div>
                             )}
                         </div>
@@ -835,7 +915,7 @@ function EditSubscriptionForm({
                                             <TZLabel
                                                 time={dayjs(nextDeliveryDate)}
                                                 formatDate="ddd, MMM D"
-                                                formatTime="HH:mm"
+                                                formatTime="h:mm A"
                                                 timestampStyle="absolute"
                                             />
                                             )

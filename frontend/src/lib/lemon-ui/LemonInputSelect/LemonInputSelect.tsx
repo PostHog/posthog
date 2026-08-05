@@ -8,7 +8,7 @@ import Fuse from 'fuse.js'
 import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { List } from 'react-window'
 
-import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -166,6 +166,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     transparentBackground?: boolean
     displayMode?: 'snacks' | 'count'
+    countLabel?: React.ReactNode
+    showDropdownIcon?: boolean
     bulkActions?: 'clear-all' | 'select-and-clear-all'
     /** Disable comma splitting for properties that contain commas in their values (e.g., user agent strings) */
     disableCommaSplitting?: boolean
@@ -207,6 +209,8 @@ export function LemonInputSelect<T = string>({
     autoWidth = true,
     fullWidth = false,
     displayMode = 'snacks',
+    countLabel,
+    showDropdownIcon = false,
     bulkActions,
     disableCommaSplitting = false,
     action,
@@ -774,15 +778,16 @@ export function LemonInputSelect<T = string>({
             return null
         }
         return values.length === 0 ? (
-            <span className="-ml-2 text-muted">Select from {options.length} options</span>
+            <span className="-ml-2 text-muted">{countLabel ?? `Select from ${options.length} options`}</span>
         ) : (
             <span className="-ml-2">
-                {values.length === options.length
-                    ? `All ${options.length} selected`
-                    : `${values.length}/${options.length} selected`}
+                {countLabel ??
+                    (values.length === options.length
+                        ? `All ${options.length} selected`
+                        : `${values.length}/${options.length} selected`)}
             </span>
         )
-    }, [displayMode, mode, inputValue, loading, values.length, options.length])
+    }, [countLabel, displayMode, mode, inputValue, loading, values.length, options.length])
 
     const virtualizedListHeight = useMemo(() => {
         if (displayOptions.length <= 1) {
@@ -1047,6 +1052,7 @@ export function LemonInputSelect<T = string>({
                     <>
                         {countPlaceholder}
                         {valuesAndClearButtonSuffix}
+                        {showDropdownIcon && <IconChevronDown className="text-xl" />}
                     </>
                 }
                 onFocus={_onFocus}

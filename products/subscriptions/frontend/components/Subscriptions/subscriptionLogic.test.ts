@@ -140,6 +140,19 @@ describe('subscriptionLogic', () => {
             byweekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
         })
 
+        newLogic.actions.setSubscriptionValue('byweekday', ['monday', 'tuesday'])
+        newLogic.actions.setSubscriptionValue('interval', 2)
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscription.byweekday).toEqual([
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday',
+            'sunday',
+        ])
+
         newLogic.actions.setSubscriptionValues({
             interval: 7,
             start_date: '2024-01-01T09:00:00Z',

@@ -19,3 +19,8 @@
 .LemonInputSelect__edit-button-wrapper {
     @include edit-button-wrapper-size-variables;
 }
+
+.LemonInputSelect--raised {
+    border-color: var(--secondary-3000-button-border);
+    box-shadow: 0 0.1875rem 0 -1px var(--secondary-3000-frame-bg);
+}

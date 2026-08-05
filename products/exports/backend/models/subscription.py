@@ -284,7 +284,7 @@ class Subscription(ModelActivityMixin, models.Model):
             interval=interval,
             dtstart=start_date,
             until=until_date,
-            bysetpos=bysetpos if byweekday else None,
+            bysetpos=bysetpos if byweekday and frequency == Subscription.SubscriptionFrequency.MONTHLY else None,
             byweekday=to_rrule_weekdays(byweekday) if byweekday else None,
         )
 
@@ -454,7 +454,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
             summary = f"sent every {str(self.interval) + ' ' if self.interval > 1 else ''}{human_frequency}"
 
-            if self.byweekday and self.bysetpos:
+            if self.frequency == self.SubscriptionFrequency.MONTHLY and self.byweekday and self.bysetpos:
                 human_bysetpos = {
                     1: "first",
                     2: "second",

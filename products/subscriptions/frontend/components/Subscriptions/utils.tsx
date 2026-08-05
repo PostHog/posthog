@@ -111,7 +111,7 @@ export const bysetposOptions: LemonSelectOptions<'1' | '2' | '3' | '4' | '-1'> =
 
 export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => ({
     value: String(x),
-    label: `${String(x).padStart(2, '0')}:00`,
+    label: `${x % 12 || 12}:00 ${x < 12 ? 'AM' : 'PM'}`,
 }))
 
 const RRULE_WEEKDAY_MAP: Record<string, (typeof RRule)['MO']> = {
@@ -143,7 +143,7 @@ export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Da
             interval: subscription.interval ?? 1,
             dtstart: new Date(subscription.start_date),
             byweekday: subscription.byweekday?.map((d) => RRULE_WEEKDAY_MAP[d]) ?? null,
-            bysetpos: subscription.bysetpos ?? null,
+            bysetpos: subscription.frequency === 'monthly' ? (subscription.bysetpos ?? null) : null,
         })
         return rule.after(new Date())
     } catch {
