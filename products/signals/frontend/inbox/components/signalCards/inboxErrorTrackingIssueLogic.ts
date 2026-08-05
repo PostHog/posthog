@@ -6,11 +6,10 @@ import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange, ErrorTrackingIssue, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import type { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { errorTrackingIssueQuery } from 'products/error_tracking/frontend/queries'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
-
-import type { ErrorTrackingIssueAggregations } from '../../../../queries/schema/schema-general'
 
 export type InboxErrorTrackingIssueSourceType = 'issue_created' | 'issue_reopened' | 'issue_spiking'
 

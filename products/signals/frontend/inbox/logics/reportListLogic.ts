@@ -6,7 +6,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
-import type { UserType } from '../../../types'
+import type { UserType } from '~/types'
+
 import { captureInboxReportAction } from '../inboxAnalytics'
 import {
     ACTIONABLE_ACTIONABILITY_VALUES,
@@ -409,7 +410,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 scope: InboxScope,
-                user: null | import('../../../types').UserType,
+                user: null | import('~/types').UserType,
                 listParams
             ) => {
                 const suggestedReviewer =

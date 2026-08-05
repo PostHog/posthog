@@ -18,18 +18,6 @@ import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import {
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportArtefactResponse,
-    SignalReportStateRequest,
-    SignalScoutEmission,
-    SignalScoutEmissionReportLink,
-    SignalScoutRunSummary,
-    SignalSourceConfig,
-    SignalTeamConfig,
-    SignalUserAutonomyConfig,
-} from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -247,6 +235,18 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
+import {
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportArtefactResponse,
+    SignalReportStateRequest,
+    SignalScoutEmission,
+    SignalScoutEmissionReportLink,
+    SignalScoutRunSummary,
+    SignalSourceConfig,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+} from 'products/signals/frontend/inbox/types'
 import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
