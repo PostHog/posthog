@@ -212,8 +212,8 @@ export interface accountsLogicValues {
     customPropertyFilters: AccountCustomPropertyFilter[]
     hogqlQuery: DataTableNode
     isRoleSaving: (accountId: string, column: string) => boolean
-    listPaginated: boolean;
     isTagsSaving: (accountId: string) => boolean
+    listPaginated: boolean
     metricsQuery: AccountsQuery | null
     relationshipOverrides: Record<string, number[]>
     savingRoles: Record<string, true>
@@ -221,7 +221,7 @@ export interface accountsLogicValues {
     searchInput: string
     searchQuery: string
     sortOrder: AccountSortOrder
-    sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined;
+    sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
     tagOverrides: Record<string, string[]>
     tagsFilter: string[]
     viewUrlState: AccountsViewUrlState
