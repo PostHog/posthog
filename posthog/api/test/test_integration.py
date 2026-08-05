@@ -713,20 +713,20 @@ class TestAWSIntegration:
         [
             (
                 {"aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "A name is required for an AWS integration",
+                "A name is required for AWS integration",
             ),
             (
                 {"name": "n", "aws_secret_access_key": "s"},
-                "Access key ID is required for an AWS integration",
+                "Access key ID is required for AWS integration",
             ),
             (
                 {"name": "n", "aws_access_key_id": "k"},
-                "Secret access key is required for an AWS integration",
+                "Secret access key is required for AWS integration",
             ),
-            ({}, "A name is required for an AWS integration"),
+            ({}, "A name is required for AWS integration"),
             (
                 {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": 1},
-                "Secret access key is required for an AWS integration",
+                "Secret access key is required for AWS integration",
             ),
         ],
     )
@@ -918,13 +918,13 @@ class TestS3CompatibleIntegration:
         [
             (
                 {"endpoint_url": "https://e.com", "aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "A name is required for an S3-compatible integration",
+                "A name is required for S3-compatible integration",
             ),
             (
                 {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "Endpoint URL is required for an S3-compatible integration",
+                "Endpoint URL is required for S3-compatible integration",
             ),
-            ({}, "A name is required for an S3-compatible integration"),
+            ({}, "A name is required for S3-compatible integration"),
         ],
     )
     def test_create_with_invalid_config(self, invalid_config, expected_error_message, client: HttpClient):
