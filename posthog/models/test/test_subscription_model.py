@@ -385,7 +385,7 @@ class TestSubscription(BaseTest):
             (
                 "weekly_last_wednesday",
                 {"interval": 1, "frequency": "weekly", "byweekday": ["wednesday"], "bysetpos": -1},
-                "sent every week on the last Wednesday",
+                "sent every week on Wednesday",
             ),
             (
                 "weekly_wednesday_no_bysetpos",
@@ -451,7 +451,7 @@ class TestSubscription(BaseTest):
             ("third_weekday", 3, "sent every month on the third weekday"),
             ("fourth_weekday", 4, "sent every month on the fourth weekday"),
             ("last_weekday", -1, "sent every month on the last weekday"),
-            ("no_bysetpos", None, "sent every month"),
+            ("no_bysetpos", None, "sent every month on weekdays"),
         ]
     )
     def test_subscription_summary_weekday(self, _name, bysetpos, expected_summary):
