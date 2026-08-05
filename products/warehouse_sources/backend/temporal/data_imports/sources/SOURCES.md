@@ -318,6 +318,7 @@ the row lists both.
 | hightouch                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | honeybadger                      | HTTP                        | requests                                                        | ✅                          |
 | honeycomb                        | HTTP                        | requests                                                        | ✅                          |
+| hookdeck                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | hoorayhr                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | humanitix                        | HTTP                        | requests                                                        | ✅                          |
 | hubplanner                       | HTTP                        | requests                                                        | ✅                          |
@@ -626,6 +627,7 @@ the row lists both.
 | todoist                          | HTTP                        | requests                                                        | ✅                          |
 | together_ai                      | HTTP                        | requests                                                        | ✅                          |
 | torii                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| transistor                       | HTTP                        | requests                                                        | ✅                          |
 | travis_ci                        | HTTP                        | requests                                                        | ✅                          |
 | trello                           | HTTP                        | requests                                                        | ✅                          |
 | tremendous                       | HTTP                        | requests                                                        | ✅                          |
@@ -1044,7 +1046,6 @@ doesn't conflict with concurrent PRs.
 - holded
 - honeybadger
 - honeycomb
-- hookdeck
 - hostaway
 - housecall_pro
 - hubplanner
@@ -1372,7 +1373,6 @@ doesn't conflict with concurrent PRs.
 - toggl
 - track_pms
 - tradable_bits
-- transistor
 - tremendous
 - triple_whale
 - trustpilot
