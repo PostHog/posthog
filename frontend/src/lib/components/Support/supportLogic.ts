@@ -411,10 +411,7 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: async () => {
             // Only include non-text fields in the URL parameters
             // This prevents focus loss when typing in text fields
-            const panelOptions = [
-                values.sendSupportRequest.kind ?? '',
-                values.isEmailFormOpen ?? 'false',
-            ].join(':')
+            const panelOptions = [values.sendSupportRequest.kind ?? '', values.isEmailFormOpen ?? 'false'].join(':')
 
             if (panelOptions !== ':') {
                 actions.setSidePanelOptions(panelOptions)

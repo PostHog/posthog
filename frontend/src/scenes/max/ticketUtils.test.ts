@@ -99,5 +99,4 @@ describe('ticketUtils', () => {
             )
         })
     })
-
 })

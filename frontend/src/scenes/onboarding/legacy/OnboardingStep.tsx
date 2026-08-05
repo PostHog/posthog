@@ -108,10 +108,7 @@ export const OnboardingStep = ({
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
                     {showHelpButton && (
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => openSupportForm({ kind: 'support' })}
-                        >
+                        <LemonButton type="secondary" onClick={() => openSupportForm({ kind: 'support' })}>
                             Need help?
                         </LemonButton>
                     )}

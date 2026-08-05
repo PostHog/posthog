@@ -463,12 +463,7 @@ function InviteInvalid(): JSX.Element {
                                 Try again
                             </LemonButton>
                         ) : null}
-                        <LemonButton
-                            size="large"
-                            center
-                            fullWidth
-                            onClick={() => openSupportForm({ kind: 'bug' })}
-                        >
+                        <LemonButton size="large" center fullWidth onClick={() => openSupportForm({ kind: 'bug' })}>
                             Contact support
                         </LemonButton>
                     </div>

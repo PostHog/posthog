@@ -290,9 +290,7 @@ describe('FeaturePreviewSceneGate', () => {
             render(<FeaturePreviewSceneGate config={CONFIG_WITH_SUPPORT}>{CHILDREN}</FeaturePreviewSceneGate>)
             await userEvent.click(screen.getByText('Request access'))
 
-            expect(mockOpenSupportForm).toHaveBeenCalledWith(
-                expect.objectContaining({ kind: 'support' })
-            )
+            expect(mockOpenSupportForm).toHaveBeenCalledWith(expect.objectContaining({ kind: 'support' }))
         })
     })
 
