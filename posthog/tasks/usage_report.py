@@ -1425,7 +1425,7 @@ def get_teams_with_ai_event_count_in_period(
             -- extractions across the full AI event volume.
             SELECT
                 team_id,
-                COUNT() - uniqExactIf(request_id, verified AND request_id != '') AS count,
+                    COUNT() - uniqExactIf(request_id, verified AND NOT relay AND request_id != '') AS count,
                 max(relay) AS has_verified_relay
             FROM (
                 SELECT
