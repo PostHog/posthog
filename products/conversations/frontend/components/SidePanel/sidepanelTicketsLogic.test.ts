@@ -106,6 +106,36 @@ describe('sidepanelTicketsLogic', () => {
         expect(supportLogic.values.isEmailFormOpen).toBe(false)
     })
 
+    // The only path that discards a written message by design. The plan makes that correct, but it is
+    // still a customer we never heard from, and the draft exists nowhere else once the form resets.
+    it('reports the dropped draft when an ineligible plan hits a support CTA', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        setSubscriptionLevel('free')
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({
+                kind: 'bug',
+                isEmailFormOpen: true,
+                message: 'I cannot log in',
+                target: 'sidePanel',
+            })
+        }).toFinishAllListeners()
+
+        const failures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support ticket send failed'
+        )
+        expect(failures).toHaveLength(1)
+        expect(failures[0][1]).toMatchObject({
+            reason: 'not_entitled',
+            can_create_ticket: false,
+            had_draft: true,
+            message_preview: 'I cannot log in',
+        })
+    })
+
     it('keeps the billing exemption after the support form resets, so backing out of the composer is not a dead end', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
@@ -250,5 +280,31 @@ describe('sidepanelTicketsLogic', () => {
         // still 1: the over-limit message is rejected before reaching the widget endpoint
         expect(send).toHaveBeenCalledTimes(1)
         expect(logic.values.messageSending).toBe(false)
+    })
+
+    // A declined send is the case the widget endpoint can't report for us — nothing reached it — and
+    // the reply the customer typed only exists in this composer, so the event has to carry it.
+    it('reports a declined send from the composer with the reply that was lost', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        ;(posthog as any).conversations.sendMessage = jest.fn().mockResolvedValue(null)
+        ;(posthog.capture as jest.Mock).mockClear()
+        const onSuccess = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('here is the error I get', onSuccess)
+        }).toFinishAllListeners()
+
+        expect(onSuccess).not.toHaveBeenCalled()
+        const failures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support ticket send failed'
+        )
+        expect(failures).toHaveLength(1)
+        expect(failures[0][1]).toMatchObject({
+            surface: 'side_panel_composer',
+            reason: 'widget_declined',
+            message_preview: 'here is the error I get',
+        })
     })
 })
