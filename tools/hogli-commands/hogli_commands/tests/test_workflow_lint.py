@@ -396,6 +396,97 @@ class TestPrConcurrencyCheck:
         )
         assert PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []
 
+    @pytest.mark.parametrize(
+        "name,triggers,group,cancel,flagged",
+        [
+            ("publish.yml", "[pull_request, push]", "${{ github.workflow }}-${{ github.ref }}", "true", True),
+            ("publish.yml", "[push]", "${{ github.workflow }}-${{ github.ref }}", "true", True),
+            ("publish.yml", "[pull_request]", "${{ github.workflow }}-${{ github.ref }}", "true", False),
+            (
+                "publish.yml",
+                "[pull_request, push]",
+                "${{ github.workflow }}-${{ github.ref }}",
+                "${{ github.event_name == 'pull_request' }}",
+                False,
+            ),
+            (
+                "publish.yml",
+                "[pull_request, push]",
+                "${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}",
+                "true",
+                False,
+            ),
+            # SKIP exempts a workflow from needing a block, never from cancelling master runs.
+            (
+                next(iter(PrConcurrencyCheck.SKIP)),
+                "[push]",
+                "${{ github.workflow }}-${{ github.ref }}",
+                "true",
+                True,
+            ),
+            # A SHA on a non-push arm still leaves every push sharing one ref.
+            (
+                "publish.yml",
+                "[pull_request, push]",
+                "${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.sha || github.ref }}",
+                "true",
+                True,
+            ),
+            ("publish.yml", "[push]", "${{ github.workflow }}-${{ github.sha }}", "true", False),
+        ],
+    )
+    def test_bare_cancel_flagged_only_when_it_can_kill_a_push_run(
+        self, tmp_path: Path, name: str, triggers: str, group: str, cancel: str, flagged: bool
+    ) -> None:
+        _write(
+            tmp_path,
+            name,
+            f"""
+            name: Publish
+            on: {triggers}
+            concurrency:
+              group: {group}
+              cancel-in-progress: {cancel}
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        issues = PrConcurrencyCheck().run(_read_all(tmp_path)).issues
+        assert bool(issues) is flagged
+
+    @pytest.mark.parametrize(
+        "marker,exempted",
+        [
+            ("# hogli-lint: allow-master-cancel -- cache warmer, latest wins", True),
+            ("# hogli-lint: allow-master-cancel", False),
+            ("# hogli-lint: allow-master-cancel --", False),
+        ],
+    )
+    def test_master_cancel_marker_needs_a_reason_to_exempt(self, tmp_path: Path, marker: str, exempted: bool) -> None:
+        _write(
+            tmp_path,
+            "publish.yml",
+            f"""
+            name: Publish
+            on: [push]
+            concurrency:
+              group: ${{{{ github.workflow }}}}-${{{{ github.ref }}}}
+              {marker}
+              cancel-in-progress: true
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert (PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []) is exempted
+
 
 # ---------------------------------------------------------------------------
 # DornyNegationCheck
