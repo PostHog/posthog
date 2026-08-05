@@ -80,6 +80,7 @@ from products.tasks.backend.facade.agent_proxy import (
     agent_proxy_callback,
     agent_proxy_port_forward_exchange_ticket,
     agent_proxy_port_forward_resolve,
+    agent_proxy_terminal_resolve,
 )
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
@@ -573,6 +574,10 @@ urlpatterns = [
     path(
         "internal/tasks/port-forward/exchange-ticket/",
         csrf_exempt(agent_proxy_port_forward_exchange_ticket),
+    ),
+    path(
+        "internal/tasks/terminal/resolve/",
+        csrf_exempt(agent_proxy_terminal_resolve),
     ),
     # Internal SQLV2 run result callback (auth: signed callback token)
     path(

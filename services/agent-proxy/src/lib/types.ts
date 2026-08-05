@@ -112,6 +112,15 @@ export interface TaskPortForwardTokenPayload {
     userId: number
 }
 
+// Claims extracted from a posthog:task_terminal JWT.
+export interface TaskTerminalTokenPayload {
+    runId: string
+    taskId: string
+    teamId: number
+    terminalId: string
+    userId: number
+}
+
 // ---------------------------------------------------------------------------
 // SSE stream connection outcome (matches Python StreamConnectionOutcome values)
 // ---------------------------------------------------------------------------

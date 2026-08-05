@@ -76,7 +76,7 @@ export const MAX_REQUEST_BYTES = 5_000_000
 export const MAX_EVENTS_PER_REQUEST = 1_000
 
 // CORS headers (must match the Python ASGI middleware values exactly)
-export const CORS_ALLOW_METHODS = 'GET, POST, OPTIONS'
+export const CORS_ALLOW_METHODS = 'GET, POST, DELETE, OPTIONS'
 export const CORS_ALLOW_HEADERS =
     'authorization, last-event-id, content-type, accept, x-csrftoken, x-posthog-distinct-id, x-posthog-session-id'
 export const CORS_MAX_AGE = '600'
@@ -85,6 +85,7 @@ export const CORS_MAX_AGE = '600'
 export const STREAM_READ_AUDIENCE = 'posthog:stream_read'
 export const SANDBOX_EVENT_INGEST_AUDIENCE = 'posthog:sandbox_event_ingest'
 export const TASK_PORT_FORWARD_AUDIENCE = 'posthog:task_port_forward'
+export const TASK_TERMINAL_AUDIENCE = 'posthog:task_terminal'
 
 // SSE event names (keepalive and terminal events carry a named "event:" line;
 // normal stream events do not — they carry only "id:" and "data:").

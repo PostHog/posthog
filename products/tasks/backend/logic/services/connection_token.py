@@ -35,6 +35,9 @@ STREAM_READ_TOKEN_TTL = timedelta(minutes=15)
 TASK_PORT_FORWARD_AUDIENCE = "posthog:task_port_forward"
 TASK_PORT_FORWARD_TOKEN_TTL = timedelta(hours=1)
 
+TASK_TERMINAL_AUDIENCE = "posthog:task_terminal"
+TASK_TERMINAL_TOKEN_TTL = timedelta(hours=1)
+
 
 @dataclass(frozen=True)
 class SandboxEventIngestTokenPayload:
@@ -65,6 +68,16 @@ class TaskPortForwardTokenPayload:
     team_id: int
     forward_id: str
     port: int
+    user_id: int
+    distinct_id: str
+
+
+@dataclass(frozen=True)
+class TaskTerminalTokenPayload:
+    run_id: str
+    task_id: str
+    team_id: int
+    terminal_id: str
     user_id: int
     distinct_id: str
 
@@ -338,6 +351,23 @@ def create_task_port_forward_token(
     )
 
 
+def create_task_terminal_token(
+    task_run: TaskRun,
+    *,
+    terminal_id: str,
+    user_id: int,
+    distinct_id: str,
+    ttl: timedelta = TASK_TERMINAL_TOKEN_TTL,
+) -> str:
+    """Create a short-lived JWT that authorizes one terminal attached to a task sandbox."""
+    return _encode_run_scoped_token(
+        task_run,
+        TASK_TERMINAL_AUDIENCE,
+        ttl,
+        {"terminal_id": terminal_id, "user_id": user_id, "distinct_id": distinct_id},
+    )
+
+
 def validate_stream_read_token(token: str) -> StreamReadTokenPayload:
     payload = _decode_sandbox_token(token, STREAM_READ_AUDIENCE)
 
@@ -379,6 +409,36 @@ def validate_task_port_forward_token(token: str) -> TaskPortForwardTokenPayload:
         team_id=team_id,
         forward_id=forward_id,
         port=port,
+        user_id=user_id,
+        distinct_id=distinct_id,
+    )
+
+
+def validate_task_terminal_token(token: str) -> TaskTerminalTokenPayload:
+    payload = _decode_sandbox_token(token, TASK_TERMINAL_AUDIENCE)
+
+    run_id = payload.get("run_id")
+    task_id = payload.get("task_id")
+    team_id = payload.get("team_id")
+    terminal_id = payload.get("terminal_id")
+    user_id = payload.get("user_id")
+    distinct_id = payload.get("distinct_id")
+
+    if (
+        not isinstance(run_id, str)
+        or not isinstance(task_id, str)
+        or type(team_id) is not int
+        or not isinstance(terminal_id, str)
+        or type(user_id) is not int
+        or not isinstance(distinct_id, str)
+    ):
+        raise jwt.InvalidTokenError("Task terminal token has invalid claims")
+
+    return TaskTerminalTokenPayload(
+        run_id=run_id,
+        task_id=task_id,
+        team_id=team_id,
+        terminal_id=terminal_id,
         user_id=user_id,
         distinct_id=distinct_id,
     )

@@ -852,6 +852,9 @@ importers:
       minimatch:
         specifier: ^10.0.3
         version: 10.1.2
+      node-pty:
+        specifier: 1.1.0
+        version: 1.1.0(patch_hash=4dfdf785f5ac51a03f5d6032371cebe89036381acd403621f250a896245647c5)
       tar:
         specifier: ^7.5.19
         version: 7.5.22

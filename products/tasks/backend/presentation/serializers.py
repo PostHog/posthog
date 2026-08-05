@@ -38,6 +38,8 @@ from products.tasks.backend.facade.contracts import (
     TaskRunDetailDTO,
     TaskRunPortForwardDTO,
     TaskRunPortForwardResolveDTO,
+    TaskRunTerminalResolveDTO,
+    TaskRunTerminalTokenDTO,
     TaskSummaryDTO,
     TaskThreadMessageDTO,
     TaskUserBasicInfo,
@@ -1941,6 +1943,28 @@ class TaskRunPortForwardTicketExchangeResponseSerializer(serializers.Serializer)
 class TaskRunPortForwardResolveResponseSerializer(DataclassSerializer):
     class Meta:
         dataclass = TaskRunPortForwardResolveDTO
+
+
+class TaskRunTerminalTokenRequestSerializer(serializers.Serializer):
+    terminal_id = serializers.RegexField(
+        regex=r"^[A-Za-z0-9_.:-]{1,120}$",
+        required=False,
+        help_text="Optional caller-chosen terminal session id. A new id is generated when omitted.",
+    )
+
+
+class TaskRunTerminalTokenResponseSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TaskRunTerminalTokenDTO
+
+
+class TaskRunTerminalResolveRequestSerializer(serializers.Serializer):
+    token = serializers.CharField()
+
+
+class TaskRunTerminalResolveResponseSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TaskRunTerminalResolveDTO
 
 
 MAX_IMPORTED_MCP_SERVERS = 20

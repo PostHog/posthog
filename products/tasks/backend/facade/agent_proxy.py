@@ -9,6 +9,12 @@ from products.tasks.backend.agent_proxy_callback import (
     agent_proxy_callback,
     agent_proxy_port_forward_exchange_ticket,
     agent_proxy_port_forward_resolve,
+    agent_proxy_terminal_resolve,
 )
 
-__all__ = ["agent_proxy_callback", "agent_proxy_port_forward_exchange_ticket", "agent_proxy_port_forward_resolve"]
+__all__ = [
+    "agent_proxy_callback",
+    "agent_proxy_port_forward_exchange_ticket",
+    "agent_proxy_port_forward_resolve",
+    "agent_proxy_terminal_resolve",
+]

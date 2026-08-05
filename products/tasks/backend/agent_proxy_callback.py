@@ -18,6 +18,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunPortForwardResolveResponseSerializer,
     TaskRunPortForwardTicketExchangeRequestSerializer,
     TaskRunPortForwardTicketExchangeResponseSerializer,
+    TaskRunTerminalResolveRequestSerializer,
+    TaskRunTerminalResolveResponseSerializer,
 )
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
@@ -219,3 +221,36 @@ def agent_proxy_port_forward_exchange_ticket(request) -> JsonResponse:
     if token is None:
         return JsonResponse({"error": "Ticket not found"}, status=404)
     return JsonResponse(TaskRunPortForwardTicketExchangeResponseSerializer({"token": token}).data)
+
+
+@extend_schema(
+    tags=["task-runs"],
+    request=TaskRunTerminalResolveRequestSerializer,
+    responses={
+        200: OpenApiResponse(response=TaskRunTerminalResolveResponseSerializer, description="Sandbox connection"),
+        400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid request body"),
+        403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid agent-proxy secret"),
+        404: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Terminal not found or inactive"),
+    },
+    summary="Resolve task-run terminal",
+    description="Internal endpoint called by agent-proxy to resolve a valid terminal token into sandbox details.",
+)
+def agent_proxy_terminal_resolve(request) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+    if secret_response := _validate_agent_proxy_secret(request):
+        return secret_response
+
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON body"}, status=400)
+
+    serializer = TaskRunTerminalResolveRequestSerializer(data=body)
+    if not serializer.is_valid():
+        return JsonResponse({"error": "Invalid request body", "detail": serializer.errors}, status=400)
+
+    resolved = tasks_facade.resolve_task_run_terminal(serializer.validated_data["token"])
+    if resolved is None:
+        return JsonResponse({"error": "Terminal not found"}, status=404)
+    return JsonResponse(TaskRunTerminalResolveResponseSerializer(resolved).data)

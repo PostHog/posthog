@@ -134,6 +134,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunSessionLogsQuerySerializer,
     TaskRunSetOutputRequestSerializer,
     TaskRunStartRequestSerializer,
+    TaskRunTerminalTokenRequestSerializer,
+    TaskRunTerminalTokenResponseSerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
     TaskSessionResponseSerializer,
@@ -1847,6 +1849,35 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if stopped is None:
             raise NotFound()
         return Response(TaskRunPortForwardSerializer(stopped).data)
+
+    @validated_request(
+        request_serializer=TaskRunTerminalTokenRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunTerminalTokenResponseSerializer, description="Terminal token"),
+            404: OpenApiResponse(description="Task run not found or sandbox inactive"),
+        },
+        summary="Get task run terminal token",
+        description="Generate a short-lived token for opening an interactive terminal in a live cloud task sandbox.",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="terminal_token",
+        required_scopes=["task:write"],
+    )
+    def terminal_token(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        token = tasks_facade.create_task_run_terminal_token(
+            pk,
+            task_id,
+            self.team_id,
+            user_id=request.user.id,
+            distinct_id=request.user.distinct_id,
+            terminal_id=request.validated_data.get("terminal_id"),
+        )
+        if token is None:
+            raise NotFound()
+        return Response(TaskRunTerminalTokenResponseSerializer(token).data)
 
     @validated_request(
         request_serializer=TaskRunCommandRequestSerializer,

@@ -19,11 +19,11 @@ import { stream } from 'hono/streaming'
 import type { Redis } from 'ioredis'
 
 import type { Config } from '../lib/config.js'
-import { validateStreamReadToken, validateTaskPortForwardToken } from '../lib/jwt.js'
+import { validateStreamReadToken, validateTaskPortForwardToken, validateTaskTerminalToken } from '../lib/jwt.js'
 import { logger, type RequestLogger } from '../lib/logging.js'
 import { getStreamKey } from '../lib/redis-stream.js'
 import { StreamCapacity } from '../lib/stream-capacity.js'
-import type { StreamReadTokenPayload, TaskPortForwardTokenPayload } from '../lib/types.js'
+import type { StreamReadTokenPayload, TaskPortForwardTokenPayload, TaskTerminalTokenPayload } from '../lib/types.js'
 import { handleIngest } from './ingest-handler.js'
 import { observeStreamConnectionRejected } from './metrics.js'
 import { corsHeaders, corsPreflightHandler, httpMetrics, requestLog, securityHeaders } from './middleware.js'
@@ -291,6 +291,78 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
         return handlePortForward(c, forwardId, 'path')
     })
 
+    const handleTerminal = async (c: HonoCtx, suffix: TerminalProxySuffix): Promise<Response> => {
+        const token = extractStreamReadToken(c)
+        if (token === null) {
+            return c.json({ error: 'Missing terminal token' }, 401)
+        }
+
+        let claims: TaskTerminalTokenPayload
+        try {
+            claims = await validateTaskTerminalToken(token, publicKeys)
+        } catch (err: unknown) {
+            const code = err instanceof Error ? err.constructor.name : 'UnknownError'
+            return c.json({ error: 'Invalid terminal token', code }, 401)
+        }
+
+        const { run, terminalId } = c.req.param() as { run: string; terminalId: string }
+        if (claims.runId !== run || claims.terminalId !== terminalId) {
+            return c.json({ error: 'Token does not match terminal' }, 403)
+        }
+
+        const method = c.req.method.toUpperCase()
+        let requestBody: ArrayBuffer | undefined
+        if (method !== 'GET' && method !== 'HEAD') {
+            const body = await readBoundedRequestBody(c.req.raw)
+            if (body === null) {
+                return c.json({ error: 'Terminal request body is too large' }, 413)
+            }
+            requestBody = body
+        }
+
+        const resolved = await resolveTerminal(config, token)
+        if (resolved === null) {
+            return c.json({ error: 'Terminal is not available' }, 404)
+        }
+        if (resolved.terminal_id !== claims.terminalId || resolved.run_id !== claims.runId) {
+            return c.json({ error: 'Resolved terminal does not match token' }, 403)
+        }
+
+        const upstreamUrl = buildSandboxTerminalUrl(terminalId, suffix, resolved, config)
+        if (upstreamUrl === null) {
+            return c.json({ error: 'Terminal target is not available' }, 502)
+        }
+
+        const headers = filteredProxyHeaders(c.req.raw.headers)
+        headers.set('Authorization', `Bearer ${resolved.connection_token}`)
+        const init: RequestInit = { method, headers, redirect: 'manual' }
+        if (requestBody !== undefined) {
+            init.body = requestBody
+        }
+
+        try {
+            const upstream = await fetch(upstreamUrl, init)
+            return new Response(upstream.body, {
+                status: upstream.status,
+                statusText: upstream.statusText,
+                headers: filteredTerminalResponseHeaders(upstream.headers),
+            })
+        } catch (err) {
+            logger.warn('terminal:upstream_unreachable', {
+                terminalId,
+                run: claims.runId,
+                error: err instanceof Error ? err.message : String(err),
+            })
+            return c.json({ error: 'Terminal target is not reachable' }, 502)
+        }
+    }
+
+    app.post('/v1/runs/:run/terminals/:terminalId', (c) => handleTerminal(c, ''))
+    app.get('/v1/runs/:run/terminals/:terminalId/stream', (c) => handleTerminal(c, '/stream'))
+    app.post('/v1/runs/:run/terminals/:terminalId/input', (c) => handleTerminal(c, '/input'))
+    app.post('/v1/runs/:run/terminals/:terminalId/resize', (c) => handleTerminal(c, '/resize'))
+    app.delete('/v1/runs/:run/terminals/:terminalId', (c) => handleTerminal(c, ''))
+
     // -- Catch-all 404 --
     app.all('*', (c) => {
         const forwardId = previewForwardIdFromHost(c, config)
@@ -368,6 +440,18 @@ interface ResolvedPortForward {
 }
 
 type PortForwardMode = 'host' | 'path'
+
+interface ResolvedTerminal {
+    run_id: string
+    task_id: string
+    team_id: number
+    terminal_id: string
+    sandbox_url: string
+    connection_token: string
+    sandbox_connect_token?: string | null
+}
+
+type TerminalProxySuffix = '' | '/stream' | '/input' | '/resize'
 
 function isSamePreviewOriginRequest(c: HonoCtx, config: Config): boolean {
     const expectedOrigin = previewOriginFromHost(c, config)
@@ -557,6 +641,26 @@ async function resolvePortForward(config: Config, token: string): Promise<Resolv
     return (await response.json()) as ResolvedPortForward
 }
 
+async function resolveTerminal(config: Config, token: string): Promise<ResolvedTerminal | null> {
+    if (!config.djangoCallbackBaseUrl) {
+        logger.warn('terminal:resolve_unconfigured')
+        return null
+    }
+    const response = await fetch(`${config.djangoCallbackBaseUrl}/internal/tasks/terminal/resolve/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Agent-Proxy-Secret': config.agentProxyCallbackSecret,
+        },
+        body: JSON.stringify({ token }),
+    })
+    if (!response.ok) {
+        logger.warn('terminal:resolve_failed', { status: response.status })
+        return null
+    }
+    return (await response.json()) as ResolvedTerminal
+}
+
 function buildSandboxPortUrl(
     requestUrl: string,
     forwardId: string,
@@ -581,6 +685,24 @@ function buildSandboxPortUrl(
     incoming.searchParams.forEach((value, key) => {
         target.searchParams.append(key, value)
     })
+    if (resolved.sandbox_connect_token) {
+        target.searchParams.set('_modal_connect_token', resolved.sandbox_connect_token)
+    }
+    return target.toString()
+}
+
+function buildSandboxTerminalUrl(
+    terminalId: string,
+    suffix: TerminalProxySuffix,
+    resolved: ResolvedTerminal,
+    config: Config
+): string | null {
+    const sandboxBaseUrl = parseAllowedSandboxUrl(resolved.sandbox_url, config)
+    if (sandboxBaseUrl === null) {
+        logger.warn('terminal:invalid_sandbox_url', { terminalId, run: resolved.run_id })
+        return null
+    }
+    const target = new URL(`/terminals/${encodeURIComponent(terminalId)}${suffix}`, sandboxBaseUrl)
     if (resolved.sandbox_connect_token) {
         target.searchParams.set('_modal_connect_token', resolved.sandbox_connect_token)
     }
@@ -658,6 +780,18 @@ function filteredResponseHeaders(
         }
         if (normalized === 'location') {
             headers.set(key, rewritePortForwardLocation(value, forwardId, resolved, mode))
+            return
+        }
+        headers.set(key, value)
+    })
+    return headers
+}
+
+function filteredTerminalResponseHeaders(input: Headers): Headers {
+    const headers = new Headers()
+    input.forEach((value, key) => {
+        const normalized = key.toLowerCase()
+        if (HOP_BY_HOP_HEADERS.has(normalized) || normalized === 'service-worker-allowed') {
             return
         }
         headers.set(key, value)

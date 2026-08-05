@@ -152,6 +152,7 @@ __all__ = [
     "create_task_run_living_artifact",
     "create_task_run_port_forward",
     "create_task_run_port_forward_token",
+    "create_task_run_terminal_token",
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
     "claim_and_fail_stale_run",
@@ -217,6 +218,7 @@ __all__ = [
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_task_run_port_forward",
+    "resolve_task_run_terminal",
     "resolve_slack_thread_context",
     "resume_task_run_in_cloud",
     "run_task",
@@ -326,6 +328,16 @@ def _task_run_port_forward_preview_url(port_forward: TaskRunPortForward, *, tick
     if ticket:
         return urlunsplit((parsed.scheme, netloc, "/auth/", urlencode({"ticket": ticket}), ""))
     return urlunsplit((parsed.scheme, netloc, "/", "", ""))
+
+
+def _task_run_terminal_url(run: TaskRun, *, terminal_id: str) -> str | None:
+    base_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
+    if not base_url:
+        return None
+    parsed = urlsplit(base_url)
+    if not parsed.scheme or not parsed.netloc or parsed.username or parsed.password:
+        return None
+    return urlunsplit((parsed.scheme, parsed.netloc, f"/v1/runs/{run.id}/terminals/{terminal_id}", "", ""))
 
 
 def _task_run_port_forward_to_dto(
@@ -2279,6 +2291,87 @@ def resolve_task_run_port_forward(token: str) -> contracts.TaskRunPortForwardRes
         team_id=run.team_id,
         forward_id=port_forward.id,
         port=port_forward.port,
+        sandbox_url=sandbox_url,
+        sandbox_connect_token=(run.state or {}).get("sandbox_connect_token"),
+        connection_token=_create_connection_token(run, user_id=payload.user_id, distinct_id=payload.distinct_id),
+    )
+
+
+def create_task_run_terminal_token(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    user_id: int,
+    distinct_id: str,
+    terminal_id: str | None = None,
+) -> contracts.TaskRunTerminalTokenDTO | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    if _validate_port_forward_target(run, 1):
+        return None
+
+    resolved_terminal_id = terminal_id or f"term-{secrets.token_urlsafe(18)}"
+
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
+        create_task_terminal_token as _create,
+    )
+
+    token = _create(
+        run,
+        terminal_id=resolved_terminal_id,
+        user_id=user_id,
+        distinct_id=distinct_id,
+    )
+    return contracts.TaskRunTerminalTokenDTO(
+        terminal_id=resolved_terminal_id,
+        token=token,
+        terminal_url=_task_run_terminal_url(run, terminal_id=resolved_terminal_id),
+    )
+
+
+def resolve_task_run_terminal(token: str) -> contracts.TaskRunTerminalResolveDTO | None:
+    """Resolve a terminal token into sandbox connection details for the agent-proxy."""
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
+        create_sandbox_connection_token as _create_connection_token,
+        validate_task_terminal_token,
+    )
+
+    try:
+        payload = validate_task_terminal_token(token)
+    except Exception:
+        return None
+    try:
+        run_id = UUID(payload.run_id)
+        task_id = UUID(payload.task_id)
+    except ValueError:
+        return None
+
+    run = (
+        TaskRun.objects.filter(
+            id=run_id,
+            task_id=task_id,
+            team_id=payload.team_id,
+        )
+        .select_related("task")
+        .first()
+    )
+    if run is None:
+        return None
+    if _validate_port_forward_target(run, 1) is not None:
+        return None
+
+    sandbox_url = (run.state or {}).get("sandbox_url")
+    if _validate_port_forward_sandbox_url(sandbox_url) is not None:
+        return None
+    assert isinstance(sandbox_url, str)
+
+    return contracts.TaskRunTerminalResolveDTO(
+        run_id=run.id,
+        task_id=run.task_id,
+        team_id=run.team_id,
+        terminal_id=payload.terminal_id,
         sandbox_url=sandbox_url,
         sandbox_connect_token=(run.state or {}).get("sandbox_connect_token"),
         connection_token=_create_connection_token(run, user_id=payload.user_id, distinct_id=payload.distinct_id),

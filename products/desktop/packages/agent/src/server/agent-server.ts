@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { platform } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
@@ -28,6 +29,7 @@ import {
 } from "@posthog/shared";
 import { unzipSync } from "fflate";
 import { type Context, Hono } from "hono";
+import * as pty from "node-pty";
 import { z } from "zod";
 import packageJson from "../../package.json" with { type: "json" };
 import { POSTHOG_METHODS, POSTHOG_NOTIFICATIONS } from "../acp-extensions";
@@ -374,6 +376,7 @@ const PORT_FORWARD_HOP_BY_HOP_HEADERS = new Set([
   "upgrade",
 ]);
 const MAX_PORT_FORWARD_REQUEST_BODY_BYTES = 10 * 1024 * 1024;
+const TERMINAL_RING_BUFFER_LINES = 500;
 
 function buildLoopbackPortForwardUrl(requestUrl: string, port: number): string {
   const incoming = new URL(requestUrl);
@@ -464,6 +467,215 @@ async function readBoundedPortForwardRequestBody(
   return body.buffer;
 }
 
+interface TerminalSubscriber {
+  send: (event: TerminalStreamEvent) => void;
+}
+
+type TerminalStreamEvent =
+  | { type: "output"; terminalId: string; data: string }
+  | { type: "exit"; terminalId: string; exitCode: number };
+
+interface TerminalSession {
+  pty: pty.IPty;
+  subscribers: Set<TerminalSubscriber>;
+  ring: TerminalStreamEvent[];
+  disposables: pty.IDisposable[];
+  exitCode: number | null;
+}
+
+function defaultTerminalShell(): string {
+  if (platform() === "win32") {
+    return process.env.COMSPEC || "cmd.exe";
+  }
+  return process.env.SHELL || "/bin/bash";
+}
+
+function defaultTerminalShellArgs(shell: string): string[] {
+  if (platform() === "win32") {
+    const lower = shell.toLowerCase();
+    return lower.includes("powershell") || lower.includes("pwsh")
+      ? ["-NoLogo"]
+      : [];
+  }
+  return ["-l"];
+}
+
+function buildTerminalEnv(): Record<string, string> {
+  return { ...process.env, TERM: "xterm-256color" } as Record<string, string>;
+}
+
+function resolveTerminalCwd(
+  repositoryPath: string,
+  requestedCwd?: unknown,
+): string {
+  if (
+    typeof requestedCwd !== "string" ||
+    !requestedCwd ||
+    !isAbsolute(requestedCwd)
+  ) {
+    return repositoryPath;
+  }
+  const relativePath = relative(repositoryPath, requestedCwd);
+  if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    return repositoryPath;
+  }
+  return requestedCwd;
+}
+
+class AgentTerminalManager {
+  private sessions = new Map<string, TerminalSession>();
+
+  constructor(
+    private readonly repositoryPath: string,
+    private readonly logger: Logger,
+  ) {}
+
+  create(
+    terminalId: string,
+    options: { cwd?: unknown; cols?: unknown; rows?: unknown } = {},
+  ): void {
+    if (this.sessions.has(terminalId)) {
+      return;
+    }
+
+    const shell = defaultTerminalShell();
+    const cols =
+      typeof options.cols === "number" && Number.isInteger(options.cols)
+        ? Math.max(20, Math.min(options.cols, 400))
+        : 80;
+    const rows =
+      typeof options.rows === "number" && Number.isInteger(options.rows)
+        ? Math.max(5, Math.min(options.rows, 200))
+        : 24;
+    const cwd = resolveTerminalCwd(this.repositoryPath, options.cwd);
+    const ptyProcess = pty.spawn(shell, defaultTerminalShellArgs(shell), {
+      name: "xterm-256color",
+      cols,
+      rows,
+      cwd,
+      env: buildTerminalEnv(),
+      encoding: "utf8",
+    });
+
+    const session: TerminalSession = {
+      pty: ptyProcess,
+      subscribers: new Set(),
+      ring: [],
+      disposables: [],
+      exitCode: null,
+    };
+
+    const push = (event: TerminalStreamEvent): void => {
+      session.ring.push(event);
+      if (session.ring.length > TERMINAL_RING_BUFFER_LINES) {
+        session.ring.shift();
+      }
+      for (const subscriber of session.subscribers) {
+        subscriber.send(event);
+      }
+    };
+
+    session.disposables.push(
+      ptyProcess.onData((data: string) => {
+        push({ type: "output", terminalId, data });
+      }),
+    );
+    session.disposables.push(
+      ptyProcess.onExit(({ exitCode }) => {
+        session.exitCode = exitCode;
+        push({ type: "exit", terminalId, exitCode });
+        for (const disposable of session.disposables) {
+          disposable.dispose();
+        }
+        session.disposables = [];
+      }),
+    );
+
+    this.sessions.set(terminalId, session);
+    this.logger.debug("Terminal session created", { terminalId, cwd });
+  }
+
+  write(terminalId: string, data: string): boolean {
+    const session = this.sessions.get(terminalId);
+    if (!session || session.exitCode !== null) {
+      return false;
+    }
+    session.pty.write(data);
+    return true;
+  }
+
+  resize(terminalId: string, cols: number, rows: number): boolean {
+    const session = this.sessions.get(terminalId);
+    if (!session || session.exitCode !== null) {
+      return false;
+    }
+    session.pty.resize(
+      Math.max(20, Math.min(cols, 400)),
+      Math.max(5, Math.min(rows, 200)),
+    );
+    return true;
+  }
+
+  destroy(terminalId: string): boolean {
+    const session = this.sessions.get(terminalId);
+    if (!session) {
+      return false;
+    }
+    for (const disposable of session.disposables) {
+      disposable.dispose();
+    }
+    session.pty.kill();
+    this.sessions.delete(terminalId);
+    return true;
+  }
+
+  stream(terminalId: string): Response {
+    const session = this.sessions.get(terminalId);
+    if (!session) {
+      return new Response(JSON.stringify({ error: "Terminal not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    let subscriber: TerminalSubscriber | null = null;
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        let streamClosed = false;
+        const send = (event: TerminalStreamEvent): void => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          if (event.type === "exit" && subscriber) {
+            session.subscribers.delete(subscriber);
+            controller.close();
+            streamClosed = true;
+          }
+        };
+        subscriber = { send };
+        for (const event of session.ring) {
+          send(event);
+        }
+        if (!streamClosed) {
+          session.subscribers.add(subscriber);
+        }
+      },
+      cancel: () => {
+        if (subscriber) {
+          session.subscribers.delete(subscriber);
+        }
+      },
+    });
+
+    return new Response(body, {
+      headers: {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  }
+}
+
 export class AgentServer {
   private config: AgentServerConfig;
   private sessionReadyBootMs?: number;
@@ -534,6 +746,7 @@ export class AgentServer {
   private readonly posthogExecPermissionRegex: RegExp;
   private readonly posthogExecPermissionRegexSource: string;
   private mcpRelayServer: McpRelayServer | null = null;
+  private terminalManager: AgentTerminalManager;
 
   /**
    * Start loopback relay endpoints for the run's designated desktop-only MCP
@@ -601,6 +814,10 @@ export class AgentServer {
       this.posthogExecPermissionRegexSource,
     );
     this.logger = new Logger({ debug: true, prefix: "[AgentServer]" });
+    this.terminalManager = new AgentTerminalManager(
+      config.repositoryPath ?? process.cwd(),
+      this.logger.child("Terminal"),
+    );
     this.posthogAPI = new PostHogAPIClient({
       apiUrl: config.apiUrl,
       projectId: config.projectId,
@@ -945,6 +1162,106 @@ export class AgentServer {
 
     app.all("/ports/:port", handlePortForward);
     app.all("/ports/:port/*", handlePortForward);
+
+    const authenticateTerminalRequest = (c: Context): Response | null => {
+      try {
+        this.authenticateRequest(c.req.header.bind(c.req));
+        return null;
+      } catch (error) {
+        return c.json(
+          {
+            error:
+              error instanceof JwtValidationError
+                ? error.message
+                : "Invalid token",
+          },
+          401,
+        );
+      }
+    };
+
+    app.post("/terminals/:terminalId", async (c) => {
+      const authError = authenticateTerminalRequest(c);
+      if (authError) {
+        return authError;
+      }
+      const { terminalId } = c.req.param() as { terminalId: string };
+      const body = await c.req.json().catch(() => ({}));
+      this.terminalManager.create(
+        terminalId,
+        typeof body === "object" && body !== null ? body : {},
+      );
+      return c.json({ terminalId, status: "active" });
+    });
+
+    app.get("/terminals/:terminalId/stream", (c) => {
+      const authError = authenticateTerminalRequest(c);
+      if (authError) {
+        return authError;
+      }
+      const { terminalId } = c.req.param() as { terminalId: string };
+      return this.terminalManager.stream(terminalId);
+    });
+
+    app.post("/terminals/:terminalId/input", async (c) => {
+      const authError = authenticateTerminalRequest(c);
+      if (authError) {
+        return authError;
+      }
+      const { terminalId } = c.req.param() as { terminalId: string };
+      const body = await c.req.json().catch(() => null);
+      const data =
+        typeof body === "object" &&
+        body !== null &&
+        typeof body.data === "string"
+          ? body.data
+          : null;
+      if (data === null) {
+        return c.json({ error: "Invalid input" }, 400);
+      }
+      if (!this.terminalManager.write(terminalId, data)) {
+        return c.json({ error: "Terminal not found" }, 404);
+      }
+      return c.json({ ok: true });
+    });
+
+    app.post("/terminals/:terminalId/resize", async (c) => {
+      const authError = authenticateTerminalRequest(c);
+      if (authError) {
+        return authError;
+      }
+      const { terminalId } = c.req.param() as { terminalId: string };
+      const body = await c.req.json().catch(() => null);
+      const cols =
+        typeof body === "object" &&
+        body !== null &&
+        typeof body.cols === "number"
+          ? body.cols
+          : null;
+      const rows =
+        typeof body === "object" &&
+        body !== null &&
+        typeof body.rows === "number"
+          ? body.rows
+          : null;
+      if (!Number.isInteger(cols) || !Number.isInteger(rows)) {
+        return c.json({ error: "Invalid terminal size" }, 400);
+      }
+      if (!this.terminalManager.resize(terminalId, cols, rows)) {
+        return c.json({ error: "Terminal not found" }, 404);
+      }
+      return c.json({ ok: true });
+    });
+
+    app.delete("/terminals/:terminalId", (c) => {
+      const authError = authenticateTerminalRequest(c);
+      if (authError) {
+        return authError;
+      }
+      const { terminalId } = c.req.param() as { terminalId: string };
+      this.terminalManager.destroy(terminalId);
+      return c.json({ ok: true });
+    });
 
     app.notFound((c) => {
       return c.json({ error: "Not found" }, 404);

@@ -15,8 +15,18 @@
 
 import { errors, importSPKI, jwtVerify, type JWTPayload } from 'jose'
 
-import { SANDBOX_EVENT_INGEST_AUDIENCE, STREAM_READ_AUDIENCE, TASK_PORT_FORWARD_AUDIENCE } from './constants.js'
-import type { SandboxEventIngestTokenPayload, StreamReadTokenPayload, TaskPortForwardTokenPayload } from './types.js'
+import {
+    SANDBOX_EVENT_INGEST_AUDIENCE,
+    STREAM_READ_AUDIENCE,
+    TASK_PORT_FORWARD_AUDIENCE,
+    TASK_TERMINAL_AUDIENCE,
+} from './constants.js'
+import type {
+    SandboxEventIngestTokenPayload,
+    StreamReadTokenPayload,
+    TaskPortForwardTokenPayload,
+    TaskTerminalTokenPayload,
+} from './types.js'
 
 // ---------------------------------------------------------------------------
 // Public key loading
@@ -135,4 +145,23 @@ export async function validateTaskPortForwardToken(
     }
 
     return { ...base, forwardId, port: port as number, userId: userId as number }
+}
+
+export async function validateTaskTerminalToken(
+    token: string,
+    publicKeys: CryptoKey[]
+): Promise<TaskTerminalTokenPayload> {
+    const payload = await verifyWithKeys(token, publicKeys, TASK_TERMINAL_AUDIENCE)
+    const base = assertStreamClaims(payload as Record<string, unknown>)
+    const terminalId = payload['terminal_id']
+    const userId = payload['user_id']
+
+    if (typeof terminalId !== 'string') {
+        throw new Error('Token has invalid claim: terminal_id must be a string')
+    }
+    if (!Number.isInteger(userId)) {
+        throw new Error('Token has invalid claim: user_id must be an integer')
+    }
+
+    return { ...base, terminalId, userId: userId as number }
 }

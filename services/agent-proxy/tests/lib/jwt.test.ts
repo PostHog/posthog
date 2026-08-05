@@ -6,12 +6,18 @@
 import { SignJWT, exportSPKI, generateKeyPair } from 'jose'
 import { describe, it, expect, beforeAll } from 'vitest'
 
-import { SANDBOX_EVENT_INGEST_AUDIENCE, STREAM_READ_AUDIENCE, TASK_PORT_FORWARD_AUDIENCE } from '@/lib/constants.js'
+import {
+    SANDBOX_EVENT_INGEST_AUDIENCE,
+    STREAM_READ_AUDIENCE,
+    TASK_PORT_FORWARD_AUDIENCE,
+    TASK_TERMINAL_AUDIENCE,
+} from '@/lib/constants.js'
 import {
     loadPublicKeys,
     validateSandboxEventIngestToken,
     validateStreamReadToken,
     validateTaskPortForwardToken,
+    validateTaskTerminalToken,
 } from '@/lib/jwt.js'
 
 // ---------------------------------------------------------------------------
@@ -65,6 +71,7 @@ interface TokenOptions {
     forwardId?: string
     port?: unknown
     userId?: unknown
+    terminalId?: string
 }
 
 async function signToken(opts: TokenOptions = {}): Promise<string> {
@@ -79,6 +86,7 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
         forwardId,
         port,
         userId,
+        terminalId,
     } = opts
 
     const claims: Record<string, unknown> = { run_id: runId, task_id: taskId, team_id: teamId }
@@ -90,6 +98,9 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
     }
     if (userId !== undefined) {
         claims.user_id = userId
+    }
+    if (terminalId !== undefined) {
+        claims.terminal_id = terminalId
     }
 
     const builder = new SignJWT(claims).setProtectedHeader({
@@ -214,6 +225,37 @@ describe('jwt', () => {
 
             await expect(validateTaskPortForwardToken(token, keys.publicKeys)).rejects.toThrow(
                 'forward_id must be a string'
+            )
+        })
+    })
+
+    describe('validateTaskTerminalToken', () => {
+        it('verifies a valid task_terminal token', async () => {
+            const token = await signToken({
+                audience: TASK_TERMINAL_AUDIENCE,
+                terminalId: 'term-123',
+                userId: 7,
+            })
+
+            const payload = await validateTaskTerminalToken(token, keys.publicKeys)
+
+            expect(payload).toEqual({
+                runId: 'run-abc-123',
+                taskId: 'task-abc-123',
+                teamId: 42,
+                terminalId: 'term-123',
+                userId: 7,
+            })
+        })
+
+        it('rejects a terminal token missing the terminal id', async () => {
+            const token = await signToken({
+                audience: TASK_TERMINAL_AUDIENCE,
+                userId: 7,
+            })
+
+            await expect(validateTaskTerminalToken(token, keys.publicKeys)).rejects.toThrow(
+                'terminal_id must be a string'
             )
         })
     })

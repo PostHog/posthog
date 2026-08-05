@@ -4899,6 +4899,76 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(data["sandbox_connect_token"], "connect-token")
         self.assertIn("connection_token", data)
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @override_settings(SANDBOX_JWT_PUBLIC_KEY=None)
+    def test_terminal_token_returns_proxy_url(self):
+        reset_sandbox_jwt_key_cache()
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+        run.state = {"sandbox_url": "https://sandbox.modal.run"}
+        run.save(update_fields=["state"])
+
+        with self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com"):
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/terminal_token/",
+                {"terminal_id": "term-local-1"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["terminal_id"], "term-local-1")
+        self.assertEqual(
+            data["terminal_url"], f"https://agent-proxy.example.com/v1/runs/{run.id}/terminals/term-local-1"
+        )
+        self.assertIn("token", data)
+
+        public_key = get_sandbox_jwt_public_key()
+        decoded = jwt.decode(
+            data["token"],
+            public_key,
+            audience="posthog:task_terminal",
+            algorithms=["RS256"],
+        )
+        self.assertEqual(decoded["run_id"], str(run.id))
+        self.assertEqual(decoded["terminal_id"], "term-local-1")
+        self.assertEqual(decoded["user_id"], self.user.id)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @override_settings(SANDBOX_JWT_PUBLIC_KEY=None)
+    def test_internal_terminal_resolve_returns_sandbox_connection(self):
+        reset_sandbox_jwt_key_cache()
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+        run.state = {"sandbox_url": "https://sandbox.modal.run", "sandbox_connect_token": "connect-token"}
+        run.save(update_fields=["state"])
+        distinct_id = self.user.distinct_id
+        if distinct_id is None:
+            raise AssertionError("Expected test user to have a distinct_id")
+        token_dto = tasks_facade.create_task_run_terminal_token(
+            run.id,
+            task.id,
+            self.team.id,
+            terminal_id="term-local-1",
+            user_id=self.user.id,
+            distinct_id=distinct_id,
+        )
+        if token_dto is None:
+            raise AssertionError("Expected terminal token")
+
+        with self.settings(DEBUG=True, AGENT_PROXY_CALLBACK_SECRET=""):
+            response = self.client.post(
+                "/internal/tasks/terminal/resolve/",
+                {"token": token_dto.token},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["run_id"], str(run.id))
+        self.assertEqual(data["terminal_id"], "term-local-1")
+        self.assertEqual(data["sandbox_url"], "https://sandbox.modal.run")
+        self.assertEqual(data["sandbox_connect_token"], "connect-token")
+        self.assertIn("connection_token", data)
+
     def test_list_runs_with_malformed_task_id_returns_404(self):
         # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
         response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
@@ -8643,6 +8713,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/connection_token/", False),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", True),
             ("task:read", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", False),
+            ("task:read", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/terminal_token/", False),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/", True),
             (
                 "task:read",
@@ -8680,6 +8751,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/start/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", True),
             ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", True),
+            ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/terminal_token/", True),
             (
                 "task:write",
                 "GET",
@@ -8720,6 +8792,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/start/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", True),
             ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", True),
+            ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/terminal_token/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/", True),
             (
                 "*",

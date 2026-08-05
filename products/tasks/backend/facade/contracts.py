@@ -134,6 +134,24 @@ class TaskRunPortForwardResolveDTO:
 
 
 @dataclass(frozen=True)
+class TaskRunTerminalTokenDTO:
+    terminal_id: str
+    token: str
+    terminal_url: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunTerminalResolveDTO:
+    run_id: UUID
+    task_id: UUID
+    team_id: int
+    terminal_id: str
+    sandbox_url: str
+    connection_token: str
+    sandbox_connect_token: str | None = None
+
+
+@dataclass(frozen=True)
 class WizardPrReadyEmailContextDTO:
     """Everything ``send_wizard_pr_ready_email`` needs to read off a task run's PR-ready state."""
 

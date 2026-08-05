@@ -8,14 +8,16 @@ vi.mock('@/lib/jwt.js', () => ({
     validateSandboxEventIngestToken: vi.fn(),
     validateStreamReadToken: vi.fn(),
     validateTaskPortForwardToken: vi.fn(),
+    validateTaskTerminalToken: vi.fn(),
     loadPublicKeys: vi.fn(),
 }))
 
 import { createApp } from '@/hono/app.js'
-import { validateSandboxEventIngestToken, validateTaskPortForwardToken } from '@/lib/jwt.js'
+import { validateSandboxEventIngestToken, validateTaskPortForwardToken, validateTaskTerminalToken } from '@/lib/jwt.js'
 
 const mockValidate = vi.mocked(validateSandboxEventIngestToken)
 const mockValidatePortForward = vi.mocked(validateTaskPortForwardToken)
+const mockValidateTerminal = vi.mocked(validateTaskTerminalToken)
 
 function makeConfig(overrides?: Partial<Config>): Config {
     return {
@@ -46,6 +48,13 @@ describe('app onError', () => {
             teamId: 42,
             forwardId: 'forward-123',
             port: 8000,
+            userId: 7,
+        })
+        mockValidateTerminal.mockResolvedValue({
+            runId: 'run-123',
+            taskId: 'task-abc',
+            teamId: 42,
+            terminalId: 'term-123',
             userId: 7,
         })
     })
@@ -490,5 +499,76 @@ describe('app onError', () => {
 
         expect(res.status).toBe(404)
         expect(await res.json()).toEqual({ error: 'Not found' })
+    })
+
+    it('resolves and proxies a terminal input request to the sandbox agent server', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({ djangoCallbackBaseUrl: 'http://django', agentProxyCallbackSecret: 'secret' }),
+            []
+        )
+        const fetchMock = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(
+                Response.json({
+                    run_id: 'run-123',
+                    task_id: 'task-abc',
+                    team_id: 42,
+                    terminal_id: 'term-123',
+                    sandbox_url: 'https://sandbox.modal.run',
+                    sandbox_connect_token: 'connect-token',
+                    connection_token: 'connection-token',
+                })
+            )
+            .mockResolvedValueOnce(Response.json({ ok: true }))
+
+        const res = await app.request('/v1/runs/run-123/terminals/term-123/input', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer terminal-token', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: 'ls\n' }),
+        })
+
+        expect(res.status).toBe(200)
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            1,
+            'http://django/internal/tasks/terminal/resolve/',
+            expect.objectContaining({
+                body: JSON.stringify({ token: 'terminal-token' }),
+            })
+        )
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            2,
+            'https://sandbox.modal.run/terminals/term-123/input?_modal_connect_token=connect-token',
+            expect.objectContaining({
+                method: 'POST',
+                headers: expect.any(Headers),
+            })
+        )
+        const upstreamInit = fetchMock.mock.calls[1]?.[1]
+        expect(upstreamInit).not.toBeUndefined()
+        expect((upstreamInit?.headers as Headers).get('Authorization')).toBe('Bearer connection-token')
+        fetchMock.mockRestore()
+    })
+
+    it('rejects a terminal token that does not match the URL terminal id', async () => {
+        mockValidateTerminal.mockResolvedValueOnce({
+            runId: 'run-123',
+            taskId: 'task-abc',
+            teamId: 42,
+            terminalId: 'different-term',
+            userId: 7,
+        })
+        const redis = {} as unknown as Redis
+        const { app } = createApp(redis, makeConfig(), [])
+
+        const res = await app.request('/v1/runs/run-123/terminals/term-123/input', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer terminal-token' },
+            body: JSON.stringify({ data: 'ls\n' }),
+        })
+
+        expect(res.status).toBe(403)
+        expect(await res.json()).toEqual({ error: 'Token does not match terminal' })
     })
 })
