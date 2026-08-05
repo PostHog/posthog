@@ -29,6 +29,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import strip_null_bytes
+from products.exports.backend.temporal.subscriptions.results_text import query_renders_as_text
 from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
@@ -261,7 +262,9 @@ def build_insight_delivery_snapshot(
     so workflow merges do not contradict the row created at delivery start.
 
     Set ``force_fresh_calculation`` when the delivery shows these numbers to the recipient, so
-    they match the freshly rendered screenshot instead of a cached result.
+    they match the freshly rendered screenshot instead of a cached result. It is ignored for
+    query shapes that can never render as text, which would otherwise pay for a recalculation
+    nobody reads.
     """
     base = _insight_snapshot_base_metadata(insight=insight, tile=tile)
     base["query_hash"] = _default_query_hash(tile=tile, insight=insight)
@@ -287,7 +290,9 @@ def build_insight_delivery_snapshot(
             dashboard=dashboard,
             user=user,
             query_json=query_json,
-            force_fresh_calculation=force_fresh_calculation,
+            # A chart query returns series dicts, which the text renderer always rejects, so
+            # it must not pay for a calculation whose only purpose is matching text to image.
+            force_fresh_calculation=force_fresh_calculation and query_renders_as_text(query_json),
         )
     )
     return base

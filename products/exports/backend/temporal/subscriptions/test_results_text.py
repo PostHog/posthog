@@ -6,6 +6,7 @@ from products.exports.backend.temporal.subscriptions.results_text import (
     MAX_TEXT_LENGTH,
     build_results_text,
     build_results_text_for_snapshot,
+    query_renders_as_text,
 )
 
 
@@ -137,6 +138,31 @@ class TestBuildResultsText:
         snapshot = {"query_results": {"result": [[7]], "columns": ["Open tickets"]}}
 
         assert build_results_text_for_snapshot(snapshot) == "Open tickets: 7"
+
+    @parameterized.expand(
+        [
+            ("hogql", {"kind": "HogQLQuery", "query": "select 1"}, True),
+            (
+                "data_visualization_over_hogql",
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+                True,
+            ),
+            # A chart query can never render as text, so it must not trigger the fresh
+            # calculation that only exists to keep text and image agreeing.
+            ("trends", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}}, False),
+            ("funnel", {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": []}}, False),
+            (
+                "data_visualization_over_chart",
+                {"kind": "DataVisualizationNode", "source": {"kind": "TrendsQuery"}},
+                False,
+            ),
+            ("no_source", {"kind": "DataVisualizationNode"}, False),
+            ("missing_query", None, False),
+            ("not_a_dict", "select 1", False),
+        ]
+    )
+    def test_query_shape_decides_whether_text_is_possible(self, _name, query_json, expected) -> None:
+        assert query_renders_as_text(query_json) is expected
 
     def test_snapshot_passes_its_has_more_flag_through(self) -> None:
         snapshot = {"query_results": {"result": [[i] for i in range(100)], "columns": ["n"], "has_more": True}}

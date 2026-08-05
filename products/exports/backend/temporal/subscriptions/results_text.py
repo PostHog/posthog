@@ -30,6 +30,23 @@ MAX_TEXT_LENGTH = 2000
 SMALL_FLOAT_THRESHOLD = 0.005
 
 
+def query_renders_as_text(query_json: Any) -> bool:
+    """Whether this query could produce text, judged before it runs.
+
+    Only a HogQL query, directly or wrapped in a ``DataVisualizationNode``, returns rows as
+    lists of cells. Chart queries return series dicts, which :func:`build_results_text`
+    always rejects, so a caller deciding whether to pay for a fresh calculation can rule
+    them out up front. A true answer is not a promise: row and column counts still decide
+    whether text is rendered, and those are only known once the query has run.
+    """
+    if not isinstance(query_json, dict):
+        return False
+    if query_json.get("kind") == "DataVisualizationNode":
+        source = query_json.get("source")
+        return isinstance(source, dict) and source.get("kind") == "HogQLQuery"
+    return query_json.get("kind") == "HogQLQuery"
+
+
 def build_results_text_for_snapshot(snapshot: dict[str, Any]) -> str | None:
     """Render the ``query_results`` of one insight delivery snapshot, if it's compact enough."""
     query_results = snapshot.get("query_results")
