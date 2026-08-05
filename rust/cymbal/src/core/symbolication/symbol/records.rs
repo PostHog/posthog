@@ -108,7 +108,6 @@ impl ErrorTrackingStackFrame {
         } else {
             None
         };
-        let contents = serde_json::to_value(&self.contents)?;
         sqlx::query!(
             r#"
             INSERT INTO posthog_errortrackingstackframe (raw_id, part, team_id, created_at, symbol_set_id, contents, resolved, id, context)
@@ -125,7 +124,7 @@ impl ErrorTrackingStackFrame {
             self.id.team_id,
             self.created_at,
             self.symbol_set_id,
-            contents,
+            serde_json::to_value(&self.contents)?,
             self.resolved,
             Uuid::now_v7(),
             context,

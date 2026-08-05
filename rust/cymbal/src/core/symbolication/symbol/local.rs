@@ -168,8 +168,7 @@ impl LocalSymbolResolver {
         };
 
         let mut records = Vec::new();
-        let mut resolved = resolved;
-        for r_frame in resolved.iter_mut() {
+        for r_frame in &resolved {
             // Save back to the DB
             let record = ErrorTrackingStackFrame::new(
                 r_frame.frame_id.clone(),
