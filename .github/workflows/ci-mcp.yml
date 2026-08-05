@@ -5,8 +5,8 @@ on:
         branches: [master]
     pull_request:
         # Draft PRs run build + unit tests only; the integration tests (which boot
-        # the full PostHog backend and trigger on any Python change) run when the
-        # PR is marked ready for review — that full run is the merge gate.
+        # the full PostHog backend and trigger on any non-pytest Python change) run
+        # when the PR is marked ready for review; that full run is the merge gate.
         # The `no-ci` label silences this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers here, so it takes effect from the next push.
         types: [opened, synchronize, reopened, ready_for_review]
@@ -43,8 +43,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # MCP integration tests boot the full PostHog backend (Django web server,
-            # Celery worker, migrations, demo data), so the filter mirrors the Dagster
-            # approach: trigger on any Python change across the app.
+            # Celery worker, migrations, demo data), so the filter stays broad: any
+            # non-pytest Python change across the app triggers it.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -109,6 +109,28 @@ jobs:
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
+                        # The integration tests drive a running Django server over HTTP and
+                        # never import pytest modules, so exclude them. Narrow on purpose:
+                        #  - modules, not whole test/ dirs: those also hold runtime code, such
+                        #    as posthog/test/base.py, which the backend boot imports via
+                        #    setup_test_environment.
+                        #  - '*_test.py' only under products/*/backend, where it is the
+                        #    colocated-test convention. Under posthog/ that suffix names
+                        #    production code this suite runs (ClickHouse migrations, UDF
+                        #    scripts copied into ClickHouse during setup).
+                        #  - per-tree prefixes, because an exclude is tested against every file
+                        #    the filter sees, not just the include it sits next to: a bare
+                        #    '!**/conftest.py' would also veto tools/hogli/tests/conftest.py,
+                        #    which the tools/hogli/** include above covers.
+                        - '!posthog/**/test_*.py'
+                        - '!posthog/**/conftest.py'
+                        - '!ee/**/test_*.py'
+                        - '!ee/**/conftest.py'
+                        - '!common/**/test_*.py'
+                        - '!common/**/conftest.py'
+                        - '!products/*/backend/**/test_*.py'
+                        - '!products/*/backend/**/*_test.py'
+                        - '!products/*/backend/**/conftest.py'
     build:
         name: Build Package
         runs-on: ubuntu-latest
@@ -120,11 +142,21 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -141,6 +173,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/root --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Check MCP code quality
               run: |
@@ -189,10 +222,21 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # The workers-pool project in vitest.config.mts parses wrangler.jsonc
             # up front and needs `assets.directory` (./public/) populated and
@@ -253,9 +297,9 @@ jobs:
         needs: changes
         timeout-minutes: 30
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
-        # Python change, so they're the expensive half of this workflow. Build and
-        # unit tests still run on drafts; the `MCP Tests Pass` aggregator treats
-        # skipped as success, and the ready-for-review run is the merge gate.
+        # non-pytest Python change, so they're the expensive half of this workflow.
+        # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
+        # treats skipped as success, and the ready-for-review run is the merge gate.
         if: needs.changes.outputs.mcp == 'true' && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
@@ -313,11 +357,21 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -341,6 +395,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Set up needed files
               shell: bash
@@ -592,7 +647,9 @@ jobs:
               # every failure is an already-quarantined flake, fails otherwise.
               continue-on-error: true
               # The junit reporter (alongside the default console one) feeds the Trunk upload below.
-              run: cd services/mcp && pnpm run test:integration -- --reporter=default --reporter=junit --outputFile.junit=junit-integration.xml
+              # No `--` before the flags: pnpm forwards it literally, and vitest then treats
+              # everything after it as positional args, silently dropping the junit reporter.
+              run: cd services/mcp && pnpm run test:integration --reporter=default --reporter=junit --outputFile.junit=junit-integration.xml
               env:
                   TEST_POSTHOG_API_BASE_URL: http://localhost:8000
                   TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key
@@ -723,9 +780,9 @@ jobs:
         steps:
             - name: Check all MCP jobs
               run: |
-                  # Fail if change detection itself failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Fail if change detection failed or was cancelled (outputs are empty on cancel, so the exit below would report green).
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
@@ -735,23 +792,23 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build.result }}" == "failure" ]]; then
-                    echo "MCP build failed."
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "MCP build did not succeed (result: ${{ needs.build.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.unit-tests.result }}" == "failure" ]]; then
-                    echo "MCP unit tests failed."
+                  if [[ "${{ needs.unit-tests.result }}" != "success" && "${{ needs.unit-tests.result }}" != "skipped" ]]; then
+                    echo "MCP unit tests did not succeed (result: ${{ needs.unit-tests.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.integration-tests.result }}" == "failure" ]]; then
-                    echo "MCP integration tests failed."
+                  if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+                    echo "MCP integration tests did not succeed (result: ${{ needs.integration-tests.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
-                    echo "MCP snapshot commit job failed."
+                  if [[ "${{ needs.handle-snapshots.result }}" != "success" && "${{ needs.handle-snapshots.result }}" != "skipped" ]]; then
+                    echo "MCP snapshot commit job did not succeed (result: ${{ needs.handle-snapshots.result }})."
                     exit 1
                   fi
 

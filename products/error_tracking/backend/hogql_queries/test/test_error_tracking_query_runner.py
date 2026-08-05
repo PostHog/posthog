@@ -123,6 +123,18 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 materialize("events", property_name, is_nullable=property_name == "$exception_issue_id")
         super().setUpClass()
 
+    def test_fingerprint_grouping_key_uses_stable_json_expression(self):
+        response = self._calculate()
+
+        self.assertIn("JSONExtractString(e.properties, '$exception_fingerprint')", response["hogql"])
+        self.assertNotIn("mat_$exception_fingerprint", response["hogql"])
+
+    def test_user_aggregation_does_not_resolve_person_overrides(self):
+        response = self._calculate(withAggregations=True)
+
+        self.assertIn("e.event_person_id", response["hogql"])
+        self.assertNotIn("person_distinct_id_overrides", response["hogql"])
+
     def setUp(self):
         super().setUp()
 

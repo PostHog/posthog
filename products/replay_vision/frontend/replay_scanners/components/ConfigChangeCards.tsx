@@ -21,7 +21,7 @@ import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import type { ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { scannerQualityLogic } from '../scannerQualityLogic'
+import { scannerCalibrationLogic } from '../scannerCalibrationLogic'
 import { SummarizerScannerConfig } from '../types'
 import {
     changedFields,
@@ -52,9 +52,10 @@ function SuggestionDiffPanes({
     onExpand?: () => void
 }): JSX.Element {
     return (
-        <div className="border rounded overflow-hidden">
+        <div className="@container border rounded overflow-hidden">
             <div className="flex items-center border-b bg-surface-secondary text-xs font-medium">
-                <div className="flex-1 px-3 py-1.5 border-r">Current prompt</div>
+                {/* Shown exactly when Monaco renders side by side: its inline flip is on editor width (renderSideBySideInlineBreakpoint), not the viewport. */}
+                <div className="hidden @[480px]:block flex-1 px-3 py-1.5 border-r">Current prompt</div>
                 <div className="flex-1 px-3 py-1.5 flex items-center justify-between">
                     <span>{editable ? 'New prompt (edit directly)' : 'New prompt'}</span>
                     {onExpand && (
@@ -63,7 +64,7 @@ function SuggestionDiffPanes({
                             icon={<IconExpand45 />}
                             tooltip="Expand diff to full screen"
                             onClick={onExpand}
-                            data-attr="vision-quality-expand-diff"
+                            data-attr="vision-calibration-expand-diff"
                         />
                     )}
                 </div>
@@ -78,7 +79,8 @@ function SuggestionDiffPanes({
                 height={editorHeight}
                 options={{
                     renderSideBySide: true,
-                    useInlineViewWhenSpaceIsLimited: false,
+                    useInlineViewWhenSpaceIsLimited: true,
+                    renderSideBySideInlineBreakpoint: 480,
                     // Keep both panes at exactly half width on resize, in lockstep with the header row.
                     enableSplitViewResizing: false,
                     splitViewDefaultRatio: 0.5,
@@ -267,6 +269,7 @@ function FieldValueEditor({
     if (kind === 'length') {
         return (
             <LemonSegmentedButton
+                className="max-w-full overflow-x-auto"
                 options={SUMMARIZER_LENGTH_OPTIONS}
                 value={value as SummarizerScannerConfig['length']}
                 onChange={onChange}
@@ -373,8 +376,8 @@ export function ConfigChangeCards({
     scannerId: string
     readOnly?: boolean
 }): JSX.Element {
-    const { fieldValues } = useValues(scannerQualityLogic({ scannerId }))
-    const { setFieldValue } = useActions(scannerQualityLogic({ scannerId }))
+    const { fieldValues } = useValues(scannerCalibrationLogic({ scannerId }))
+    const { setFieldValue } = useActions(scannerCalibrationLogic({ scannerId }))
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const changes = parseConfigChanges(suggestion.changes)
 
@@ -435,7 +438,7 @@ export function ConfigChangeCards({
                 <button
                     type="button"
                     aria-label="Revert to the suggested value"
-                    data-attr="vision-quality-revert-field"
+                    data-attr="vision-calibration-revert-field"
                     onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
                     className="absolute top-0 right-0 flex cursor-pointer text-muted hover:text-default"
                 >
@@ -464,8 +467,8 @@ export function ConfigChangeCards({
                 )}
                 {structuredFields.length > 0 && (
                     <div className="relative flex flex-col gap-4">
-                        <div className="absolute inset-y-4 left-1/2 border-l" aria-hidden />
-                        <div className="grid grid-cols-2 gap-10 text-xs font-medium text-muted">
+                        <div className="hidden sm:block absolute inset-y-4 left-1/2 border-l" aria-hidden />
+                        <div className="hidden sm:grid grid-cols-2 gap-10 text-xs font-medium text-muted">
                             <span>Current</span>
                             <span>New</span>
                         </div>
@@ -477,7 +480,10 @@ export function ConfigChangeCards({
                                     ? [...((base[field] as string[]) ?? []), ...((suggested[field] as string[]) ?? [])]
                                     : []
                             return (
-                                <div key={field} className="grid grid-cols-2 gap-10 items-start">
+                                <div
+                                    key={field}
+                                    className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-10 items-start"
+                                >
                                     <div>
                                         <div className="text-xs text-muted mb-1">{label}</div>
                                         <FieldCurrentValue kind={kind} value={base[field]} />

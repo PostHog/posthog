@@ -126,7 +126,7 @@ def test_get_tunnel_invalid_auth():
     )
 
     with pytest.raises(Exception) as e:
-        ssh_tunnel.get_tunnel("host.com", 1337)
+        ssh_tunnel.get_tunnel("host.com", 1337, ssh_host="93.184.216.34")
         assert "auth" in str(e.value)
 
 
@@ -143,5 +143,5 @@ def test_get_tunnel_invalid_port():
     )
 
     with pytest.raises(Exception) as e:
-        ssh_tunnel.get_tunnel("host.com", 1337)
+        ssh_tunnel.get_tunnel("host.com", 1337, ssh_host="93.184.216.34")
         assert "port" in str(e.value)

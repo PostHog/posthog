@@ -736,6 +736,26 @@ def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Column collision surfaced with the raw BigQuery [row:col] location.
+        "400 Column name organization is ambiguous at [1:113]; reason: invalidQuery, location: query, "
+        "message: Column name organization is ambiguous at [1:113]\n\nLocation: us-west1\nJob ID: cc9e1e07-9d3a-4fcc-a51c-09b2f4237894\n",
+        # Different column name and location — the match must not rely on either.
+        "400 Column name id is ambiguous at [2:45]; reason: invalidQuery, location: query, "
+        "message: Column name id is ambiguous at [2:45]",
+    ],
+)
+def test_bigquery_ambiguous_column_is_non_retryable(observed_error):
+    """A view/table whose own definition yields a colliding column name (e.g. a join of tables
+    sharing a column, or two columns differing only by case) makes every retry fail identically."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Ambiguous column error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.

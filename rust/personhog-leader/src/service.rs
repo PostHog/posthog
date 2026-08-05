@@ -17,8 +17,11 @@ use uuid::Uuid;
 use personhog_common::partitioning::partition_for_person;
 
 use crate::cache::{
-    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
+    approx_person_bytes, CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache,
+    PersonCacheKey,
 };
+use crate::emitted::{EmittedVersionGuard, EmittedVersions};
+use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
@@ -81,6 +84,12 @@ pub struct PersonHogLeaderService {
     recovery: Arc<ChangelogRecovery>,
     size_limits: PropertySizeLimits,
     warnings: WarningsProducer,
+    /// Present when broker-enforced epoch fencing is on; the write
+    /// path produces through the partition's transaction window.
+    fenced: Option<Arc<FencedChangelogProducers>>,
+    /// Versions emitted without a confirmed outcome, so a later write for
+    /// the same person cannot reuse one.
+    emitted_versions: Arc<EmittedVersions>,
 }
 
 impl PersonHogLeaderService {
@@ -97,6 +106,8 @@ impl PersonHogLeaderService {
         recovery: Arc<ChangelogRecovery>,
         size_limits: PropertySizeLimits,
         warnings: WarningsProducer,
+        fenced: Option<Arc<FencedChangelogProducers>>,
+        emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
         Self {
             cache,
@@ -110,6 +121,8 @@ impl PersonHogLeaderService {
             recovery,
             size_limits,
             warnings,
+            fenced,
+            emitted_versions,
         }
     }
 
@@ -664,14 +677,24 @@ impl PersonHogLeader for PersonHogLeaderService {
             }
         }
 
+        let approx_bytes = approx_person_bytes(jsonb_column_size(&new_properties));
+        // A version this pod already put on the wire is spent even when
+        // it never learned the outcome, so the next one has to clear that
+        // floor as well as the state it derived from. Reusing it produces
+        // a second record at the same version, and the writer's strict
+        // guard keeps only whichever arrived first.
+        let base_version = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
         let updated_person = CachedPerson {
             id: person.id,
             uuid: person.uuid.clone(),
             team_id: person.team_id,
             properties: new_properties,
             created_at: person.created_at,
-            version: person.version + 1,
+            version: base_version + 1,
             is_identified: person.is_identified,
+            approx_bytes,
         };
 
         // Final applyability assertions on the identity fields, which
@@ -693,27 +716,183 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let proto = cached_person_to_proto(&updated_person);
 
+        // From here the record may reach the changelog whatever happens
+        // to this request — including the request simply ceasing to exist
+        // when the client's deadline expires. The guard is what makes the
+        // version un-reusable in that case.
+        let mut emitted = EmittedVersionGuard::new(
+            Arc::clone(&self.emitted_versions),
+            partition,
+            cache_key.clone(),
+            updated_person.version,
+        );
+        emitted.emitting();
+
         // Produce to Kafka first, then update the cache on success.
         // Readers only ever see durably committed state.
-        let offset = match produce_person_changelog(
-            &self.producer,
-            &self.changelog_topic,
-            partition,
-            &proto,
-        )
-        .await
-        {
-            Ok(offset) => offset,
-            Err(e) => {
-                tracing::error!(
-                    team_id = cache_key.team_id,
-                    person_id = cache_key.person_id,
-                    error = %e,
-                    "failed to produce person state changelog"
-                );
-                return Err(Status::internal(format!(
-                    "failed to durably store person state: {e}"
-                )));
+        let offset = if let Some(fenced) = &self.fenced {
+            match fenced.produce(partition, &proto).await {
+                Ok(offset) => offset,
+                // The broker fenced this pod: a newer owner holds the
+                // partition, so this claim is stale. FailedPrecondition
+                // is the admission fence's own vocabulary — the router
+                // classifies it as a bounce and re-resolves toward the
+                // real owner.
+                Err(e @ FencedProduceError::Fenced) => {
+                    // Rejected at the broker, so the record does not
+                    // exist and its version is free.
+                    emitted.discarded();
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        "changelog producer fenced; rejecting write as stale owner"
+                    );
+                    // Deliberately no local reaction beyond failing the
+                    // write. A broker fence proves *someone* newer
+                    // initialized the transactional id, not that this pod
+                    // lost the partition: a zombie waking inside its
+                    // lease window re-acquires on the way to noticing it
+                    // is dead, which fences the legitimate owner. Giving
+                    // up the partition here takes it out of service with
+                    // nothing to put it back — convergence sees it warmed
+                    // and unfenced, so no branch re-warms it. On this
+                    // branch that leaves writes bouncing until a restart
+                    // or a handoff moves the partition; the stacked
+                    // lease-validity branch closes it with a serving-side
+                    // re-acquisition, gated on the authority stamp that
+                    // gives a pod the standing to bump the epoch. Reads
+                    // stay served until the lease machinery settles
+                    // ownership; refusing them needs a lease-validity
+                    // check on the read path, closed on the same branch.
+                    return Err(Status::failed_precondition(format!(
+                        "partition ownership fenced: {e}"
+                    )));
+                }
+                // This pod holds no producer for the partition — an
+                // ownership statement, in the same vocabulary the
+                // admission fence uses, so the router bounces and
+                // re-resolves instead of surfacing a hard error.
+                // The partition moved *and* this window's outcome was
+                // never settled. The router still needs the ownership
+                // answer, but the version cannot be handed back: the
+                // commit may have succeeded on an attempt librdkafka
+                // re-issued internally.
+                Err(e @ FencedProduceError::FencedUncertain(_)) => {
+                    // Deliberately not settled: the partition moved and
+                    // the window's own outcome never came back, so the
+                    // record may or may not be in the log. Keeping the
+                    // version spent is the whole of what safety needs.
+                    counter!(
+                        "personhog_leader_indeterminate_outcomes_total",
+                        "fenced" => "true"
+                    )
+                    .increment(1);
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        error = %e,
+                        "changelog producer fenced with an unknown outcome; version kept spent"
+                    );
+                    return Err(Status::failed_precondition(format!(
+                        "partition ownership fenced: {e}"
+                    )));
+                }
+                Err(e @ FencedProduceError::NotAcquired) => {
+                    emitted.discarded();
+                    tracing::warn!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        "no changelog fence held for partition; rejecting write"
+                    );
+                    return Err(Status::failed_precondition(format!(
+                        "partition fence not held: {e}"
+                    )));
+                }
+                // The commit's outcome is unknown, so this pod cannot
+                // say whether the record became visible. A caller
+                // retrying against a cache still holding the pre-write
+                // version would produce a second record at the same
+                // version as the one that may already have committed,
+                // and the writer's strict guard keeps whichever arrived
+                // first — which the floor prevents by holding the
+                // version spent.
+                Err(e @ FencedProduceError::Indeterminate(_)) => {
+                    // Deliberately not settled: whether the record exists
+                    // is exactly what is unknown, so the version stays
+                    // spent and the retry derives past it.
+                    counter!(
+                        "personhog_leader_indeterminate_outcomes_total",
+                        "fenced" => "false"
+                    )
+                    .increment(1);
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        error = %e,
+                        "changelog commit outcome unknown; version kept spent"
+                    );
+                    return Err(Status::unknown(format!(
+                        "person state may or may not have been stored: {e}"
+                    )));
+                }
+                // The window aborted, so no record became visible: the
+                // write is safe to retry, and ABORTED is the code the
+                // clients actually retry on.
+                Err(e) => {
+                    // The window aborted, so no record became visible and
+                    // the version can be derived again.
+                    emitted.discarded();
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        error = %e,
+                        "failed to produce person state changelog (fenced path)"
+                    );
+                    return Err(Status::aborted(format!(
+                        "failed to durably store person state: {e}"
+                    )));
+                }
+            }
+        } else {
+            match produce_person_changelog(&self.producer, &self.changelog_topic, partition, &proto)
+                .await
+            {
+                Ok(offset) => offset,
+                Err(e) => {
+                    // Deliberately not settled. This path collapses an
+                    // enqueue that never left the client with a delivery
+                    // that timed out after the broker may already have
+                    // appended it, and idempotence is off by default, so
+                    // the record's fate is genuinely unknown. Freeing the
+                    // version here let a retry derive the same number and
+                    // put a second record behind one that may be in the
+                    // log — the writer's strict guard then keeps whichever
+                    // arrived first and discards the acked one.
+                    //
+                    // The floor alone carries that: the next write
+                    // derives past it whether or not the cache still
+                    // holds the pre-write state. The entry stays, so
+                    // reads may answer with a version older than the
+                    // changelog until a later write for this person
+                    // settles one. Evicting instead would resolve
+                    // nothing — recovery reads the last *marked* offset,
+                    // which is the previous write that did succeed — and
+                    // would answer NOT_FOUND outright once that mark is
+                    // pruned and no fallback pool is configured.
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        error = %e,
+                        "failed to produce person state changelog"
+                    );
+                    return Err(Status::internal(format!(
+                        "failed to durably store person state: {e}"
+                    )));
+                }
             }
         };
 
@@ -730,6 +909,9 @@ impl PersonHogLeader for PersonHogLeaderService {
             },
         );
         self.cache.put(partition, cache_key, updated_person);
+        // The cache carries the version now, so the floor has nothing
+        // left to say.
+        emitted.resolved();
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {
@@ -802,6 +984,8 @@ mod tests {
             ),
             PropertySizeLimits::new(655360, 524288),
             WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
+            None,
+            Arc::new(EmittedVersions::new(1_000_000)),
         )
     }
 

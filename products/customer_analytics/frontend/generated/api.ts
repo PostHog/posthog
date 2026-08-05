@@ -19,6 +19,7 @@ import type {
     AccountsListParams,
     AccountsNotebooksListParams,
     AccountsRelationshipsListParams,
+    AccountsSummariesListParams,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
@@ -44,6 +45,7 @@ import type {
     ExternalAccountListPageApi,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
+    PaginatedAccountChannelSummaryListApi,
     PaginatedAccountListApi,
     PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
@@ -541,6 +543,34 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getAccountsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountsSummariesListUrl = (projectId: string, id: string, params?: AccountsSummariesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/summaries/`
+}
+
+export const accountsSummariesList = async (
+    projectId: string,
+    id: string,
+    params?: AccountsSummariesListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountChannelSummaryListApi> => {
+    return apiMutator<PaginatedAccountChannelSummaryListApi>(getAccountsSummariesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

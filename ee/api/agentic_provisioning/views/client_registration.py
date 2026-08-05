@@ -79,21 +79,22 @@ class ClientRegistrationView(ProvisioningAPIView):
                 "jwks_uri": app.jwks_uri,
                 "scopes": app.ceiling_scopes,
                 "provisioning": {
-                    "active": app.provisioning_active,
-                    "can_create_accounts": app.provisioning_can_create_accounts,
-                    "can_provision_resources": app.provisioning_can_provision_resources,
+                    "active": app.provisioning.active,
+                    "can_create_accounts": app.provisioning.can_create_accounts,
+                    "can_provision_resources": app.provisioning.can_provision_resources,
                 },
                 # Spelled out because "why can't I call github/grants" is the question this
-                # endpoint exists to answer, and the rule (a confidential client that PostHog
-                # registered as a partner) is not something a partner can infer from its own
-                # metadata document.
+                # endpoint exists to answer, and the rule (a confidential client PostHog granted
+                # the capability to) is not something a partner can infer from its own metadata
+                # document.
                 "capabilities": {
-                    "account_requests": app.provisioning_active and app.provisioning_can_create_accounts,
+                    "account_requests": app.provisioning.active and app.provisioning.can_create_accounts,
                     "github_grants": (
                         app.requires_client_authentication
-                        and not (app.is_cimd_client and not app.provisioning_partner_type)
-                        and app.provisioning_can_create_accounts
+                        and app.provisioning.can_use_github_grants
+                        and app.provisioning.can_create_accounts
                     ),
+                    "wizard_runs": app.provisioning.active and app.provisioning.can_start_wizard_runs,
                 },
                 "checks": checks,
             }
@@ -145,7 +146,7 @@ class ClientRegistrationView(ProvisioningAPIView):
         if not app.is_provisioning_partner:
             _record(checks, "provisioning_enabled", False, "This client is not enabled for agentic provisioning")
             return None
-        if not app.provisioning_active:
+        if not app.provisioning.active:
             _record(checks, "provisioning_enabled", False, "Provisioning is deactivated for this client")
             return None
         _record(checks, "provisioning_enabled", True, "Active")

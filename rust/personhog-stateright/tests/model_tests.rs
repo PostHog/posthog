@@ -10,6 +10,11 @@
 //! | Current, double zombie       | VIOLATED (residual) | VIOLATED (residual)  |
 //! | EpochFenced, double zombie   | holds               | holds                |
 //!
+//! Every row above is about *write* safety. Stale strong reads from a
+//! zombie pod are a separate, still-open residual that fencing does not
+//! address; only the configurations without a zombie window uphold
+//! `strong_reads_complete`.
+//!
 //! The single-zombie row is a result the checker sharpened beyond what
 //! the manual review claimed: a zombie *pod* alone cannot lose an acked
 //! write, because the identity freeze quorum has every registered router
@@ -22,8 +27,17 @@
 
 use std::time::Instant;
 
-use personhog_stateright::model::{HandoffModel, Variant};
+use personhog_stateright::model::{HandoffModel, Variant, WarmOrder};
 use stateright::{Checker, Model};
+
+/// Every checker explores in parallel: stateright defaults to a single
+/// thread, which left the largest models (the two-partition
+/// double-zombie pair) as multi-minute single-core BFS runs. The
+/// nextest `stateright-heavy` group gives those tests the machine to
+/// themselves so this parallelism gets real cores.
+fn parallelism() -> usize {
+    std::thread::available_parallelism().map_or(1, Into::into)
+}
 
 /// Baseline configuration; tests override fields with struct-update
 /// syntax. Reads default on so every scenario also exercises the read
@@ -35,6 +49,7 @@ fn base() -> HandoffModel {
         late_routers: 0,
         partitions: 1,
         variant: Variant::Current,
+        warm_order: WarmOrder::FenceFirst,
         writes: 2,
         reads: 1,
         crashes: 0,
@@ -62,6 +77,7 @@ fn model(variant: Variant, crashes: u8, zombie_window: u8) -> HandoffModel {
 fn current_protocol_without_failures_is_safe_and_live() {
     model(Variant::Current, 0, 0)
         .checker()
+        .threads(parallelism())
         .spawn_bfs()
         .join()
         .assert_properties();
@@ -74,6 +90,7 @@ fn current_protocol_without_failures_is_safe_and_live() {
 fn current_protocol_with_crashes_is_safe_and_live() {
     model(Variant::Current, 1, 0)
         .checker()
+        .threads(parallelism())
         .spawn_bfs()
         .join()
         .assert_properties();
@@ -89,6 +106,7 @@ fn current_protocol_with_crashes_is_safe_and_live() {
 fn current_protocol_single_zombie_pod_is_safe() {
     model(Variant::Current, 1, 1)
         .checker()
+        .threads(parallelism())
         .spawn_bfs()
         .join()
         .assert_properties();
@@ -101,7 +119,11 @@ fn current_protocol_single_zombie_pod_is_safe() {
 /// but sits beyond the warm HWM, invisible to the new owner forever.
 #[test]
 fn current_protocol_double_zombie_loses_acked_writes() {
-    let checker = model(Variant::Current, 2, 1).checker().spawn_bfs().join();
+    let checker = model(Variant::Current, 2, 1)
+        .checker()
+        .threads(parallelism())
+        .spawn_bfs()
+        .join();
     assert!(
         checker.discovery("no_lost_acked_write").is_some(),
         "the double zombie must produce an acked-write-loss counterexample"
@@ -112,13 +134,21 @@ fn current_protocol_double_zombie_loses_acked_writes() {
     );
 }
 
-/// Epoch fencing closes the residual: warming bumps the broker's
-/// producer epoch, so the zombie's produce is rejected before any ack.
-/// All safety properties hold again, zombie window and all.
+/// Epoch fencing closes the *write* half of the residual: warming bumps
+/// the broker's producer epoch, so the zombie's produce is rejected
+/// before any ack. Acked-write loss, split acceptance, and drain-ack
+/// finality all hold again, zombie window and all.
+///
+/// `strong_reads_complete` is deliberately not asserted here: it still
+/// fails, because a zombie pod serves reads from its stale cache and
+/// nothing on the read path rejects them. Closing that needs a
+/// lease-validity check on read admission — see the residual ledger in
+/// `personhog-coordination/README.md`.
 #[test]
 fn epoch_fenced_double_zombie_is_safe() {
     let checker = model(Variant::EpochFenced, 2, 1)
         .checker()
+        .threads(parallelism())
         .spawn_bfs()
         .join();
     assert!(
@@ -135,6 +165,58 @@ fn epoch_fenced_double_zombie_is_safe() {
     );
 }
 
+/// The rejected warm ordering — changelog read before fence acquisition
+/// — loses acked writes: a still-unfenced zombie commits a write after
+/// the new owner's cutoff is captured but before the epoch bump exists
+/// to reject it. This is the machine-checked reason `warm_partition`
+/// acquires the fence before the warm read; the FenceFirst tests above
+/// prove the shipped ordering closes the gap under the same budget.
+#[test]
+fn epoch_fenced_read_first_ordering_loses_acked_writes() {
+    let checker = HandoffModel {
+        warm_order: WarmOrder::ReadFirst,
+        ..model(Variant::EpochFenced, 2, 1)
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join();
+    assert!(
+        checker.discovery("no_lost_acked_write").is_some(),
+        "read-before-fence must produce an acked-write-loss counterexample"
+    );
+}
+
+/// A cancelled handoff whose target already acquired the fence leaves
+/// the resuming old owner's producer epoch-stale; `resume_partition`
+/// re-acquires before re-admitting writes, or the partition wedges with
+/// every write rejected as fenced. The stability property requires
+/// `write_capable` (not merely warmed + unfenced), so a model without
+/// the resume re-acquisition fails liveness here. The pod churn
+/// (expire, rejoin, expire mid-warm) is what manufactures a registered
+/// old owner whose handoff target dies after the fence bump — two
+/// partitions because a move handoff from a registered old owner only
+/// arises from imbalance, and the minimum router/workload budgets keep
+/// the churn-heavy space tractable (no zombie half is needed here).
+#[test]
+fn epoch_fenced_resume_after_cancelled_handoff_stays_live() {
+    HandoffModel {
+        routers: 1,
+        partitions: 2,
+        variant: Variant::EpochFenced,
+        writes: 1,
+        reads: 0,
+        crashes: 2,
+        rejoins: 1,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
 /// Two partitions bring the cross-partition coordinator logic into
 /// play: rebalancing defers while any handoff is in flight, so one
 /// partition's failure handling gates the other's reassignment. All
@@ -149,6 +231,7 @@ fn current_two_partitions_single_zombie_is_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -173,6 +256,7 @@ fn current_with_rejoin_is_safe_and_live() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -193,6 +277,7 @@ fn strong_reads_are_complete_across_cutover() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -211,6 +296,7 @@ fn two_partitions_double_zombie_loses_acked_writes() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(checker.discovery("no_lost_acked_write").is_some());
@@ -229,6 +315,7 @@ fn epoch_fenced_two_partitions_double_zombie_is_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(checker.discovery("no_lost_acked_write").is_none());
@@ -260,6 +347,7 @@ fn late_router_join_is_safe_and_live() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -284,6 +372,7 @@ fn probe_silent_late_joiner_advance_is_reachable_and_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -321,6 +410,7 @@ fn zero_router_creation_with_late_joiner_is_safe_and_live() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -368,6 +458,7 @@ fn probe_divergent_quorums_are_reachable_and_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -409,6 +500,7 @@ fn epoch_fenced_double_zombie_with_late_joiner_is_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -441,6 +533,7 @@ fn probe_concurrent_handoffs_are_reachable() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -470,6 +563,7 @@ fn probe_dual_role_pod_is_reachable_and_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -551,6 +645,7 @@ fn state_space_report() {
             ..base()
         }
         .checker()
+        .threads(parallelism())
         .spawn_bfs()
         .join();
         println!(
@@ -576,6 +671,7 @@ fn deadline_cancellation_by_replacement_is_safe_and_live() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -604,6 +700,7 @@ fn cancellation_with_live_owner_reaffirms_and_resumes() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -622,6 +719,7 @@ fn cancellation_with_dead_owner_replaces_atomically() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -641,6 +739,35 @@ fn rejoin_two_partitions_without_cancellation() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// Fencing under handoff cancellation: every safety and liveness
+/// property must hold when the cancellation budget and the fencing
+/// variant are combined, a pairing no other verdict test covers.
+///
+/// This is breadth, not a pin: it passes with or without the resume's
+/// epoch re-acquisition, because the interleaving that strands a
+/// resuming owner on a stale epoch needs the cancelled target to have
+/// warmed first, which this configuration does not force.
+/// `epoch_fenced_resume_after_cancelled_handoff_stays_live` is the
+/// red-checked pin for that fix.
+#[test]
+fn epoch_fenced_under_cancellation_is_safe_and_live() {
+    HandoffModel {
+        routers: 1,
+        partitions: 2,
+        variant: Variant::EpochFenced,
+        writes: 1,
+        reads: 0,
+        cancels: 1,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
