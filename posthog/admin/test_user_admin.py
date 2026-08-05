@@ -44,6 +44,22 @@ class TestUserAdminSessions(BaseTest):
         self.assertTrue(Session.objects.filter(session_key=other_key).exists())  # other user untouched
 
 
+class TestUserAdminChangelist(BaseTest):
+    def test_changelist_ignores_ticket_param(self):
+        # Without UserChangeList stripping `ticket`, Django treats it as a field lookup and 302s to ?e=1
+        self.user.is_staff = True  # grants admin perms: is_superuser is a read-only alias of is_staff
+        self.user.save()
+        request = RequestFactory().get(
+            "/admin/posthog/user/",
+            {"q": "someone@example.com", "ticket": "https://us.posthog.com/support/tickets/123"},
+        )
+        request.user = self.user
+
+        response = UserAdmin(User, AdminSite()).changelist_view(request)
+
+        self.assertEqual(response.status_code, 200)
+
+
 class TestUserAdminPasswordReset(BaseTest):
     def setUp(self):
         super().setUp()

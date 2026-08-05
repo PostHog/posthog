@@ -29,6 +29,16 @@ export function AdminLoginButtons({
                         size="small"
                         tooltip="This currently redirects to the admin login page, but in future will log you in directly."
                         onClick={() => window.open(url, '_blank')}
+                        sideAction={{
+                            dropdown: {
+                                placement: 'bottom-end',
+                                overlay: (
+                                    <LemonButton fullWidth size="small" to={url} targetBlank>
+                                        View user in Django admin
+                                    </LemonButton>
+                                ),
+                            },
+                        }}
                     >
                         Login as {ticketContext?.email}
                         {showRegionLabel ? ` (${region})` : ''}

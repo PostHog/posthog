@@ -50,7 +50,10 @@
         // Add read-only toggle to loginas modal
         const reasonField = document.getElementById("loginas-reason");
         if (reasonField) {
-            const ticketParam = new URLSearchParams(window.location.search).get('ticket');
+            // Direct links pass `ticket` top-level; the changelist folds it into `_changelist_filters`
+            const search = new URLSearchParams(window.location.search);
+            const ticketParam = search.get('ticket')
+                ?? new URLSearchParams(search.get('_changelist_filters') ?? '').get('ticket');
 
             // Pre-fill reason field when modal opens (after loginas clears it)
             if (ticketParam) {
