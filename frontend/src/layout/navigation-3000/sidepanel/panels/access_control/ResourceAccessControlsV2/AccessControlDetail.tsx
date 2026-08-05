@@ -192,7 +192,15 @@ function ProjectAccessSection({
                 </span>
                 Project access
                 {currentTeam?.name ? <span className="font-normal text-tertiary">· {currentTeam.name}</span> : null}
-                <Tooltip title="Admin: change project settings, rename or delete the project, and manage access. Member: open and use the project, with access to each tool set below. No access: the project is hidden entirely.">
+                <Tooltip
+                    title={
+                        <>
+                            <b>Admin</b>: change project settings, rename or delete the project, and manage access.{' '}
+                            <b>Member</b>: open and use the project, with access to each tool set below.{' '}
+                            <b>No access</b>: the project is hidden entirely.
+                        </>
+                    }
+                >
                     <IconInfo className="text-base text-muted" />
                 </Tooltip>
             </div>
