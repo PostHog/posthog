@@ -78,7 +78,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                 </p>
             </div>
 
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
                 <div>
                     <LemonSwitch
                         checked={!!overrides.ignoreDashboardFilters}
@@ -93,7 +93,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                     </p>
                 </div>
 
-                <LemonDivider className="my-0" />
+                <LemonDivider className="mb-2" />
 
                 <div>
                     <label className="text-sm font-medium mb-2 block">Date range</label>
@@ -134,7 +134,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                     />
                 </div>
 
-                <LemonDivider className="my-0" />
+                <LemonDivider className="mb-2" />
 
                 <div>
                     <label className="text-sm font-medium mb-2 block">Properties</label>
@@ -161,7 +161,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                 </div>
 
                 <div>
-                    <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-1 mb-2">
                         <label className="text-sm font-medium">Test account filtering</label>
                         <LemonButton
                             icon={<IconGear />}
@@ -172,7 +172,6 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                         />
                     </div>
                     <LemonSegmentedButton<TestAccountFilterChoice>
-                        fullWidth
                         size="small"
                         value={testAccountChoice}
                         onChange={(next) => setFilterTestAccounts(CHOICE_TO_FILTER[next])}
@@ -203,7 +202,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                     <p className="text-xs text-muted mt-1 mb-0">{CHOICE_HINTS[testAccountChoice]}</p>
                 </div>
 
-                <LemonDivider className="my-0" />
+                <LemonDivider className="mb-2" />
 
                 <div>
                     <label className="text-sm font-medium mb-2 block">Breakdown</label>
