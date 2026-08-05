@@ -479,9 +479,16 @@ class RecentStructuredOutputsQuerySerializer(serializers.Serializer):
     date_to = serializers.DateTimeField(
         required=False,
         help_text=(
-            "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap "
-            "on subsequent calls (cursor-style: set to the `created_at` of the oldest record from "
-            "the prior page)."
+            "ISO-8601 exclusive upper bound on `created_at`. Bounds the window; to paginate losslessly "
+            "use `cursor` instead — a timestamp-only walk can skip records sharing the boundary timestamp."
+        ),
+    )
+    cursor = serializers.CharField(
+        required=False,
+        help_text=(
+            "Opaque pagination cursor from the prior response's `next_cursor`. Pass it back verbatim "
+            "(with the same filters) to fetch the next page; records sharing a boundary `created_at` "
+            "are never skipped. Omit for the first page."
         ),
     )
     skill_name = serializers.CharField(
@@ -501,6 +508,22 @@ class RecentStructuredOutputsQuerySerializer(serializers.Serializer):
         min_value=1,
         max_value=500,
         help_text="Max rows to return (default 100, hard cap 500).",
+    )
+
+
+class RecentStructuredOutputsResponseSerializer(serializers.Serializer):
+    """One page of cross-run structured-output records, with the cursor to the next page."""
+
+    results = SignalScoutStructuredOutputSerializer(
+        many=True,
+        help_text="Structured-output records, newest first.",
+    )
+    next_cursor = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Opaque cursor for the next page — pass it back as `cursor` with the same filters. "
+            "Null when this page exhausts the matching records."
+        ),
     )
 
 

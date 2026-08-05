@@ -63579,6 +63579,41 @@ export namespace Schemas {
       color: string;
     }
 
+    /**
+     * The record, validated at submission time against the `structured_output_schema` the scout's config carried then. Editing the schema later does not rewrite historical rows.
+     */
+    export type SignalScoutStructuredOutputPayload = { [key: string]: unknown };
+
+    /**
+     * One persisted structured-output record, returned by the structured-output read endpoints.
+     */
+    export interface SignalScoutStructuredOutput {
+      readonly id: string;
+      /** UUID of the `SignalScoutRun` that recorded this record. */
+      run_id: string;
+      /** The scout (`signals-scout-*` skill) whose run recorded this record. */
+      skill_name: string;
+      /** Scout-chosen key naming what the record is about (a report id, URL, account key). Empty string for a run-level record. */
+      subject: string;
+      /** The record, validated at submission time against the `structured_output_schema` the scout's config carried then. Editing the schema later does not rewrite historical rows. */
+      payload: SignalScoutStructuredOutputPayload;
+      /** ISO-8601 timestamp the record was persisted. */
+      created_at: string;
+    }
+
+    /**
+     * One page of cross-run structured-output records, with the cursor to the next page.
+     */
+    export interface RecentStructuredOutputsResponse {
+      /** Structured-output records, newest first. */
+      results: SignalScoutStructuredOutput[];
+      /**
+         * Opaque cursor for the next page — pass it back as `cursor` with the same filters. Null when this page exhausts the matching records.
+         * @nullable
+         */
+      next_cursor: string | null;
+    }
+
     export interface RecomputeResult {
       run: Run;
       counts_changed: boolean;
@@ -66593,28 +66628,6 @@ export namespace Schemas {
       edited_report_ids: string[];
       /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
-    }
-
-    /**
-     * The record, validated at submission time against the `structured_output_schema` the scout's config carried then. Editing the schema later does not rewrite historical rows.
-     */
-    export type SignalScoutStructuredOutputPayload = { [key: string]: unknown };
-
-    /**
-     * One persisted structured-output record, returned by the structured-output read endpoints.
-     */
-    export interface SignalScoutStructuredOutput {
-      readonly id: string;
-      /** UUID of the `SignalScoutRun` that recorded this record. */
-      run_id: string;
-      /** The scout (`signals-scout-*` skill) whose run recorded this record. */
-      skill_name: string;
-      /** Scout-chosen key naming what the record is about (a report id, URL, account key). Empty string for a run-level record. */
-      subject: string;
-      /** The record, validated at submission time against the `structured_output_schema` the scout's config carried then. Editing the schema later does not rewrite historical rows. */
-      payload: SignalScoutStructuredOutputPayload;
-      /** ISO-8601 timestamp the record was persisted. */
-      created_at: string;
     }
 
     export interface SignalUserAutonomyConfig {
@@ -84887,11 +84900,16 @@ export namespace Schemas {
 
     export type SignalsScoutRunsRecentStructuredOutputsParams = {
     /**
+     * Opaque pagination cursor from the prior response's `next_cursor`. Pass it back verbatim (with the same filters) to fetch the next page; records sharing a boundary `created_at` are never skipped. Omit for the first page.
+     * @minLength 1
+     */
+    cursor?: string;
+    /**
      * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
      */
     date_from?: string;
     /**
-     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest record from the prior page).
+     * ISO-8601 exclusive upper bound on `created_at`. Bounds the window; to paginate losslessly use `cursor` instead — a timestamp-only walk can skip records sharing the boundary timestamp.
      */
     date_to?: string;
     /**

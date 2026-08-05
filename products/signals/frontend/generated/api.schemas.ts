@@ -3609,6 +3609,19 @@ export interface FleetFindingsSummaryApi {
 }
 
 /**
+ * One page of cross-run structured-output records, with the cursor to the next page.
+ */
+export interface RecentStructuredOutputsResponseApi {
+    /** Structured-output records, newest first. */
+    results: SignalScoutStructuredOutputApi[]
+    /**
+     * Opaque cursor for the next page — pass it back as `cursor` with the same filters. Null when this page exhausts the matching records.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
+/**
  * `SignalScratchpad` projection used by `search-memory` and `remember`.
  */
 export interface ScratchpadEntryApi {
@@ -4097,11 +4110,16 @@ export type SignalsScoutRunsFindingsSummaryParams = {
 
 export type SignalsScoutRunsRecentStructuredOutputsParams = {
     /**
+     * Opaque pagination cursor from the prior response's `next_cursor`. Pass it back verbatim (with the same filters) to fetch the next page; records sharing a boundary `created_at` are never skipped. Omit for the first page.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
      * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
      */
     date_from?: string
     /**
-     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest record from the prior page).
+     * ISO-8601 exclusive upper bound on `created_at`. Bounds the window; to paginate losslessly use `cursor` instead — a timestamp-only walk can skip records sharing the boundary timestamp.
      */
     date_to?: string
     /**

@@ -1104,16 +1104,17 @@ const ScoutRunsRecentStructuredOutputsSchema = SignalsScoutRunsRecentStructuredO
 
 const scoutRunsRecentStructuredOutputs = (): ToolBase<
     typeof ScoutRunsRecentStructuredOutputsSchema,
-    WithPostHogUrl<Schemas.SignalScoutStructuredOutput[]>
+    WithPostHogUrl<Schemas.RecentStructuredOutputsResponse>
 > => ({
     name: 'scout-runs-recent-structured-outputs',
     schema: ScoutRunsRecentStructuredOutputsSchema,
     handler: async (context: Context, params: z.infer<typeof ScoutRunsRecentStructuredOutputsSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SignalScoutStructuredOutput[]>({
+        const result = await context.api.request<Schemas.RecentStructuredOutputsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/structured-outputs/recent/`,
             query: {
+                cursor: params.cursor,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 limit: params.limit,

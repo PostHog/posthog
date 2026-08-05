@@ -22,10 +22,11 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -88,6 +89,7 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileSerializer,
     RecentEmissionsQuerySerializer,
     RecentStructuredOutputsQuerySerializer,
+    RecentStructuredOutputsResponseSerializer,
     RecordStructuredOutputRequestSerializer,
     RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
@@ -191,9 +193,28 @@ MAX_RECENT_EMISSIONS_LIMIT = 200
 
 # Page size for the cross-run `structured-outputs/recent` action. Higher than the emissions
 # default because a measuring scout legitimately produces ~100 records per run (one per judged
-# entity), and a one-run window should fit in one call; walk back via `date_to`.
+# entity), and a one-run window should fit in one call; walk back via `cursor`.
 DEFAULT_RECENT_STRUCTURED_OUTPUTS_LIMIT = 100
 MAX_RECENT_STRUCTURED_OUTPUTS_LIMIT = 500
+
+
+def _encode_structured_output_cursor(row: SignalScoutStructuredOutput) -> str:
+    return f"{row.created_at.isoformat()}|{row.id}"
+
+
+def _decode_structured_output_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    """Parse a `created_at|id` cursor. Compound on purpose: a timestamp-only cursor skips
+    rows sharing the boundary `created_at` (possible within a bulk-inserted batch)."""
+    timestamp_part, _, id_part = cursor.rpartition("|")
+    try:
+        parsed_at = datetime.fromisoformat(timestamp_part)
+        parsed_id = uuid.UUID(id_part)
+    except ValueError:
+        raise exceptions.ValidationError({"cursor": "Malformed cursor; pass a prior response's next_cursor verbatim."})
+    if parsed_at.tzinfo is None:
+        raise exceptions.ValidationError({"cursor": "Malformed cursor; pass a prior response's next_cursor verbatim."})
+    return parsed_at, parsed_id
+
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
 # drf-spectacular can't derive the path-param type from the model and warns (fatal under
@@ -1150,9 +1171,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=RecentStructuredOutputsQuerySerializer,
         responses={
             200: OpenApiResponse(
-                response=SignalScoutStructuredOutputSerializer(many=True),
-                description="Recent structured-output records across every run on the team, newest first.",
+                response=RecentStructuredOutputsResponseSerializer,
+                description="One page of recent structured-output records, newest first, with `next_cursor`.",
             ),
+            400: OpenApiResponse(description="Malformed `cursor`."),
         },
         summary="List recent structured-output records across all runs",
         description=(
@@ -1161,8 +1183,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`run_id` and `skill_name`, so a scout's measurement series ('all grouping-quality judgments "
             "this week') is one call. Pass `skill_name` to scope to one scout, `subject` to follow one "
             "judged entity across runs, and `date_from` / `date_to` (a half-open window on `created_at`) "
-            "to bound or paginate — set `date_to` to the oldest record's `created_at` to walk back past "
-            f"the limit. Pure Postgres. Capped at {MAX_RECENT_STRUCTURED_OUTPUTS_LIMIT} rows (default "
+            "to bound the window. To page past the cap, pass the response's `next_cursor` back as "
+            "`cursor` with the same filters — the cursor is compound (`created_at` + row id), so records "
+            "sharing a boundary timestamp are never skipped. Pure Postgres. Capped at "
+            f"{MAX_RECENT_STRUCTURED_OUTPUTS_LIMIT} rows per page (default "
             f"{DEFAULT_RECENT_STRUCTURED_OUTPUTS_LIMIT})."
         ),
         operation_id="signals_scout_runs_recent_structured_outputs",
@@ -1188,9 +1212,16 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             qs = qs.filter(skill_name=validated["skill_name"])
         if validated.get("subject"):
             qs = qs.filter(subject=validated["subject"])
+        if validated.get("cursor"):
+            cursor_created_at, cursor_id = _decode_structured_output_cursor(validated["cursor"])
+            qs = qs.filter(Q(created_at__lt=cursor_created_at) | Q(created_at=cursor_created_at, id__lt=cursor_id))
 
-        rows = qs.order_by("-created_at", "-id")[:limit]
-        return Response(SignalScoutStructuredOutputSerializer(rows, many=True).data)
+        # Fetch one extra row to know whether a next page exists without a second COUNT query.
+        rows = list(qs.order_by("-created_at", "-id")[: limit + 1])
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        next_cursor = _encode_structured_output_cursor(rows[-1]) if has_more else None
+        return Response(RecentStructuredOutputsResponseSerializer({"results": rows, "next_cursor": next_cursor}).data)
 
     # `EvidenceEntrySerializer` is referenced for OpenAPI nested-schema discovery; keep
     # the import live so drf-spectacular registers it even if the runtime never imports

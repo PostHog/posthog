@@ -1583,7 +1583,7 @@ export const SignalsScoutRunsRecentEmissionsQueryParams = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Return the team's recent structured-output records across *every* run, newest first — the cross-run counterpart to the per-run `structured-outputs` action. Each row carries its `run_id` and `skill_name`, so a scout's measurement series ('all grouping-quality judgments this week') is one call. Pass `skill_name` to scope to one scout, `subject` to follow one judged entity across runs, and `date_from` / `date_to` (a half-open window on `created_at`) to bound or paginate — set `date_to` to the oldest record's `created_at` to walk back past the limit. Pure Postgres. Capped at 500 rows (default 100).
+ * Return the team's recent structured-output records across *every* run, newest first — the cross-run counterpart to the per-run `structured-outputs` action. Each row carries its `run_id` and `skill_name`, so a scout's measurement series ('all grouping-quality judgments this week') is one call. Pass `skill_name` to scope to one scout, `subject` to follow one judged entity across runs, and `date_from` / `date_to` (a half-open window on `created_at`) to bound the window. To page past the cap, pass the response's `next_cursor` back as `cursor` with the same filters — the cursor is compound (`created_at` + row id), so records sharing a boundary timestamp are never skipped. Pure Postgres. Capped at 500 rows per page (default 100).
  * @summary List recent structured-output records across all runs
  */
 export const SignalsScoutRunsRecentStructuredOutputsParams = /* @__PURE__ */ zod.object({
@@ -1599,6 +1599,13 @@ export const signalsScoutRunsRecentStructuredOutputsQueryLimitMax = 500
 export const signalsScoutRunsRecentStructuredOutputsQuerySubjectMax = 200
 
 export const SignalsScoutRunsRecentStructuredOutputsQueryParams = /* @__PURE__ */ zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Opaque pagination cursor from the prior response's `next_cursor`. Pass it back verbatim (with the same filters) to fetch the next page; records sharing a boundary `created_at` are never skipped. Omit for the first page."
+        ),
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -1607,7 +1614,7 @@ export const SignalsScoutRunsRecentStructuredOutputsQueryParams = /* @__PURE__ *
         .datetime({ offset: true })
         .optional()
         .describe(
-            'ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest record from the prior page).'
+            'ISO-8601 exclusive upper bound on `created_at`. Bounds the window; to paginate losslessly use `cursor` instead — a timestamp-only walk can skip records sharing the boundary timestamp.'
         ),
     limit: zod
         .number()

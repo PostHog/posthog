@@ -86,7 +86,7 @@ On report-channel scouts both fields are always `0` / empty.
 ## SignalScoutStructuredOutput — schema-validated records (structured-output channel)
 
 One row per record a run submitted via `scout-record-output`, written only when the scout's config carries a `structured_output_schema`.
-The queryable view of a _measuring_ scout's output (judgments, scores, classifications) — read per run via `scout-runs-structured-outputs-list`, or across runs via `scout-runs-recent-structured-outputs` (filter by `skill_name`, `subject`, or a `created_at` window).
+The queryable view of a _measuring_ scout's output (judgments, scores, classifications) — read per run via `scout-runs-structured-outputs-list`, or across runs via `scout-runs-recent-structured-outputs` (filter by `skill_name`, `subject`, or a `created_at` window; page past the cap by passing the response's `next_cursor` back as `cursor`).
 
 | Field        | Meaning                                                                                                         |
 | ------------ | --------------------------------------------------------------------------------------------------------------- |

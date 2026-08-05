@@ -972,13 +972,50 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
             )
         response = self.client.get(self._recent_url())
         assert response.status_code == status.HTTP_200_OK
-        assert {row["subject"] for row in response.json()} == {"report-1", "report-2"}
+        body = response.json()
+        assert {row["subject"] for row in body["results"]} == {"report-1", "report-2"}
+        assert body["next_cursor"] is None
 
         filtered = self.client.get(self._recent_url(), {"skill_name": "signals-scout-judge"})
-        assert [row["subject"] for row in filtered.json()] == ["report-2"]
+        assert [row["subject"] for row in filtered.json()["results"]] == ["report-2"]
 
         by_subject = self.client.get(self._recent_url(), {"subject": "report-1"})
-        assert [row["subject"] for row in by_subject.json()] == ["report-1"]
+        assert [row["subject"] for row in by_subject.json()["results"]] == ["report-1"]
+
+    def test_recent_outputs_cursor_walk_is_lossless_across_shared_timestamps(self) -> None:
+        # A timestamp-only cursor (walking `date_to` from the last row's `created_at`) skips
+        # rows sharing the boundary timestamp. The compound cursor must return all rows
+        # exactly once even when a page boundary lands inside a same-timestamp group.
+        run = self._make_run_with_schema()
+        shared_at = timezone.now()
+        for index in range(5):
+            row = SignalScoutStructuredOutput.objects.create(
+                team=self.team,
+                scout_run=run,
+                skill_name=run.skill_name,
+                subject=f"report-{index}",
+                payload={"verdict": "good", "reason": str(index)},
+            )
+            # auto_now_add ignores a passed value; force every row onto one timestamp so a
+            # limit=2 walk puts two page boundaries inside the shared-timestamp group.
+            SignalScoutStructuredOutput.objects.filter(pk=row.pk).update(created_at=shared_at)
+
+        seen: list[str] = []
+        cursor: str | None = None
+        for _ in range(4):
+            params = {"limit": "2", **({"cursor": cursor} if cursor else {})}
+            page = self.client.get(self._recent_url(), params)
+            assert page.status_code == status.HTTP_200_OK
+            body = page.json()
+            seen.extend(row["id"] for row in body["results"])
+            cursor = body["next_cursor"]
+            if cursor is None:
+                break
+        assert cursor is None
+        assert len(seen) == len(set(seen)) == 5
+
+        malformed = self.client.get(self._recent_url(), {"cursor": "not-a-cursor"})
+        assert malformed.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestStructuredOutputSchemaValidation(SimpleTestCase):
