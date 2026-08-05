@@ -266,7 +266,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Categorize this session by its primary user intent."
+                    placeholder="Categorize this session by the user's primary intent. If they came to do several things, tag the one they spent the most time on."
                     caption="Your prompt tells the agent how to decide which of your tags fit each session. Include anything the agent should know about your product or this flow."
                 />
                 <ClassifierTagsField scannerId={scannerId} />
@@ -305,7 +305,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Rate how frustrated the user appeared during this session."
+                    placeholder="Rate how frustrated the user appeared during this session. Rage clicks, repeated retries, and abandoned flows all point to higher scores."
                     caption="Your prompt is what the agent scores each session on, using the scale below. Include anything the agent should know about your product or this flow."
                 />
                 <LemonField name="scanner_config.scale">
