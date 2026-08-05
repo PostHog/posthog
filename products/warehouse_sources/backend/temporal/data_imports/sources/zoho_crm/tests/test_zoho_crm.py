@@ -10,6 +10,7 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import ZOHO_CRM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
+    DISCOVERY_TIME_BUDGET_SECONDS,
     MAX_FIELDS_PER_REQUEST,
     MAX_PAGE,
     PAGE_SIZE,
@@ -338,6 +339,38 @@ class TestDiscoverColumns:
             )
 
         assert session.post.call_count == 2
+
+    @mock.patch(f"{_MODULE}.time")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_discovery_stops_when_the_time_budget_runs_out(
+        self, make_session: mock.MagicMock, fake_time: mock.MagicMock
+    ) -> None:
+        # Discovery runs inside a synchronous request, so a long module list must stop at the
+        # budget with a partial catalog instead of running past the gateway timeout.
+        fake_time.monotonic.side_effect = [0.0, 1.0, DISCOVERY_TIME_BUDGET_SECONDS + 1.0]
+        session = _session([_response(200, {"fields": [{"api_name": "Last_Name"}]})])
+        make_session.return_value = session
+        logger = mock.MagicMock()
+
+        columns = discover_columns(_client(), "v8", [ZOHO_CRM_ENDPOINTS["Leads"], ZOHO_CRM_ENDPOINTS["Deals"]], logger)
+
+        assert set(columns) == {"Leads"}
+        assert session.get.call_count == 1
+        assert logger.warning.call_count == 1
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_module_with_no_readable_fields_is_omitted_from_the_catalog(
+        self, make_session: mock.MagicMock
+    ) -> None:
+        # A module whose metadata lists nothing readable must be left out entirely — an id-only
+        # entry would mask the picker's fallback to the columns a sync actually returned.
+        make_session.return_value = _session(
+            [_response(200, {"fields": []}), _response(200, {"fields": [{"api_name": "Deal_Name"}]})]
+        )
+
+        columns = discover_columns(_client(), "v8", [ZOHO_CRM_ENDPOINTS["Leads"], ZOHO_CRM_ENDPOINTS["Deals"]])
+
+        assert set(columns) == {"Deals"}
 
 
 class TestFieldProjection:
