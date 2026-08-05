@@ -153,14 +153,12 @@ pub async fn process_batch(
     // DIVERGENCE from legacy (`events::analytics`), intentional and out of scope
     // to reconcile here — a future routing refactor must not assume parity:
     //   1. Ordering: v1 runs this GRL step AFTER burst overflow stamping (above);
-    //      legacy runs its GRL BEFORE overflow stamping. Both set overflow on
-    //      AnalyticsMain/Destination::Overflow only, so the destination matches,
-    //      but the pass order differs and the partition key can too: legacy's
-    //      burst limiter overwrites the GRL's stamp, so a key the GRL wanted
-    //      spread is restored when the limiter preserves locality, whereas here
-    //      the GRL stamps last and wins. Only reachable with
-    //      OVERFLOW_PRESERVE_PARTITION_LOCALITY on. The
-    //      `overflow_grl_parity` suite pins the whole cross-path matrix.
+    //      legacy runs its GRL BEFORE overflow stamping. The pass order differs,
+    //      but the observable outcome does not: both reroute only
+    //      AnalyticsMain/Destination::Overflow, and both drop the partition key
+    //      once person processing is off, so a key the GRL wanted spread stays
+    //      spread on either path even when the burst limiter preserves locality.
+    //      `crate::overflow_parity` pins that across the whole matrix.
     //   2. Lane assignment is assign-then-reroute in v1 versus a single
     //      `DataType::from_event_name` match in legacy.
     // Both paths consult the same shared limiter for every non-dropped event, so
