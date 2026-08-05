@@ -3,10 +3,12 @@ import { useRef, useState } from 'react'
 
 import {
     IconCopy,
+    IconPencil,
     IconThumbsDown,
     IconThumbsDownFilled,
     IconThumbsUp,
     IconThumbsUpFilled,
+    IconTrash,
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton, LemonInput, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
@@ -26,6 +28,8 @@ export interface MessageProps {
     aiReplyFeedbackRating?: AiReplyFeedbackRating | null
     aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    onEdit?: () => void
+    onDelete?: () => void
 }
 
 export function Message({
@@ -36,6 +40,8 @@ export function Message({
     aiReplyFeedbackRating = null,
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
+    onEdit,
+    onDelete,
 }: MessageProps): JSX.Element {
     const profileType = message.authorType === 'AI' ? 'bot' : 'person'
     const isPrivate = message.isPrivate
@@ -80,6 +86,7 @@ export function Message({
                             {isPrivate && <TeamOnlyBadge label="Private note" />}
                             <span className="text-xs text-muted-alt">
                                 <TZLabel time={message.createdAt} />
+                                {(message.version ?? 0) > 0 ? ' (edited)' : null}
                             </span>
                         </div>
                     </div>
@@ -94,7 +101,28 @@ export function Message({
                             } [&_img]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
                         >
                             {isPrivate && (
-                                <div className="flex items-center justify-end">
+                                <div className="flex items-center justify-end gap-2">
+                                    {onEdit && (
+                                        <Tooltip title="Edit note">
+                                            <LemonButton
+                                                size="xsmall"
+                                                icon={<IconPencil />}
+                                                noPadding
+                                                onClick={onEdit}
+                                            />
+                                        </Tooltip>
+                                    )}
+                                    {onDelete && (
+                                        <Tooltip title="Delete note">
+                                            <LemonButton
+                                                size="xsmall"
+                                                icon={<IconTrash />}
+                                                noPadding
+                                                status="danger"
+                                                onClick={onDelete}
+                                            />
+                                        </Tooltip>
+                                    )}
                                     <Tooltip title="Copy message">
                                         <LemonButton
                                             size="xsmall"

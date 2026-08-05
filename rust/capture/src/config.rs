@@ -456,9 +456,10 @@ pub struct Config {
     #[envconfig(default = "1048576")]
     pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
 
-    // The warnings emitter's own destination. It runs in the v1 analytics
-    // handler but is independent of the v0 `KAFKA_*` block: it reads only these
-    // three vars, never `kafka_hosts` / `kafka_tls` /
+    // The warnings emitter's own destination. It serves every pipeline that
+    // emits (v1 and legacy analytics, both AI endpoints, and replay) but is
+    // independent of the v0 `KAFKA_*` block: it reads only these three vars,
+    // never `kafka_hosts` / `kafka_tls` /
     // `kafka_client_ingestion_warning_topic`. charts sets all three per env,
     // pointed at the MSK cluster the clientwarnings consumer reads from.
     //
@@ -493,6 +494,14 @@ pub struct KafkaConfig {
     /// Set to "lz4" to enable. Default "none" for safe rollout and rollback.
     #[envconfig(default = "none")]
     pub kafka_replay_envelope_compression: EnvelopeCompression,
+    /// Refuse to boot when a registered output resolves to an empty topic
+    /// name (see `OutputRegistry::check_complete`). Config-only — the broker
+    /// is never probed, so topic autocreation on first publish is unaffected.
+    /// Opt-in (default off) so deployments that deliberately blank a topic
+    /// they never produce to keep booting; arm it per deployment once its
+    /// topic wiring is known-complete.
+    #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
+    pub outputs_completeness_check_enabled: bool,
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,

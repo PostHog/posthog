@@ -55,9 +55,6 @@ const canvasCreate = (): ToolBase<typeof CanvasCreateSchema, Schemas.Canvas> => 
         if (params.template_id !== undefined) {
             body['template_id'] = params.template_id
         }
-        if (params.is_home !== undefined) {
-            body['is_home'] = params.is_home
-        }
         const result = await context.api.request<Schemas.Canvas>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/`,
@@ -112,7 +109,6 @@ const canvasList = (): ToolBase<typeof CanvasListSchema, Schemas.PaginatedCanvas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/`,
             query: {
                 channel: params.channel,
-                is_home: params.is_home,
                 limit: params.limit,
                 offset: params.offset,
             },

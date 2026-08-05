@@ -334,6 +334,11 @@ class _LogsSparklineBodySerializer(serializers.Serializer):
         required=False,
         help_text='Break down sparkline by "severity" (default) or "service".',
     )
+    sparklineRankBy = serializers.ChoiceField(
+        choices=["count", "bytes"],
+        required=False,
+        help_text='Rank breakdown values by "count" (default) or "bytes" before collapsing the tail into "other".',
+    )
     personId = serializers.CharField(
         required=False,
         help_text=(
@@ -1300,6 +1305,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             resourceFingerprint=query_data.get("resourceFingerprint", None),
             personId=query_data.get("personId", None),
             sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
+            sparklineRankBy=query_data.get("sparklineRankBy"),
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)

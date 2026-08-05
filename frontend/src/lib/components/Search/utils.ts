@@ -2,6 +2,9 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { pluralize } from 'lib/utils/strings'
 
+/** Synthetic result that jumps to the theme setting, or toggles the theme outright. */
+export const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
+
 interface FuseSearchable {
     name: string
     displayName?: string
@@ -32,6 +35,22 @@ export function filterSearchItems<T extends FuseSearchable>(items: T[], query: s
     const fuse = createFuse<T>(items, FUSE_OPTIONS)
     return fuse.search(trimmed).map((r) => r.item)
 }
+
+/** Structural so this module avoids importing searchLogic, which imports this one. */
+interface NewTabCandidate {
+    id: string
+    href?: string
+    onSelect?: () => void
+}
+
+/**
+ * Whether Cmd/Ctrl activation should open an item in a new tab. Only items that purely
+ * navigate qualify. An item carrying `onSelect`, and the theme row, run an action instead,
+ * so treating the modifier as "open in a new tab" would fire that action rather than open
+ * anything, which is merely surprising for most items but destructive for "Log out".
+ */
+export const canOpenInNewTab = (item: NewTabCandidate): boolean =>
+    !!item.href && !item.onSelect && item.id !== SETTINGS_THEME_ITEM_ID
 
 export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
