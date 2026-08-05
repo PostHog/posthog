@@ -4,7 +4,7 @@ import './TileFiltersOverride.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCalendar, IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -20,6 +20,7 @@ import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { isInsightQueryWithBreakdown, isInsightQueryWithSeries, isInsightVizNode } from '~/queries/utils'
 import type { DashboardTile, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
+import { TileFiltersOverrideSections, TileOverrideFields } from './TileFiltersOverride.prototype'
 import { tileLogic } from './tileLogic'
 
 type TestAccountFilterChoice = 'inherit' | 'filter-out' | 'include'
@@ -69,6 +70,163 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
         },
     }
 
+    // Field blocks wired once here; the sectioning prototype arranges them per `?tileOverrideVariant=`.
+    // In production this always renders variant A (plain dividers) with no switcher.
+    const fields: TileOverrideFields = {
+        scope: (
+            <div>
+                <LemonSwitch
+                    checked={!!overrides.ignoreDashboardFilters}
+                    onChange={setIgnoreDashboardFilters}
+                    label="Ignore dashboard filters"
+                    bordered
+                    fullWidth
+                    data-attr="tile-ignore-dashboard-filters"
+                />
+                <p className="text-xs text-muted mt-1 mb-0">
+                    When on, none of the dashboard's filters apply to this insight. The overrides below still do.
+                </p>
+            </div>
+        ),
+        dateRange: (
+            <div>
+                <label className="text-sm font-medium mb-2 block">Date range</label>
+                <DateFilter
+                    showCustom
+                    showExplicitDateToggle
+                    dateFrom={overrides.date_from ?? null}
+                    dateTo={overrides.date_to ?? null}
+                    explicitDate={overrides.explicitDate}
+                    onChange={(from, to, explicitDate) => setDates(from, to, explicitDate)}
+                    makeLabel={(key) => (
+                        <>
+                            <IconCalendar />
+                            <span className="hide-when-small"> {key}</span>
+                        </>
+                    )}
+                />
+            </div>
+        ),
+        interval: (
+            <div>
+                <label className="text-sm font-medium mb-2 block">Interval</label>
+                <LemonSelect<IntervalType | null>
+                    size="small"
+                    value={overrides.interval ?? null}
+                    dropdownMatchSelectWidth={false}
+                    disabledReason={
+                        supportsInterval ? undefined : "This insight type doesn't support an interval override"
+                    }
+                    onChange={(interval) => setInterval(interval)}
+                    options={[
+                        { value: null, label: 'inherit' },
+                        { value: 'hour', label: 'hour' },
+                        { value: 'day', label: 'day' },
+                        { value: 'week', label: 'week' },
+                        { value: 'month', label: 'month' },
+                    ]}
+                    data-attr="tile-override-interval"
+                />
+            </div>
+        ),
+        properties: (
+            <div>
+                <label className="text-sm font-medium mb-2 block">Properties</label>
+                <PropertyFilters
+                    onChange={(properties) => setProperties(properties)}
+                    pageKey={`tile_${tile.id}_properties`}
+                    propertyFilters={overrides.properties ?? []}
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.EventFeatureFlags,
+                        TaxonomicFilterGroupType.EventMetadata,
+                        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+                        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+                        TaxonomicFilterGroupType.EmailAddresses,
+                        ...groupsTaxonomicTypes,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.Elements,
+                        TaxonomicFilterGroupType.SessionProperties,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                    ]}
+                />
+            </div>
+        ),
+        testAccounts: (
+            <div>
+                <div className="flex items-center gap-1 mb-2">
+                    <label className="text-sm font-medium">Test account filtering</label>
+                    <LemonButton
+                        icon={<IconGear />}
+                        size="xsmall"
+                        noPadding
+                        to={urls.settings('project-product-analytics', 'internal-user-filtering')}
+                        tooltip="Configure internal and test account filters"
+                    />
+                </div>
+                <LemonSegmentedButton<TestAccountFilterChoice>
+                    size="small"
+                    value={testAccountChoice}
+                    onChange={(next) => setFilterTestAccounts(CHOICE_TO_FILTER[next])}
+                    options={[
+                        {
+                            value: 'inherit',
+                            label: 'Inherit',
+                            tooltip: "Use the dashboard's setting, or the insight's own",
+                            'data-attr': 'tile-test-account-filter-inherit',
+                        },
+                        {
+                            value: 'filter-out',
+                            label: 'Filter out',
+                            tooltip: 'Force test account filtering on for this insight',
+                            disabledReason: !hasTestAccountFilters
+                                ? "You haven't set any internal test filters. Click the gear icon to configure."
+                                : undefined,
+                            'data-attr': 'tile-test-account-filter-out',
+                        },
+                        {
+                            value: 'include',
+                            label: 'Include',
+                            tooltip: 'Force test account filtering off for this insight',
+                            'data-attr': 'tile-test-account-filter-include',
+                        },
+                    ]}
+                />
+                <p className="text-xs text-muted mt-1 mb-0">{CHOICE_HINTS[testAccountChoice]}</p>
+            </div>
+        ),
+        breakdown: (
+            <div>
+                <label className="text-sm font-medium mb-2 block">Breakdown</label>
+                <BindLogic logic={insightLogic} props={breakdownInsightProps}>
+                    <TaxonomicBreakdownFilter
+                        insightProps={breakdownInsightProps}
+                        breakdownFilter={overrides.breakdown_filter}
+                        isTrends={false}
+                        isFunnels={false}
+                        showLabel={false}
+                        disabledReason={
+                            supportsBreakdown ? undefined : "This insight type doesn't support a breakdown override"
+                        }
+                        updateBreakdownFilter={(breakdown_filter) => {
+                            let newBreakdownFilter: BreakdownFilter | null = breakdown_filter
+                            // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
+                            if (breakdown_filter && !breakdown_filter.breakdown_type && !breakdown_filter.breakdowns) {
+                                newBreakdownFilter = null
+                            }
+                            setBreakdown(newBreakdownFilter)
+                        }}
+                        updateDisplay={() => {}}
+                        disablePropertyInfo
+                        size="small"
+                    />
+                </BindLogic>
+            </div>
+        ),
+    }
+
     return (
         <div className="space-y-4 tile-filters-override">
             <div>
@@ -78,163 +236,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                 </p>
             </div>
 
-            <div className="flex flex-col gap-4">
-                <div>
-                    <LemonSwitch
-                        checked={!!overrides.ignoreDashboardFilters}
-                        onChange={setIgnoreDashboardFilters}
-                        label="Ignore dashboard filters"
-                        bordered
-                        fullWidth
-                        data-attr="tile-ignore-dashboard-filters"
-                    />
-                    <p className="text-xs text-muted mt-1 mb-0">
-                        When on, none of the dashboard's filters apply to this insight. The overrides below still do.
-                    </p>
-                </div>
-
-                <LemonDivider className="mb-2" />
-
-                <div>
-                    <label className="text-sm font-medium mb-2 block">Date range</label>
-                    <DateFilter
-                        showCustom
-                        showExplicitDateToggle
-                        dateFrom={overrides.date_from ?? null}
-                        dateTo={overrides.date_to ?? null}
-                        explicitDate={overrides.explicitDate}
-                        onChange={(from, to, explicitDate) => setDates(from, to, explicitDate)}
-                        makeLabel={(key) => (
-                            <>
-                                <IconCalendar />
-                                <span className="hide-when-small"> {key}</span>
-                            </>
-                        )}
-                    />
-                </div>
-
-                <div>
-                    <label className="text-sm font-medium mb-2 block">Interval</label>
-                    <LemonSelect<IntervalType | null>
-                        size="small"
-                        value={overrides.interval ?? null}
-                        dropdownMatchSelectWidth={false}
-                        disabledReason={
-                            supportsInterval ? undefined : "This insight type doesn't support an interval override"
-                        }
-                        onChange={(interval) => setInterval(interval)}
-                        options={[
-                            { value: null, label: 'inherit' },
-                            { value: 'hour', label: 'hour' },
-                            { value: 'day', label: 'day' },
-                            { value: 'week', label: 'week' },
-                            { value: 'month', label: 'month' },
-                        ]}
-                        data-attr="tile-override-interval"
-                    />
-                </div>
-
-                <LemonDivider className="mb-2" />
-
-                <div>
-                    <label className="text-sm font-medium mb-2 block">Properties</label>
-                    <PropertyFilters
-                        onChange={(properties) => setProperties(properties)}
-                        pageKey={`tile_${tile.id}_properties`}
-                        propertyFilters={overrides.properties ?? []}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.EventFeatureFlags,
-                            TaxonomicFilterGroupType.EventMetadata,
-                            ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
-                            ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
-                            TaxonomicFilterGroupType.EmailAddresses,
-                            ...groupsTaxonomicTypes,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.Elements,
-                            TaxonomicFilterGroupType.SessionProperties,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                            TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                        ]}
-                    />
-                </div>
-
-                <div>
-                    <div className="flex items-center gap-1 mb-2">
-                        <label className="text-sm font-medium">Test account filtering</label>
-                        <LemonButton
-                            icon={<IconGear />}
-                            size="xsmall"
-                            noPadding
-                            to={urls.settings('project-product-analytics', 'internal-user-filtering')}
-                            tooltip="Configure internal and test account filters"
-                        />
-                    </div>
-                    <LemonSegmentedButton<TestAccountFilterChoice>
-                        size="small"
-                        value={testAccountChoice}
-                        onChange={(next) => setFilterTestAccounts(CHOICE_TO_FILTER[next])}
-                        options={[
-                            {
-                                value: 'inherit',
-                                label: 'Inherit',
-                                tooltip: "Use the dashboard's setting, or the insight's own",
-                                'data-attr': 'tile-test-account-filter-inherit',
-                            },
-                            {
-                                value: 'filter-out',
-                                label: 'Filter out',
-                                tooltip: 'Force test account filtering on for this insight',
-                                disabledReason: !hasTestAccountFilters
-                                    ? "You haven't set any internal test filters. Click the gear icon to configure."
-                                    : undefined,
-                                'data-attr': 'tile-test-account-filter-out',
-                            },
-                            {
-                                value: 'include',
-                                label: 'Include',
-                                tooltip: 'Force test account filtering off for this insight',
-                                'data-attr': 'tile-test-account-filter-include',
-                            },
-                        ]}
-                    />
-                    <p className="text-xs text-muted mt-1 mb-0">{CHOICE_HINTS[testAccountChoice]}</p>
-                </div>
-
-                <LemonDivider className="mb-2" />
-
-                <div>
-                    <label className="text-sm font-medium mb-2 block">Breakdown</label>
-                    <BindLogic logic={insightLogic} props={breakdownInsightProps}>
-                        <TaxonomicBreakdownFilter
-                            insightProps={breakdownInsightProps}
-                            breakdownFilter={overrides.breakdown_filter}
-                            isTrends={false}
-                            isFunnels={false}
-                            showLabel={false}
-                            disabledReason={
-                                supportsBreakdown ? undefined : "This insight type doesn't support a breakdown override"
-                            }
-                            updateBreakdownFilter={(breakdown_filter) => {
-                                let newBreakdownFilter: BreakdownFilter | null = breakdown_filter
-                                // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
-                                if (
-                                    breakdown_filter &&
-                                    !breakdown_filter.breakdown_type &&
-                                    !breakdown_filter.breakdowns
-                                ) {
-                                    newBreakdownFilter = null
-                                }
-                                setBreakdown(newBreakdownFilter)
-                            }}
-                            updateDisplay={() => {}}
-                            disablePropertyInfo
-                            size="small"
-                        />
-                    </BindLogic>
-                </div>
-            </div>
+            <TileFiltersOverrideSections fields={fields} />
         </div>
     )
 }
