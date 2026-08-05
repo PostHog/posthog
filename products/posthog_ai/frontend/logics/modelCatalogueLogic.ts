@@ -52,7 +52,7 @@ export const modelCatalogueLogic = kea<modelCatalogueLogicType>([
 
     loaders(({ values }) => ({
         catalogue: [
-            FALLBACK_MODEL_CHOICES as ModelChoiceApi[],
+            FALLBACK_MODEL_CHOICES,
             {
                 loadCatalogue: async () => {
                     if (values.currentProjectId == null) {

@@ -3,6 +3,7 @@ import {
     InitialPermissionModeEnumApi,
     ModelChoiceApi,
     ReasoningEffortEnumApi,
+    RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { buildRunCreateRequest, listRuntimeAdapters, modelsForRuntimeAdapter } from './composerModels'
@@ -65,7 +66,8 @@ describe('composerModels', () => {
     // than a hardcoded list — a runtime the gateway stops serving must stop being offered.
     it("derives the harness list and each harness's models from the catalogue", () => {
         expect(listRuntimeAdapters(CATALOGUE)).toEqual(['claude', 'codex'])
-        expect(modelsForRuntimeAdapter(CATALOGUE, 'codex').map((option) => option.model)).toEqual(['gpt-5.6-luna'])
-        expect(modelsForRuntimeAdapter(CATALOGUE, 'bedrock')).toEqual([])
+        expect(modelsForRuntimeAdapter(CATALOGUE, RuntimeAdapterEnumApi.Codex).map((o) => o.model)).toEqual([
+            'gpt-5.6-luna',
+        ])
     })
 })

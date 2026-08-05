@@ -20,8 +20,6 @@ export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInter
 export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESSAGES } from '../utils/thinkingMessages'
 
 // --- Composer model/effort helpers (pure — no component imports) ---
-// `resolveEffortForModel` takes the live catalogue as its first argument; read it from `modelCatalogueLogic`,
-// which loads the models a run may use from the tasks API rather than a hardcoded list.
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
 export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
 

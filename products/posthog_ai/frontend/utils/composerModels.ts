@@ -3,6 +3,7 @@ import {
     CodexRuntimeAdapterEnumApi,
     ModelChoiceApi,
     ReasoningEffortEnumApi,
+    RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -13,21 +14,29 @@ export interface ComposerEffortOption {
     label: string
 }
 
+// What a thinking model supports at minimum. Only reached for a model the catalogue hasn't described yet — while the
+// first fetch is in flight, or for a run started on a model since retired from the gateway.
+const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
+    ReasoningEffortEnumApi.Low,
+    ReasoningEffortEnumApi.Medium,
+    ReasoningEffortEnumApi.High,
+]
+
 // Used only when the tasks API can't answer: an unreachable LLM gateway makes the catalogue endpoint return an empty
 // list, and an empty model dropdown is worse than a stale one. The live catalogue is the source of truth — see
 // `modelCatalogueLogic`. Claude-only: without the catalogue we can't know a Codex model exists, and Claude is the default.
 export const FALLBACK_MODEL_CHOICES: ModelChoiceApi[] = [
     {
-        runtime_adapter: 'claude',
+        runtime_adapter: RuntimeAdapterEnumApi.Claude,
         model: 'claude-sonnet-5',
         display_name: 'Claude Sonnet 5',
-        supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        supported_efforts: FALLBACK_EFFORTS,
     },
     {
-        runtime_adapter: 'claude',
+        runtime_adapter: RuntimeAdapterEnumApi.Claude,
         model: 'claude-opus-5',
         display_name: 'Claude Opus 5',
-        supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        supported_efforts: FALLBACK_EFFORTS,
     },
 ]
 
@@ -43,48 +52,44 @@ const EFFORT_LABELS: Record<string, string> = {
     [ReasoningEffortEnumApi.Ultracode]: 'Ultracode',
 }
 
-// What a thinking model supports at minimum. Only reached for a model the catalogue hasn't described yet — while the
-// first fetch is in flight, or for a run started on a model since retired from the gateway.
-const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
-    ReasoningEffortEnumApi.Low,
-    ReasoningEffortEnumApi.Medium,
-    ReasoningEffortEnumApi.High,
-]
-
 export function getEffortsForModel(
     catalogue: ModelChoiceApi[],
     model: string | null | undefined
 ): ComposerEffortOption[] {
-    const efforts =
-        (catalogue.find((option) => option.model === model)?.supported_efforts as ReasoningEffortEnumApi[]) ??
-        FALLBACK_EFFORTS
+    const efforts = catalogue.find((option) => option.model === model)?.supported_efforts ?? FALLBACK_EFFORTS
     return efforts.map((value) => ({ value, label: EFFORT_LABELS[value] ?? value }))
 }
 
 // Which runtime drives this model. The adapter is a property of the model, not an independent choice, so
 // deriving it is what keeps a `(runtime_adapter, model)` pair from ever disagreeing. Defaults to `claude` for a
 // model the catalogue hasn't described — the fallback lineup is Claude-only.
-export function getRuntimeAdapterForModel(catalogue: ModelChoiceApi[], model: string | null | undefined): string {
-    return catalogue.find((option) => option.model === model)?.runtime_adapter ?? 'claude'
+export function getRuntimeAdapterForModel(
+    catalogue: ModelChoiceApi[],
+    model: string | null | undefined
+): RuntimeAdapterEnumApi {
+    return catalogue.find((option) => option.model === model)?.runtime_adapter ?? RuntimeAdapterEnumApi.Claude
 }
 
 // The harnesses the catalogue actually offers, in the order the models arrive. Derived rather than enumerated, so a
 // runtime the gateway stops serving disappears from the picker on its own.
-export function listRuntimeAdapters(catalogue: ModelChoiceApi[]): string[] {
+export function listRuntimeAdapters(catalogue: ModelChoiceApi[]): RuntimeAdapterEnumApi[] {
     return [...new Set(catalogue.map((option) => option.runtime_adapter))]
 }
 
-export function modelsForRuntimeAdapter(catalogue: ModelChoiceApi[], runtimeAdapter: string): ModelChoiceApi[] {
+export function modelsForRuntimeAdapter(
+    catalogue: ModelChoiceApi[],
+    runtimeAdapter: RuntimeAdapterEnumApi
+): ModelChoiceApi[] {
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
 }
 
-const RUNTIME_ADAPTER_LABELS: Record<string, string> = {
-    claude: 'Claude',
-    codex: 'Codex',
+const RUNTIME_ADAPTER_LABELS: Record<RuntimeAdapterEnumApi, string> = {
+    [RuntimeAdapterEnumApi.Claude]: 'Claude',
+    [RuntimeAdapterEnumApi.Codex]: 'Codex',
 }
 
 export function getRuntimeAdapterLabel(runtimeAdapter: string): string {
-    return RUNTIME_ADAPTER_LABELS[runtimeAdapter] ?? runtimeAdapter
+    return RUNTIME_ADAPTER_LABELS[runtimeAdapter as RuntimeAdapterEnumApi] ?? runtimeAdapter
 }
 
 export function getModelLabel(catalogue: ModelChoiceApi[], model: string | null | undefined): string {
@@ -121,12 +126,12 @@ export function resolveEffortForModel(
  * differently — so which runtime a model belongs to has to be decided in one place rather than assumed at each
  * call site. Everything else the caller needs (branch, resume id, message) rides along in `rest`.
  */
-export function buildRunCreateRequest<T extends object>(
+export function buildRunCreateRequest(
     catalogue: ModelChoiceApi[],
     model: string,
     reasoningEffort: ReasoningEffortEnumApi,
     permissionMode: PermissionMode,
-    rest: T
+    rest: Partial<TaskRunCreateRequestSchemaApi>
 ): TaskRunCreateRequestSchemaApi {
     if (getRuntimeAdapterForModel(catalogue, model) === CodexRuntimeAdapterEnumApi.Codex) {
         return {

@@ -17,7 +17,6 @@ from products.tasks.backend.logic.services.model_catalogue import (
     filter_unsupported_effort,
     format_model_id,
     label_for,
-    list_gateway_models,
     runtime_adapter_for,
 )
 
@@ -31,6 +30,5 @@ __all__ = [
     "filter_unsupported_effort",
     "format_model_id",
     "label_for",
-    "list_gateway_models",
     "runtime_adapter_for",
 ]

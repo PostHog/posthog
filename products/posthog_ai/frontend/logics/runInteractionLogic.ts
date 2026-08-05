@@ -44,6 +44,8 @@ export interface RunInteractionLogicProps {
     currentModel?: string | null
     currentEffort?: string | null
     currentMode?: string | null
+    /** The harness the run booted on. Authoritative — a live run can't be moved to another one. */
+    currentRuntimeAdapter?: string | null
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
     onRunStarted?: (runId: string) => void

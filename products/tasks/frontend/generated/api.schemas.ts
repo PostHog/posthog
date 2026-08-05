@@ -3463,15 +3463,23 @@ export interface WizardCloudRunDTOApi {
     started_at?: string | null
 }
 
+/**
+ * One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.
+ *
+ * Both enums are declared with the same choices the run-detail response uses, so clients get the
+ * generated adapter/effort types here rather than bare strings.
+ */
 export interface ModelChoiceApi {
-    /** Runtime that drives this model, such as 'claude' or 'codex'. */
-    runtime_adapter: string
-    /** LLM model identifier to send when starting a run on this model. */
+    /** Runtime that drives this model, such as 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter: RuntimeAdapterEnumApi
     model: string
     /** Display name for the model, such as 'Claude Opus 4.8'. */
     display_name: string
     /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
-    supported_efforts: string[]
+    supported_efforts: ReasoningEffortEnumApi[]
 }
 
 export interface ModelCatalogueResponseApi {

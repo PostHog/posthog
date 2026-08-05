@@ -20,12 +20,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from django.core.cache import cache
 
 import structlog
 
-from posthog.llm.gateway_client import Product, get_llm_client
+if TYPE_CHECKING:
+    from posthog.llm.gateway_client import Product
 
 logger = structlog.get_logger(__name__)
 
@@ -91,6 +94,10 @@ def list_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
+
+    # Deferred: `gateway_client` pulls the Anthropic and OpenAI SDKs, and this module is reachable from
+    # the tasks API's import path — every other caller in the repo defers it for the same reason.
+    from posthog.llm.gateway_client import get_llm_client  # noqa: PLC0415 — keeps the LLM SDKs off startup paths
 
     try:
         page = get_llm_client(product=product).with_options(timeout=_FETCH_TIMEOUT_SECONDS).models.list()
@@ -180,6 +187,7 @@ def filter_unsupported_effort(runtime_adapter: str | None, model: str | None, ef
     return effort if effort in {e.value for e in get_supported_reasoning_efforts(runtime_adapter, model)} else None
 
 
+@lru_cache(maxsize=1)
 def _runtime_adapter_by_provider() -> dict[str, str]:
     """Gateway `owned_by` → runtime adapter.
 
