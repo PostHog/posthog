@@ -4,6 +4,7 @@ from posthog.models.resource_transfer.visitors.cohort import CohortVisitor
 from posthog.models.resource_transfer.visitors.dashboard import DashboardVisitor
 from posthog.models.resource_transfer.visitors.dashboard_tile import DashboardTileVisitor
 from posthog.models.resource_transfer.visitors.dashboard_widget import DashboardWidgetVisitor
+from posthog.models.resource_transfer.visitors.datawarehouse_saved_query import DataWarehouseSavedQueryVisitor
 from posthog.models.resource_transfer.visitors.early_access_feature import EarlyAccessFeatureVisitor
 from posthog.models.resource_transfer.visitors.experiment import ExperimentVisitor
 from posthog.models.resource_transfer.visitors.experiment_holdout import ExperimentHoldoutVisitor
@@ -24,6 +25,7 @@ __all__ = [
     "DashboardVisitor",
     "DashboardTileVisitor",
     "DashboardWidgetVisitor",
+    "DataWarehouseSavedQueryVisitor",
     "EarlyAccessFeatureVisitor",
     "ExperimentHoldoutVisitor",
     "ExperimentSavedMetricVisitor",

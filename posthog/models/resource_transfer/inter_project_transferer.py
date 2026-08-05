@@ -660,7 +660,12 @@ def _duplicate_vertex(
 
     with team_scope(new_team.id):
         if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
-            payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
+            custom_name = visitor.deduplicate_name(payload["name"], new_team)
+            payload["name"] = (
+                custom_name
+                if custom_name is not None
+                else _deduplicate_name(visitor.get_model(), payload["name"], new_team)
+            )
 
         if visitor.kind == "FeatureFlag" and payload.get("key"):
             payload["key"] = _deduplicate_feature_flag_key(visitor.get_model(), str(payload["key"]), new_team)
