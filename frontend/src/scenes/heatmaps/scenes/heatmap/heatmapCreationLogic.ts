@@ -24,7 +24,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { ReplayIframeData, heatmapsBrowserLogic, isUrlPattern } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { heatmapsBrowserLogic, isUrlPattern } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { ReplayIframeData, getStoredRecordingBackground } from 'scenes/heatmaps/replayIframeData'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -127,27 +128,6 @@ export function getBackgroundStepBlockReason({
         return 'Authorize this URL or choose Screenshot to continue'
     }
     return null
-}
-
-export function getStoredRecordingBackground(storageKey: string | null): ReplayIframeData | null {
-    if (!storageKey) {
-        return null
-    }
-    try {
-        const data = JSON.parse(localStorage.getItem(storageKey) ?? 'null') as Partial<ReplayIframeData> | null
-        if (
-            !data ||
-            typeof data.html !== 'string' ||
-            !data.html.trim() ||
-            typeof data.width !== 'number' ||
-            typeof data.height !== 'number'
-        ) {
-            return null
-        }
-        return data as ReplayIframeData
-    } catch {
-        return null
-    }
 }
 
 export function getAuthorizationOrigin(url: string | null): string | null {
