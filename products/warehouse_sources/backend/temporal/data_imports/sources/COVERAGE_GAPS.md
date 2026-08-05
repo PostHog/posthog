@@ -357,6 +357,32 @@ campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demogr
 - [ ] Organization-level tables — funding sources, billing centers, invoices, members (skipped: all
       scoped to an organization ID this source does not collect).
 
+### Pinterest Ads — spec-verified
+
+Diffed against the Pinterest API v5 OpenAPI description
+([pinterest/api-description](https://github.com/pinterest/api-description) `v5/openapi.yaml`, spec version
+5.28.0) on 2026-08-04. Supersedes the Pinterest entries in the block above.
+
+Have: `campaigns`, `ad_groups`, `ads`, `campaign_analytics`, `ad_group_analytics`, `ad_analytics`,
+`ad_accounts`, `audiences`, `conversion_tags`, `keywords`, `campaign_targeting_analytics`,
+`ad_group_targeting_analytics`, `ad_targeting_analytics`.
+
+- [ ] Creative metadata (skipped: the only creative endpoints, `GET /pins` and `GET /pins/{pin_id}`,
+      need the `boards:read` and `pins:read` scopes, and the Pinterest OAuth app only requests
+      `ads:read user_accounts:read`. Adding scopes forces every existing connection to reconsent, so
+      it is its own piece of work. `ads.pin_id` and `ads.creative_type` already identify the creative.)
+- [x] Breakdown dimensions on the report tables — `campaign_targeting_analytics`,
+      `ad_group_targeting_analytics`, `ad_targeting_analytics`, broken down by age, gender, device,
+      placement, country and region. Off by default.
+- [x] Ad account table — `ad_accounts`, carrying currency and time zone.
+- [x] Audiences and pixel / conversion event definitions — `audiences` and `conversion_tags`,
+      plus `keywords` to resolve keyword targeting back to the bid term.
+
+Verified but not built: `lead_forms`, `customer_lists`, `customer_segments`, `labels`, `order_lines`,
+`promotions`, `product_group_promotions`, `templates`, `targeting_templates`, `schedules`,
+`advertiser_defined_events`, `ad_accounts/{id}/analytics` (account-level totals),
+`product_groups/analytics`. `billing_invoices` needs the `billing:read` scope.
+
 ### TikTok Ads — spec-verified
 
 Supersedes the TikTok Ads entries in the section above.
