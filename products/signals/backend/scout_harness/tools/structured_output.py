@@ -17,8 +17,10 @@ Validation is all-or-nothing per call: if any record fails the schema, nothing i
 and the error names the failing records, so the agent can fix and resubmit the batch
 without deduping a partial write. Accepted calls are NOT idempotent at the row layer (a
 resubmitted batch writes new rows), but the customer-facing events carry a deterministic
-uuid derived from `(run, subject, payload)`, so an identical resubmission collapses at
-ingestion instead of double-firing downstream automation.
+uuid derived from `(run, batch index, subject, payload)`, so an identical resubmission
+collapses at ingestion instead of double-firing downstream automation while in-batch
+duplicate records still count separately. Events for a batch go out as ONE
+`capture_batch_internal` POST, never one HTTP call per record.
 
 Cardinality is deliberately the scout's call, not a config mode: the schema describes one
 record, and the scout may submit one per run, one per judged entity, or a batch per call
@@ -28,7 +30,6 @@ record, and the scout may submit one per run, one per judged entity, or a batch 
 from __future__ import annotations
 
 import json
-import time
 import uuid
 import asyncio
 import logging
@@ -42,7 +43,7 @@ from jsonschema import Draft202012Validator
 from referencing import Registry
 from referencing.exceptions import NoSuchResource
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import capture_batch_internal
 from posthog.event_usage import groups
 from posthog.models import Team
 
@@ -75,13 +76,6 @@ MAX_SCHEMA_BYTES = 20_000
 # a PostHog-generated event kept out of the customer's own custom-event namespace).
 CUSTOMER_STRUCTURED_OUTPUT_EVENT = "$scout_structured_output"
 _STRUCTURED_OUTPUT_EVENT_SOURCE = "signals_scout_structured_output"
-
-# Total wall-time budget for forwarding one accepted batch's events. `capture_internal` is a
-# blocking HTTP call with its own per-request timeout, so a slow capture endpoint could
-# otherwise cost one timeout per record (a 100-record batch = minutes) after the rows already
-# committed — burning the scout's run budget and inviting duplicate-row retries. Forwards past
-# the deadline are dropped and logged; the rows are the durable record either way.
-_FORWARD_DEADLINE_S = 10.0
 
 
 def _refuse_retrieval(uri: str) -> Any:
@@ -220,13 +214,7 @@ def record_structured_output_sync(
         record_ids=[str(row.id) for row in rows],
     )
     _capture_recorded(team=team, run=run, recorded_count=len(rows))
-    forwards = _build_forwards(team=team, run=run, records=records)
-    deadline = time.monotonic() + _FORWARD_DEADLINE_S
-    for index, forward in enumerate(forwards):
-        if time.monotonic() > deadline:
-            _log_forward_deadline(team=team, run=run, forwarded=index, total=len(forwards))
-            break
-        _forward_structured_output_event(team=team, forward=forward)
+    _forward_structured_output_events(team=team, run=run, records=records)
     return result
 
 
@@ -251,15 +239,10 @@ async def record_structured_output(
     await database_sync_to_async(_capture_recorded, thread_sensitive=False)(
         team=team, run=run, recorded_count=len(rows)
     )
-    forwards = await database_sync_to_async(_build_forwards, thread_sensitive=False)(
-        team=team, run=run, records=records
-    )
-    deadline = time.monotonic() + _FORWARD_DEADLINE_S
-    for index, forward in enumerate(forwards):
-        if time.monotonic() > deadline:
-            _log_forward_deadline(team=team, run=run, forwarded=index, total=len(forwards))
-            break
-        await asyncio.to_thread(_forward_structured_output_event, team=team, forward=forward)
+    # The forward helper does one DB read (`_build_forwards`) plus one blocking batch HTTP
+    # POST; `to_thread` keeps both off the event loop without occupying the DB-thread pool
+    # for the HTTP leg.
+    await asyncio.to_thread(_forward_structured_output_events, team=team, run=run, records=records)
     return result
 
 
@@ -287,12 +270,16 @@ def _resolve_schema(team: Team, run: SignalScoutRun) -> dict[str, Any]:
     config = SignalScoutConfig.all_teams.filter(pk=config_id).first() if config_id else None
     live_schema = config.structured_output_schema if config else None
     if not live_schema:
-        raise InvalidStructuredOutputError(
-            "This scout has no structured_output_schema configured, so structured output cannot be "
-            "recorded. Set a schema on the scout's config (scout-config-update) to enable this channel."
-        )
+        raise _no_schema_error()
     snapshot = (metadata or {}).get("structured_output_schema")
     return snapshot if isinstance(snapshot, dict) and snapshot else live_schema
+
+
+def _no_schema_error() -> InvalidStructuredOutputError:
+    return InvalidStructuredOutputError(
+        "This scout has no structured_output_schema configured, so structured output cannot be "
+        "recorded. Set a schema on the scout's config (scout-config-update) to enable this channel."
+    )
 
 
 def _validate_records(records: list[StructuredOutputRecord], schema: dict[str, Any]) -> None:
@@ -348,11 +335,27 @@ def _write_rows(
 ) -> list[SignalScoutStructuredOutput]:
     """Persist the batch in one transaction, enforcing the per-run ceiling under the same
     lock the row count is read at so concurrent calls can't overshoot it. Uses the
-    unscoped manager because ownership was already validated by the caller."""
+    unscoped manager because ownership was already validated by the caller.
+
+    The kill switch is re-checked here with the config row locked: `_resolve_schema`'s
+    earlier read and this insert are separate operations, so without this a clear
+    committing between them would let rows land after the channel was switched off. The
+    lock serializes a concurrent clear against the insert — whichever commits first wins
+    cleanly."""
     with transaction.atomic():
         locked_run = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run.pk).first()
         if locked_run is None:
             raise InvalidStructuredOutputError("The run row is gone; nothing was recorded.")
+        live_schema = (
+            SignalScoutConfig.all_teams.select_for_update()
+            .filter(pk=locked_run.scout_config_id)
+            .values_list("structured_output_schema", flat=True)
+            .first()
+            if locked_run.scout_config_id
+            else None
+        )
+        if not live_schema:
+            raise _no_schema_error()
         existing = SignalScoutStructuredOutput.all_teams.filter(scout_run_id=run.pk).count()
         if existing + len(records) > MAX_RECORDS_PER_RUN:
             raise InvalidStructuredOutputError(
@@ -427,7 +430,7 @@ def _build_forwards(
         "run_id": str(run.id),
         "task_run_id": str(run.task_run_id) if run.task_run_id else None,
     }
-    for record in records:
+    for index, record in enumerate(records):
         flattened = {
             f"output_{key}": value
             for key, value in record.payload.items()
@@ -437,11 +440,17 @@ def _build_forwards(
         forwards.append(
             _StructuredOutputForward(
                 distinct_id=f"signals_scout:{run.skill_name}",
+                # `index` keeps in-batch duplicates (two records with identical subject +
+                # payload that are meant to count separately) as distinct events, while a
+                # resubmitted identical batch — same records at the same positions — still
+                # collapses at ingestion instead of double-firing downstream automation.
                 event_uuid=str(
                     uuid.uuid5(
                         uuid.NAMESPACE_URL,
                         "signals_scout_structured_output:"
-                        + json.dumps([str(run.id), record.subject or "", payload_key], separators=(",", ":")),
+                        + json.dumps(
+                            [str(run.id), str(index), record.subject or "", payload_key], separators=(",", ":")
+                        ),
                     )
                 ),
                 properties={**base, "subject": record.subject, "output": record.payload, **flattened},
@@ -450,33 +459,36 @@ def _build_forwards(
     return forwards
 
 
-def _log_forward_deadline(*, team: Team, run: SignalScoutRun, forwarded: int, total: int) -> None:
-    logger.warning(
-        "signals_scout: structured-output event forwarding hit its %ss deadline; forwarded %s of %s",
-        _FORWARD_DEADLINE_S,
-        forwarded,
-        total,
-        extra={"team_id": team.id, "run_id": str(run.id), "skill_name": run.skill_name},
-    )
-
-
-def _forward_structured_output_event(*, team: Team, forward: _StructuredOutputForward) -> None:
-    """Mirror one record into the team's own event stream through the sanctioned
-    `capture_internal` path. Person processing is OFF with a synthetic per-scout
-    `distinct_id` — a record is the scout's output, not an end-user action. Best-effort:
-    a forward failure must never fail the record call (the rows already committed)."""
+def _forward_structured_output_events(
+    *, team: Team, run: SignalScoutRun, records: list[StructuredOutputRecord]
+) -> None:
+    """Mirror the accepted batch into the team's own event stream through the sanctioned
+    `capture_batch_internal` path — one batch POST (auto-chunked with bounded concurrency
+    above 200 events), never one HTTP call per record, so a slow capture endpoint costs one
+    bounded round-trip instead of a timeout per record after the rows already committed.
+    Person processing is OFF with a synthetic per-scout `distinct_id` — a record is the
+    scout's output, not an end-user action. Best-effort: a forward failure must never fail
+    the record call (the rows are the durable record either way)."""
+    forwards = _build_forwards(team=team, run=run, records=records)
+    if not forwards:
+        return
     try:
-        capture_internal(
+        capture_batch_internal(
+            events=[
+                {
+                    "event": CUSTOMER_STRUCTURED_OUTPUT_EVENT,
+                    "distinct_id": forward.distinct_id,
+                    "properties": forward.properties,
+                    "event_uuid": forward.event_uuid,
+                }
+                for forward in forwards
+            ],
             token=team.api_token,
-            event_name=CUSTOMER_STRUCTURED_OUTPUT_EVENT,
             event_source=_STRUCTURED_OUTPUT_EVENT_SOURCE,
-            distinct_id=forward.distinct_id,
-            properties=forward.properties,
-            event_uuid=forward.event_uuid,
             process_person_profile=False,
-        ).raise_for_status()
+        )
     except Exception:
         logger.warning(
-            "signals_scout: failed to forward structured-output event to team project",
-            extra={"team_id": team.id, "distinct_id": forward.distinct_id},
+            "signals_scout: failed to forward structured-output events to team project",
+            extra={"team_id": team.id, "run_id": str(run.id), "event_count": len(forwards)},
         )

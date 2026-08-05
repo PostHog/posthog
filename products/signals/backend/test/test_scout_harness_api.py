@@ -44,6 +44,7 @@ from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
+from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
@@ -750,7 +751,9 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
             {"payload": {"verdict": "bad", "reason": "two unrelated issues merged"}, "subject": "report-2"},
             {"payload": {"verdict": "unsure", "reason": "not enough signals"}},
         ]
-        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_internal") as mock_capture:
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
             response = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
@@ -760,15 +763,18 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         assert [row.subject for row in rows] == ["report-1", "report-2", ""]
         assert rows[0].payload == {"verdict": "good", "reason": "coherent grouping"}
         assert rows[0].skill_name == run.skill_name
-        # One customer-facing event per record, person processing off, scalar payload keys
-        # flattened for breakdowns.
-        assert mock_capture.call_count == 3
-        first = mock_capture.call_args_list[0].kwargs
-        assert first["event_name"] == "$scout_structured_output"
-        assert first["process_person_profile"] is False
-        assert first["properties"]["output_verdict"] == "good"
-        assert first["properties"]["subject"] == "report-1"
-        assert first["properties"]["run_id"] == str(run.id)
+        # One batch POST carrying one event per record, person processing off, scalar payload
+        # keys flattened for breakdowns, and distinct deterministic uuids per record.
+        assert mock_capture.call_count == 1
+        kwargs = mock_capture.call_args.kwargs
+        events = kwargs["events"]
+        assert len(events) == 3
+        assert kwargs["process_person_profile"] is False
+        assert events[0]["event"] == "$scout_structured_output"
+        assert events[0]["properties"]["output_verdict"] == "good"
+        assert events[0]["properties"]["subject"] == "report-1"
+        assert events[0]["properties"]["run_id"] == str(run.id)
+        assert len({event["event_uuid"] for event in events}) == 3
 
     def test_record_output_is_all_or_nothing_on_invalid_record(self) -> None:
         run = self._make_run_with_schema()
@@ -776,7 +782,9 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
             {"payload": {"verdict": "good", "reason": "fine"}},
             {"payload": {"verdict": "terrible", "reason": "not in the enum"}},
         ]
-        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_internal") as mock_capture:
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
             response = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "records[1]" in str(response.json())
@@ -828,7 +836,9 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
             source_type="cross_source_issue",
             defaults={"enabled": False},
         )
-        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_internal") as mock_capture:
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
             response = self.client.post(
                 self._record_url(str(run.id)),
                 data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
@@ -842,7 +852,9 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         # A dry-run scout is being validated: its rows must record (that's the validation
         # evidence) but nothing may drive customer-visible automation.
         run = self._make_run_with_schema(emit=False)
-        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_internal") as mock_capture:
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
             response = self.client.post(
                 self._record_url(str(run.id)),
                 data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
@@ -868,7 +880,7 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
             "additionalProperties": False,
         }
         run.scout_config.save()
-        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_internal"):
+        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"):
             response = self.client.post(
                 self._record_url(str(run.id)),
                 data={"records": [{"payload": {"verdict": "good", "reason": "matches the shown schema"}}]},
@@ -884,6 +896,31 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
             format="json",
         )
         assert cleared.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_record_output_fails_closed_when_schema_cleared_mid_request(self) -> None:
+        # Simulates a clear committing between the schema read and the row write — the
+        # in-transaction recheck must fail the call closed with nothing written.
+        run = self._make_run_with_schema()
+        assert run.scout_config_id is not None
+        config_id = run.scout_config_id
+        original_validate = structured_output_tool._validate_records
+
+        def clear_then_validate(records: list, schema: dict) -> None:
+            SignalScoutConfig.objects.filter(pk=config_id).update(structured_output_schema=None)
+            original_validate(records, schema)
+
+        with (
+            patch.object(structured_output_tool, "_validate_records", side_effect=clear_then_validate),
+            patch.object(structured_output_tool, "capture_batch_internal") as mock_capture,
+        ):
+            response = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 0
+        mock_capture.assert_not_called()
 
     def test_record_output_enforces_per_run_cap(self) -> None:
         run = self._make_run_with_schema()
@@ -2792,6 +2829,7 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
             "has_self_improvement",
             "has_chart",
             "has_self_validation",
+            "has_structured_output",
         }
 
     @parameterized.expand(
