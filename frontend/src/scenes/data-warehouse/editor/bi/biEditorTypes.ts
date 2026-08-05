@@ -358,8 +358,16 @@ function fieldExpression(field: BIField): string {
     return field.dateBucket ? `${DATE_BUCKET_FUNCTIONS[field.dateBucket]}(${escapedExpression})` : escapedExpression
 }
 
-function aggregationExpression(value: BIValue): string {
+function aggregationExpression(value: BIValue): string | null {
+    if (value.aggregation === 'custom') {
+        return value.customExpression?.trim() || null
+    }
+
     const field = fieldExpression(value.field)
+
+    if (!field) {
+        return null
+    }
 
     switch (value.aggregation) {
         case 'count':
@@ -374,8 +382,6 @@ function aggregationExpression(value: BIValue): string {
             return `min(${field})`
         case 'maximum':
             return `max(${field})`
-        case 'custom':
-            return value.customExpression?.trim() || field
     }
 }
 
@@ -427,17 +433,16 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
         (field) => field.expression.trim() || field.name.trim()
     )
     const dimensionExpressions = dimensions.map(fieldExpression)
-    const configuredValues = config.values.filter(
-        (value) =>
-            value.field.expression.trim() ||
-            value.field.name.trim() ||
-            (value.aggregation === 'custom' && value.customExpression?.trim())
-    )
+    const configuredValues = config.values
+        .map((value) => ({ value, expression: aggregationExpression(value) }))
+        .filter(
+            (configuredValue): configuredValue is { value: BIValue; expression: string } => !!configuredValue.expression
+        )
     const valueExpressions =
         configuredValues.length > 0
-            ? configuredValues.map((value, index) => {
+            ? configuredValues.map(({ value, expression }, index) => {
                   const alias = `${value.aggregation}_${sanitizeAlias(value.field.name)}${index > 0 ? `_${index + 1}` : ''}`
-                  return `${aggregationExpression(value)} AS ${escapePropertyAsHogQLIdentifier(alias)}`
+                  return `${expression} AS ${escapePropertyAsHogQLIdentifier(alias)}`
               })
             : ['count(*) AS count']
     const selectExpressions = [...dimensionExpressions, ...valueExpressions]

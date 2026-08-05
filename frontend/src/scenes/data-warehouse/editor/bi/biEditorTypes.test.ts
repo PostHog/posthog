@@ -108,6 +108,24 @@ describe('BI editor query generation', () => {
         expect(result?.query).toEqual(['SELECT', '    count(*) AS count', 'FROM events', 'LIMIT 100'].join('\n'))
     })
 
+    it('uses a row count when a custom aggregation expression is blank', () => {
+        const result = buildBIQuery({
+            source: { table: 'events' },
+            chartType: ChartDisplayType.Auto,
+            rows: [eventField],
+            columns: [],
+            values: [{ field: revenueField, aggregation: 'custom', customExpression: '   ' }],
+            filters: [],
+            limit: 100,
+        })
+
+        expect(result?.query).toEqual(
+            ['SELECT', '    event,', '    count(*) AS count', 'FROM events', 'GROUP BY', '    event', 'LIMIT 100'].join(
+                '\n'
+            )
+        )
+    })
+
     it('keeps nested object paths and explicit SQL expressions in the generated query', () => {
         const browserField: BIField = {
             id: 'warehouse:events:properties',
