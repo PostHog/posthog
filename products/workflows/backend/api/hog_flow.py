@@ -1100,22 +1100,23 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if strict:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
 
-        if data.get("type") == "function_email" and (data.get("config") or {}).get("template_uuid"):
-            # get_team is absent when the serializer runs outside a request (internal re-saves,
-            # direct construction) - there's no team to resolve the reference against, so skip.
-            get_team = self.context.get("get_team")
-            if get_team is not None:
-                # The context dict is shared across the many=True action list, so the memo
-                # spans all steps in one request.
-                template_cache = self.context.setdefault("_message_template_cache", {})
-                _apply_email_template_content(data["config"], get_team(), strict, template_cache)
-
         if "function" in data.get("type", "") or trigger_is_function:
             config = data.setdefault("config", {})
             template_id = config.get("template_id", "")
             fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
             if fixed_template_id:
                 template_id = _apply_fixed_template_id(config, template_id, fixed_template_id)
+            # After the fixed-id coercion, so a library UUID sent as template_id (the dominant
+            # authoring mistake) lands in template_uuid first and still gets materialized.
+            if data.get("type") == "function_email" and config.get("template_uuid"):
+                # get_team is absent when the serializer runs outside a request (internal
+                # re-saves, direct construction) - no team to resolve against, so skip.
+                get_team = self.context.get("get_team")
+                if get_team is not None:
+                    # The context dict is shared across the many=True action list, so the
+                    # memo spans all steps in one request.
+                    template_cache = self.context.setdefault("_message_template_cache", {})
+                    _apply_email_template_content(config, get_team(), strict, template_cache)
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 if strict:

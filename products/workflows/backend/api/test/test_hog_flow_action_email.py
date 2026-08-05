@@ -422,6 +422,26 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         )
         assert patch_response.status_code == 200, patch_response.json()
 
+    def test_uuid_in_template_id_is_coerced_and_then_materialized(self):
+        # The dominant authoring mistake puts the library UUID in template_id. The fixed-id
+        # coercion moves it into template_uuid; materialization must run after that move so
+        # the mistaken-but-resolvable reference still produces a complete step in one save.
+        template = self._create_library_template()
+        response = self._post_flow(
+            {
+                "template_id": str(template.id),
+                "inputs": {"email": {"value": {"from": "noreply@example.com", "to": "{{ person.properties.email }}"}}},
+            }
+        )
+
+        assert response.status_code == 201, response.json()
+        config = next(a for a in HogFlow.objects.get(pk=response.json()["id"]).actions if a["id"] == "email_1")[
+            "config"
+        ]
+        assert config["template_id"] == "template-email"
+        assert config["template_uuid"] == str(template.id)
+        assert config["inputs"]["email"]["value"]["subject"] == "Library subject"
+
     def test_falsy_body_placeholders_do_not_clobber_template_content(self):
         # Agents emit explicit null/empty placeholders for fields they aren't setting. The
         # materialization decision ignores falsy body keys, so the merge must too - otherwise
