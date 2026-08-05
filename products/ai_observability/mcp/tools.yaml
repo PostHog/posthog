@@ -356,8 +356,8 @@ tools:
             evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session'. A
             session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass
             `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it
-            paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list.
-            Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events.
+            paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit
+            `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -475,12 +475,11 @@ tools:
         title: List evaluations
         description: >
             List all AI observability evaluations for the current project. Optionally filter by name/description search
-            or enabled status. Pass `directory_id` to list evaluations in a directory, or
-            `directory_id__isnull=true` to list only top-level evaluations. Call llma-evaluation-directory-list to find
-            directory UUIDs. Evaluations automatically score $ai_generation events for quality, relevance, safety,
-            sentiment, and other criteria. Supported types are 'llm_judge' (LLM scores outputs against a prompt),
-            'hog' (deterministic Hog code), and 'sentiment' (user-message sentiment analysis). Results are stored as
-            '$ai_evaluation' events.
+            or enabled status. Pass `directory_id` to list evaluations in a directory, or `directory_id__isnull=true` to
+            list only top-level evaluations. Call llma-evaluation-directory-list to find directory UUIDs. Evaluations
+            automatically score $ai_generation events for quality, relevance, safety, sentiment, and other criteria.
+            Supported types are 'llm_judge' (LLM scores outputs against a prompt), 'hog' (deterministic Hog code), and
+            'sentiment' (user-message sentiment analysis). Results are stored as '$ai_evaluation' events.
     llma-evaluation-report-create:
         operation: llm_analytics_evaluation_reports_create
         enabled: true
