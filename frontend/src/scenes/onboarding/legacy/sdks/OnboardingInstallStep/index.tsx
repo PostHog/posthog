@@ -20,7 +20,7 @@ import { sdksLogic } from '../sdksLogic'
 import { MobileInstallHandoff } from './MobileInstallHandoff'
 import { SDKGrid } from './SDKGrid'
 import { SDKInstructionsModal } from './SDKInstructionsModal'
-import { SDKGridProps, VariantProps } from './types'
+import { SDKGridProps, VariantProps, WizardOverrides } from './types'
 import { WizardInstallStep } from './WizardInstallStep'
 
 interface OnboardingInstallStepProps {
@@ -32,6 +32,7 @@ interface OnboardingInstallStepProps {
     /** When true, the realtime check indicator is hidden and Continue is always enabled. */
     hideInstallationCheck?: boolean
     header?: React.ReactNode
+    wizardOverrides?: WizardOverrides
 }
 
 /**
@@ -46,6 +47,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     teamPropertyToVerify = 'ingested_event',
     hideInstallationCheck = false,
     header,
+    wizardOverrides,
 }) => {
     const {
         setAvailableSDKInstructionsMap,
@@ -147,6 +149,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         teamPropertyToVerify,
         selectedSDK,
         header,
+        wizardOverrides,
     }
 
     const instructionsModal = selectedSDK && (

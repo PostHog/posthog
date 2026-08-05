@@ -16,6 +16,16 @@ export interface SDKGridProps {
     showTopSkipButton: boolean
 }
 
+/** Points the wizard block at a dedicated program (e.g. `ai-observability`) instead of the plain SDK install. */
+export interface WizardOverrides {
+    /** Wizard subcommand, e.g. `ai-observability`. */
+    subcommand: string
+    /** Replaces the default "what this does" line under the command. */
+    description: React.ReactNode
+    /** Replaces the intro paragraph above the command block. */
+    intro?: string
+}
+
 export interface VariantProps {
     sdkGridProps: SDKGridProps
     sdkInstructionMap: SDKInstructionsMap
@@ -25,4 +35,5 @@ export interface VariantProps {
     teamPropertyToVerify: string
     selectedSDK: SDK | null
     header?: React.ReactNode
+    wizardOverrides?: WizardOverrides
 }

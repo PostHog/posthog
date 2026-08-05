@@ -47,3 +47,30 @@ export async function hasRecentAIEvents(): Promise<boolean> {
 
     return (response.results?.length ?? 0) > 0
 }
+
+let seenAiEventsTeamId: number | null = null
+let inFlightAiEventsCheck: Promise<boolean> | null = null
+
+/**
+ * Interval-friendly wrapper around `hasRecentAIEvents` for the onboarding install check:
+ * remembers a positive result per team and shares one in-flight request between callers,
+ * so several components polling at once don't each re-run the ClickHouse fallback.
+ */
+export function pollRecentAIEvents(teamId: number): Promise<boolean> {
+    if (seenAiEventsTeamId === teamId) {
+        return Promise.resolve(true)
+    }
+    if (!inFlightAiEventsCheck) {
+        inFlightAiEventsCheck = hasRecentAIEvents()
+            .then((seen) => {
+                if (seen) {
+                    seenAiEventsTeamId = teamId
+                }
+                return seen
+            })
+            .finally(() => {
+                inFlightAiEventsCheck = null
+            })
+    }
+    return inFlightAiEventsCheck
+}

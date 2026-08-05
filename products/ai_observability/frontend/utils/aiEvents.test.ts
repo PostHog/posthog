@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { hasRecentAIEvents } from './aiEvents'
+import { hasRecentAIEvents, pollRecentAIEvents } from './aiEvents'
 
 describe('aiEventsUtils', () => {
     beforeEach(() => {
@@ -204,6 +204,28 @@ describe('aiEventsUtils', () => {
             const result = await hasRecentAIEvents()
 
             expect(result).toBe(false)
+        })
+    })
+
+    describe('pollRecentAIEvents', () => {
+        it('dedupes concurrent calls, caches a positive result, and re-checks after a team switch', async () => {
+            const listSpy = jest.spyOn(api.eventDefinitions, 'list').mockResolvedValue({
+                results: [{ id: '1', name: '$ai_generation', last_seen_at: dayjs().subtract(1, 'day').toISOString() }],
+                count: 1,
+            } as any)
+
+            const [first, second] = await Promise.all([pollRecentAIEvents(1), pollRecentAIEvents(1)])
+            expect(first).toBe(true)
+            expect(second).toBe(true)
+            expect(listSpy).toHaveBeenCalledTimes(1)
+
+            expect(await pollRecentAIEvents(1)).toBe(true)
+            expect(listSpy).toHaveBeenCalledTimes(1)
+
+            listSpy.mockResolvedValue({ results: [], count: 0 } as any)
+            jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+            expect(await pollRecentAIEvents(2)).toBe(false)
+            expect(listSpy).toHaveBeenCalledTimes(2)
         })
     })
 })

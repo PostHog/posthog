@@ -16,19 +16,27 @@ import { OnboardingStep } from '../../../OnboardingStep'
 import { AdblockWarning, RealtimeCheckIndicator } from '../../RealtimeCheckIndicator'
 import { SDKGrid } from '../SDKGrid'
 import { SDKInstructionsModal } from '../SDKInstructionsModal'
-import { VariantProps } from '../types'
+import { VariantProps, WizardOverrides } from '../types'
 import { wizardInstallStepLogic } from '../wizardInstallStepLogic'
 import { WizardInstallIntro } from './WizardInstallIntro'
 
 // The shared cloud/local switcher wrapped with legacy's own command block and instrumentation. An
 // active cloud run renders inside it (WizardCloudRunBlock pins to the run's progress), so the
 // failed-run "Run it yourself" fallback keeps working — the mode state must not unmount mid-recovery.
-function LegacyInstallOptions(): JSX.Element {
+function LegacyInstallOptions({ wizardOverrides }: { wizardOverrides?: WizardOverrides }): JSX.Element {
     const { reportSelfDrivingOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
     return (
         <WizardInstallOptions
             onModeSelected={reportSelfDrivingOnboardingInstallModeSelected}
-            localBlock={<WizardCommandBlock />}
+            // The cloud runner only executes the base integration program, so any dedicated
+            // subcommand (e.g. ai-observability) hides the cloud arm until it supports programs.
+            offerCloudRun={!wizardOverrides}
+            localBlock={
+                <WizardCommandBlock
+                    subcommand={wizardOverrides?.subcommand}
+                    description={wizardOverrides?.description}
+                />
+            }
         />
     )
 }
@@ -66,9 +74,9 @@ function WizardInstallStepStatic(props: VariantProps): JSX.Element {
             props={props}
         >
             {/* The intro's terminal framing makes no sense while a run's progress is on screen. */}
-            {!activeCloudRun && <WizardInstallIntro />}
+            {!activeCloudRun && <WizardInstallIntro description={props.wizardOverrides?.intro} />}
             <div className="max-w-xl mx-auto">
-                <LegacyInstallOptions />
+                <LegacyInstallOptions wizardOverrides={props.wizardOverrides} />
             </div>
         </WizardInstallShell>
     )
@@ -93,7 +101,7 @@ function WizardInstallStepWithSync(props: VariantProps): JSX.Element {
                 renders inside LegacyInstallOptions (WizardCloudRunBlock pins to it). */}
             {activeCloudRun ? (
                 <div className="max-w-xl mx-auto">
-                    <LegacyInstallOptions />
+                    <LegacyInstallOptions wizardOverrides={props.wizardOverrides} />
                 </div>
             ) : isLocalRunActive ? (
                 <div className="max-w-xl mx-auto">
@@ -101,9 +109,9 @@ function WizardInstallStepWithSync(props: VariantProps): JSX.Element {
                 </div>
             ) : (
                 <>
-                    <WizardInstallIntro />
+                    <WizardInstallIntro description={props.wizardOverrides?.intro} />
                     <div className="max-w-xl mx-auto">
-                        <LegacyInstallOptions />
+                        <LegacyInstallOptions wizardOverrides={props.wizardOverrides} />
                     </div>
                 </>
             )}
