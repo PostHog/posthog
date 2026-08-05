@@ -8228,12 +8228,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert body["skipped"] == []
 
     def test_bulk_update_tags_with_non_integer_replay_linked_flag_id(self):
-        # A team with a non-integer session_recording_linked_flag id used to 500 the endpoint:
-        # get_queryset cast that JSON id to integer, and Postgres errors on a non-numeric value.
-        # bulk_update_tags doesn't need replay-usage info, so the cast must stay off its path.
+        # Replay usage must be computed by JSONB containment, never by casting the stored id
+        # to integer: a sibling team's non-integer session_recording_linked_flag id would
+        # error every flags queryset in the project, including bulk_update_tags and list.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-cast-test")
-        self.team.session_recording_linked_flag = {"id": "not-an-int", "key": "some-key"}
+        self.team.session_recording_linked_flag = {"id": flag.id, "key": flag.key}
         self.team.save()
+        Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            session_recording_linked_flag={"id": "not-an-int", "key": "some-key"},
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_update_tags/",
@@ -8244,6 +8249,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         body = response.json()
         assert body["updated"] == [{"id": flag.id, "tags": ["foo"]}]
         assert body["skipped"] == []
+
+        # A wrong OuterRef correlation in the annotation would still return 200s, so assert
+        # the linked flag actually reports replay usage through the list endpoint.
+        list_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        listed = next(f for f in list_response.json()["results"] if f["id"] == flag.id)
+        assert listed["is_used_in_replay_settings"] is True
 
     # Lives in the feature-flag test file (instead of test_insight.py) so the
     # full bulk-ops PAT regression story — positive feature-flag cases and the
