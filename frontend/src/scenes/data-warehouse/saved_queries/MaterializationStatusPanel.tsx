@@ -45,44 +45,44 @@ interface MaterializationStatusPanelProps {
     kind?: 'view' | 'endpoint'
 }
 
-const SYNC_FREQUENCY_OPTIONS = [
-    {
-        value: 'never' as OrNever,
-        label: ' No resync',
-    },
+const RESYNC_FREQUENCY_OPTIONS = [
     {
         value: '15min' as DataModelingSyncInterval,
-        label: ' Resync every 15 mins',
+        label: 'Resync every 15 mins',
     },
     {
         value: '30min' as DataModelingSyncInterval,
-        label: ' Resync every 30 mins',
+        label: 'Resync every 30 mins',
     },
     {
         value: '1hour' as DataModelingSyncInterval,
-        label: ' Resync every 1 hour',
+        label: 'Resync every 1 hour',
     },
     {
         value: '6hour' as DataModelingSyncInterval,
-        label: ' Resync every 6 hours',
+        label: 'Resync every 6 hours',
     },
     {
         value: '12hour' as DataModelingSyncInterval,
-        label: ' Resync every 12 hours',
+        label: 'Resync every 12 hours',
     },
     {
         value: '24hour' as DataModelingSyncInterval,
-        label: ' Resync Daily',
+        label: 'Resync daily',
     },
     {
         value: '7day' as DataModelingSyncInterval,
-        label: ' Resync Weekly',
+        label: 'Resync weekly',
     },
     {
         value: '30day' as DataModelingSyncInterval,
-        label: ' Resync Monthly',
+        label: 'Resync monthly',
     },
 ]
+
+// Only reachable once a view is materialized: materializing is what starts the refreshes, so the
+// server rejects "never" as the cadence to start at.
+const SYNC_FREQUENCY_OPTIONS = [{ value: 'never' as OrNever, label: 'No resync' }, ...RESYNC_FREQUENCY_OPTIONS]
 
 function getMaterializationStatusMessage(
     rowsMaterialized: number,
@@ -144,9 +144,15 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         resumingMaterialization,
         savedQuery,
         savedQueryLoading,
+        initialSyncFrequency,
     } = useValues(jobsLogic)
-    const { loadDataModelingJobs, loadOlderDataModelingJobs, setStartingMaterialization, resumeMaterialization } =
-        useActions(jobsLogic)
+    const {
+        loadDataModelingJobs,
+        loadOlderDataModelingJobs,
+        setStartingMaterialization,
+        resumeMaterialization,
+        setInitialSyncFrequency,
+    } = useActions(jobsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
@@ -323,15 +329,27 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     </Link>
                                     .
                                 </p>
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => materializeDataWarehouseSavedQuery(viewId)}
-                                    type="primary"
-                                    loading={updatingDataWarehouseSavedQuery}
-                                    disabledReason={materializationAccessReason}
-                                >
-                                    Materialize
-                                </LemonButton>
+                                <div className="flex gap-4">
+                                    <LemonButton
+                                        size="small"
+                                        onClick={() => materializeDataWarehouseSavedQuery(viewId, initialSyncFrequency)}
+                                        type="primary"
+                                        loading={updatingDataWarehouseSavedQuery}
+                                        disabledReason={materializationAccessReason}
+                                    >
+                                        Materialize
+                                    </LemonButton>
+                                    {kind !== 'endpoint' && canEditSyncFrequency && (
+                                        <LemonSelect
+                                            className="h-9"
+                                            data-attr="initial-sync-frequency"
+                                            disabledReason={materializationAccessReason}
+                                            value={initialSyncFrequency}
+                                            onChange={(newValue) => setInitialSyncFrequency(newValue)}
+                                            options={RESYNC_FREQUENCY_OPTIONS}
+                                        />
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>
