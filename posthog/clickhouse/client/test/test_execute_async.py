@@ -211,24 +211,20 @@ class TestExecuteProcessQuery(TestCase):
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.tasks.tasks.process_query_task")
-    def test_enqueue_sends_a_principal_reference_only_for_principals_without_a_user_id(
-        self, mock_process_query_task, mock_redis_client
-    ):
-        # A `principal` kwarg on a worker still running old code is a TypeError, so it must stay off
-        # the wire for the overwhelmingly common real-user case.
+    def test_enqueue_does_not_send_a_principal_reference_yet(self, mock_process_query_task, mock_redis_client):
+        # This deploy only teaches the worker to accept a reference. Sending one waits for the
+        # follow-up, because a worker on the previous release cannot bind the kwarg and rejects the
+        # task with a TypeError that `autoretry_for` does not cover.
         mock_redis_client.return_value = MagicMock()
         sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
 
-        for principal, expected in [
-            (self.user, None),
-            (SharedLinkUser(sharing_configuration), {"kind": "shared_link", "id": sharing_configuration.pk}),
-        ]:
+        for principal in [self.user, SharedLinkUser(sharing_configuration)]:
             with self.subTest(principal=type(principal).__name__):
                 mock_process_query_task.si.reset_mock()
                 client.enqueue_process_query_task(
                     self.team, principal, build_query("SELECT 1"), _test_only_bypass_celery=True
                 )
-                self.assertEqual(mock_process_query_task.si.call_args.kwargs.get("principal"), expected)
+                self.assertNotIn("principal", mock_process_query_task.si.call_args.kwargs)
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):

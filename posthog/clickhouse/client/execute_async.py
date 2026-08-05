@@ -15,12 +15,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
-from posthog.clickhouse.client.async_principal import (
-    PrincipalRef,
-    rebuild_principal,
-    record_principal_loss,
-    serialize_principal,
-)
+from posthog.clickhouse.client.async_principal import PrincipalRef, rebuild_principal, record_principal_loss
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
@@ -362,10 +357,6 @@ def enqueue_process_query_task(
     except Exception as e:
         capture_exception(e, {"cache_key": cache_key})
 
-    # Past the early returns (so a deduplicated or already-answered query does no work) but ahead of
-    # the Redis writes below, so a failure here cannot leave a registered cache key with no task.
-    principal = serialize_principal(user)
-
     # Immediately set status, so we don't have race with celery
     query_status = QueryStatus(
         id=query_id,
@@ -388,12 +379,10 @@ def enqueue_process_query_task(
     from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
-    # Omitting the kwarg when there is no principal keeps the real-user path byte-identical on the
-    # wire, so a rolling deploy cannot fail those queries. It does not save principal-carrying
-    # queries: a worker running code without the `principal` parameter rejects them with a
-    # TypeError, which `autoretry_for` does not cover. Workers have to roll before web pods, or
-    # shared-link and service-token async queries error for the length of the deploy.
-    extra_kwargs = {"principal": principal} if principal is not None else {}
+    # No `principal` kwarg yet, deliberately: a worker running the previous release cannot bind it and
+    # rejects the task with a TypeError, which `autoretry_for` does not cover. This deploy teaches
+    # every worker to accept and rebuild a reference (see `serialize_principal`, which the follow-up
+    # calls here); producing one only once they all can means there is no deploy ordering to get right.
     task_signature = process_query_task.si(
         team.id,
         user_id,
@@ -403,7 +392,6 @@ def enqueue_process_query_task(
         is_query_service,
         limit_context,
         analytics_props=analytics_props,
-        **extra_kwargs,
     )
 
     if _test_only_bypass_celery:
