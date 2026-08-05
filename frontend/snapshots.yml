@@ -7410,6 +7410,10 @@ snapshots:
         hash: v1.k794b7964.4985b07e9f0062954fa68380bc57ba975141f437e96ac938c8025540aae5d92b.Pae87mHyCuaDYoeU92NuOV9zJx0hqar1R0vunkOZUN0
     scenes-app-web-analytics-achievements--weekly-only-arm--light:
         hash: v1.k794b7964.eb042d165752cd9ff0145ee3b49f0769671244ca00e931c8ece93ec0d01a9a6f.YlQzVwE6qBKZs4cKyA1-lYowaxlhGEGt_K4jt076OSE
+    scenes-inbox-scout-tags--editor-and-filter--dark:
+        hash: v1.k794b7964.a6c6018c279d1c7b6dc6cfe7ade21997d71bc5a3f970a76ca68f4bd374b1def6.wiY4XKEvSpFFtmciViAMFvc_yZLC5SeA5L6TmAYaNqQ
+    scenes-inbox-scout-tags--editor-and-filter--light:
+        hash: v1.k794b7964.6bb5712bac81268d6d2ca1fbc4b1583d1314cbf80ee574c1f7900f9dc546a6a7.6xHwc2B6VA6cqOdko_N3mpWURaTG7p4hPrv68Zq-Qj0
     scenes-other-account-connected--github-integration-connected--dark:
         hash: v1.k794b7964.fcae9b65af8160ba40bf82664dd9b5a6b9f5a1ddbdedee05bf15ec453eb7aa64.3616s9KNJancKVe-j4dQsJdo3W1CVcwWxRMA24QgU6Q
     scenes-other-account-connected--github-integration-connected--light:
