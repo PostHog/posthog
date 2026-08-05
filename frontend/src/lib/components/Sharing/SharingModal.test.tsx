@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -139,6 +139,28 @@ describe('SharingModal (dashboard)', () => {
         expect(onSharingEnabledChange).toHaveBeenCalledWith(true)
         logic.unmount()
         eventUsageLogic.unmount()
+    })
+
+    it('keeps the enable switch clickable while an unrelated setting saves', async () => {
+        useMocks({
+            patch: mockDashboardSharingConfiguration({ enabled: true }),
+        })
+        const logic = sharingLogic({ dashboardId })
+        render(<DashboardSharingModalWrapper />)
+
+        await screen.findByText('Sharing')
+        const enableSwitch = document.querySelector('[data-attr="sharing-switch"]') as HTMLButtonElement
+        expect(enableSwitch).not.toBeDisabled()
+
+        // An unrelated in-flight sharing request (e.g. a settings save) flips the shared
+        // `sharingConfigurationLoading` flag - the enable switch must not follow it.
+        act(() => {
+            logic.actions.updateSettings({ whitelabel: true })
+        })
+        expect(logic.values.sharingConfigurationLoading).toBe(true)
+        expect(enableSwitch).not.toBeDisabled()
+
+        await expectLogic(logic).toDispatchActions(['updateSettingsSuccess'])
     })
 
     it('does not call onSharingEnabledChange on initial dashboard sharing load', async () => {

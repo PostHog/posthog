@@ -127,6 +127,7 @@ export function SharingModalContent({
         accessControlAvailable,
         sharingConfiguration,
         sharingConfigurationLoading,
+        isEnabledLoading,
         showPreview,
         embedCode,
         iframeProperties,
@@ -253,7 +254,7 @@ export function SharingModalContent({
                                 onChange={(active) => setIsEnabled(active)}
                                 bordered
                                 fullWidth
-                                loading={sharingConfigurationLoading}
+                                loading={isEnabledLoading}
                                 disabledReason={sharingManageDisabledReason}
                             />
                         )}

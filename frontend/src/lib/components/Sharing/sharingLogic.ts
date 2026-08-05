@@ -74,6 +74,7 @@ export interface sharingLogicValues {
         src: string
         width: string
     }
+    isEnabledLoading: boolean
     isSharingSettingsSubmitting: boolean
     isSharingSettingsValid: boolean
     params: any
@@ -356,6 +357,16 @@ export const sharingLogic = kea<sharingLogicType>([
     reducers({
         showPreview: [true, { togglePreview: (state) => !state }],
         iframeKey: [0, { reloadIframe: (state) => state + 1 }],
+        // Tracks only the enable/disable toggle request, not other in-flight sharing requests
+        // (e.g. updateSettings), so the switch doesn't lock up while an unrelated setting saves.
+        isEnabledLoading: [
+            false,
+            {
+                setIsEnabled: () => true,
+                setIsEnabledSuccess: () => false,
+                setIsEnabledFailure: () => false,
+            },
+        ],
     }),
 
     loaders(({ props }) => ({
