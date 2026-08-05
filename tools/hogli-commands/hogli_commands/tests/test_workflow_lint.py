@@ -406,63 +406,77 @@ class TestPrConcurrencyCheck:
 
 
 class TestPrEventFanoutCheck:
-    def test_fails_when_low_frequency_workflow_adds_unscoped_pr_events(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path,
-            "agent.yml",
-            """
-            name: Agent
-            on:
-              pull_request:
-                types: [closed]
-              pull_request_target:
-                types: [opened, reopened, ready_for_review, edited]
-            jobs: {}
-            """,
-        )
+    @pytest.mark.parametrize(
+        "workflow,budget,expected",
+        [
+            (
+                """
+                name: Agent
+                on:
+                  pull_request:
+                    types: [closed]
+                  pull_request_target:
+                    types: [opened, reopened, ready_for_review, edited]
+                jobs: {}
+                """,
+                {"closed": 1},
+                [
+                    "unscoped `edited` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `opened` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `ready_for_review` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `reopened` PR dispatch fanout is 1; budget is 0",
+                ],
+            ),
+            (
+                """
+                name: New workflow
+                on: [pull_request]
+                jobs: {}
+                """,
+                {},
+                [
+                    "unscoped `opened` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `reopened` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `synchronize` PR dispatch fanout is 1; budget is 0",
+                ],
+            ),
+            (
+                """
+                name: Focused
+                on:
+                  pull_request:
+                    paths: [products/example/**]
+                jobs: {}
+                """,
+                {},
+                [],
+            ),
+            # paths-ignore usually excludes a narrow slice, so it still fires on nearly every PR.
+            (
+                """
+                name: Nearly everything
+                on:
+                  pull_request:
+                    paths-ignore: [docs/**]
+                jobs: {}
+                """,
+                {},
+                [
+                    "unscoped `opened` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `reopened` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `synchronize` PR dispatch fanout is 1; budget is 0",
+                ],
+            ),
+        ],
+    )
+    def test_counts_unscoped_pr_dispatches(
+        self, tmp_path: Path, workflow: str, budget: dict[str, int], expected: list[str]
+    ) -> None:
+        _write(tmp_path, "workflow.yml", workflow)
 
-        result = PrEventFanoutCheck(budget={"closed": 1}).run(_read_all(tmp_path))
+        result = PrEventFanoutCheck(budget=budget).run(_read_all(tmp_path))
 
-        assert [issue.message for issue in result.issues] == [
-            "unscoped `edited` PR dispatch fanout is 1; budget is 0",
-            "unscoped `opened` PR dispatch fanout is 1; budget is 0",
-            "unscoped `ready_for_review` PR dispatch fanout is 1; budget is 0",
-            "unscoped `reopened` PR dispatch fanout is 1; budget is 0",
-        ]
-
-    def test_counts_default_pr_actions(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path,
-            "new-workflow.yml",
-            """
-            name: New workflow
-            on: [pull_request]
-            jobs: {}
-            """,
-        )
-
-        result = PrEventFanoutCheck(budget={}).run(_read_all(tmp_path))
-
-        assert [issue.message for issue in result.issues] == [
-            "unscoped `opened` PR dispatch fanout is 1; budget is 0",
-            "unscoped `reopened` PR dispatch fanout is 1; budget is 0",
-            "unscoped `synchronize` PR dispatch fanout is 1; budget is 0",
-        ]
-
-    def test_excludes_path_filtered_workflows(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path,
-            "focused.yml",
-            """
-            name: Focused
-            on:
-              pull_request:
-                paths: [products/example/**]
-            jobs: {}
-            """,
-        )
-
-        assert PrEventFanoutCheck(budget={}).run(_read_all(tmp_path)).issues == []
+        assert [issue.message for issue in result.issues] == expected
 
 
 # ---------------------------------------------------------------------------

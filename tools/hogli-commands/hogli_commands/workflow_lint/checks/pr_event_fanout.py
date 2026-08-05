@@ -3,8 +3,9 @@
 GitHub counts each directly triggered workflow as a separate run. Small jobs
 that listen to every PR should therefore share an existing dispatcher instead
 of adding another top-level ``pull_request`` or ``pull_request_target`` trigger.
-Path-filtered workflows are excluded because they only dispatch for a subset of
-changes.
+A trigger-level ``paths:`` allowlist is excluded, because it only dispatches for
+a subset of changes. ``paths-ignore`` still counts: it usually excludes a narrow
+slice, so the workflow fires on nearly every PR anyway.
 
 The per-action ceilings make any increase explicit in code review. Raising one
 is allowed when a separate dispatch is justified, but it spends a shared
