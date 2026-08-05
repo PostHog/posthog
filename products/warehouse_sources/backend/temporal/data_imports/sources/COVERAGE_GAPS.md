@@ -359,8 +359,8 @@ campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demogr
 
 ### Pinterest Ads — spec-verified
 
-Diffed against the Pinterest API v5 OpenAPI description
-([pinterest/api-description](https://github.com/pinterest/api-description) `v5/openapi.yaml`, spec version
+Diffed against the Pinterest API v5 OpenAPI description in
+[pinterest/api-description](https://github.com/pinterest/api-description) (`v5/openapi.yaml`, spec version
 5.28.0) on 2026-08-04. Supersedes the Pinterest entries in the block above.
 
 Have: `campaigns`, `ad_groups`, `ads`, `campaign_analytics`, `ad_group_analytics`, `ad_analytics`,
