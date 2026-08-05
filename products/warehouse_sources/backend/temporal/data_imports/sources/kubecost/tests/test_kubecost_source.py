@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KubecostSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kubecost import (
+    KubecostSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.kubecost import KubecostResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.settings import (
     ENDPOINTS,

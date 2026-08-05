@@ -9,11 +9,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly import (
+    CALENDLY_API_VERSION_V1,
     CALENDLY_API_VERSION_V2,
     SUPPORTED_API_VERSIONS,
     CalendlyResumeConfig,
@@ -24,14 +21,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CalendlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendly import (
+    CalendlySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -42,6 +49,11 @@ class CalendlySource(ResumableSource[CalendlySourceConfig, CalendlyResumeConfig]
 
     supported_versions = SUPPORTED_API_VERSIONS
     default_version = CALENDLY_API_VERSION_V2
+    # The "v1" label is this source's legacy default, not Calendly's retired v1 API — both labels
+    # have always resolved to the same live host. So the vendor's 2025-08-27 v1 sunset is not a
+    # sunset for these pins: nothing stops working, and `sunset_at` stays None. The label is
+    # deprecated so the in-product banner nudges users onto v2 at their own pace.
+    deprecated_versions = (VersionDeprecation(version=CALENDLY_API_VERSION_V1, sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -88,23 +100,16 @@ You can create a personal access token in Calendly under **Integrations → API 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                supports_append=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: CalendlySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CalendlySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_calendly_credentials(config.personal_access_token):
             return True, None
@@ -129,7 +134,8 @@ You can create a personal access token in Calendly under **Integrations → API 
         return calendly_source(
             token=config.personal_access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,

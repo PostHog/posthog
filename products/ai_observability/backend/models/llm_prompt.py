@@ -8,6 +8,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
@@ -54,6 +55,10 @@ class LLMPrompt(UUIDModel):
     # The prompt content as JSON (currently a string, may expand to array of objects)
     prompt = models.JSONField()
 
+    # Schemaless JSON object with model parameters or any agent configuration (e.g. model,
+    # temperature, tools). Versioned with the prompt: immutable per row, changed via publish.
+    config = models.JSONField(null=True, blank=True)
+
     version = models.PositiveIntegerField(default=1)
     is_latest = models.BooleanField(default=True)
 
@@ -74,7 +79,7 @@ class LLMPrompt(UUIDModel):
     deleted = models.BooleanField(default=False)
 
 
-class LLMPromptLabel(UUIDModel):
+class LLMPromptLabel(ModelActivityMixin, UUIDModel):
     """A movable pointer from a name (e.g. "production") to exactly one version of a prompt.
 
     Version rows are immutable; releasing a version means pointing a label at it and
@@ -95,6 +100,8 @@ class LLMPromptLabel(UUIDModel):
             ),
         ]
         db_table = "posthog_llmpromptlabel"
+
+    activity_logging_on_delete = True
 
     name = models.CharField(max_length=128)
     # Prompts have no parent entity — version rows are grouped by name, so the label

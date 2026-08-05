@@ -1,5 +1,12 @@
 import { ThreadMessage } from './maxLogic'
-import { getTicketSummaryData, parseTicketTargetArea } from './ticketUtils'
+import {
+    appendTicketMetadata,
+    composeTicketBody,
+    formatTicketConfirmationMessage,
+    getTicketSummaryData,
+    isTicketConfirmationMessage,
+    parseTicketTargetArea,
+} from './ticketUtils'
 
 const human = (content: string): ThreadMessage => ({ type: 'human', content }) as unknown as ThreadMessage
 const ai = (content: string): ThreadMessage => ({ type: 'ai', content }) as unknown as ThreadMessage
@@ -46,6 +53,67 @@ describe('ticketUtils', () => {
                 messageIndex: 3,
                 targetArea: 'session_replay',
             })
+        })
+    })
+
+    describe('formatTicketConfirmationMessage', () => {
+        it('promises the response time the plan covers', () => {
+            expect(formatTicketConfirmationMessage('4321', '48 hours')).toBe(
+                "I've created a support ticket for you.\nYour ticket ID is #4321.\nOur support team aims to get back to you within 48 hours."
+            )
+        })
+
+        it('promises no response time when the plan has none', () => {
+            const message = formatTicketConfirmationMessage('4321', null)
+            expect(message).toBe(
+                "I've created a support ticket for you.\nYour ticket ID is #4321.\nOur support team will get back to you soon!"
+            )
+            expect(message).not.toContain('within')
+        })
+
+        it.each([
+            ['with a response time', '48 hours'],
+            ['without a response time', null],
+        ])('stays detectable as a confirmation %s', (_name, responseTime) => {
+            expect(isTicketConfirmationMessage(ai(formatTicketConfirmationMessage('4321', responseTime)))).toBe(true)
+        })
+    })
+
+    describe('composeTicketBody', () => {
+        it.each([
+            [
+                'note leads with summary attached',
+                'It still repros in prod',
+                SUMMARY,
+                `It still repros in prod\n\n----\nPostHog AI's analysis:\n${SUMMARY}`,
+            ],
+            ['summary alone when note is empty', '', SUMMARY, SUMMARY],
+            ['summary alone when note is whitespace', '   ', SUMMARY, SUMMARY],
+            ['note alone when no summary', 'Recordings are missing', undefined, 'Recordings are missing'],
+            ['empty when neither note nor summary', '  ', undefined, ''],
+        ])('%s', (_name, note, summary, expected) => {
+            expect(composeTicketBody({ note, summary })).toBe(expected)
+        })
+    })
+
+    describe('appendTicketMetadata', () => {
+        const ids = { conversationId: 'conv-1', traceId: 'trace-1' }
+
+        it('returns empty string for an empty body so metadata alone is never submitted', () => {
+            expect(appendTicketMetadata('', ids)).toBe('')
+            expect(appendTicketMetadata('   ', ids)).toBe('')
+        })
+
+        it('appends conversation and trace ids to a non-empty body', () => {
+            expect(appendTicketMetadata('My issue', ids)).toBe(
+                'My issue\n\n----\nConversation ID: conv-1\nTrace ID: trace-1'
+            )
+        })
+
+        it('omits the trace line when there is no trace id', () => {
+            expect(appendTicketMetadata('My issue', { conversationId: 'conv-1', traceId: null })).toBe(
+                'My issue\n\n----\nConversation ID: conv-1'
+            )
         })
     })
 

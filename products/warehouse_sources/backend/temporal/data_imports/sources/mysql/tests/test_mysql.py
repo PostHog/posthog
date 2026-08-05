@@ -10,13 +10,13 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _MAX_CONNECT_ATTEMPTS,
     _SSH_HANDSHAKE_EOF_ERROR,
@@ -25,11 +25,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     MySQLImplementation,
     _build_query,
     _is_bad_plan_error,
+    _is_transient_connect_broken_pipe,
     _is_transient_connect_dns_failure,
     _is_transient_connect_drop,
+    _is_transient_connect_gone_away,
+    _is_transient_connect_reset,
     _is_transient_connect_timeout,
+    _is_transient_metadata_query_reset,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
+    _is_transient_too_many_connections,
     _is_transient_vitess_dial_timeout,
     _is_transient_vitess_reparent,
     _release_streaming_cursor,
@@ -841,6 +846,33 @@ class TestStreamingCursorTeardown:
         assert ss_cursor.connection is None
 
 
+class TestStreamingReopensDroppedConnection:
+    """A transient drop during the best-effort pre-stream setup (SET SESSION / EXPLAIN)
+    force-closes the socket. The streaming query must reopen it, otherwise the execute
+    runs on a dead socket and surfaces pymysql's opaque, unactionable
+    `InterfaceError(0, '')` instead of recovering from the blip."""
+
+    def test_reopens_when_preamble_dropped_the_connection(self, build_pipeline_mocks):
+        mock_connect, _, ss_cursor = build_pipeline_mocks
+        mock_connection = mock_connect.return_value
+        mock_connection.open = False
+
+        _drain_source()
+
+        mock_connection.connect.assert_called_once()
+        assert ss_cursor.execute.called
+
+    def test_does_not_reopen_a_live_connection(self, build_pipeline_mocks):
+        mock_connect, _, ss_cursor = build_pipeline_mocks
+        mock_connection = mock_connect.return_value
+        mock_connection.open = True
+
+        _drain_source()
+
+        mock_connection.connect.assert_not_called()
+        assert ss_cursor.execute.called
+
+
 class TestIsBadPlanError:
     def test_matches_error_2013(self):
         assert _is_bad_plan_error(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
@@ -896,6 +928,9 @@ class TestIsTransientConnectDrop:
             "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
             # The `SSLZeroReturnError` rendering of the same peer-closed-the-TLS-connection drop.
             "Can't connect to MySQL server on 'db.example.com' (TLS/SSL connection has been closed (EOF) (_ssl.c:1032))",
+            # A raw socket close (TCP RST/FIN) mid-handshake, with unread bytes still buffered.
+            "Can't connect to MySQL server on 'db.example.com' "
+            "(Closed before TLS handshake with data in recv buffer. (_ssl.c:1032))",
         ],
     )
     def test_matches_ssl_peer_close_on_connect(self, message):
@@ -918,6 +953,34 @@ class TestIsTransientConnectDrop:
 
     def test_does_not_match_error_without_args(self):
         assert not _is_transient_connect_drop(pymysql.err.OperationalError())
+
+
+class TestIsTransientConnectGoneAway:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "MySQL server has gone away (ConnectionResetError(104, 'Connection reset by peer'))",
+            "MySQL server has gone away (BrokenPipeError(32, 'Broken pipe'))",
+        ],
+    )
+    def test_matches_server_gone_away(self, message):
+        # The server reset the socket mid-handshake — the write-side sibling of the 2013 read-side
+        # drop, transient, so the in-process retry must catch it instead of surfacing it as noise.
+        assert _is_transient_connect_gone_away(pymysql.err.OperationalError(2006, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2013, "Lost connection to MySQL server during query"),
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_gone_away(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_gone_away(pymysql.err.OperationalError())
 
 
 class TestIsTransientConnectTimeout:
@@ -994,6 +1057,80 @@ class TestIsTransientConnectDnsFailure:
         assert not _is_transient_connect_dns_failure(pymysql.err.OperationalError())
 
 
+class TestIsTransientConnectReset:
+    def test_matches_connection_reset_on_connect(self):
+        # ECONNRESET at connect time — the peer sent a RST mid-connect (an overloaded server, or a
+        # TCP proxy that accepts then resets while its backend is down). A transient blip that must
+        # be retried in-process rather than surfacing as the non-retryable "Can't connect" config error.
+        assert _is_transient_connect_reset(
+            pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 104] Connection reset by peer)"
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # Refused connection and failed DNS lookup are also 2003 but deterministic host/port
+            # misconfig — they must stay non-retryable, not be absorbed here.
+            "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)",
+            "Can't connect to MySQL server on 'nope.example.com' ([Errno -2] Name or service not known)",
+        ],
+    )
+    def test_does_not_match_permanent_connect_errors(self, message):
+        assert not _is_transient_connect_reset(pymysql.err.OperationalError(2003, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2013, "Lost connection to MySQL server during query"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_reset(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_reset(pymysql.err.OperationalError())
+
+
+class TestIsTransientConnectBrokenPipe:
+    def test_matches_broken_pipe_on_connect(self):
+        # EPIPE at connect time — a write to an already-closed socket (e.g. sending the auth
+        # packet through a proxy that cycled its backend). A transient blip that must be retried
+        # in-process rather than surfacing as the non-retryable "Can't connect" config error.
+        assert _is_transient_connect_broken_pipe(
+            pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 32] Broken pipe)"
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # Refused connection and failed DNS lookup are also 2003 but deterministic host/port
+            # misconfig — they must stay non-retryable, not be absorbed here.
+            "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)",
+            "Can't connect to MySQL server on 'nope.example.com' ([Errno -2] Name or service not known)",
+        ],
+    )
+    def test_does_not_match_permanent_connect_errors(self, message):
+        assert not _is_transient_connect_broken_pipe(pymysql.err.OperationalError(2003, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2013, "Lost connection to MySQL server during query"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_broken_pipe(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_broken_pipe(pymysql.err.OperationalError())
+
+
 class TestIsTransientPacketSequenceError:
     @pytest.mark.parametrize(
         "message",
@@ -1055,6 +1192,27 @@ class TestIsTransientVitessDialTimeout:
         assert not _is_transient_vitess_dial_timeout(ValueError("dial tcp 10.0.0.1: connection timed out"))
 
 
+class TestIsTransientTooManyConnections:
+    def test_matches_too_many_connections(self):
+        assert _is_transient_too_many_connections(pymysql.err.OperationalError(1040, "Too many connections"))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_codes(self, code, message):
+        assert not _is_transient_too_many_connections(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_too_many_connections(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_too_many_connections(pymysql.err.InternalError(1040, "Too many connections"))
+
+
 class TestConnectTransientRetry:
     @pytest.mark.parametrize(
         "fail_count,expected_sleeps",
@@ -1094,6 +1252,46 @@ class TestConnectTransientRetry:
         mock_connect = mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=[drop, conn],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_connection_reset_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 104] Connection reset by peer)"
+                ),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_server_gone_away_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    2006, "MySQL server has gone away (ConnectionResetError(104, 'Connection reset by peer'))"
+                ),
+                conn,
+            ],
         )
 
         with MySQLImplementation().connect(_make_config()) as yielded:
@@ -1156,6 +1354,21 @@ class TestConnectTransientRetry:
                 ),
                 conn,
             ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_too_many_connections_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[pymysql.err.OperationalError(1040, "Too many connections"), conn],
         )
 
         with MySQLImplementation().connect(_make_config()) as yielded:
@@ -1316,6 +1529,36 @@ class TestIsTransientVitessReparent:
         assert not _is_transient_vitess_reparent(ValueError("reparent operation in progress"))
 
 
+class TestIsTransientMetadataQueryReset:
+    def test_matches_connection_reset_mid_query(self):
+        # A peer reset landing on an already-open connection while a metadata query (e.g.
+        # `get_table_metadata`'s information_schema lookup) was in flight — an overloaded
+        # server or a proxy/load-balancer cycling its backend, not a bad query plan.
+        assert _is_transient_metadata_query_reset(
+            pymysql.err.OperationalError(
+                2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # Same code without the peer-reset signature is the bad-plan/filesort-timeout
+            # symptom `_is_bad_plan_error` handles instead — must not be absorbed here.
+            (2013, "Lost connection to MySQL server during query"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_metadata_query_reset(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_metadata_query_reset(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_metadata_query_reset(ConnectionResetError("[Errno 104] Connection reset by peer"))
+
+
 class TestRetryOnTransientTabletUnavailable:
     @staticmethod
     def _unavailable() -> pymysql.err.OperationalError:
@@ -1349,6 +1592,17 @@ class TestRetryOnTransientTabletUnavailable:
             "there may be a reparent operation in progress",
         )
         operation = MagicMock(side_effect=[reparent, "ok"])
+
+        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
+
+        assert operation.call_count == 2
+
+    def test_retries_metadata_query_connection_reset_then_succeeds(self, mocker):
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        reset = pymysql.err.OperationalError(
+            2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
+        )
+        operation = MagicMock(side_effect=[reset, "ok"])
 
         assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
 
@@ -1614,6 +1868,27 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # DNS resolution failure for the configured SSH tunnel host (`_pinned_ssh_host` in
+            # common/mixins.py).
+            "SSH tunnel host not allowed: Couldn't resolve the host 'bastion.example.com'. Check "
+            "that it's spelled correctly and reachable from the public internet.",
+            # Temporal-wrapped form carrying the exception class name.
+            "Exception: SSH tunnel host not allowed: Couldn't resolve the host 'bastion.example.com'. "
+            "Check that it's spelled correctly and reachable from the public internet.",
+            # The other rejection `_pinned_ssh_host` can raise: the host resolves to a private/internal address.
+            "SSH tunnel host not allowed: This host points to an internal or private IP address, "
+            "which PostHog can't reach. Use a host that's reachable from the public internet.",
+        ],
+    )
+    def test_ssh_tunnel_host_not_allowed_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "SSH tunnel host not allowed" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH tunnel host rejection should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw pymysql str(error) form (classified in `_handle_import_error`).
             str(pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'")),
             # Temporal-wrapped str(e.cause) form (classified in external_data_job).
@@ -1641,6 +1916,21 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Table-not-found error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
+            # matches `str(error)`, which has no class-name prefix).
+            str(pymysql.err.OperationalError(1049, "Unknown database 'wealth_insights'")),
+            # Temporal-wrapped / refresh-schemas form that prepends the exception class name.
+            "OperationalError: (1049, \"Unknown database 'wealth_insights'\")",
+        ],
+    )
+    def test_unknown_database_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unknown-database error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1716,6 +2006,62 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # MariaDB / RDS rendering seen in the wild (error 3, EE_WRITE).
+            str(
+                pymysql.err.InternalError(
+                    3, "Error writing file '/rdsdbdata/tmp/MYfd=260' (OS errno 28 - No space left on device)"
+                )
+            ),
+            # Temporal-wrapped form of the above.
+            "InternalError: (3, \"Error writing file '/rdsdbdata/tmp/MYfd=99' (OS errno 28 - No space left on device)\")",
+            # Classic MySQL storage-engine rendering (`Errcode:`, strerror quoted).
+            '(3, "Error writing file \'/tmp/MYXXXXXX\' (Errcode: 28 \\"No space left on device\\")")',
+            # A non-English OS locale translates the trailing strerror(28) text (French shown here),
+            # but the `OS errno 28 -` marker MySQL/MariaDB itself emits is not translated — this must
+            # still match, or the sync retries forever on exactly the servers this entry targets.
+            "(3, \"Error writing file '/rdsdbdata/tmp/MYfd=42' (OS errno 28 - Aucun espace disponible sur le périphérique)\")",
+        ],
+    )
+    def test_out_of_disk_space_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Out-of-disk-space error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A full disk on our *own* worker surfaces as a Python OSError, whose `[Errno 28]`
+            # rendering must NOT be swallowed by the MySQL-server disk-full match — it's a transient
+            # infra problem that should keep retrying (a fresh worker may have space).
+            str(OSError(28, "No space left on device")),
+            "[Errno 28] No space left on device: '/tmp/pipeline/part-0.parquet'",
+        ],
+    )
+    def test_worker_disk_full_stays_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Worker-side disk-full error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # str(exc) form the sync path classifies — a zero-width space pasted into a field.
+            str(UnicodeEncodeError("latin-1", "\u200b", 0, 1, "ordinal not in range(256)")),
+            # `" ".join(str(arg) for arg in exc.args)` form validate_credentials builds, where the
+            # formatted "codec can't encode character" text is absent but the reason arg remains.
+            " ".join(str(a) for a in UnicodeEncodeError("latin-1", "\u200b", 0, 1, "ordinal not in range(256)").args),
+            # A different offending character and position stays matched.
+            str(UnicodeEncodeError("latin-1", "\u3042", 4, 5, "ordinal not in range(256)")),
+        ],
+    )
+    def test_non_latin1_connection_field_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Non-latin-1 connection field error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A genuine transient connection drop (no SSL signature) must stay retryable.
             "OperationalError: (2013, 'Lost connection to MySQL server during query')",
             "Lost connection to MySQL server during query",
@@ -1725,6 +2071,22 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient lost-connection error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (2013, 'Lost connection to MySQL server during query')",
+            "Lost connection to MySQL server during query",
+        ],
+    )
+    def test_transient_lost_connection_is_classified_retryable(self, source, error_msg):
+        # Already retried in-process (connect-time and streaming-query FORCE INDEX fallback); once
+        # exhausted it re-raises for Temporal to retry the whole activity. Without this
+        # classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering failure.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Transient lost-connection error should be classified retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1743,6 +2105,34 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient thread-exhaustion error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (1040, 'Too many connections')",
+            "Too many connections",
+        ],
+    )
+    def test_too_many_connections_stays_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Too-many-connections error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (1040, 'Too many connections')",
+            "Too many connections",
+        ],
+    )
+    def test_too_many_connections_is_classified_retryable(self, source, error_msg):
+        # Already retried in-process at connect time (`_is_transient_too_many_connections`); once
+        # exhausted it re-raises for Temporal to retry the whole activity. Without this
+        # classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering capacity condition.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Too-many-connections error should be classified retryable: {error_msg}"
 
 
 class TestMySQLSourceValidateCredentials:
@@ -1887,3 +2277,30 @@ class TestConnectSSHTunnel:
         mock_connect.assert_not_called()
         non_retryable = MySQLSource().get_non_retryable_errors()
         assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
+
+
+class TestConnectPortCoercion:
+    def test_string_port_is_coerced_to_int(self, mocker):
+        # A config built directly (not through the int-coercing `from_dict`) can carry a string
+        # port, which pymysql rejects with `ValueError: port should be of type int`.
+        config = MySQLSourceConfig(
+            host="localhost",
+            port="3306",  # type: ignore[arg-type]
+            database="d",
+            user="u",
+            password="p",
+            schema="mydb",
+            using_ssl=False,
+            ssh_tunnel=None,
+        )
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            return_value=MagicMock(),
+        )
+
+        with MySQLImplementation().connect(config):
+            pass
+
+        passed_port = mock_connect.call_args.kwargs["port"]
+        assert passed_port == 3306
+        assert isinstance(passed_port, int)

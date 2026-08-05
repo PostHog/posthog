@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.source import BabelforceSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BabelforceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.babelforce import (
+    BabelforceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

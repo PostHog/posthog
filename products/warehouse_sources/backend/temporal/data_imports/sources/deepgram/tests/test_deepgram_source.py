@@ -6,12 +6,14 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.deepgram import DeepgramResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.source import DeepgramSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DeepgramSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepgram import (
+    DeepgramSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

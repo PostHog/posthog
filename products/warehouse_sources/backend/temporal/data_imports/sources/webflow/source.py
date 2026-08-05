@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -22,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WebflowSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.webflow import (
+    WebflowSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import (
     COLLECTION_SCHEMA_PREFIX,
     STATIC_ENDPOINTS,
@@ -68,6 +67,11 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
             # the site has unpublished changes. Both are deterministic state/config issues
             # that retrying can't resolve, so stop retrying and tell the user how to fix it.
             "409 Client Error: Conflict": "Webflow returned a 409 Conflict. For the Products and Orders tables this means the connected site does not have ecommerce enabled — enable ecommerce in Webflow or remove those tables from the sync. For other resources it can mean the site has unpublished changes; publish your Webflow site, then try again.",
+            # A CMS collection discovered when the table was set up can later be deleted or have its
+            # slug renamed in Webflow, so at sync time the slug no longer resolves to a collection.
+            # That's a deterministic upstream state change retrying can't fix. Match the stable
+            # prefix, not the schema name and site id that follow it.
+            "Webflow collection for schema": "A Webflow CMS collection PostHog was syncing no longer exists on your site. It was deleted or renamed in Webflow. Refresh this source's schemas to pick up your current collections, then remove the table for the collection that's gone.",
         }
 
     def get_schemas(
@@ -77,6 +81,7 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Webflow has no verified server-side timestamp range filter on its list
         # endpoints (the createdOn/lastUpdated query params are exact-match, not
@@ -119,7 +124,11 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: WebflowSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WebflowSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_webflow_credentials(config.api_token, config.site_id, schema_name)
 
@@ -136,7 +145,8 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
             api_token=config.api_token,
             site_id=config.site_id,
             schema_name=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
 

@@ -39,6 +39,11 @@ jobs:
                   # --ignore-scripts already skips husky's prepare hook (no need for HUSKY=0)
                   install-command: pnpm install --frozen-lockfile --ignore-scripts
 
+            # Single definition for the writer and the PR body; a job-level env
+            # block cannot reference the `runner` context.
+            - name: Set discount summary path
+              run: echo "DISCOUNT_SUMMARY_PATH=$RUNNER_TEMP/discount-summary.md" >> "$GITHUB_ENV"
+
             - name: Update AI costs
               run: |
                   cd nodejs
@@ -126,15 +131,8 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PREVIOUS_PR: ${{ steps.previous-pr.outputs.number }}
               run: |
-                  existing_pr=$(gh pr list --head "chore/llma-update-ai-costs" --json number --jq '.[0].number' 2>/dev/null || true)
-                  if [ -n "$existing_pr" ]; then
-                    echo "PR #$existing_pr already exists — updated by commit"
-                    exit 0
-                  fi
-
-                  new_pr_url=$(gh pr create \
-                    --title "chore(llma): Update LLM costs" \
-                    --body "$(cat <<'BODY'
+                  body_file="$RUNNER_TEMP/pr-body.md"
+                  cat > "$body_file" <<'BODY'
                   This is an automated PR to update LLM pricing models.
 
                   ## Reviewer checklist
@@ -146,7 +144,36 @@ jobs:
                   - [Google AI (Gemini) Pricing](https://ai.google.dev/pricing)
                   - [Mistral AI Pricing](https://mistral.ai/pricing#api-pricing)
                   BODY
-                  )" \
+
+                  # A missing summary annotates and continues: the commit is already
+                  # pushed, so the price book shipping outweighs a complete PR body.
+                  if [ -f "$DISCOUNT_SUMMARY_PATH" ]; then
+                    printf '\n' >> "$body_file"
+                    cat "$DISCOUNT_SUMMARY_PATH" >> "$body_file"
+                  else
+                    echo "::warning::No discount summary at $DISCOUNT_SUMMARY_PATH; PR body omits the promotions section"
+                  fi
+
+                  # GitHub rejects a body over 65536 characters. Cut on a line
+                  # boundary so a multi-byte model id cannot split into invalid UTF-8.
+                  if [ "$(wc -c < "$body_file")" -gt 60000 ]; then
+                    awk 'BEGIN{n=0} {n+=length($0)+1; if (n>60000) exit; print}' "$body_file" > "$body_file.trunc"
+                    printf '\n_Body truncated._\n' >> "$body_file.trunc"
+                    mv "$body_file.trunc" "$body_file"
+                  fi
+
+                  # The branch's open PR already shows the new diff; its body still
+                  # describes the previous run.
+                  existing_pr=$(gh pr list --head "chore/llma-update-ai-costs" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    echo "PR #$existing_pr already exists, updating its body"
+                    gh pr edit "$existing_pr" --body-file "$body_file"
+                    exit 0
+                  fi
+
+                  new_pr_url=$(gh pr create \
+                    --title "chore(llma): Update LLM costs" \
+                    --body-file "$body_file" \
                     --base master \
                     --head chore/llma-update-ai-costs \
                     --label "automated" \

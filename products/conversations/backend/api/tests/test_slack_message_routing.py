@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
@@ -6,7 +7,7 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, Retry
 from parameterized import parameterized
 
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -25,9 +26,14 @@ from products.conversations.backend.slack import (
     handle_support_reaction,
 )
 from products.conversations.backend.tasks import process_supporthog_interactivity
+from products.customer_analytics.backend.facade import api as customer_analytics
+from products.customer_analytics.backend.test.factories import create_account
 
 MODULE = "products.conversations.backend.slack"
 TASKS_MODULE = "products.conversations.backend.tasks"
+MESSAGE_TS = "1700000000.000100"
+MESSAGE_SENT_AT = datetime(2023, 11, 14, 22, 13, 20, 100, tzinfo=UTC)
+USE_TEAMMATE_EMAIL = "use-the-org-members-own-email"
 
 
 class TestSlackMessageRouting(BaseTest):
@@ -447,6 +453,66 @@ class TestSlackMessageRouting(BaseTest):
         )
 
         mock_create_or_update.assert_not_called()
+
+
+class TestSlackLastCustomerMessage(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.team.conversations_settings = {"slack_enabled": True, "slack_channel_id": "C_CONFIG"}
+        self.team.save()
+        self.account = create_account(team_id=self.team.id, _properties={"slack_channel_id": "C_CONFIG"})
+        for target in ("create_or_update_slack_ticket", "get_slack_client", "post_ticket_confirmation_prompt"):
+            patcher = patch(f"{MODULE}.{target}")
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _handle(self, **overrides) -> None:
+        event = {
+            "type": "message",
+            "channel": "C_CONFIG",
+            "ts": MESSAGE_TS,
+            "user": "U123",
+            "text": "Our exports are failing again",
+            **overrides,
+        }
+        handle_support_message(event, self.team, "T123")
+
+    def _recorded_values(self, account=None) -> list:
+        account_id = (account or self.account).id
+        return [
+            value.value for value in customer_analytics.list_active_custom_property_values(self.team.id, account_id)
+        ]
+
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Customer", "email": "customer@acme.com"})
+    def test_customer_message_is_recorded_on_the_bound_account(self, _mock_resolve):
+        self._handle()
+
+        assert self._recorded_values() == [MESSAGE_SENT_AT]
+
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Customer", "email": "customer@acme.com"})
+    def test_a_bound_channel_outside_the_support_channels_is_still_recorded(self, _mock_resolve):
+        other = create_account(team_id=self.team.id, name="Beta Corp", _properties={"slack_channel_id": "C_OTHER"})
+
+        self._handle(channel="C_OTHER")
+
+        assert self._recorded_values(other) == [MESSAGE_SENT_AT]
+
+    @parameterized.expand(
+        [
+            ("bot", {"bot_id": "B1"}, "customer@acme.com"),
+            ("system subtype", {"subtype": "channel_join"}, "customer@acme.com"),
+            ("unbound channel", {"channel": "C_UNBOUND"}, "customer@acme.com"),
+            ("posthog teammate", {}, USE_TEAMMATE_EMAIL),
+            ("unresolved author", {}, None),
+        ]
+    )
+    def test_non_customer_messages_are_not_recorded(self, _name, overrides, email):
+        resolved = self.user.email if email == USE_TEAMMATE_EMAIL else email
+        with patch(f"{MODULE}.resolve_slack_user", return_value={"name": "X", "email": resolved}):
+            self._handle(**overrides)
+
+        assert self._recorded_values() == []
 
 
 class TestSlackNudge(BaseTest):
@@ -1093,16 +1159,10 @@ class TestSupporthogInteractivity(BaseTest):
                 True,
                 "ticket #42",
                 True,
+                # Placeholder ("opening a ticket") posted first, confirmation second.
+                2,
             ),
-            (
-                "genuine_failure",
-                {"channel": "C_CONFIG", "message_ts": "1700000000.000100"},
-                None,
-                True,
-                "couldn't",
-                False,
-            ),
-            ("malformed_value", {}, None, False, "couldn't", False),
+            ("malformed_value", {}, None, False, "couldn't", False, 1),
         ]
     )
     @patch(f"{TASKS_MODULE}.get_slack_client")
@@ -1115,6 +1175,7 @@ class TestSupporthogInteractivity(BaseTest):
         expect_create_called,
         expected_text,
         expected_ticket_created,
+        expected_update_count,
         mock_create,
         mock_get_client,
     ):
@@ -1124,7 +1185,7 @@ class TestSupporthogInteractivity(BaseTest):
 
         assert mock_create.call_count == (1 if expect_create_called else 0)
         client = mock_get_client.return_value
-        client.chat_update.assert_called_once()
+        assert client.chat_update.call_count == expected_update_count
         assert expected_text in client.chat_update.call_args.kwargs["text"].lower()
         # The click lands in the nudge funnel with the outcome; prompts posted before the
         # verdict was stamped into the button value report "unknown".
@@ -1136,10 +1197,84 @@ class TestSupporthogInteractivity(BaseTest):
 
     @patch(f"{TASKS_MODULE}.get_slack_client")
     @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
-    def test_open_shows_error_when_retries_exhausted(self, mock_create, mock_get_client):
-        # A persistent failure retries and eventually exhausts — the prompt must still be
-        # replaced with the error state, not left with live buttons forever.
-        mock_create.side_effect = RuntimeError("boom")
+    def test_open_retries_when_create_returns_none(self, mock_create, mock_get_client):
+        # A duplicate delivery that loses the per-thread create lock gets None back while
+        # the sibling's ticket is mid-create. The task must retry — resolving to the
+        # committed ticket on the re-run — not report a false "couldn't open a ticket"
+        # to the user and a false ticket_created=false to the funnel.
+        mock_create.return_value = None
+
+        with self.assertRaises(Retry):
+            process_supporthog_interactivity(
+                self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+                "T123",
+            )
+
+        self.mock_capture_event.assert_not_called()
+        # Only the progress placeholder may have been posted — no final state yet.
+        client = mock_get_client.return_value
+        for update_call in client.chat_update.call_args_list:
+            assert "opening" in update_call.kwargs["text"].lower()
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_retries_when_final_prompt_update_fails(self, mock_create, mock_get_client):
+        # If the final confirmation update fails transiently after the progress placeholder
+        # was posted, the task must retry rather than leave the prompt stuck on
+        # "Opening a ticket…" forever — and the funnel event must not fire before the
+        # retry resolves.
+        mock_create.return_value = Mock(ticket_number=42)
+        mock_get_client.return_value.chat_update.side_effect = RuntimeError("slack down")
+
+        with self.assertRaises(Retry):
+            process_supporthog_interactivity(
+                self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+                "T123",
+            )
+
+        self.mock_capture_event.assert_not_called()
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_skips_placeholder_when_ticket_already_open(self, mock_create, mock_get_client):
+        # A duplicate delivery arriving after a sibling already created the ticket must not
+        # post the "opening" placeholder over the sibling's confirmation — only the final
+        # confirmation update may go out.
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_CONFIG",
+            slack_thread_ts="1700000000.000100",
+        )
+        mock_create.return_value = Mock(ticket_number=7)
+
+        process_supporthog_interactivity(
+            self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+            "T123",
+        )
+
+        client = mock_get_client.return_value
+        client.chat_update.assert_called_once()
+        assert "ticket #7" in client.chat_update.call_args.kwargs["text"].lower()
+
+    @parameterized.expand(
+        [
+            ("create_raises", RuntimeError("boom")),
+            ("create_returns_none", None),
+        ]
+    )
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_shows_error_when_retries_exhausted(self, _name, failure, mock_create, mock_get_client):
+        # A persistent failure (create raising, or a None that never resolves into a
+        # ticket) retries and eventually exhausts — the prompt must still be replaced
+        # with the error state, not left with live buttons forever.
+        if isinstance(failure, Exception):
+            mock_create.side_effect = failure
+        else:
+            mock_create.return_value = failure
 
         with patch.object(process_supporthog_interactivity, "retry", side_effect=MaxRetriesExceededError()):
             process_supporthog_interactivity(
@@ -1148,5 +1283,10 @@ class TestSupporthogInteractivity(BaseTest):
             )
 
         client = mock_get_client.return_value
-        client.chat_update.assert_called_once()
+        # Progress placeholder first, then the error state — never left on the placeholder.
+        assert client.chat_update.call_count == 2
         assert "couldn't" in client.chat_update.call_args.kwargs["text"].lower()
+        self.mock_capture_event.assert_called_once()
+        _team, event_name, event_props = self.mock_capture_event.call_args.args
+        assert event_name == "support nudge open ticket clicked"
+        assert event_props["ticket_created"] is False

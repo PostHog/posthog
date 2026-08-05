@@ -47,25 +47,33 @@ def person_properties_flag_enabled(team_id: int) -> bool:
         return False
 
 
-def _enabled_person_sources(team_id: int, schema_id: str | UUID) -> list[CustomPropertySource]:
-    # Sources without a key column are skipped: their rows have no person identifier to attach
-    # the properties to.
+# Warehouse-backed profile targets (person or group). Account sources use the materialized-view
+# (saved_query) path, not the warehouse staging pipeline, so they're excluded here.
+_PROFILE_TARGETS = (TargetType.PERSON.value, TargetType.GROUP.value)
+
+
+def _enabled_profile_sources(team_id: int, schema_id: str | UUID) -> list[CustomPropertySource]:
+    # Sources without a key column are skipped: their rows have no identifier (person distinct_id or
+    # group key) to attach the properties to. select_related the definition so target_type /
+    # group_type_index don't lazy-load per source.
     return [
         source
-        for source in CustomPropertySource.objects.for_team(team_id).filter(
+        for source in CustomPropertySource.objects.for_team(team_id)
+        .select_related("definition")
+        .filter(
             external_data_schema_id=schema_id,
             is_enabled=True,
-            definition__target_type=TargetType.PERSON.value,
+            definition__target_type__in=_PROFILE_TARGETS,
         )
         if source.key_column
     ]
 
 
 def person_property_projection(team_id: int, schema_id: str | UUID) -> list[PersonPropertySourceProjection] | None:
-    """One projection per enabled person-target source on the schema (its key column plus its
-    mapped columns), or None when the schema feeds no person properties (so the pipeline stages
-    nothing)."""
-    sources = _enabled_person_sources(team_id, schema_id)
+    """One projection per enabled person/group-target source on the schema (its key column plus its
+    mapped columns), or None when the schema feeds no such properties (so the pipeline stages
+    nothing). The projection is target-agnostic — the group type is config, not a staged column."""
+    sources = _enabled_profile_sources(team_id, schema_id)
     if not sources or not person_properties_flag_enabled(team_id):
         return None
     return [
@@ -78,9 +86,10 @@ def person_property_projection(team_id: int, schema_id: str | UUID) -> list[Pers
 
 
 def person_property_sync_sources(team_id: int, schema_id: str | UUID) -> list[PersonPropertySyncSource] | None:
-    """Full sync config per enabled person-target source on the schema, for the warehouse-owned
-    post-sync upsert job — or None when the schema feeds no person properties."""
-    sources = _enabled_person_sources(team_id, schema_id)
+    """Full sync config per enabled person/group-target source on the schema, for the warehouse-owned
+    post-sync upsert job — or None when the schema feeds no such properties. Carries ``target`` and,
+    for group targets, ``group_type_index`` so the upsert can write the right entity."""
+    sources = _enabled_profile_sources(team_id, schema_id)
     if not sources or not person_properties_flag_enabled(team_id):
         return None
     return [
@@ -89,6 +98,21 @@ def person_property_sync_sources(team_id: int, schema_id: str | UUID) -> list[Pe
             definition_id=str(source.definition_id),
             key_column=source.key_column,
             column_property_map=dict(source.column_property_map or {}),
+            property_descriptions=_property_descriptions(source),
+            target=source.definition.target_type,
+            group_type_index=source.definition.group_type_index,
         )
         for source in sources
     ]
+
+
+def _property_descriptions(source: CustomPropertySource) -> dict[str, str]:
+    """Re-key the source's ``{column: description}`` onto ``{property_name: description}`` so the sync
+    can stamp each mapped property with its description without knowing the warehouse columns."""
+    column_property_map = source.column_property_map or {}
+    column_descriptions = source.column_descriptions or {}
+    return {
+        column_property_map[column]: description
+        for column, description in column_descriptions.items()
+        if column in column_property_map and description
+    }

@@ -35,6 +35,7 @@ const TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME: Partial<Record<TaxonomicFilterGroupT
     [TaxonomicFilterGroupType.FeatureFlags]: 'Feature flags',
     [TaxonomicFilterGroupType.ErrorTrackingIssues]: 'Error tracking issues',
     [TaxonomicFilterGroupType.RevenueAnalyticsProperties]: 'Revenue analytics',
+    [TaxonomicFilterGroupType.AccountCustomProperties]: 'Account custom properties',
 }
 
 export interface FilterItem {

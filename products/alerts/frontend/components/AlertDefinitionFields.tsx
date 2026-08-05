@@ -17,7 +17,7 @@ import {
 } from 'products/alerts/frontend/logic/funnelAlertOptions'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
-import { isFunnelsAlertConfig } from 'products/alerts/frontend/types'
+import { isFunnelsAlertConfig, isHogQLAlertConfig } from 'products/alerts/frontend/types'
 
 import { HogQLAlertPreviewBanner, HogQLAlertPreviewRowsTable } from './HogQLAlertPreview'
 
@@ -70,8 +70,8 @@ export function TrendsDefinitionFields({
 // banner string (mirrors the SQL preview's table cap); the rest collapse into "+N more".
 const FUNNEL_BREACH_PREVIEW_CAP = 5
 
-/** Conversion-rate read-out + breach/ok status (mirrors the SQL alert's preview). */
-function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
+/** Conversion-rate read-out and whether the alert would fire. */
+export function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
     if (preview === null) {
         return (
             <LemonBanner type="info" className="w-full">
@@ -90,10 +90,10 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     const format = (rate: number): string => `${rate.toFixed(1)}%`
     const breaching = preview.values.filter((value) => value.breaching)
     const wouldFire = breaching.length > 0
-    // Same at-a-glance breach/ok tag as the SQL alert preview; only meaningful once a threshold is set.
+    // The fire-state tag is only meaningful once a threshold is set.
     const statusTag = preview.hasBounds ? (
-        <LemonTag type={wouldFire ? 'warning' : 'success'} className="mr-2">
-            {wouldFire ? 'breach' : 'ok'}
+        <LemonTag type={wouldFire ? 'danger' : 'success'} className="mr-2">
+            {wouldFire ? 'Would fire' : 'Would not fire'}
         </LemonTag>
     ) : null
 
@@ -103,10 +103,10 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
         const first = preview.values[0]
         const hasPrior = preview.values.some((value) => value.previousRate !== undefined)
         return (
-            <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+            <div className="w-full rounded border border-border bg-bg-light p-3 text-sm">
                 {statusTag}
                 {!hasPrior ? (
-                    <>Needs an earlier completed period to compare against — extend the date range.</>
+                    <>Needs an earlier completed period to compare against. Extend the date range.</>
                 ) : preview.isBreakdown ? (
                     <>
                         Across {preview.values.length} breakdown values, comparing each period against the one before it
@@ -119,23 +119,23 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
                     </>
                 )}
                 {!preview.hasBounds ? <> Set a threshold to preview whether it would fire.</> : null}
-            </LemonBanner>
+            </div>
         )
     }
 
     if (preview.isBreakdown) {
         const rates = preview.values.map((value) => value.rate)
         return (
-            <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+            <div className="w-full rounded border border-border bg-bg-light p-3 text-sm">
                 {statusTag}
                 Across {preview.values.length} breakdown values, currently{' '}
                 <strong>
                     {format(Math.min(...rates))}–{format(Math.max(...rates))}
                 </strong>
-                {/* The tag + banner colour carry the breach/ok state; only add what they can't — which
+                {/* The tag and container color carry the fire state. Only add what they cannot: which
                     values breach, or (when no threshold is set yet) a prompt to set one. */}
                 {!preview.hasBounds ? (
-                    <> — fires if any value breaches. Set a threshold to preview.</>
+                    <>. Fires if any value breaches. Set a threshold to preview.</>
                 ) : wouldFire ? (
                     <>
                         {' '}
@@ -149,33 +149,35 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
                             : ''}
                     </>
                 ) : null}
-            </LemonBanner>
+            </div>
         )
     }
 
     return (
-        <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+        <div className="w-full rounded border border-border bg-bg-light p-3 text-sm">
             {statusTag}
-            Currently converting at <strong>{format(preview.values[0].rate)}</strong>
-            {!preview.hasBounds ? <> — set a threshold to preview whether it would fire.</> : null}
-        </LemonBanner>
+            Current conversion is <strong>{format(preview.values[0].rate)}</strong>
+            {!preview.hasBounds ? <>. Set a threshold to preview whether it would fire.</> : null}
+        </div>
     )
 }
 
-/** Funnels: a single valid-conversion picker over the `{metric, funnel_step}` config — see funnelAlertOptions.
+/** Funnels: a single valid-conversion picker over the `{metric, funnel_step}` config. See funnelAlertOptions.
  * A trends funnel charts the overall (whole-funnel) conversion rate over time, so there's no per-step
- * choice to make — it shows just the preview of the latest period's rate. */
+ * choice to make. It shows just the preview of the latest period's rate. */
 export function FunnelsDefinitionFields({
     alertForm,
     stepLabels,
     funnelPreview,
     isTrendsFunnel,
+    showInlinePreview,
     onSetAlertFormValue,
 }: {
     alertForm: AlertFormType
     stepLabels: string[]
     funnelPreview: FunnelAlertPreview | null
     isTrendsFunnel: boolean
+    showInlinePreview: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }): JSX.Element {
     const config = isFunnelsAlertConfig(alertForm.config) ? alertForm.config : null
@@ -183,32 +185,39 @@ export function FunnelsDefinitionFields({
         // A trends funnel charts the overall conversion rate over time, so there's no per-step choice.
         // The in-progress-period toggle lives in Advanced options, mirroring the trends-alert equivalent.
         return (
-            <div className="flex flex-wrap gap-3 items-center">
-                <div>Alert on the overall conversion rate</div>
-                <FunnelAlertPreviewBanner preview={funnelPreview} />
-            </div>
+            <>
+                <AlertDefinitionRow label="When">
+                    <span className="font-medium">Overall conversion rate</span>
+                </AlertDefinitionRow>
+                {showInlinePreview ? <FunnelAlertPreviewBanner preview={funnelPreview} /> : null}
+            </>
         )
     }
     return (
-        <div className="flex flex-wrap gap-3 items-center">
-            <div>Alert on</div>
-            <LemonSelect
-                fullWidth
-                className="flex-auto"
-                data-attr="alertForm-funnel-conversion"
-                placeholder="Select a conversion"
-                // Wide funnels generate ~2 options per step; cap the menu so it scrolls instead of overflowing.
-                menu={{ className: '!max-h-[400px]' }}
-                value={config ? funnelConfigToOptionKey(config, stepLabels.length) : undefined}
-                onChange={(key) =>
-                    // Each key fully determines the config, so build a fresh one rather than spreading
-                    // the previous config (whose type/metric/funnel_step would all be overwritten anyway).
-                    onSetAlertFormValue('config', { type: 'FunnelsAlertConfig', ...funnelConfigForOptionKey(key) })
-                }
-                options={funnelConversionOptions(stepLabels)}
-            />
-            <FunnelAlertPreviewBanner preview={funnelPreview} />
-        </div>
+        <>
+            <AlertDefinitionRow label="When" className="flex-nowrap">
+                <div className="min-w-0 flex-1">
+                    <LemonSelect
+                        fullWidth
+                        data-attr="alertForm-funnel-conversion"
+                        placeholder="Select a conversion"
+                        // Wide funnels generate ~2 options per step; cap the menu so it scrolls instead of overflowing.
+                        menu={{ className: '!max-h-[400px]' }}
+                        value={config ? funnelConfigToOptionKey(config, stepLabels.length) : undefined}
+                        onChange={(key) =>
+                            // Each key fully determines the config, so build a fresh one rather than spreading
+                            // the previous config (whose type/metric/funnel_step would all be overwritten anyway).
+                            onSetAlertFormValue('config', {
+                                type: 'FunnelsAlertConfig',
+                                ...funnelConfigForOptionKey(key),
+                            })
+                        }
+                        options={funnelConversionOptions(stepLabels)}
+                    />
+                </div>
+            </AlertDefinitionRow>
+            {showInlinePreview ? <FunnelAlertPreviewBanner preview={funnelPreview} /> : null}
+        </>
     )
 }
 
@@ -220,6 +229,7 @@ export function HogQLDefinitionFields({
     hogqlColumns,
     hogqlValueColumnOptions,
     hogqlLabelColumnOptions,
+    showInlinePreview,
     onSetAlertFormValue,
 }: {
     alertForm: AlertFormType
@@ -227,13 +237,31 @@ export function HogQLDefinitionFields({
     hogqlColumns: string[] | null
     hogqlValueColumnOptions: { label: string; value: string }[]
     hogqlLabelColumnOptions: { label: string; value: string }[]
+    showInlinePreview: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }): JSX.Element {
     const hasMultipleColumns = (hogqlColumns?.length ?? 0) > 1
+    const config = isHogQLAlertConfig(alertForm.config) ? alertForm.config : null
+    const showValueColumn = hasMultipleColumns || !!config?.column
+    const valueColumnOptions = [...hogqlValueColumnOptions]
+    if (config?.column && !valueColumnOptions.some((option) => option.value === config.column)) {
+        valueColumnOptions.unshift({ label: config.column, value: config.column })
+    }
     return (
         <>
             <AlertDefinitionRow label="When">
                 <Group name={['config']}>
+                    {showValueColumn && (
+                        <LemonField name="column" className="flex-auto">
+                            <LemonSelect
+                                fullWidth
+                                data-attr="alertForm-hogql-column"
+                                placeholder="select column to evaluate"
+                                options={valueColumnOptions}
+                            />
+                        </LemonField>
+                    )}
+                    {showValueColumn ? <span className="text-muted self-center">from</span> : null}
                     <LemonField name="evaluation" className="flex-auto">
                         {({ value, onChange }) => (
                             <LemonSelect
@@ -268,24 +296,12 @@ export function HogQLDefinitionFields({
                                         label: 'any row',
                                         value: 'any_row',
                                         tooltip:
-                                            'Every row is checked and the alert fires if any value breaches the threshold — e.g. one row per country.',
+                                            'Every row is checked and the alert fires if any value breaches the threshold, such as one row per country.',
                                     },
                                 ]}
                             />
                         )}
                     </LemonField>
-                    {hasMultipleColumns && (
-                        <LemonField name="column" className="flex-auto">
-                            {/* Prefilled with the last numeric column by alertFormLogic; the
-                                placeholder only shows when nothing numeric is detectable. */}
-                            <LemonSelect
-                                fullWidth
-                                data-attr="alertForm-hogql-column"
-                                placeholder="select column to evaluate"
-                                options={hogqlValueColumnOptions}
-                            />
-                        </LemonField>
-                    )}
                 </Group>
             </AlertDefinitionRow>
             {hasMultipleColumns && (
@@ -308,8 +324,12 @@ export function HogQLDefinitionFields({
                     </Group>
                 </div>
             )}
-            <HogQLAlertPreviewBanner preview={hogqlPreview} conditionType={alertForm.condition?.type} />
-            {hogqlPreview?.status === 'ok' && <HogQLAlertPreviewRowsTable preview={hogqlPreview} />}
+            {showInlinePreview ? (
+                <>
+                    <HogQLAlertPreviewBanner preview={hogqlPreview} conditionType={alertForm.condition?.type} />
+                    {hogqlPreview?.status === 'ok' && <HogQLAlertPreviewRowsTable preview={hogqlPreview} />}
+                </>
+            ) : null}
         </>
     )
 }

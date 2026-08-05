@@ -1,4 +1,5 @@
 import { MakeLogicType, BindLogic, connect, kea, path, selectors, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconCopy, IconQuestion } from '@posthog/icons'
@@ -36,7 +37,9 @@ import { FreeHistoricalSyncsBanner } from '../../shared/components/FreeHistorica
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
+import { FileUploadSourceForm } from './components/FileUploadSourceForm'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
+import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
 import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
@@ -223,8 +226,9 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         isSelfManagedSource,
         source,
         sourceConnectionDetails,
+        isWebhookFieldInputsSubmitting,
     } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
+    const { onBack, onSubmit, onClear, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
         useActions(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
         currentStep,
@@ -250,14 +254,22 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         }
     }, [props.initialSource]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const isFileUploadSource = selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME
+
     const footer = useCallback(() => {
         if (currentStep === 1) {
             return null
         }
 
+        // The file upload form has its own submit button — the wizard's Next would submit the
+        // generic connection form that this source never renders.
+        if (isFileUploadSource) {
+            return null
+        }
+
         const nextButton = (disabledReason?: string | false): JSX.Element => (
             <LemonButton
-                loading={isLoading || manualLinkIsLoading}
+                loading={isLoading || manualLinkIsLoading || isWebhookFieldInputsSubmitting}
                 disabledReason={
                     disabledReason || (!canGoNext && (nextButtonDisabledReason || 'Finish this step to continue'))
                 }
@@ -301,12 +313,14 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         onBack,
         isLoading,
         manualLinkIsLoading,
+        isWebhookFieldInputsSubmitting,
         canGoNext,
         nextButtonDisabledReason,
         nextButtonText,
         onSubmit,
         props.hideBackButton,
         isSelfManagedSource,
+        isFileUploadSource,
     ])
 
     return (
@@ -362,7 +376,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 ) : currentStep === 5 ? (
                     <ProgressStep />
                 ) : (
-                    <div>Something went wrong...</div>
+                    <UnknownWizardStepFallback currentStep={currentStep} onRestart={onClear} />
                 )}
 
                 {footer()}
@@ -507,6 +521,12 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
         source.access_method
     )
 
+    // File upload owns its whole flow (upload the file, then create the source), so it replaces the
+    // generic connection form and drives its own submit button rather than the wizard footer.
+    if (selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME) {
+        return <FileUploadSourceForm />
+    }
+
     return selectedConnector ? (
         <div className="space-y-4">
             {selectedConnector.caption && selectedAccessMethod !== 'direct' && (
@@ -595,7 +615,8 @@ function WebhookSetupStep({
 }: {
     sourceWizardLogicProps?: SourceWizardLogicProps
 }): JSX.Element {
-    const { webhookResult, webhookCreating, selectedConnector, databaseSchema } = useValues(sourceWizardLogic)
+    const { webhookResult, webhookCreating, selectedConnector, databaseSchema, isWebhookFieldInputsSubmitting } =
+        useValues(sourceWizardLogic)
     const { createWebhook } = useActions(sourceWizardLogic)
 
     const webhookTables = databaseSchema
@@ -609,6 +630,7 @@ function WebhookSetupStep({
             webhookTables={webhookTables}
             webhookResult={webhookResult}
             webhookCreating={webhookCreating}
+            webhookFieldsSubmitting={isWebhookFieldInputsSubmitting}
             onCreateWebhook={createWebhook}
             formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
             formKey="webhookFieldInputs"
@@ -618,4 +640,23 @@ function WebhookSetupStep({
 
 function ProgressStep(): JSX.Element {
     return <SyncProgressStep />
+}
+
+function UnknownWizardStepFallback({
+    currentStep,
+    onRestart,
+}: {
+    currentStep: number
+    onRestart: () => void
+}): JSX.Element {
+    useEffect(() => {
+        posthog.captureException(new Error(`Data warehouse source wizard reached an unexpected step: ${currentStep}`))
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    return (
+        <LemonBanner type="error" action={{ children: 'Start over', onClick: onRestart }}>
+            This source setup ran into an unexpected step. Start over to try again.
+        </LemonBanner>
+    )
 }

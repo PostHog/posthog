@@ -110,9 +110,9 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
             {tools.length > 0 && (
                 <div className="flex items-center justify-between gap-2 flex-wrap bg-surface-secondary rounded p-2">
                     <div className="text-xs text-secondary">
-                        <span className="font-semibold">{approvedCount}</span> approved ·{' '}
-                        <span className="font-semibold">{pendingCount}</span> require approval ·{' '}
-                        <span className="font-semibold">{blockedCount}</span> blocked
+                        <span className="font-semibold">{approvedCount}</span> Always Allow ·{' '}
+                        <span className="font-semibold">{pendingCount}</span> Needs Approval ·{' '}
+                        <span className="font-semibold">{blockedCount}</span> Blocked
                     </div>
                     <div className="flex items-center gap-1">
                         <span className="text-xs text-secondary mr-1">Set all:</span>
@@ -128,7 +128,7 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
                             }
                             disabledReason={disabledReason}
                         >
-                            Approve
+                            Always Allow
                         </LemonButton>
                         <LemonButton
                             size="xsmall"
@@ -142,7 +142,7 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
                             }
                             disabledReason={disabledReason}
                         >
-                            Require approval
+                            Needs Approval
                         </LemonButton>
                         <LemonButton
                             size="xsmall"
@@ -183,6 +183,7 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
                         <ToolRow
                             key={tool.id}
                             tool={tool}
+                            teamScope={installation.scope === 'shared'}
                             disabledReason={disabledReason}
                             onPolicyChange={(state: ToolApprovalState) =>
                                 setToolApprovalState({
@@ -256,7 +257,8 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
     const name = installation?.name ?? template?.name ?? ''
     const description = installation?.description ?? template?.description ?? ''
     const docsUrl = template?.docs_url ?? ''
-    const iconKey = installation?.icon_key ?? template?.icon_key ?? null
+    const iconDomain = installation?.icon_domain ?? template?.icon_domain ?? null
+    const serverUrl = installation?.url ?? template?.url ?? null
     const authType = installation?.auth_type ?? template?.auth_type
 
     const goBack = (): void => {
@@ -271,7 +273,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
             </LemonButton>
 
             <div className="flex gap-4 items-center">
-                <ServerIcon iconKey={iconKey} size={56} />
+                <ServerIcon iconDomain={iconDomain} serverUrl={serverUrl} size={56} />
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                         <h1 className="mb-0">{name}</h1>

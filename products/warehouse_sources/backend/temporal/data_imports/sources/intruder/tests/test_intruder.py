@@ -1,372 +1,363 @@
-from typing import Any, cast
+import json
+from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.intruder import intruder
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.intruder import (
+    PAGE_SIZE,
     IntruderResumeConfig,
-    get_rows,
     intruder_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.settings import (
+    INCREMENTAL_FIELDS,
+    INTRUDER_ENDPOINTS,
+)
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the intruder module.
+INTRUDER_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.intruder.intruder.make_tracked_session"
+)
+# Kill tenacity's backoff so retry classification tests don't actually sleep.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
+
+BASE = "https://api.intruder.io/v1"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: IntruderResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[IntruderResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> IntruderResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: IntruderResumeConfig) -> None:
-        self.saved.append(data)
+def _resp(body: Any, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _collect(
-    manager: _FakeResumableManager,
-    monkeypatch: Any,
-    endpoint: str,
-    pages: dict[str, Any],
-) -> list[dict]:
-    """Run get_rows against a fake page map (url -> response body or Exception)."""
+def _redirect(location: str = "https://evil.com") -> Response:
+    resp = Response()
+    resp.status_code = 302
+    resp.headers["Location"] = location
+    return resp
 
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-        result = pages[url]
-        if isinstance(result, Exception):
-            raise result
-        return result
 
-    monkeypatch.setattr(intruder, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(intruder, "make_tracked_session", lambda *a, **k: MagicMock())
+def _norm(url: str) -> tuple[str, tuple[tuple[str, str], ...]]:
+    parts = urlsplit(url)
+    return parts.path, tuple(sorted(parse_qsl(parts.query)))
 
-    rows: list[dict] = []
-    for batch in get_rows(
-        access_token="token",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=cast(ResumableSourceManager[IntruderResumeConfig], manager),
-    ):
-        rows.extend(batch)
-    return rows
+
+def _make_manager(resume_state: IntruderResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses_by_url: dict[str, list[Response]]) -> list[dict[str, Any]]:
+    """Wire a mock session that resolves each request by its fully-encoded URL.
+
+    Values are per-URL queues so a URL can return different responses across retries/pages. Returns a
+    list capturing each request's params snapshot at prepare time (the params dict is mutated in place
+    across pages, so a post-run read would show only the final state).
+    """
+    session.headers = {}
+    normalized: dict[tuple[str, tuple[tuple[str, str], ...]], list[Response]] = {
+        _norm(url): list(queue) for url, queue in responses_by_url.items()
+    }
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> Any:
+        param_snapshots.append(dict(request.params or {}))
+        return request.prepare()
+
+    def _send(prepared: Any, **_kwargs: Any) -> Response:
+        queue = normalized.get(_norm(prepared.url))
+        if queue is None:
+            raise AssertionError(f"unexpected request url {prepared.url!r}")
+        return queue.pop(0)
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = _send
+    return param_snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _run(
+    endpoint: str, responses_by_url: dict[str, list[Response]], manager: mock.MagicMock
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
+        session = MockSession.return_value
+        params = _wire(session, responses_by_url)
+        rows = _rows(
+            intruder_source(
+                access_token="tok",
+                endpoint=endpoint,
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=manager,
+            )
+        )
+    return rows, params
+
+
+class TestSourceResponseShape:
+    @parameterized.expand(
+        [
+            ("targets", ["id"], None, None),
+            ("scans", ["id"], "datetime", "created_at"),
+            ("scan_schedules", ["id"], None, None),
+            ("issues", ["id"], None, None),
+            ("occurrences", ["issue_id", "id"], "datetime", "first_seen_at"),
+            ("fixed_occurrences", ["id"], "datetime", "first_seen_at"),
+            ("tags", ["name"], None, None),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_primary_keys_and_partitioning(
+        self,
+        endpoint: str,
+        expected_pks: list[str],
+        expected_partition_mode: str | None,
+        expected_partition_key: str | None,
+        _MockSession: Any,
+    ) -> None:
+        response = intruder_source(
+            access_token="tok",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pks
+        assert response.partition_mode == expected_partition_mode
+        assert response.partition_keys == ([expected_partition_key] if expected_partition_key else None)
+
+
+class TestEndpointConfig:
+    def test_occurrences_is_fan_out_with_composite_key(self) -> None:
+        config = INTRUDER_ENDPOINTS["occurrences"]
+        assert config.fan_out_over_issues is True
+        # An occurrence id is only unique within its issue, so the key must include the parent issue.
+        assert config.primary_keys == ["issue_id", "id"]
+
+    def test_tags_keyed_by_name(self) -> None:
+        # Tags are bare {name} objects with no numeric id, so name is the primary key.
+        assert INTRUDER_ENDPOINTS["tags"].primary_keys == ["name"]
+
+    def test_no_endpoint_advertises_incremental_fields(self) -> None:
+        # Intruder exposes no server-side timestamp filter, so nothing advertises incremental fields.
+        assert all(fields == [] for fields in INCREMENTAL_FIELDS.values())
 
 
 class TestStandardPagination:
-    def test_follows_next_url_until_exhausted(self, monkeypatch: Any) -> None:
+    def test_follows_next_url_until_exhausted(self) -> None:
         # A bug that dropped the `next` follow (or read the wrong key) would only return page one.
-        pages: dict[str, Any] = {
-            "https://api.intruder.io/v1/targets/?limit=100": {
-                "results": [{"id": 1}, {"id": 2}],
-                "next": "https://api.intruder.io/v1/targets/?limit=100&offset=100",
-            },
-            "https://api.intruder.io/v1/targets/?limit=100&offset=100": {
-                "results": [{"id": 3}],
-                "next": None,
-            },
+        responses = {
+            f"{BASE}/targets/?limit={PAGE_SIZE}": [
+                _resp({"results": [{"id": 1}, {"id": 2}], "next": f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100"})
+            ],
+            f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100": [_resp({"results": [{"id": 3}], "next": None})],
         }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "targets", pages)
+        rows, params = _run("targets", responses, _make_manager())
         assert [r["id"] for r in rows] == [1, 2, 3]
+        assert params[0]["limit"] == PAGE_SIZE
 
-    def test_empty_first_page_terminates(self, monkeypatch: Any) -> None:
-        pages: dict[str, Any] = {"https://api.intruder.io/v1/scans/?limit=100": {"results": [], "next": None}}
-        rows = _collect(_FakeResumableManager(), monkeypatch, "scans", pages)
+    def test_empty_first_page_terminates_without_saving(self) -> None:
+        responses = {f"{BASE}/scans/?limit={PAGE_SIZE}": [_resp({"results": [], "next": None})]}
+        manager = _make_manager()
+        rows, _params = _run("scans", responses, manager)
         assert rows == []
+        manager.save_state.assert_not_called()
 
-    def test_saves_state_after_each_page_but_not_after_last(self, monkeypatch: Any) -> None:
-        # State must be saved AFTER yielding a page and only when more pages remain, so a crash
-        # re-yields the last page (merge dedupes) rather than skipping it. Saving the final page's
-        # (absent) cursor would be wrong.
-        pages: dict[str, Any] = {
-            "https://api.intruder.io/v1/targets/?limit=100": {
-                "results": [{"id": 1}],
-                "next": "https://api.intruder.io/v1/targets/?limit=100&offset=100",
-            },
-            "https://api.intruder.io/v1/targets/?limit=100&offset=100": {"results": [{"id": 2}], "next": None},
+    def test_saves_next_url_after_each_page_but_not_after_last(self) -> None:
+        # State must be saved AFTER yielding a page and only when a next page remains, so a crash
+        # re-yields the last page (merge dedupes) rather than skipping it. The final page saves nothing.
+        responses = {
+            f"{BASE}/targets/?limit={PAGE_SIZE}": [
+                _resp({"results": [{"id": 1}], "next": f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100"})
+            ],
+            f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100": [_resp({"results": [{"id": 2}], "next": None})],
         }
-        manager = _FakeResumableManager()
-        _collect(manager, monkeypatch, "targets", pages)
-        assert [s.next_url for s in manager.saved] == ["https://api.intruder.io/v1/targets/?limit=100&offset=100"]
+        manager = _make_manager()
+        _run("targets", responses, manager)
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [IntruderResumeConfig(next_url=f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100")]
 
-    def test_resumes_from_saved_next_url(self, monkeypatch: Any) -> None:
+    def test_resumes_from_saved_next_url(self) -> None:
         # With saved state the first request must be the saved cursor, not the initial page.
-        pages: dict[str, Any] = {
-            "https://api.intruder.io/v1/targets/?limit=100&offset=100": {"results": [{"id": 2}], "next": None},
+        responses = {
+            f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100": [_resp({"results": [{"id": 2}], "next": None})],
         }
-        manager = _FakeResumableManager(
-            IntruderResumeConfig(next_url="https://api.intruder.io/v1/targets/?limit=100&offset=100")
-        )
-        rows = _collect(manager, monkeypatch, "targets", pages)
+        state = IntruderResumeConfig(next_url=f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100")
+        rows, _params = _run("targets", responses, _make_manager(state))
         assert [r["id"] for r in rows] == [2]
 
 
 class TestOccurrencesFanOut:
-    @staticmethod
-    def _issue_page(ids: list[int], next_url: str | None) -> dict:
-        return {"results": [{"id": i} for i in ids], "next": next_url}
-
-    def test_injects_parent_issue_id_into_every_row(self, monkeypatch: Any) -> None:
-        # The occurrences endpoint response has no issue reference; without the injected issue_id the
-        # composite primary key [issue_id, id] collapses to id and duplicate rows accumulate.
-        pages: dict[str, Any] = {
-            "https://api.intruder.io/v1/issues/?limit=100": self._issue_page([10, 20], None),
-            "https://api.intruder.io/v1/issues/10/occurrences/?limit=100": {
-                "results": [{"id": 1}, {"id": 2}],
-                "next": None,
-            },
-            "https://api.intruder.io/v1/issues/20/occurrences/?limit=100": {"results": [{"id": 3}], "next": None},
+    def test_injects_parent_issue_id_into_every_row(self) -> None:
+        # The occurrences response has no issue reference; without the injected issue_id the composite
+        # primary key [issue_id, id] collapses to id and duplicate rows accumulate across issues.
+        responses = {
+            f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}, {"id": 20}], "next": None})],
+            f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}": [
+                _resp({"results": [{"id": 1}, {"id": 2}], "next": None})
+            ],
+            f"{BASE}/issues/20/occurrences/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 3}], "next": None})],
         }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "occurrences", pages)
+        rows, _params = _run("occurrences", responses, _make_manager())
         assert rows == [
             {"id": 1, "issue_id": 10},
             {"id": 2, "issue_id": 10},
             {"id": 3, "issue_id": 20},
         ]
 
-    def test_follows_occurrence_pagination_within_an_issue(self, monkeypatch: Any) -> None:
-        pages: dict[str, Any] = {
-            "https://api.intruder.io/v1/issues/?limit=100": self._issue_page([10], None),
-            "https://api.intruder.io/v1/issues/10/occurrences/?limit=100": {
-                "results": [{"id": 1}],
-                "next": "https://api.intruder.io/v1/issues/10/occurrences/?limit=100&offset=100",
-            },
-            "https://api.intruder.io/v1/issues/10/occurrences/?limit=100&offset=100": {
-                "results": [{"id": 2}],
-                "next": None,
-            },
+    def test_follows_occurrence_pagination_within_an_issue(self) -> None:
+        responses = {
+            f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}], "next": None})],
+            f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}": [
+                _resp({"results": [{"id": 1}], "next": f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}&offset=100"})
+            ],
+            f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}&offset=100": [
+                _resp({"results": [{"id": 2}], "next": None})
+            ],
         }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "occurrences", pages)
+        rows, _params = _run("occurrences", responses, _make_manager())
         assert [r["id"] for r in rows] == [1, 2]
 
-    def test_resumes_from_bookmarked_issue(self, monkeypatch: Any) -> None:
-        # Resuming must skip already-processed issue 10 and pick up at issue 20.
-        pages: dict[str, Any] = {
-            "https://api.intruder.io/v1/issues/?limit=100": self._issue_page([10, 20], None),
-            "https://api.intruder.io/v1/issues/20/occurrences/?limit=100": {"results": [{"id": 3}], "next": None},
+    def test_resume_skips_already_completed_issue(self) -> None:
+        # An issue whose occurrences fully synced on the prior attempt is skipped on resume.
+        responses = {
+            f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}, {"id": 20}], "next": None})],
+            f"{BASE}/issues/20/occurrences/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 3}], "next": None})],
         }
-        manager = _FakeResumableManager(IntruderResumeConfig(next_url=None, issue_id=20))
-        rows = _collect(manager, monkeypatch, "occurrences", pages)
+        state = IntruderResumeConfig(
+            fanout_state={"completed": ["/issues/10/occurrences/"], "current": None, "child_state": None}
+        )
+        rows, _params = _run("occurrences", responses, _make_manager(state))
         assert rows == [{"id": 3, "issue_id": 20}]
 
-    def test_deleted_bookmarked_issue_restarts_from_first(self, monkeypatch: Any) -> None:
-        # If the bookmarked issue no longer exists, re-pull from the first issue (merge dedupes).
-        pages: dict[str, Any] = {
-            "https://api.intruder.io/v1/issues/?limit=100": self._issue_page([10, 20], None),
-            "https://api.intruder.io/v1/issues/10/occurrences/?limit=100": {"results": [{"id": 1}], "next": None},
-            "https://api.intruder.io/v1/issues/20/occurrences/?limit=100": {"results": [{"id": 3}], "next": None},
+    def test_resume_from_deleted_issue_restarts_from_first(self) -> None:
+        # The in-progress issue from the saved state no longer exists — its checkpoint is ignored and
+        # the surviving issues sync fresh (merge dedupes any re-pulled rows).
+        responses = {
+            f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}], "next": None})],
+            f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 1}], "next": None})],
         }
-        manager = _FakeResumableManager(IntruderResumeConfig(next_url=None, issue_id=999))
-        rows = _collect(manager, monkeypatch, "occurrences", pages)
-        assert [r["id"] for r in rows] == [1, 3]
+        state = IntruderResumeConfig(
+            fanout_state={
+                "completed": [],
+                "current": "/issues/999/occurrences/",
+                "child_state": {"next_url": f"{BASE}/issues/999/occurrences/?limit={PAGE_SIZE}&offset=100"},
+            }
+        )
+        rows, _params = _run("occurrences", responses, _make_manager(state))
+        assert rows == [{"id": 1, "issue_id": 10}]
 
-    def test_advances_bookmark_between_issues(self, monkeypatch: Any) -> None:
-        pages: dict[str, Any] = {
-            "https://api.intruder.io/v1/issues/?limit=100": self._issue_page([10, 20], None),
-            "https://api.intruder.io/v1/issues/10/occurrences/?limit=100": {"results": [{"id": 1}], "next": None},
-            "https://api.intruder.io/v1/issues/20/occurrences/?limit=100": {"results": [{"id": 3}], "next": None},
+    def test_checkpoints_completed_issue(self) -> None:
+        # Finishing an issue must checkpoint it as completed so a crash before the next issue resumes
+        # without re-pulling it.
+        responses = {
+            f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}, {"id": 20}], "next": None})],
+            f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 1}], "next": None})],
+            f"{BASE}/issues/20/occurrences/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 3}], "next": None})],
         }
-        manager = _FakeResumableManager()
-        _collect(manager, monkeypatch, "occurrences", pages)
-        # After finishing issue 10, the bookmark advances to issue 20 (no in-issue cursor).
-        assert IntruderResumeConfig(next_url=None, issue_id=20) in manager.saved
-
-
-class TestFetchPageRetries:
-    @parameterized.expand(
-        [
-            ("rate_limited", 429),
-            ("server_error", 500),
-            ("bad_gateway", 503),
+        manager = _make_manager()
+        _run("occurrences", responses, manager)
+        completed_sets = [
+            call.args[0].fanout_state["completed"]
+            for call in manager.save_state.call_args_list
+            if call.args[0].fanout_state is not None
         ]
-    )
-    def test_retryable_status_codes_retry(self, _name: str, status: int) -> None:
-        # 429/5xx must retry rather than fail the whole sync.
-        retryable = MagicMock()
-        retryable.status_code = status
-        retryable.ok = False
-        retryable.is_redirect = False
-        good = MagicMock()
-        good.status_code = 200
-        good.ok = True
-        good.is_redirect = False
-        good.json.return_value = {"results": []}
+        assert ["/issues/10/occurrences/"] in completed_sets
 
-        session = MagicMock()
-        session.get.side_effect = [retryable, good]
 
-        with patch.object(intruder._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = intruder._fetch_page(session, "https://api.intruder.io/v1/targets/", {}, MagicMock())
+class TestRetryClassification:
+    @parameterized.expand([(429,), (500,), (503,)])
+    @mock.patch(SLEEP_PATCH)
+    def test_transient_status_is_retried_then_succeeds(self, status: int, _sleep: Any) -> None:
+        # 429/5xx are transient — the client backs off and reissues the same request rather than
+        # failing the whole sync.
+        responses = {
+            f"{BASE}/targets/?limit={PAGE_SIZE}": [
+                _resp({"error": "transient"}, status=status),
+                _resp({"results": [{"id": 1}], "next": None}),
+            ],
+        }
+        rows, _params = _run("targets", responses, _make_manager())
+        assert rows == [{"id": 1}]
 
-        assert result == {"results": []}
-        assert session.get.call_count == 2
-
-    @parameterized.expand(
-        [
-            ("read_timeout", requests.ReadTimeout("Read timed out.")),
-            ("connection_error", requests.ConnectionError("Connection reset by peer")),
-        ]
-    )
-    def test_transient_network_errors_retry(self, _name: str, transient_error: Exception) -> None:
-        good = MagicMock()
-        good.status_code = 200
-        good.ok = True
-        good.is_redirect = False
-        good.json.return_value = {"results": []}
-
-        session = MagicMock()
-        session.get.side_effect = [transient_error, good]
-
-        with patch.object(intruder._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = intruder._fetch_page(session, "https://api.intruder.io/v1/targets/", {}, MagicMock())
-
-        assert result == {"results": []}
-        assert session.get.call_count == 2
-
-    def test_401_is_not_retried_and_raises(self) -> None:
-        # A 401 is a credential problem: raise immediately (surfaced as non-retryable upstream)
-        # instead of burning retries.
-        response = requests.Response()
-        response.status_code = 401
-        response.url = "https://api.intruder.io/v1/targets/"
-
-        session = MagicMock()
-        session.get.return_value = response
-
+    @parameterized.expand([(401,), (403,), (404,)])
+    @mock.patch(SLEEP_PATCH)
+    def test_client_error_fails_loud(self, status: int, _sleep: Any) -> None:
+        # 4xx (other than 429) are permanent — raise rather than retry or silently sync 0 rows. A 401/
+        # 403 is surfaced as a non-retryable credential error upstream via get_non_retryable_errors.
+        responses = {
+            f"{BASE}/targets/?limit={PAGE_SIZE}": [_resp({"error": "nope"}, status=status)],
+        }
         with pytest.raises(requests.HTTPError):
-            intruder._fetch_page(session, "https://api.intruder.io/v1/targets/", {}, MagicMock())
-
-        assert session.get.call_count == 1
+            _run("targets", responses, _make_manager())
 
 
 class TestUrlSafety:
     @parameterized.expand(
         [
-            ("http_downgrade", "http://api.intruder.io/v1/targets/"),
             ("attacker_host", "https://evil.com/v1/targets/"),
             ("attacker_subdomain", "https://api.intruder.io.evil.com/v1/targets/"),
             ("userinfo_trick", "https://api.intruder.io@evil.com/v1/targets/"),
-            ("wrong_path_prefix", "https://api.intruder.io/v2/targets/"),
-            ("root_path", "https://api.intruder.io/"),
         ]
     )
-    def test_validate_url_rejects_off_origin(self, _name: str, url: str) -> None:
-        # A poisoned resume cursor or a malicious API-returned `next` must never be followed with the
-        # bearer token — the allowlist is the SSRF guard.
+    @mock.patch(SLEEP_PATCH)
+    def test_off_host_next_url_is_refused(self, _name: str, evil_next: str, _sleep: Any) -> None:
+        # A poisoned resume cursor or a malicious API-returned `next` pointing off the Intruder host
+        # must never be followed with the bearer token — allowed_hosts=[] is the SSRF guard. The
+        # first page is yielded, then following the off-host `next` raises before the request leaves
+        # the process.
+        responses = {
+            f"{BASE}/targets/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 1}], "next": evil_next})],
+        }
         with pytest.raises(ValueError):
-            intruder._validate_url(url)
+            _run("targets", responses, _make_manager())
 
-    @parameterized.expand(
-        [
-            ("collection", "https://api.intruder.io/v1/targets/"),
-            ("with_paging", "https://api.intruder.io/v1/issues/10/occurrences/?limit=100&offset=100"),
-        ]
-    )
-    def test_validate_url_allows_intruder_origin(self, _name: str, url: str) -> None:
-        assert intruder._validate_url(url) == url
-
-    def test_fetch_page_validates_before_requesting(self) -> None:
-        # Validation must run before the network call, so a bad URL never reaches the wire (and the
-        # session — carrying the token — is never contacted).
-        session = MagicMock()
+    @mock.patch(SLEEP_PATCH)
+    def test_redirect_is_refused(self, _sleep: Any) -> None:
+        # A 3xx could retarget the authenticated request off-origin; allow_redirects=False refuses it
+        # rather than following it with the token attached.
+        responses = {f"{BASE}/targets/?limit={PAGE_SIZE}": [_redirect("https://evil.com")]}
         with pytest.raises(ValueError):
-            intruder._fetch_page(session, "https://evil.com/v1/targets/", {}, MagicMock())
-        session.get.assert_not_called()
-
-    def test_fetch_page_refuses_redirects(self) -> None:
-        # Redirects could retarget the authenticated request off-origin; they must be refused, not
-        # followed. `allow_redirects=False` returns the 3xx, which we reject.
-        redirect = requests.Response()
-        redirect.status_code = 302
-        redirect.headers["Location"] = "https://evil.com"
-
-        session = MagicMock()
-        session.get.return_value = redirect
-
-        with pytest.raises(requests.HTTPError):
-            intruder._fetch_page(session, "https://api.intruder.io/v1/targets/", {}, MagicMock())
+            _run("targets", responses, _make_manager())
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
-        response = MagicMock()
-        response.status_code = status
-        with patch.object(intruder, "make_tracked_session") as make_session:
-            make_session.return_value.get.return_value = response
-            assert validate_credentials("token") is expected
+    @mock.patch(INTRUDER_SESSION_PATCH)
+    def test_status_maps_to_bool(self, _name: str, status: int, expected: bool, mock_session: Any) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        assert validate_credentials("tok") is expected
 
-    def test_network_error_is_not_valid(self) -> None:
-        with patch.object(intruder, "make_tracked_session") as make_session:
-            make_session.return_value.get.side_effect = requests.ConnectionError("boom")
-            assert validate_credentials("token") is False
+    @mock.patch(INTRUDER_SESSION_PATCH)
+    def test_swallows_transport_errors(self, mock_session: Any) -> None:
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        assert validate_credentials("tok") is False
 
-
-class TestSessionHardening:
-    def test_validate_credentials_redacts_token(self, monkeypatch: Any) -> None:
+    def test_redacts_token(self) -> None:
         # Dropping redact_values would leak the bearer token into logged URLs / captured samples.
         captured: dict[str, Any] = {}
 
-        def fake_session(*args: Any, **kwargs: Any) -> MagicMock:
+        def fake_session(*_args: Any, **kwargs: Any) -> mock.MagicMock:
             captured.update(kwargs)
-            response = requests.Response()
-            response.status_code = 200
-            session = MagicMock()
-            session.get.return_value = response
+            session = mock.MagicMock()
+            session.get.return_value = mock.MagicMock(status_code=200)
             return session
 
-        monkeypatch.setattr(intruder, "make_tracked_session", fake_session)
-        validate_credentials("secret-token")
+        with mock.patch(INTRUDER_SESSION_PATCH, side_effect=fake_session):
+            validate_credentials("secret-token")
         assert captured.get("redact_values") == ("secret-token",)
-
-    def test_get_rows_redacts_token_and_disables_adapter_retries(self, monkeypatch: Any) -> None:
-        # tenacity in `_fetch_page` is the single retry authority; the adapter must not stack its own.
-        captured: dict[str, Any] = {}
-
-        def fake_session(*args: Any, **kwargs: Any) -> MagicMock:
-            captured.update(kwargs)
-            return MagicMock()
-
-        monkeypatch.setattr(intruder, "make_tracked_session", fake_session)
-        monkeypatch.setattr(intruder, "_fetch_page", lambda *a, **k: {"results": [], "next": None})
-
-        list(
-            get_rows(
-                access_token="secret-token",
-                endpoint="targets",
-                logger=MagicMock(),
-                resumable_source_manager=cast(ResumableSourceManager[IntruderResumeConfig], _FakeResumableManager()),
-            )
-        )
-        assert captured.get("redact_values") == ("secret-token",)
-        assert captured.get("retry") is not None and captured["retry"].total == 0
-
-
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("targets", ["id"], None),
-            ("scans", ["id"], ["created_at"]),
-            ("scan_schedules", ["id"], None),
-            ("issues", ["id"], None),
-            ("occurrences", ["issue_id", "id"], ["first_seen_at"]),
-            ("fixed_occurrences", ["id"], ["first_seen_at"]),
-            ("tags", ["name"], None),
-        ]
-    )
-    def test_primary_keys_and_partitioning(
-        self, endpoint: str, expected_pks: list[str], expected_partition_keys: list[str] | None
-    ) -> None:
-        response = intruder_source(
-            access_token="token", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=MagicMock()
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == expected_pks
-        assert response.partition_keys == expected_partition_keys
-        assert response.partition_mode == ("datetime" if expected_partition_keys else None)

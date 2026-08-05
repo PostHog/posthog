@@ -7,7 +7,7 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
     BRAINTREE_VERSION_2019_01_01,
     BRAINTREE_VERSION_2026_07_14,
-    PAGE_SIZE,
+    MAX_PAGE_SIZE,
     BraintreeGraphQLError,
     BraintreeResumeConfig,
     _base_url,
@@ -68,7 +68,9 @@ class TestBuildQuery:
     )
     def test_query_uses_correct_input_type(self, endpoint, input_type):
         query = _build_query(BRAINTREE_ENDPOINTS[endpoint])
-        assert f"$input: {input_type}" in query
+        # Braintree's search fields declare `input` as non-null; a nullable
+        # declaration here fails GraphQL validation (VariableTypeMismatch).
+        assert f"$input: {input_type}!" in query
         assert BRAINTREE_ENDPOINTS[endpoint].search_field in query
 
 
@@ -129,7 +131,12 @@ class TestGetRows:
         assert manager.save_state.call_args.args[0].after == "cur-t2"
         second_vars = mock_session.return_value.post.call_args_list[1].kwargs["json"]["variables"]
         assert second_vars["after"] == "cur-t2"
-        assert second_vars["first"] == PAGE_SIZE
+
+        # Braintree rejects `first` above its cap on the very first page, so assert
+        # against the vendor ceiling rather than echoing our own page size back.
+        for call in mock_session.return_value.post.call_args_list:
+            requested = call.kwargs["json"]["variables"]["first"]
+            assert 0 < requested <= MAX_PAGE_SIZE
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_incremental_search_input_has_gte_filter(self, mock_session):
@@ -154,14 +161,16 @@ class TestGetRows:
         assert variables["input"] == {"createdAt": {"greaterThanOrEqualTo": "2024-01-02T00:00:00Z"}}
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_scan_has_null_input(self, mock_session):
+    def test_full_scan_has_empty_input(self, mock_session):
         mock_session.return_value.post.return_value = _search_response("transactions", [])
 
         manager = _make_manager()
         list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
 
+        # `input` is declared non-null (see TestBuildQuery), so a full scan must
+        # send an empty object rather than null or Braintree rejects the query.
         variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
-        assert variables["input"] is None
+        assert variables["input"] == {}
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_saved_cursor(self, mock_session):

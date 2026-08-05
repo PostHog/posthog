@@ -96,7 +96,7 @@ function DashboardInsightRefreshHintOrLoading({
             />
         )
     }
-    return <InsightRefreshDataHint onRetry={onRetry} />
+    return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
 }
 
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
@@ -304,7 +304,7 @@ export function InsightVizDisplay({
                     />
                 )
             }
-            return <InsightRefreshDataHint onRetry={onRetry} />
+            return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
         }
 
         if (activeView === InsightType.FUNNELS && !isFlowViz) {
@@ -323,8 +323,8 @@ export function InsightVizDisplay({
     })()
 
     // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
-    // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts do
-    // when the quill in-chart legend is on (`usesInChartLegend`).
+    // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts
+    // (including pie) do when the quill in-chart legend is on (`usesInChartLegend`).
     const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
     const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 

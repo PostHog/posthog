@@ -10,6 +10,7 @@ function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRu
         skill_name: 'signals-scout-error-tracking',
         skill_version: 1,
         status: 'completed',
+        metadata: {},
         created_at: '2026-06-11T10:00:00Z',
         started_at: '2026-06-11T10:00:00Z',
         completed_at: null,
@@ -49,6 +50,14 @@ describe('mergeSignalRuns', () => {
     it('drops scout runs without a backing task_id (they cannot deep-link to a task)', () => {
         const merged = mergeSignalRuns([scoutRun({ task_id: null }), scoutRun({ task_id: 'task-ok' })], [])
         expect(merged.map((r) => r.task_id)).toEqual(['task-ok'])
+    })
+
+    it('drops signal tasks with no report link (the scout-authoring CTA threads share the origin)', () => {
+        const merged = mergeSignalRuns(
+            [],
+            [signalTask({ id: 'scout-authoring-chat', title: 'Suggest a scout', signal_report: null })]
+        )
+        expect(merged).toEqual([])
     })
 
     it('interleaves scout and signal rows newest-first by created_at', () => {

@@ -60,6 +60,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def read_object(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[tuple[bytes, Optional[str]]]:
+        pass
+
+    @abc.abstractmethod
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
         pass
 
@@ -124,6 +128,9 @@ class UnavailableStorage(ObjectStorageClient):
         return None
 
     def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[bytes]:
+        return None
+
+    def read_object(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[tuple[bytes, Optional[str]]]:
         return None
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
@@ -237,10 +244,14 @@ class ObjectStorage(ObjectStorageClient):
             return None
 
     def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[bytes]:
+        result = self.read_object(bucket, key, missing_ok=missing_ok)
+        return None if result is None else result[0]
+
+    def read_object(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[tuple[bytes, Optional[str]]]:
         s3_response = {}
         try:
             s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
-            return s3_response["Body"].read()
+            return s3_response["Body"].read(), s3_response.get("ContentType")
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code")
             if error_code == "NoSuchKey" and missing_ok:
@@ -250,7 +261,6 @@ class ObjectStorage(ObjectStorageClient):
                 bucket=bucket,
                 file_name=key,
                 error=e,
-                s3_response={},
             )
             capture_exception(e)
             raise ObjectStorageError("read failed") from e
@@ -512,6 +522,13 @@ def read(file_name: str, bucket: str | None = None, *, missing_ok: bool = False)
 def read_bytes(file_name: str, bucket: str | None = None, *, missing_ok: bool = False) -> Optional[bytes]:
     bucket = bucket or settings.OBJECT_STORAGE_BUCKET
     return object_storage_client().read_bytes(bucket, file_name, missing_ok=missing_ok)
+
+
+def read_object(
+    file_name: str, bucket: str | None = None, *, missing_ok: bool = False
+) -> Optional[tuple[bytes, Optional[str]]]:
+    bucket = bucket or settings.OBJECT_STORAGE_BUCKET
+    return object_storage_client().read_object(bucket, file_name, missing_ok=missing_ok)
 
 
 def list_objects(prefix: str) -> Optional[list[str]]:

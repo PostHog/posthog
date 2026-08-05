@@ -75,13 +75,9 @@ export function TaskComposer(): JSX.Element {
                                 </Composer.Header>
                                 <Composer.Field>
                                     <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
-                                    <Composer.Textarea
-                                        submitShortcut="cmd-enter"
-                                        autoFocus
-                                        data-attr="task-composer-input"
-                                    />
+                                    <Composer.Textarea autoFocus data-attr="task-composer-input" />
                                 </Composer.Field>
-                                <Composer.Footer className="flex items-center gap-1 pl-2">
+                                <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker
                                         selectedMode={newTaskData.permissionMode}
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}

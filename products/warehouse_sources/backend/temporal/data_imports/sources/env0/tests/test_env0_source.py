@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.env0 import Env0ResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.source import Env0Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import Env0SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.env0 import Env0SourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

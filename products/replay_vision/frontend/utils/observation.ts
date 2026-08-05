@@ -1,4 +1,7 @@
+import { dayjs } from 'lib/dayjs'
+
 import type { ReplayObservationApi } from '../generated/api.schemas'
+import { citedTextToPlainText } from './citations'
 
 export function readModelOutput(obs: ReplayObservationApi): Record<string, unknown> | null {
     const out = obs.scanner_result?.model_output
@@ -46,4 +49,43 @@ export function readFreeformTags(obs: ReplayObservationApi): string[] {
 
 export function readTags(obs: ReplayObservationApi): string[] {
     return [...readFixedTags(obs), ...readFreeformTags(obs)]
+}
+
+/** One succeeded observation as clipboard text: a metadata line, then the result body. */
+export function observationClipboardText(obs: ReplayObservationApi): string | null {
+    const output = readModelOutput(obs)
+    if (!output || obs.status !== 'succeeded') {
+        return null
+    }
+    const headlineParts: string[] = []
+    let body: string | null = null
+    if (obs.scanner_snapshot?.scanner_type === 'summarizer') {
+        const title = typeof output.title === 'string' && output.title ? output.title : null
+        const summary = typeof output.summary === 'string' && output.summary ? output.summary : null
+        if (title) {
+            headlineParts.push(title)
+        }
+        body = summary ? citedTextToPlainText(summary, output.summary_segments) : null
+    } else {
+        const verdict = readVerdict(obs)
+        if (verdict) {
+            headlineParts.push(`Verdict: ${verdict}`)
+        }
+        const score = readScore(obs)
+        if (score !== null) {
+            headlineParts.push(`Score: ${score}`)
+        }
+        const tags = readTags(obs)
+        if (tags.length > 0) {
+            headlineParts.push(tags.join(', '))
+        }
+        const reasoning = readReasoning(obs)
+        body = reasoning ? citedTextToPlainText(reasoning, output.reasoning_segments) : null
+    }
+    if (headlineParts.length === 0 && !body) {
+        return null
+    }
+    const meta = `[${dayjs(obs.created_at).format('YYYY-MM-DD')} · ${obs.session_id}]`
+    const headline = headlineParts.length > 0 ? `${meta} ${headlineParts.join(' · ')}` : meta
+    return [headline, body].filter(Boolean).join('\n')
 }

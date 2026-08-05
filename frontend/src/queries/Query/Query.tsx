@@ -26,13 +26,6 @@ import { QueryContext } from '~/queries/types'
 
 import { EndpointsUsageOverviewNode, EndpointsUsageTrendsNode } from 'products/endpoints/frontend/nodes'
 import { MetricsQueryNode } from 'products/metrics/frontend/nodes'
-import {
-    RevenueAnalyticsGrossRevenueNode,
-    RevenueAnalyticsMRRNode,
-    RevenueAnalyticsMetricsNode,
-    RevenueAnalyticsOverviewNode,
-    RevenueAnalyticsTopCustomersNode,
-} from 'products/revenue_analytics/frontend/nodes'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
@@ -45,11 +38,6 @@ import {
     isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
     isMetricsQuery,
-    isRevenueAnalyticsGrossRevenueQuery,
-    isRevenueAnalyticsMRRQuery,
-    isRevenueAnalyticsMetricsQuery,
-    isRevenueAnalyticsOverviewQuery,
-    isRevenueAnalyticsTopCustomersQuery,
     isSavedInsightNode,
     isWebOverviewQuery,
     isWebVitalsPathBreakdownQuery,
@@ -190,51 +178,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 inSharedMode={inSharedMode}
                 filtersOverride={filtersOverride}
                 variablesOverride={variablesOverride}
-            />
-        )
-    } else if (isRevenueAnalyticsGrossRevenueQuery(query)) {
-        component = (
-            <RevenueAnalyticsGrossRevenueNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
-        )
-    } else if (isRevenueAnalyticsMetricsQuery(query)) {
-        component = (
-            <RevenueAnalyticsMetricsNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
-        )
-    } else if (isRevenueAnalyticsMRRQuery(query)) {
-        component = (
-            <RevenueAnalyticsMRRNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
-        )
-    } else if (isRevenueAnalyticsOverviewQuery(query)) {
-        component = (
-            <RevenueAnalyticsOverviewNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
-        )
-    } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
-        component = (
-            <RevenueAnalyticsTopCustomersNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
             />
         )
     } else if (isMetricsQuery(query)) {

@@ -12,10 +12,12 @@ import structlog
 from temporalio import common
 
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.util import (
+    DistinctIdForPerson,
+    _batched_get_distinct_ids_for_persons,
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     delete_person,
@@ -67,27 +69,46 @@ def delete_persons_profile(
     Activity logging is performed only when both ``request`` and ``organization_id``
     are provided (i.e. from a DRF endpoint). Dagster ops should leave them as None.
     """
+    from posthog.personhog_client.client import personhog_call
+
     deleted: builtins.list[Person] = []
     errors: builtins.list[uuid_lib.UUID] = []
+    # A missing map entry (or a failed batch fetch) passes None below, making delete_person
+    # fall back to its own per-person lookup so failure isolation is preserved.
+    distinct_ids_by_person: dict[int, builtins.list[DistinctIdForPerson]] = {}
+    try:
+        distinct_ids_by_person = personhog_call(
+            "get_distinct_ids_for_deletion",
+            lambda: _batched_get_distinct_ids_for_persons(team_id, [person.pk for person in persons]),
+            caller_tag="persons/deletion-distinct-ids",
+        )
+    except Exception:
+        logger.exception("Batched distinct-id fetch failed, falling back to per-person lookups")
     for person in persons:
         try:
-            delete_person(person=person)
+            delete_person(person=person, distinct_ids=distinct_ids_by_person.get(person.pk))
             deleted.append(person)
         except Exception:
             logger.exception("Failed to delete person", person_uuid=str(person.uuid))
             errors.append(person.uuid)
-            continue
-        if request is not None and organization_id is not None and actor is not None:
-            log_activity(
-                organization_id=organization_id,
-                team_id=team_id,
-                user=cast(User, actor),
-                was_impersonated=is_impersonated(request),
-                item_id=person.pk,
-                scope="Person",
-                activity="deleted",
-                detail=Detail(name=str(person.uuid)),
-            )
+
+    if request is not None and organization_id is not None and actor is not None:
+        was_impersonated = is_impersonated(request)
+        bulk_log_activity(
+            [
+                LogActivityEntry(
+                    organization_id=organization_id,
+                    team_id=team_id,
+                    user=cast(User, actor),
+                    was_impersonated=was_impersonated,
+                    item_id=person.pk,
+                    scope="Person",
+                    activity="deleted",
+                    detail=Detail(name=str(person.uuid)),
+                )
+                for person in deleted
+            ]
+        )
 
     if deleted:
         delete_persons_from_postgres(team_id, deleted)

@@ -227,7 +227,10 @@ jobs:
         timeout-minutes: 90
         name: Setup DO Hobby Instance and test
         needs: [wait-for-docker-image, changes]
-        if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push')
+        # A status function is required to read wait-for-docker-image's conclusion after it
+        # failed or was skipped. !cancelled() rather than always() so a superseded PR run stops
+        # this 90-minute job promptly; the explicit conclusion/push checks preserve when it runs.
+        if: ${{ !cancelled() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push') }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:

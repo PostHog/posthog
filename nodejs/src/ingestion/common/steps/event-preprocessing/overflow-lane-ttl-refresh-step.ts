@@ -1,5 +1,5 @@
 import {
-    OverflowEventBatch,
+    OverflowEventGroup,
     OverflowRedirectService,
 } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
@@ -26,7 +26,10 @@ export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefres
         }
 
         // Group events by token:distinct_id for batch TTL refresh
-        const keyStats = new Map<string, { token: string; distinctId: string; count: number; firstTimestamp: number }>()
+        const keyStats = new Map<
+            string,
+            { token: string; distinctId: string; headersPerEvent: EventHeaders[]; firstTimestamp: number }
+        >()
 
         for (const { headers, event } of inputs) {
             const token = headers.token ?? ''
@@ -36,23 +39,23 @@ export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefres
 
             const existing = keyStats.get(eventKey)
             if (existing) {
-                existing.count++
+                existing.headersPerEvent.push(headers)
             } else {
-                keyStats.set(eventKey, { token, distinctId, count: 1, firstTimestamp: timestamp })
+                keyStats.set(eventKey, { token, distinctId, headersPerEvent: [headers], firstTimestamp: timestamp })
             }
         }
 
-        const batches: OverflowEventBatch[] = Array.from(keyStats.values()).map(
-            ({ token, distinctId, count, firstTimestamp }) => ({
+        const groups: OverflowEventGroup[] = Array.from(keyStats.values()).map(
+            ({ token, distinctId, headersPerEvent, firstTimestamp }) => ({
                 key: { token, distinctId },
-                eventCount: count,
+                headersPerEvent,
                 firstTimestamp,
             })
         )
 
         // TTL refresh doesn't affect routing, so attach it as a pipeline side effect
         // instead of blocking the pipeline on a Redis write.
-        const refreshPromise = overflowRedirectService.handleEventBatch(batches)
+        const refreshPromise = overflowRedirectService.handleEventBatch(groups)
 
         return Promise.resolve(inputs.map((input) => ok(input, [refreshPromise])))
     }

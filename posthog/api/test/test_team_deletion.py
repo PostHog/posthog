@@ -78,6 +78,31 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
                 "ip_address": None,
             },
             {
+                # The env→project rewrite routes the delete through the project-delete path, which cascades
+                # the project and logs a Project "deleted" activity alongside the Team one.
+                "_state": ANY,
+                "activity": "deleted",
+                "created_at": ANY,
+                "detail": {
+                    "changes": None,
+                    "context": None,
+                    "name": "Default project",
+                    "short_id": None,
+                    "trigger": None,
+                    "type": None,
+                },
+                "id": ANY,
+                "is_system": False,
+                "organization_id": ANY,
+                "team_id": team.pk,
+                "item_id": str(team.pk),
+                "scope": "Project",
+                "user_id": self.user.pk,
+                "was_impersonated": False,
+                "client": None,
+                "ip_address": "127.0.0.1",
+            },
+            {
                 "_state": ANY,
                 "activity": "deleted",
                 "created_at": ANY,

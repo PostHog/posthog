@@ -47,27 +47,6 @@ export type ErrorTrackingConsumerConfig = {
      *  split large batches before they hit Cymbal's body limit. */
     ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: number
 
-    /** Master kill-switch for the keyed rate limiter. When false, no Redis pool
-     *  is created and the pipeline step is a no-op. */
-    ERROR_TRACKING_RATE_LIMITER_ENABLED: boolean
-    /** When true, decisions are computed and tracked but never enforced. Lets
-     *  us validate thresholds + Redis path before flipping to enforce. */
-    ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE: boolean
-    /** Dedicated Redis host. If empty, falls back to REDIS_URL. */
-    ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: string
-    ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: number
-    ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: boolean
-    /** TTL in seconds for the Redis bucket key. */
-    ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: number
-
-    /** Max new per-issue bucket keys a single team can create per window before
-     *  cooldown engages and per-issue limiting is bypassed for that team. */
-    ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD: number
-    /** Length of the new-key counter window (seconds). */
-    ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS: number
-    /** Cooldown duration once a team trips the guard (seconds). */
-    ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS: number
-
     /** Pipeline name for metrics labeling */
     INGESTION_PIPELINE: string | null
     /** Lane identifier (main, overflow) for metrics labeling */
@@ -91,15 +70,6 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
         ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: true,
         ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: 1_800_000,
-        ERROR_TRACKING_RATE_LIMITER_ENABLED: false,
-        ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE: true,
-        ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: '',
-        ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: 6379,
-        ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: false,
-        ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: 86_400,
-        ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD: 1000,
-        ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS: 3600,
-        ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS: 300,
         INGESTION_PIPELINE: null,
         INGESTION_LANE: null,
         INGESTION_OVERFLOW_MODE: 'disabled',

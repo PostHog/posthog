@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Data pipelines
 feature: batch_exports
-url_prefix: /data-pipelines/destinations
+url_prefix: /data-management/destinations
 ui_apps: {}
 tools:
     batch-export-create:

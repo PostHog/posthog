@@ -12,8 +12,10 @@ from posthog.schema import (
     SourceFieldSelectConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LlamaCloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.llamacloud import (
+    LlamaCloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.llama_cloud import (
     LlamaCloudResumeConfig,
 )

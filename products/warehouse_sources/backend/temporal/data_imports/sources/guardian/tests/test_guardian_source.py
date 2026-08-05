@@ -3,7 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GuardianSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.guardian import (
+    GuardianSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.guardian import GuardianResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.source import GuardianSource
@@ -122,7 +124,6 @@ class TestGuardianSource:
         _, kwargs = mock_source.call_args
         assert kwargs["endpoint"] == "content"
         assert kwargs["api_key"] == "test-key"
-        assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
     def test_source_for_pipeline_omits_incremental_value_when_disabled(self):

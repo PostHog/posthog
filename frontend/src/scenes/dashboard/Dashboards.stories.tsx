@@ -200,6 +200,16 @@ export const Show: Story = {
     },
 }
 
+// Multi-viewport snapshots of the dashboard scene from mobile to superwide, so we catch the header
+// layout (and any squishing) across breakpoints. `skipCanvasDraw` is re-declared because per-story
+// `testOptions` replaces the meta-level object rather than merging into it.
+export const ShowAcrossViewports: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
+        testOptions: { skipCanvasDraw: true, viewportWidths: ['narrow', 'medium', 'wide', 'superwide'] },
+    },
+}
+
 export const Edit: Story = {
     render: () => {
         useDelayedOnMountEffect(() => {

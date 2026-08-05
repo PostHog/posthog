@@ -22,7 +22,7 @@ from pydantic_core import to_jsonable_python
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_cache_key, calculate_for_query_based_insight
-from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
+from posthog.caching.insight_result import InsightResult, NothingInCacheResult
 from posthog.models import Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard

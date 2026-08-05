@@ -1,4 +1,4 @@
-# Channels & Threads (PostHog Code / Bluebird)
+# Channels & Threads (PostHog Desktop / Bluebird)
 
 Spec for the Slack-style channel revamp. A channel is a shared feed where each
 member message kicks off a task; the task renders as a card everyone in the
@@ -105,7 +105,7 @@ Thread messages inherit the task's visibility.
   `signal_task_run_user_message`, then stamps `forwarded_to_agent_at`,
   `forwarded_by`, `forwarded_run`. 400 when the task has no signalable run.
 
-## Client (PostHog Code, bluebird mode)
+## Client (PostHog Desktop, bluebird mode)
 
 - **Channel feed** — the channel view becomes a Slack-like feed: each item is
   the kickoff message (author avatar + name + prompt) with a task card
@@ -120,15 +120,14 @@ Thread messages inherit the task's visibility.
   a task shows the same panel next to the task detail (collapsible).
 - **#me** — the sidebar pins the personal channel (`#me`) above the channel
   list; it is each user's private feed.
-- **Bridge** — sidebar channels remain desktop-file-system folders (CONTEXT.md,
-  dashboards and artifacts stay keyed to the folder id). Each folder channel is
-  mapped to a backend `Channel` by name via the resolve-or-create `POST`; the
-  `#me` entry maps to the personal channel. Task ownership, feeds and threads
-  key off the backend channel UUID.
+- **One identity** — the backend `Channel` UUID keys everything: task
+  ownership, feeds, threads, canvases (`Canvas.channel`), CONTEXT.md
+  instructions, and per-user stars. (The former desktop-file-system folder
+  bridge — folders mapped to channels by name — was retired when canvases
+  became first-class rows; see `products/canvas/`.)
 
 ## Out of scope (v1)
 
 - Channel membership / invited private channels (only team-public + personal).
 - Message editing and emoji reactions.
 - Real-time push for feed/thread updates (clients poll; SSE can come later).
-- Backfilling `channel` onto existing tasks.

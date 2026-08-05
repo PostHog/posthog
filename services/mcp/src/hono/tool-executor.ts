@@ -7,6 +7,7 @@ import {
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
 import {
+    ExecCommandError,
     handleToolError,
     MissingOrganizationContextError,
     MissingProjectContextError,
@@ -23,7 +24,13 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
-import { trackExecuteSqlGeneration, trackToolCall, trackToolsList, type ToolCallIntentMeta } from './analytics'
+import {
+    trackExecuteSqlGeneration,
+    trackToolCall,
+    trackToolSpan,
+    trackToolsList,
+    type ToolCallIntentMeta,
+} from './analytics'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
@@ -140,6 +147,18 @@ export class ToolExecutor {
         )
     }
 
+    // execute-sql is the one tool whose advertised description is formatted per
+    // request (the schema-discovery splice varies by feature flag) instead of served
+    // from the catalog, on both the native tools/list path and exec's `info` output.
+    // trackToolCall stamps the catalog text by default, so it needs the served text
+    // for this tool or $mcp_tool_description records words the agent never saw.
+    private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
+        if (toolName === EXECUTE_SQL_TOOL_NAME) {
+            return this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags)
+        }
+        return undefined
+    }
+
     // Pull the agent's stated intent off the injected `context` arg and strip it so
     // tool schemas/handlers never see it (validation is `.strict()` in places). The
     // intent rides through to `$mcp_intent` on the captured event. Guarded: analytics
@@ -223,7 +242,8 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -236,6 +256,13 @@ export class ToolExecutor {
                 )
             }
 
+            void trackToolSpan(tool.name, state, {
+                durationMs: duration,
+                isError: false,
+                input: validation.data,
+                output: response,
+            })
+
             return response
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
@@ -247,8 +274,9 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification),
-                intentMeta
+                errorAnalyticsProperties(classification, error),
+                intentMeta,
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -264,6 +292,13 @@ export class ToolExecutor {
                     intentMeta
                 )
             }
+
+            void trackToolSpan(tool.name, state, {
+                durationMs: Date.now() - startMs,
+                isError: true,
+                errorMessage: error instanceof Error ? error.message : String(error),
+                input: validation.data,
+            })
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
@@ -324,24 +359,28 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(execToolName(), state)
             )
 
             return response
         } catch (error: unknown) {
             const metricTool = execToolName()
-            if (!execMetrics.innerToolName) {
-                toolCallsTotal.inc({ tool: 'exec', status: 'error' })
-            }
             const classification = classifyToolError(error, metricTool)
+            if (!execMetrics.innerToolName) {
+                // Match the inner-tool path, which labels rejected input `validation_error`.
+                const status = classification.errorType === 'validation' ? 'validation_error' : 'error'
+                toolCallsTotal.inc({ tool: 'exec', status })
+            }
 
             void trackToolCall(
                 metricTool,
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification),
-                intentMeta
+                errorAnalyticsProperties(classification, error),
+                intentMeta,
+                this.servedToolDescription(metricTool, state)
             )
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
@@ -388,6 +427,13 @@ export class ToolExecutor {
                     intentMeta
                 )
             }
+            void trackToolSpan(toolName, state, {
+                durationMs: properties.duration_ms,
+                isError: !properties.success,
+                errorMessage: properties.error_message,
+                input: properties.input,
+                output: properties.output,
+            })
         }
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 
@@ -463,7 +509,7 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification),
+                errorAnalyticsProperties(classification, error),
                 intentMeta
             )
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
@@ -516,6 +562,12 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
             ...(error.inputKeys.length ? { validationInputKeys: error.inputKeys } : {}),
         }
     }
+    // Agent-recoverable command mistakes, so keep them out of the `internal` rate
+    // ops alerts on. `missing_scope` is the exception: no input the agent sends
+    // fixes it, the connection has to be reauthorized.
+    if (error instanceof ExecCommandError) {
+        return { errorType: error.reason === 'missing_scope' ? 'permission' : 'validation' }
+    }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
@@ -539,13 +591,83 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     return { errorType: 'internal' }
 }
 
+// Mirrors the SDK's MAX_ERROR_MESSAGE_LENGTH so `$mcp_error_message` stays within
+// the bound external servers get when they pass `error` to the SDK.
+const MAX_ERROR_MESSAGE_LENGTH = 2048
+
+/**
+ * Extracts a capturable message from a thrown value, restricted to an allowlist
+ * of error classes whose message shape we control. `$mcp_error_message` is
+ * readable by every analytics viewer in the project — not just the caller that
+ * received the tool result — so arbitrary `Error.message`s and thrown strings
+ * are never captured: tools echo caller input into them (document previews, SQL
+ * fragments) and `PostHogApiError`'s default message embeds the upstream
+ * response body. API errors are rebuilt from status + method + URL path instead.
+ */
+function extractErrorMessage(error: unknown): string | undefined {
+    const raw = resolveSafeErrorMessage(error)
+    if (!raw) {
+        return undefined
+    }
+    // Strip control characters except newline/tab (multi-line validation errors stay readable)
+    const sanitized = raw
+        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+        .trim()
+        .slice(0, MAX_ERROR_MESSAGE_LENGTH)
+    return sanitized || undefined
+}
+
+function resolveSafeErrorMessage(error: unknown): string | undefined {
+    // Static recovery walkthroughs generated by our own constructors.
+    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
+        return error.message
+    }
+    // Documented value-free: offending field paths + issue codes, never input values.
+    if (error instanceof ToolInputValidationError) {
+        return error.message
+    }
+    // Value-free: the reason enum only. The dispatcher's human message can echo the
+    // caller's tool name or a JSON-parser fragment, so it's never captured.
+    if (error instanceof ExecCommandError) {
+        return `Exec command rejected: ${error.reason}`
+    }
+    if (error instanceof Error && error.name === 'TimeoutError') {
+        return 'Tool call timed out'
+    }
+    const apiError = findRecoverableApiError(error)
+    if (apiError instanceof PostHogValidationError) {
+        // `detail` is the raw API validation body; for query tools it echoes the caller's
+        // offending HogQL/filter expression (`/query/` resolver errors quote the bad name),
+        // so capture only the controlled code + field, never the free-text detail.
+        const code = apiError.code ? `: ${apiError.code}` : ''
+        const field = apiError.attr ? ` (field: ${apiError.attr})` : ''
+        return `Validation error${code}${field}`
+    }
+    if (apiError instanceof PostHogApiError) {
+        // Rebuilt summary: no response body, no query string.
+        return `HTTP ${apiError.status} ${apiError.statusText} on ${apiError.method} ${safeUrlPath(apiError.url)}`
+    }
+    return undefined
+}
+
+function safeUrlPath(url: string): string {
+    try {
+        return new URL(url).pathname
+    } catch {
+        return ''
+    }
+}
+
 /**
  * Properties stamped onto an errored `$mcp_tool_call` so the dashboard can slice
  * failures by reason. `$mcp_error_type` aligns with the SDK's native field; the
  * SDK derives a generic type from the thrown error when none is supplied, and an
- * explicit value here overrides it.
+ * explicit value here overrides it. `$mcp_error_message` carries a sanitized,
+ * allowlisted summary of the failure (see `extractErrorMessage`) so tool-quality
+ * drill-downs can show what went wrong without persisting caller-derived text.
  */
-function errorAnalyticsProperties(classification: ToolErrorClassification): Record<string, unknown> {
+function errorAnalyticsProperties(classification: ToolErrorClassification, error: unknown): Record<string, unknown> {
+    const message = extractErrorMessage(error)
     return {
         $mcp_error_type: classification.errorType,
         ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
@@ -553,5 +675,6 @@ function errorAnalyticsProperties(classification: ToolErrorClassification): Reco
         ...(classification.validationInputKeys?.length
             ? { $mcp_validation_input_keys: classification.validationInputKeys }
             : {}),
+        ...(message !== undefined ? { $mcp_error_message: message } : {}),
     }
 }

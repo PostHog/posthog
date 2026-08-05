@@ -302,7 +302,7 @@ describe('IngestionConsumer', () => {
             })
 
             it('should emit to overflow if token and distinct_id are overflowed', async () => {
-                ;(ingester['overflowRedirectService'] as any)['rateLimiter'].consume(
+                ;(ingester['overflowRedirectService'] as any)['strategies'][0]['limiter'].consume(
                     `${team.api_token}:overflow-distinct-id`,
                     1000,
                     now()

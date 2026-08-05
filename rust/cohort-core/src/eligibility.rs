@@ -83,6 +83,19 @@ impl CohortEligibility {
     pub fn writes_cf_stage2(self) -> bool {
         matches!(self, Self::Stage2Composable | Self::Stage2ComposableRef)
     }
+
+    /// Whether this class persists membership in `cf_stage2`. Broader than [`Self::writes_cf_stage2`],
+    /// which covers the composable classes only: single-leaf cohorts also register a row here, holding
+    /// their own leaf's membership bit rather than a composition result.
+    ///
+    /// Enumerated positively so a new eligibility variant must opt in here rather than silently start
+    /// registering membership; the orphan-GC keep-predicate reads it.
+    pub fn registers_membership(self) -> bool {
+        matches!(
+            self,
+            Self::SingleLeaf(_) | Self::Stage2Composable | Self::Stage2ComposableRef
+        )
+    }
 }
 
 /// Whether a tree's root condition is negated: AND requires all children negated, OR requires any.
@@ -904,6 +917,12 @@ mod tests {
             "a still-excluded ref cohort persists no cf_stage2 row",
         );
         assert!(!CohortEligibility::Excluded(ExcludedReason::CycleDetected).writes_cf_stage2());
+
+        assert!(CohortEligibility::Stage2Composable.registers_membership());
+        assert!(CohortEligibility::Stage2ComposableRef.registers_membership());
+        assert!(CohortEligibility::SingleLeaf(LeafStateKey(HASH_A)).registers_membership());
+        assert!(!CohortEligibility::Excluded(ExcludedReason::HasCohortRef).registers_membership(),);
+        assert!(!CohortEligibility::Excluded(ExcludedReason::CycleDetected).registers_membership(),);
     }
 
     #[test]

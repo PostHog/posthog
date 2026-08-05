@@ -150,14 +150,15 @@ import type { AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
-// Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative
-// and bar layouts). Lifecycle always renders it regardless of display.
-const DISPLAYS_WITH_IN_CHART_LEGEND = [
+// Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative,
+// bar layouts, and pie). Lifecycle always renders it regardless of display.
+export const DISPLAYS_WITH_IN_CHART_LEGEND = [
     ChartDisplayType.ActionsLineGraph,
     ChartDisplayType.ActionsLineGraphCumulative,
     ChartDisplayType.ActionsAreaGraph,
     ChartDisplayType.ActionsBar,
     ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsPie,
 ]
 
 export type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
@@ -372,7 +373,11 @@ export interface insightVizDataLogicActions {
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
         | TraceSpansTreeQueryResponse // insightDataLogic
-    setQuery: (query: Node<Record<string, any>> | null) => {
+    setQuery: (
+        query: Node<Record<string, any>> | null,
+        fromUrl?: boolean | undefined
+    ) => {
+        fromUrl: boolean
         query: Node<Record<string, any>> | null
     } // insightDataLogic
     removeFormulaNode: (formulas: TrendsFormulaNode[]) => {
@@ -1122,7 +1127,7 @@ export interface insightVizDataLogicMeta {
             actions: import('~/types').ActionType[]
         ) => string[]
         theme: (
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // dataThemeLogic
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery

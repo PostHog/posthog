@@ -4,9 +4,14 @@ import { useMemo } from 'react'
 import { getColorVar } from 'lib/colors'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
-import { EMAIL_METRIC_INVOCATION_FILTERS, EmailMetric, WORKFLOW_EMAIL_METRICS } from './workflowMetricsSummaryLogic'
+import { WorkflowMetricCard } from './WorkflowMetricCard'
+import {
+    EMAIL_METRIC_INVOCATION_FILTERS,
+    EmailMetric,
+    METRIC_COLORS,
+    WORKFLOW_EMAIL_METRICS,
+} from './workflowMetricsSummaryLogic'
 
 const EMAIL_METRIC_KEYS = Object.keys(WORKFLOW_EMAIL_METRICS) as (keyof typeof WORKFLOW_EMAIL_METRICS)[]
 
@@ -31,7 +36,6 @@ export function EmailMetricsSummary({
                               name:
                                   WORKFLOW_EMAIL_METRICS[series.name as keyof typeof WORKFLOW_EMAIL_METRICS]?.name ??
                                   series.name,
-                              color: WORKFLOW_EMAIL_METRICS[series.name as keyof typeof WORKFLOW_EMAIL_METRICS]?.color,
                           })),
                   }
                 : null,
@@ -45,7 +49,7 @@ export function EmailMetricsSummary({
                     const metric = WORKFLOW_EMAIL_METRICS[key]
                     const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_INVOCATION_FILTERS[key]
                     return (
-                        <AppMetricSummary
+                        <WorkflowMetricCard
                             key={key}
                             name={metric.name}
                             description={metric.description}
@@ -60,7 +64,11 @@ export function EmailMetricsSummary({
                     )
                 })}
             </div>
-            <AppMetricsTrends appMetricsTrends={emailTrends} loading={appMetricsTrendsLoading} />
+            <AppMetricsTrends
+                appMetricsTrends={emailTrends}
+                loading={appMetricsTrendsLoading}
+                seriesColors={METRIC_COLORS}
+            />
         </>
     )
 }

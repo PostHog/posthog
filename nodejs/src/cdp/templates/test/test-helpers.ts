@@ -202,12 +202,17 @@ export class TemplateTester {
                 sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
                 sesRegion: config.SES_REGION,
                 sesEndpoint: config.SES_ENDPOINT,
+                sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: false,
             },
             undefined as any,
             undefined as any,
             config.ENCRYPTION_SALT_KEYS,
             config.SITE_URL,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            undefined as any,
+            undefined as any
         )
         return new HogExecutorService(
             {
@@ -415,6 +420,7 @@ export const createAdDestinationPayload = (
                 sccid: 'snapchat-id',
                 rdt_cid: 'reddit-id',
                 msclkid: 'microsoft-id',
+                oppref: 'openai-id',
                 phone: '+1234567890',
                 external_id: '1234567890',
                 first_name: 'Max',

@@ -27,8 +27,22 @@ class CheckCountTriggeredEvalReportOutput:
 
 
 @dataclasses.dataclass
+class CheckCountTriggeredEvalReportsBatchInput:
+    report_ids: list[str]
+
+
+@dataclasses.dataclass
+class CheckCountTriggeredEvalReportsBatchOutput:
+    results: list[CheckCountTriggeredEvalReportOutput]
+
+
+@dataclasses.dataclass
 class FetchDueEvalReportsOutput:
     report_ids: list[str]
+    # Count-triggered candidates grouped one team per group, each group at most
+    # COUNT_TRIGGER_QUERY_WIDTH wide. None when emitted by a pre-batching worker;
+    # the workflow then keeps the legacy per-report path.
+    report_id_groups: list[list[str]] | None = None
 
 
 @dataclasses.dataclass
@@ -81,6 +95,7 @@ class RunEvalReportAgentOutput:
     content: dict[str, Any]
     period_start: str
     period_end: str
+    generation_status: str = "completed"
 
 
 @dataclasses.dataclass
@@ -108,6 +123,9 @@ class DeliverReportInput:
 class UpdateNextDeliveryDateInput:
     report_id: str
     period_end: str
+    generation_status: str = "completed"
+    record_attempt: bool = True
+    advance_data_cursor: bool | None = None
 
 
 @dataclasses.dataclass

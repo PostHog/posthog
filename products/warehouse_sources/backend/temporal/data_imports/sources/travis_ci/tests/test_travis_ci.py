@@ -277,14 +277,12 @@ class TestPaginationCursorValidation:
         ]
     )
     def test_rejects_host_changing_cursor(self, _name: str, cursor: str) -> None:
-
         with pytest.raises(ValueError):
             _resolve_page_url(cursor)
 
 
 class TestHostileCursorFailsSync:
     def test_hostile_next_cursor_from_upstream_raises(self) -> None:
-
         pages = {
             REPOS_URL: _page("repositories", [{"id": 1}], next_path="@attacker.example/next"),
         }
@@ -292,7 +290,6 @@ class TestHostileCursorFailsSync:
             _collect(_FakeResumableManager(), pages, endpoint="repositories")
 
     def test_hostile_resume_cursor_raises(self) -> None:
-
         manager = _FakeResumableManager(TravisCIResumeConfig(next_path="@attacker.example/next"))
         with pytest.raises(ValueError):
             _collect(manager, {}, endpoint="repositories")
