@@ -153,7 +153,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+                'Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
             ),
         bysetpos: zod
             .number()
@@ -340,7 +340,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+                'Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
             ),
         bysetpos: zod
             .number()
