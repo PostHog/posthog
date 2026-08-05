@@ -12,6 +12,7 @@ import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
     createExecTool,
+    describeExecCommand,
     describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
@@ -1253,6 +1254,53 @@ describe('exec tool', () => {
             ['   '],
         ])('returns undefined for "%s"', (command) => {
             expect(parseExecCallInnerToolName(command)).toBeUndefined()
+        })
+    })
+
+    describe('describeExecCommand', () => {
+        // The verb/target pair is what separates schema discovery from tool search
+        // from a mistyped verb in analytics. Flag handling differs per verb, so a
+        // parser regression silently collapses the funnel back into one bucket.
+        it.each([
+            ['tools', 'tools', undefined],
+            ['search query-', 'search', undefined],
+            ['info execute-sql', 'info', 'execute-sql'],
+            ['info --json execute-sql', 'info', 'execute-sql'],
+            ['schema query-trends series', 'schema', 'query-trends'],
+            ['call my-tool {"a":1}', 'call', 'my-tool'],
+            ['call --json --confirm my-tool {}', 'call', 'my-tool'],
+            ['  info   execute-sql  ', 'info', 'execute-sql'],
+            // A `call` that never resolves still records what was attempted — the
+            // only signal there is behind an `unknown_tool` rejection.
+            ['call not-a-real-tool {}', 'call', 'not-a-real-tool'],
+            // Verb present, target absent: nothing to record for the tool, but the
+            // verb still is.
+            ['info', 'info', undefined],
+            ['call', 'call', undefined],
+            ['', undefined, undefined],
+        ])('describes "%s" as verb=%s target=%s', (command, expectedVerb, expectedTarget) => {
+            expect(describeExecCommand(command)).toEqual({
+                verb: expectedVerb,
+                ...(expectedTarget !== undefined ? { targetTool: expectedTarget } : {}),
+            })
+        })
+
+        // Both fields reach analytics, so an unrecognized token must never carry
+        // caller text through. Anything outside [a-z0-9._-] is dropped and the
+        // result is capped — the same value-free constraint `describeValidationError`
+        // holds for schema rejections.
+        it.each([
+            ['LIST {"secret":"value"}', 'list'],
+            ['<script>alert(1)</script>', 'scriptalert1script'],
+            ['a'.repeat(200), 'a'.repeat(64)],
+        ])('normalizes unrecognized verb in "%s"', (command, expectedVerb) => {
+            const { verb } = describeExecCommand(command)
+            expect(verb).toBe(expectedVerb)
+            expect(verb!.length).toBeLessThanOrEqual(64)
+        })
+
+        it('normalizes and bounds an unrecognized target tool', () => {
+            expect(describeExecCommand(`call ${'x'.repeat(200)} {}`).targetTool).toBe('x'.repeat(64))
         })
     })
 

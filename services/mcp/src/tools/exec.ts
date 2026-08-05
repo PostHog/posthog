@@ -126,6 +126,58 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     return innerName || undefined
 }
 
+/** Verbs the dispatcher grammar accepts. A verb outside this set is what the
+ *  `unknown_command` rejection fires on, and is recorded normalized. */
+const KNOWN_EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
+
+/** Verbs whose first positional argument names a tool. */
+const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])
+
+const MAX_EXEC_TOKEN_LENGTH = 64
+
+/**
+ * Reduces a model-supplied token to a bounded, punctuation-free identifier so an
+ * unrecognized verb or tool name can be recorded without carrying arbitrary text
+ * into analytics. Tool names are lowercase kebab-case, so a legitimate value
+ * survives this untouched; anything else collapses to a harmless fragment.
+ */
+function normalizeExecToken(raw: string): string | undefined {
+    const normalized = raw
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]/g, '')
+        .slice(0, MAX_EXEC_TOKEN_LENGTH)
+    return normalized || undefined
+}
+
+export interface ExecCommandShape {
+    /** The dispatcher verb, normalized when it isn't one we accept. */
+    verb?: string
+    /** The tool `info`/`schema`/`call` targeted — present even when it resolves to nothing. */
+    targetTool?: string
+}
+
+/**
+ * Describes an exec command for analytics: which verb ran, and which tool it
+ * targeted. Both are value-free — a bounded grammar token and a tool name — so
+ * neither can carry caller input (see `describeValidationError` for the same
+ * constraint applied to schema rejections).
+ *
+ * Without this, every non-`call` verb lands in one undifferentiated `exec`
+ * bucket: schema discovery is indistinguishable from tool search, and an
+ * `unknown_command` rejection records no verb to diagnose. `targetTool` is what
+ * links an `info <tool>` to the `call <tool>` that follows it.
+ */
+export function describeExecCommand(command: string): ExecCommandShape {
+    const { verb: rawVerb, rest } = parseCommand(command)
+    const verb = KNOWN_EXEC_VERBS.has(rawVerb) ? rawVerb : normalizeExecToken(rawVerb)
+    if (!TOOL_TARGETING_VERBS.has(rawVerb) || !rest) {
+        return { verb }
+    }
+    // `call` and `info` carry flags before the tool name; `schema` takes none.
+    const args = rawVerb === 'call' ? parseCallFlags(rest).rest : rest.replace(/^--json(\s+|$)/, '')
+    return { verb, targetTool: args ? normalizeExecToken(parseCommand(args).verb) : undefined }
+}
+
 // Resolves the inner tool an `exec` call targets: given a request, return the
 // inner tool's { name, description } when the agent invoked it via
 // `call <tool> ...`, or undefined otherwise. Lives here (alongside

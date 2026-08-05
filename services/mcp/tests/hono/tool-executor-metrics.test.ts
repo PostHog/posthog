@@ -381,6 +381,33 @@ describe('ToolExecutor metrics', () => {
             expect(mockToolDurationStartTimer).not.toHaveBeenCalled()
         })
 
+        // The direct path used to return before tracking, so a schema rejection in
+        // 'tools' mode produced no `$mcp_tool_call` at all — leaving every
+        // exec-vs-direct error comparison silently flattering direct mode. Pin both
+        // the event and the value-free diagnostics that make it actionable.
+        it('emits an errored analytics event with the rejected fields on a schema rejection', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                name: 'strict-tool',
+                base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
+            } as any)
+
+            await executor.handleToolCall(
+                { name: 'strict-tool', arguments: { requiredField: 'sent under the wrong name' } },
+                makeState([{ name: 'strict-tool' }])
+            )
+
+            const call = mockTrackToolCall.mock.calls.find((c) => c[0] === 'strict-tool')
+            expect(call).not.toBeUndefined()
+            expect(call![2]).toBe(true)
+            // No handler ran, so the call carries no duration (mirrors the exec path).
+            expect(call![1]).toBe(0)
+            expect(trackToolCallExtras('strict-tool')).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_validation_fields: ['required_field:invalid_type'],
+                $mcp_validation_input_keys: ['requiredField'],
+            })
+        })
+
         it('records error for unknown tool', async () => {
             await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeState([]))
 
@@ -411,6 +438,25 @@ describe('ToolExecutor metrics', () => {
 
             expect(callsFor(mockToolCallsInc, 'exec')).toHaveLength(0)
             expect(callsFor(mockToolDurationStartTimer, 'exec')).toHaveLength(0)
+        })
+
+        // Without the verb, every non-`call` command lands in one undifferentiated
+        // `exec` bucket — schema discovery, tool search and a mistyped verb become
+        // indistinguishable, and `unknown_command` records nothing to diagnose.
+        // `$mcp_exec_target_tool` is what links an `info <tool>` to the `call <tool>`
+        // that follows it, and is the only trace of an attempted unknown tool.
+        it.each([
+            ['tools', { $mcp_exec_verb: 'tools' }],
+            ['info docs-search', { $mcp_exec_verb: 'info', $mcp_exec_target_tool: 'docs-search' }],
+            ['schema docs-search query', { $mcp_exec_verb: 'schema', $mcp_exec_target_tool: 'docs-search' }],
+            // Rejected verbs and unresolvable tools still carry their (normalized) token.
+            ['frobnicate whatever', { $mcp_exec_verb: 'frobnicate' }],
+            ['call not-a-real-tool {}', { $mcp_exec_verb: 'call', $mcp_exec_target_tool: 'not-a-real-tool' }],
+        ])('stamps the exec verb and target for "%s"', async (command, expected) => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
+
+            const call = mockTrackToolCall.mock.calls.at(-1)
+            expect(call?.[4]).toMatchObject(expected)
         })
 
         it('emits inner tool name for counter and duration on inner tool call', async () => {

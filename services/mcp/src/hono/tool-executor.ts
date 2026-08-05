@@ -19,7 +19,13 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
-import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
+import {
+    createExecTool,
+    describeExecCommand,
+    describeValidationError,
+    formatInputValidationError,
+    type ExecInnerCallTracker,
+} from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
@@ -189,8 +195,25 @@ export class ToolExecutor {
         const validation = tool.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
+            const message = formatInputValidationError(tool.name, validation.error)
+            // Emit the same errored `$mcp_tool_call` the exec path emits for an
+            // identical rejection. Without it, direct-mode ('tools') schema
+            // rejections are absent from analytics entirely — so every
+            // exec-vs-direct comparison silently flatters direct mode, and
+            // clients registered individually look error-free when they aren't.
+            // Duration is 0: no handler ran (see `trackInnerCall`, same rule).
+            const rejection = new ToolInputValidationError(message, describeValidationError(validation.error, toolArgs))
+            void trackToolCall(
+                tool.name,
+                0,
+                true,
+                state,
+                errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
+                intentMeta,
+                this.servedToolDescription(tool.name, state)
+            )
             return {
-                content: [{ type: 'text', text: formatInputValidationError(tool.name, validation.error) }],
+                content: [{ type: 'text', text: message }],
                 isError: true,
             }
         }
@@ -335,6 +358,12 @@ export class ToolExecutor {
         // attributed to `exec`.
         const execToolName = (): string => execMetrics.innerToolName ?? 'exec'
 
+        // Which verb ran and which tool it targeted. Stamped on every exec event —
+        // success and failure alike — so the discovery verbs stop collapsing into
+        // one opaque `exec` bucket and an `info <tool>` can be linked to the
+        // `call <tool>` that follows it.
+        const execShape = execCommandAnalyticsProperties(validation.data)
+
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
             const duration = Date.now() - startMs
@@ -356,6 +385,7 @@ export class ToolExecutor {
                 false,
                 state,
                 {
+                    ...execShape,
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
@@ -378,7 +408,7 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification, error),
+                { ...execShape, ...errorAnalyticsProperties(classification, error) },
                 intentMeta,
                 this.servedToolDescription(metricTool, state)
             )
@@ -719,5 +749,28 @@ function errorAnalyticsProperties(classification: ToolErrorClassification, error
         ...(classification.errorCode ? { $mcp_error_code: classification.errorCode } : {}),
         ...(classification.errorField ? { $mcp_error_field: classification.errorField } : {}),
         ...(message !== undefined ? { $mcp_error_message: message } : {}),
+    }
+}
+
+/**
+ * Properties describing the exec command itself: `$mcp_exec_verb` (which
+ * dispatcher verb ran) and `$mcp_exec_target_tool` (the tool `info`/`schema`/
+ * `call` named).
+ *
+ * `$mcp_tool_name` already carries the inner tool for a successful `call`, but
+ * it reads `exec` for every other verb and for a `call` that never resolved — so
+ * schema discovery, tool search, and a mistyped verb are indistinguishable, and
+ * an `unknown_tool` rejection records nothing about what was attempted. Both
+ * values are value-free by construction (see `describeExecCommand`).
+ */
+function execCommandAnalyticsProperties(execArgs: unknown): Record<string, unknown> {
+    const command = (execArgs as { command?: unknown } | undefined)?.command
+    if (typeof command !== 'string') {
+        return {}
+    }
+    const { verb, targetTool } = describeExecCommand(command)
+    return {
+        ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),
+        ...(targetTool !== undefined ? { $mcp_exec_target_tool: targetTool } : {}),
     }
 }
