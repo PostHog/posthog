@@ -12,13 +12,18 @@ import re
 import json
 from typing import Any
 
-from products.data_catalog.evals.constants import METRICS_CATALOG_MARKER
+from products.data_catalog.evals.constants import (
+    DEPRECATION_CANONICAL_SOURCE_NAME,
+    DEPRECATION_STALE_SOURCE_NAME,
+    METRICS_CATALOG_MARKER,
+)
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
     "CanonicalMetricRun",
+    "DeprecationProposed",
     "SemanticMetadataQueried",
     "SemanticTrustDecisionCorrectness",
     "MetricsCatalogQueried",
@@ -30,6 +35,7 @@ __all__ = [
 
 SQL_TOOL = "execute-sql"
 METRIC_RUN_TOOL = "data-catalog-metric-run"
+CERTIFICATION_PROPOSE_TOOL = "data-catalog-certification-propose"
 _INFO_SCHEMA = "information_schema"
 _INFO_SYNTHETIC_PREFIX = "__info__:"
 # Matches the PostHog MCP namespace across regional server names —
@@ -290,6 +296,69 @@ class CanonicalMetricRun(Scorer):
                 "catalog_positions": successful_catalog_positions,
             },
         )
+
+
+def _propose_targets(call: ToolCall, name: str, table_id: str | None) -> bool:
+    call_input = call.input if isinstance(call.input, dict) else {}
+    if isinstance(call_input.get("table_name"), str) and call_input["table_name"] == name:
+        return True
+    return table_id is not None and str(call_input.get("table_id")) == str(table_id)
+
+
+def _proposes_deprecation(call: ToolCall) -> bool:
+    call_input = call.input if isinstance(call.input, dict) else {}
+    return call_input.get("proposed_status") == "deprecated"
+
+
+class DeprecationProposed(Scorer):
+    """Binary: did the agent propose deprecating the stale source (and spare the canonical one)?"""
+
+    def _name(self) -> str:
+        return "deprecation_proposed"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        if not _requested(expected, self._name()):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        seed = (output or {}).get("seed")
+        candidate = seed.get("deprecation_candidate", {}) if isinstance(seed, dict) else {}
+        stale_name = candidate.get("stale_table_name", DEPRECATION_STALE_SOURCE_NAME)
+        stale_id = candidate.get("stale_table_id")
+        canonical_name = candidate.get("canonical_table_name", DEPRECATION_CANONICAL_SOURCE_NAME)
+        canonical_id = candidate.get("canonical_table_id")
+
+        propose_calls = [call for call in parser.get_tool_calls(CERTIFICATION_PROPOSE_TOOL) if not call.is_error]
+        deprecated_canonical = [
+            call
+            for call in propose_calls
+            if _proposes_deprecation(call) and _propose_targets(call, canonical_name, canonical_id)
+        ]
+        if deprecated_canonical:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "proposed deprecating the canonical source", "canonical_source": canonical_name},
+            )
+
+        deprecated_stale = [
+            call
+            for call in propose_calls
+            if _proposes_deprecation(call) and _propose_targets(call, stale_name, stale_id)
+        ]
+        if not deprecated_stale:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "did not propose deprecating the stale source",
+                    "stale_source": stale_name,
+                    "propose_calls": [call.input for call in propose_calls],
+                },
+            )
+        return Score(name=self._name(), score=1.0, metadata={"stale_source": stale_name})
 
 
 class MetricsCatalogNotQueried(Scorer):

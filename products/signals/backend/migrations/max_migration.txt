@@ -1,1 +1,1 @@
-0084_signalscoutconfig_network_access
+0086_signalscoutconfig_structured_output_schema

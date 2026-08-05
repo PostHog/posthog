@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.tab
     record_table_stats,
     table_payload_bytes,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes, report_phase
 
 DEFAULT_CHUNK_SIZE_BYTES: int = 200 * 1024 * 1024  # 200 MiB
 DEFAULT_CHUNK_SIZE: int = 500_000
@@ -106,6 +107,14 @@ class Batcher:
         the per-table Arrow-payload cap (keeping the loader's per-batch merge bounded)."""
         chunks = _split_table(table, offset_limit=self._max_column_offset_bytes, bytes_limit=self._max_table_bytes)
         payload_bytes = table_payload_bytes(table)
+        # The materialised table is this activity's true in-memory peak, already sized here for
+        # chunking — feed the same number to the workload self-report at zero extra cost. Phase is
+        # re-declared here because v2 interleaves extract and merge per chunk: without flipping back,
+        # the writer's "merge" would latch after the first chunk and every later mid-extract death
+        # would be misreported as a merge death, biasing the exact distribution this signal exists
+        # to measure.
+        report_phase("extract")
+        report_buffer_bytes(payload_bytes)
         if self._source_type is not None:
             # The materialised table is the true in-memory peak (an unbounded source yields one giant
             # list -> one giant table here, before the split into bounded chunks).

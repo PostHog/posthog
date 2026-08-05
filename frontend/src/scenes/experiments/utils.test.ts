@@ -30,6 +30,9 @@ import {
 import { filterToMetricConfig } from './metricQueryUtils'
 import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
+    FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
+    FUNNEL_SERVER_SIDE_COMPLETION_REASON,
+    NOT_A_FUNNEL_REASON,
     applySessionLinkability,
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
@@ -37,6 +40,7 @@ import {
     getBaselineVariantKey,
     getEventCountQuery,
     getExposureFallbackFilter,
+    getFunnelDropoffReason,
     getOrderedMetricsWithResults,
     getSessionLinkabilityEventNames,
     getViewRecordingFilters,
@@ -730,6 +734,57 @@ describe('applySessionLinkability', () => {
         const input = [...filters]
         expect(applySessionLinkability(filters, unlinkable, fallback)).toEqual(expected)
         expect(filters).toEqual(input) // does not mutate its input
+    })
+})
+
+describe('getFunnelDropoffReason', () => {
+    const unlinkable = new Set(['server_side_step'])
+    const clientStep = { kind: NodeKind.EventsNode, event: 'client_step' }
+    const serverSideStep = { kind: NodeKind.EventsNode, event: 'server_side_step' }
+    const warehouseStep = { kind: NodeKind.ExperimentDataWarehouseNode, table_name: 'stripe_charges' }
+    const funnelMetric = (series: unknown[]): ExperimentMetric =>
+        ({
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series,
+        }) as unknown as ExperimentMetric
+
+    // The exposure event is an experiment funnel's implicit first step, so only the last series
+    // step has to be matchable to recordings.
+    it.each([
+        { case: 'allows a single-step funnel', metric: funnelMetric([clientStep]), expected: null },
+        {
+            case: 'allows a funnel whose first series step is server-side',
+            metric: funnelMetric([serverSideStep, clientStep]),
+            expected: null,
+        },
+        {
+            case: 'allows a funnel whose first series step is in the data warehouse',
+            metric: funnelMetric([warehouseStep, clientStep]),
+            expected: null,
+        },
+        {
+            case: 'refuses a single-step funnel whose only step is server-side',
+            metric: funnelMetric([serverSideStep]),
+            expected: FUNNEL_SERVER_SIDE_COMPLETION_REASON,
+        },
+        {
+            case: 'refuses a funnel whose last step is in the data warehouse',
+            metric: funnelMetric([clientStep, warehouseStep]),
+            expected: FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
+        },
+        { case: 'refuses a funnel with no steps', metric: funnelMetric([]), expected: NOT_A_FUNNEL_REASON },
+        {
+            case: 'refuses a non-funnel metric',
+            metric: {
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: clientStep,
+            } as unknown as ExperimentMetric,
+            expected: NOT_A_FUNNEL_REASON,
+        },
+    ])('$case', ({ metric, expected }) => {
+        expect(getFunnelDropoffReason(metric, unlinkable)).toBe(expected)
     })
 })
 

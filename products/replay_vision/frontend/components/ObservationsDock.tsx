@@ -136,10 +136,10 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             data-attr="vision-observations-dock"
         >
             {dockOpen && <Resizer {...resizerProps} />}
-            <div className="flex items-center gap-3 h-11 px-3 shrink-0">
+            <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <ScannerPicker sessionId={sessionId} />
                 {observations.length > 0 && (
-                    <span className="text-muted text-sm">
+                    <span className="text-muted text-sm min-w-0 truncate">
                         {observations.length} observation{observations.length === 1 ? '' : 's'}
                     </span>
                 )}
