@@ -29,7 +29,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
-import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    ReplayIframeData,
+    getStoredRecordingBackground,
+    removeReplayIframeDataFromLocalStorage,
+} from 'scenes/heatmaps/replayIframeData'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { hogql } from '~/queries/utils'
@@ -88,14 +92,6 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
     }
 
     return null
-}
-
-export interface ReplayIframeData {
-    html: string
-    width: number // NB this should be meta width
-    height: number // NB this should be meta height
-    startDateTime: string | undefined
-    url: string | undefined
 }
 
 // Helper function to detect if a URL contains regex pattern characters
@@ -827,10 +823,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
         '/heatmaps/recording': (_, searchParams) => {
             if (searchParams.iframeStorage) {
-                const replayFrameData = JSON.parse(
-                    localStorage.getItem(searchParams.iframeStorage) || '{}'
-                ) as ReplayIframeData
-                actions.setReplayIframeData(replayFrameData)
+                actions.setReplayIframeData(getStoredRecordingBackground(searchParams.iframeStorage))
             }
         },
     })),
