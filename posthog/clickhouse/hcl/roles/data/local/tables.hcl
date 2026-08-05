@@ -108,7 +108,7 @@ database "posthog" {
   }
   table "adhoc_events_deletion" {
     order_by = ["team_id", "uuid"]
-    ttl      = "deleted_at + toIntervalMonth(3)"
+    ttl      = "deleted_at + toIntervalMonth(3) WHERE is_deleted = 1"
     settings = {
       index_granularity = "8192"
     }

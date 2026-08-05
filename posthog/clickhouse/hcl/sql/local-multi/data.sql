@@ -7,7 +7,7 @@ CREATE TABLE posthog.adhoc_events_deletion (
   created_at DateTime64(6, 'UTC') DEFAULT now64(),
   deleted_at DateTime,
   is_deleted UInt8 DEFAULT 0
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.adhoc_events_deletion', '{replica}-{shard}', deleted_at, is_deleted) ORDER BY (team_id, uuid) TTL deleted_at + toIntervalMonth(3) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.adhoc_events_deletion', '{replica}-{shard}', deleted_at, is_deleted) ORDER BY (team_id, uuid) TTL deleted_at + toIntervalMonth(3) WHERE is_deleted = 1 SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.ai_events (
   uuid UUID,
   event LowCardinality(String),
