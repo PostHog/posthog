@@ -267,7 +267,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                 <ScannerPromptField
                     scannerId={scannerId}
                     placeholder="Categorize this session by its primary user intent."
-                    caption="Your prompt is what to categorize each session by. Include anything the agent should know about your product or this flow."
+                    caption="Your prompt tells the agent how to decide which of your tags fit each session. Include anything the agent should know about your product or this flow."
                 />
                 <ClassifierTagsField scannerId={scannerId} />
                 <LemonField name="scanner_config.multi_label">
@@ -306,7 +306,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                 <ScannerPromptField
                     scannerId={scannerId}
                     placeholder="Rate how frustrated the user appeared during this session."
-                    caption="Your prompt is the criterion to score each session against. Include anything the agent should know about your product or this flow."
+                    caption="Your prompt is what the agent scores each session on, using the scale below. Include anything the agent should know about your product or this flow."
                 />
                 <LemonField name="scanner_config.scale">
                     {({ value, onChange, error }) => {
