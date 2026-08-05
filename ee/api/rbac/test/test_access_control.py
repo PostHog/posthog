@@ -2,12 +2,14 @@ import json
 
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessSource
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -17,8 +19,10 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.api.test.base import APILicensedTest
+from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role, RoleMembership
 
 
@@ -2121,6 +2125,96 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         res = self.client.get("/api/projects/@current/access_control_members")
         member_data = self._find_member(res.json()["results"], self.user2_membership.id)
         assert member_data["project"]["access_level"] == "member"
+
+
+class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+    @parameterized.expand(
+        [
+            ("member_objects", "access_control_member_objects", "member_id"),
+            ("member_properties", "access_control_member_properties", "member_id"),
+            ("role_objects", "access_control_role_objects", "role_id"),
+            ("role_properties", "access_control_role_properties", "role_id"),
+        ]
+    )
+    def test_subject_from_another_organization_is_404(self, _name, endpoint, param):
+        other_org = Organization.objects.create(name="Other org")
+        other_user = User.objects.create_and_join(other_org, "other-org-user@posthog.com", None)
+        other_membership = OrganizationMembership.objects.get(user=other_user, organization=other_org)
+        other_role = Role.objects.create(name="Other org role", organization=other_org)
+
+        subject_id = other_membership.id if param == "member_id" else other_role.id
+        res = self.client.get(f"/api/projects/@current/{endpoint}?{param}={subject_id}")
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+    def test_default_objects_returns_only_rows_without_a_subject(self):
+        shared = Dashboard.objects.create(team=self.team, name="Shared dashboard", created_by=self.user)
+        scoped = Dashboard.objects.create(team=self.team, name="Scoped dashboard", created_by=self.user)
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(shared.id), access_level="editor"
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(scoped.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(scoped.id), access_level="viewer", role=role
+        )
+
+        res = self.client.get("/api/projects/@current/access_control_default_objects")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [(r["resource_id"], r["access_level"]) for r in res.json()["results"]] == [(str(shared.id), "editor")]
+
+    def test_member_objects_excludes_the_project_access_row(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        res = self.client.get(
+            f"/api/projects/@current/access_control_member_objects?member_id={self.organization_membership.id}"
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [r["resource"] for r in res.json()["results"]] == ["dashboard"]
+
+    def test_object_names_resolve_with_raw_id_fallback(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth dashboard", created_by=self.user)
+        insight = Insight.objects.create(team=self.team, derived_name="Weekly signups", created_by=self.user)
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="editor"
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="insight", resource_id=str(insight.id), access_level="viewer"
+        )
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="999999", access_level="none")
+
+        res = self.client.get("/api/projects/@current/access_control_default_objects")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        rows = {r["resource_id"]: r for r in res.json()["results"]}
+        assert rows[str(dashboard.id)]["name"] == "Growth dashboard"
+        # Insight.name is empty, so the derived name shows, with short_id alongside for linking
+        assert rows[str(insight.id)]["name"] == "Weekly signups"
+        assert rows[str(insight.id)]["short_id"] == insight.short_id
+        # A rule pointing at a missing object keeps the raw id as its name
+        assert rows["999999"]["name"] == "999999"
 
 
 class TestCohortUsedInAccessControl(BaseAccessControlTest):
