@@ -48,7 +48,7 @@ def reconcile_ses_tenant_states() -> None:
     failed = 0
     for team_id in team_ids.iterator(chunk_size=500):
         try:
-            sync_ses_tenant_state(team_id, provider=provider)
+            sync_ses_tenant_state(team_id, provider=provider, verify_team=False)
             synced += 1
         except Exception:
             failed += 1

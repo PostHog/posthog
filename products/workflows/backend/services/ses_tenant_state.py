@@ -32,7 +32,7 @@ _MAX_FINDINGS_IN_EMAIL = 5
 _STATE_FIELDS = ["ses_tenant_sending_status", "ses_tenant_reputation_impact", "ses_tenant_state_synced_at"]
 
 
-def sync_ses_tenant_state(team_id: int, provider: SESProvider | None = None) -> None:
+def sync_ses_tenant_state(team_id: int, provider: SESProvider | None = None, *, verify_team: bool = True) -> None:
     """
     Fetch the authoritative AWS SES tenant state for a team and apply it. Called from the
     EventBridge webhook (events only say "something changed" — the API is the source of truth)
@@ -40,9 +40,10 @@ def sync_ses_tenant_state(team_id: int, provider: SESProvider | None = None) -> 
     """
     # SES holds tenants for teams that no longer exist here (a deleted project keeps its tenant),
     # and the webhook takes its team id from whatever AWS sent. Without this the config row's FK to
-    # posthog_team fails and the task retries a write that can never succeed.
-    if not Team.objects.filter(id=team_id).exists():
-        logger.info("Skipping SES tenant state sync for unknown team", team_id=team_id)
+    # posthog_team fails and the task retries a write that can never succeed. The sweep passes
+    # verify_team=False: it reads team ids off integration rows, so the team exists by construction.
+    if verify_team and not Team.objects.filter(id=team_id).exists():
+        logger.warning("Skipping SES tenant state sync for unknown team", team_id=team_id)
         return
 
     tenant = (provider or SESProvider()).get_tenant_reputation(team_id)
@@ -120,11 +121,13 @@ def _findings_for_email(findings: list[dict[str, Any]] | None) -> list[dict[str,
     """
     if not findings:
         return []
-    ordered = sorted(findings, key=lambda f: _IMPACT_SEVERITY.get(str(f.get("impact") or ""), 0), reverse=True)
+    described = [finding for finding in findings if finding.get("description")]
+    # Drop the undescribed ones before the cut, or a blank finding with a high impact takes a slot
+    # from one that has text to show.
+    ordered = sorted(described, key=lambda f: _IMPACT_SEVERITY.get(str(f.get("impact") or ""), 0), reverse=True)
     return [
         {"impact": str(finding.get("impact") or ""), "description": str(finding.get("description") or "")}
         for finding in ordered[:_MAX_FINDINGS_IN_EMAIL]
-        if finding.get("description")
     ]
 
 
