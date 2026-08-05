@@ -61,6 +61,11 @@ from products.signals.backend.temporal.types import (
 
 logger = structlog.get_logger(__name__)
 
+# How long to keep retrying an empty signal fetch before treating it as a real "no signals"
+# terminal state, to ride out ClickHouse insert lag rather than fail a report that has signals.
+EMPTY_FETCH_RETRY_ATTEMPTS = 3
+EMPTY_FETCH_RETRY_DELAY_SECONDS = 15
+
 
 def _capture_report_event(
     event: str,
@@ -213,6 +218,20 @@ class SignalReportSummaryWorkflow:
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        # An empty read here isn't proof the report has no signals — it can also mean the
+        # signals haven't landed in ClickHouse yet. Retry a few times before treating it as
+        # terminal. patched(): in-flight histories predate the retry loop.
+        if not fetch_result.signals and workflow.patched("signals-retry-empty-fetch"):
+            for _ in range(EMPTY_FETCH_RETRY_ATTEMPTS):
+                await workflow.sleep(timedelta(seconds=EMPTY_FETCH_RETRY_DELAY_SECONDS))
+                fetch_result = await workflow.execute_activity(
+                    fetch_signals_for_report_activity,
+                    FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                if fetch_result.signals:
+                    break
         if not fetch_result.signals:
             log.error("No signals found for report, marking as failed")
             await workflow.execute_activity(
