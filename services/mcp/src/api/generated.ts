@@ -65395,6 +65395,47 @@ export namespace Schemas {
       block_consent_modals?: boolean;
     }
 
+    /**
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day
+     */
+    export type SavedQueryMaterializeSyncFrequencyEnum = typeof SavedQueryMaterializeSyncFrequencyEnum[keyof typeof SavedQueryMaterializeSyncFrequencyEnum];
+
+
+    export const SavedQueryMaterializeSyncFrequencyEnum = {
+      '15min': '15min',
+      '30min': '30min',
+      '1hour': '1hour',
+      '6hour': '6hour',
+      '12hour': '12hour',
+      '24hour': '24hour',
+      '7day': '7day',
+      '30day': '30day',
+    } as const;
+
+    /**
+     * Body of the `materialize` action: which cadence to enable materialization at.
+     */
+    export interface SavedQueryMaterialize {
+      /** How often to refresh the materialized table, defaulting to daily. Rejected with a 400 when it falls outside what the query's lineage allows: no more often than its sources deliver new data, and no less often than a downstream view or endpoint needs.
+       *
+       * * `15min` - 15min
+       * * `30min` - 30min
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day
+       * * `30day` - 30day */
+      sync_frequency?: SavedQueryMaterializeSyncFrequencyEnum;
+    }
+
     export interface SavedQueryResume {
       /** False when the query's materialization was not suspended. */
       resumed: boolean;
