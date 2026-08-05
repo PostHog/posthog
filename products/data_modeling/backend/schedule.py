@@ -12,6 +12,7 @@ Frequency tiers:
 
 import uuid
 import hashlib
+from collections import defaultdict
 from collections.abc import Collection
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -29,6 +30,7 @@ from posthog.temporal.common.search_attributes import (
 )
 
 from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
+from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
@@ -90,8 +92,46 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
     return dag_ids
 
 
+def _fallback_dag_ids_for_nodeless(saved_query_ids: set[uuid.UUID]) -> dict[uuid.UUID, set[str]]:
+    """Stand in the owning team's DAGs for saved queries that have no node to resolve through.
+
+    A saved query normally reaches its DAG via its node, but the node can be absent when we are
+    asked: `sync_saved_query_to_dag` deletes it when dependency resolution raises, and a caller
+    that swallows that failure still goes on to schedule the query. Resolving "no node" to "not
+    on v2" mints a v1 per-query schedule beside the team's live tier, and the query then
+    materializes twice on every cycle. Answering from the team is the safe direction, because a
+    team with no v2-scheduled DAG still comes back v1-eligible.
+    """
+    if not saved_query_ids:
+        return {}
+
+    # schedule.py is imported by the saved query model, so this import cannot be module-level.
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery  # noqa: PLC0415
+
+    team_by_saved_query = dict(
+        DataWarehouseSavedQuery.objects.filter(id__in=saved_query_ids).values_list("id", "team_id")
+    )
+    if not team_by_saved_query:
+        return {}
+
+    dag_ids_by_team: dict[int, set[str]] = defaultdict(set)
+    for team_id, dag_id in DAG.objects.filter(team_id__in=set(team_by_saved_query.values())).values_list(
+        "team_id", "id"
+    ):
+        dag_ids_by_team[team_id].add(str(dag_id))
+
+    return {
+        saved_query_id: dag_ids_by_team[team_id]
+        for saved_query_id, team_id in team_by_saved_query.items()
+        if dag_ids_by_team.get(team_id)
+    }
+
+
 def get_v2_saved_query_ids(candidate_ids: Collection[uuid.UUID] | None = None) -> set[uuid.UUID]:
     """Return saved query IDs whose DAG already runs on a v2 schedule.
+
+    A saved query counts as on v2 when any DAG it belongs to has a v2 schedule, because it can sit
+    in several DAGs and one v1-scheduled placement does not make a v1 schedule safe to mint.
 
     Optionally restrict the lookup to `candidate_ids` to keep the query bounded. These saved
     queries must be skipped by v1 schedule commands so we never undo migration progress.
@@ -101,18 +141,21 @@ def get_v2_saved_query_ids(candidate_ids: Collection[uuid.UUID] | None = None) -
             return set()
         # Resolve the candidate saved queries to their DAGs first so the Temporal lookup is scoped
         # to just those DAGs rather than listing every schedule in the namespace.
-        dag_id_by_saved_query = {
-            saved_query_id: str(dag_id)
-            for saved_query_id, dag_id in Node.objects.filter(
-                saved_query_id__in=candidate_ids, saved_query_id__isnull=False
-            ).values_list("saved_query_id", "dag_id")
-            if dag_id is not None
-        }
-        if not dag_id_by_saved_query:
+        dag_ids_by_saved_query: dict[uuid.UUID, set[str]] = defaultdict(set)
+        for saved_query_id, dag_id in Node.objects.filter(
+            saved_query_id__in=candidate_ids, saved_query_id__isnull=False
+        ).values_list("saved_query_id", "dag_id"):
+            if dag_id is not None:
+                dag_ids_by_saved_query[saved_query_id].add(str(dag_id))
+
+        dag_ids_by_saved_query.update(
+            _fallback_dag_ids_for_nodeless(set(candidate_ids) - dag_ids_by_saved_query.keys())
+        )
+        if not dag_ids_by_saved_query:
             return set()
 
-        v2_dag_ids = get_v2_scheduled_dag_ids(set(dag_id_by_saved_query.values()))
-        return {saved_query_id for saved_query_id, dag_id in dag_id_by_saved_query.items() if dag_id in v2_dag_ids}
+        v2_dag_ids = get_v2_scheduled_dag_ids({dag_id for ids in dag_ids_by_saved_query.values() for dag_id in ids})
+        return {saved_query_id for saved_query_id, ids in dag_ids_by_saved_query.items() if ids & v2_dag_ids}
 
     v2_dag_ids = get_v2_scheduled_dag_ids()
     if not v2_dag_ids:
