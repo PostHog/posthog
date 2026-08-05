@@ -208,6 +208,45 @@ class TestSourceScoping:
         assert suggestions == []
 
 
+class TestRanking:
+    def test_ranks_by_what_switching_recovers_not_by_the_current_gap(self):
+        # Ordering follows what the switch reconnects, not how big the hole is.
+        # Meta:   20 campaigns x 500 = 10,000 gap, ids match 12/20 -> recovers 6,000.
+        # Google: 10 campaigns x 500 =  5,000 gap, ids match  9/10 -> recovers 4,500.
+        meta = [_campaign(f"m_{i}", f"{9000 + i}", spend=500.0, source="meta") for i in range(20)]
+        google = [_campaign(f"g_{i}", f"{8000 + i}", spend=500.0, source="google") for i in range(10)]
+        utm_events = {
+            **{(c.campaign_id, "facebook"): 100 for c in meta[:12]},
+            **{(c.campaign_id, "google"): 100 for c in google[:9]},
+        }
+
+        suggestions = suggest_campaign_field_preferences(meta + google, utm_events, NO_MAPPINGS)
+
+        assert [s.integration for s in suggestions] == ["MetaAds", "GoogleAds"]
+        assert [round(s.spend_recovered) for s in suggestions] == [6000, 4500]
+        # Ranked the other way round under the old key: Meta's gap is 10,000 to Google's 5,000,
+        # which happens to agree here — so pin the case where they disagree instead.
+        assert [round(s.spend_at_risk) for s in suggestions] == [10000, 5000]
+
+    def test_a_barely_helpful_switch_does_not_outrank_a_repair(self):
+        # The disagreement case. Big has the larger gap but the switch recovers less of it than
+        # Small's, which nearly fully resolves — keying on spend_at_risk put Big first.
+        big = [_campaign(f"b_{i}", f"{7000 + i}", spend=1000.0, source="meta") for i in range(10)]
+        small = [_campaign(f"s_{i}", f"{6000 + i}", spend=800.0, source="google") for i in range(10)]
+        utm_events = {
+            # Meta: gap 10,000, ids match 6/10 -> recovers 6,000.
+            **{(c.campaign_id, "facebook"): 100 for c in big[:6]},
+            # Google: gap 8,000, ids match 9/10 -> recovers 7,200.
+            **{(c.campaign_id, "google"): 100 for c in small[:9]},
+        }
+
+        suggestions = suggest_campaign_field_preferences(big + small, utm_events, NO_MAPPINGS)
+
+        assert [round(s.spend_at_risk) for s in suggestions] == [8000, 10000]
+        assert [s.integration for s in suggestions] == ["GoogleAds", "MetaAds"]
+        assert [round(s.spend_recovered) for s in suggestions] == [7200, 6000]
+
+
 class TestCollisionOverride:
     def test_surfaces_collision_even_below_threshold(self):
         campaigns = _named_campaigns(10)
@@ -225,7 +264,8 @@ class TestCollisionOverride:
         assert suggestion.confidence == COLLISION_CONFIDENCE
         # A human has to decide this one — it must never ride in the safe batch.
         assert suggestion.safe_to_batch is False
-        assert "meta" in suggestion.reason
+        # The structured field keeps the raw key (asserted above); only the prose is humanised.
+        assert "Meta Ads" in suggestion.reason
 
     def test_a_collision_never_suggests_going_back_to_names(self):
         # The team already matches on campaign_id, which is the cure for a name collision.
@@ -239,6 +279,19 @@ class TestCollisionOverride:
         suggestions = suggest_campaign_field_preferences(campaigns, utm_events, PREFERS_ID, audit)
 
         assert [s.suggested_match_field for s in suggestions] == []
+
+    def test_collision_reason_names_the_other_platform_the_way_a_human_would(self):
+        # The subject integration went through display_name_for_key while the colliding ones were
+        # printed as the raw primary-source keys they arrive as, so one sentence mixed both
+        # vocabularies: "Google Ads shares campaign names with meta".
+        campaigns = _named_campaigns(10)
+        utm_events = _utm(*[c.campaign_name for c in campaigns])
+        audit = [_collision("google", ["meta"])]
+
+        suggestion = suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS, audit)[0]
+
+        assert "Meta Ads" in suggestion.reason
+        assert "with meta" not in suggestion.reason
 
     def test_collision_reason_counts_the_shared_campaigns(self):
         # The affected set was "names absent from the catalogue", but a collision is about

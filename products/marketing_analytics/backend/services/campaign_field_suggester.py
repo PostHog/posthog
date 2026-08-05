@@ -98,9 +98,15 @@ class FieldPreferenceSuggestion:
     suggested: MatchRates
     campaigns_considered: int
     total_spend: float
-    # Spend on campaigns that don't match under the *current* field. What switching
-    # is worth, and what `setup_plan` ranks on.
+    # Spend on campaigns that don't match under the *current* field — the size of the problem.
+    # Not the same as the size of the fix: see `spend_recovered`.
     spend_at_risk: float
+    # Spend that switching actually reconnects, i.e. what the suggested field matches minus what the
+    # current one already does. This is the ranking key: a big integration whose suggested field
+    # barely helps should not outrank a smaller one the switch nearly repairs, which is what keying
+    # on `spend_at_risk` did. Can be <= 0 on the collision path, where the arithmetic does not favour
+    # switching and the case for it is structural ambiguity rather than recovered spend.
+    spend_recovered: float
     confidence: float
     safe_to_batch: bool
     reason: str
@@ -150,8 +156,9 @@ def suggest_campaign_field_preferences(
         if suggestion is not None:
             suggestions.append(suggestion)
 
-    # Highest-value switch first; `id` breaks ties so the output is stable.
-    suggestions.sort(key=lambda s: (-s.spend_at_risk, s.integration))
+    # Biggest actual recovery first — not the biggest current gap, which ranked an integration the
+    # switch barely helps above one it nearly fixes. `integration` breaks ties so output is stable.
+    suggestions.sort(key=lambda s: (-s.spend_recovered, s.integration))
     return suggestions
 
 
@@ -296,6 +303,7 @@ def _suggest_for_integration(
         campaigns_considered=len(group),
         total_spend=total_spend,
         spend_at_risk=total_spend - current.matched_spend,
+        spend_recovered=suggested.matched_spend - current.matched_spend,
         confidence=confidence,
         safe_to_batch=safe_to_batch,
         reason=reason,
@@ -341,6 +349,17 @@ def _delta_reason(display_name: str, current: MatchRates, suggested: MatchRates,
     return reason
 
 
+def _display_name_for_source(source_name: str) -> str:
+    """Primary source key -> the name a human recognises, e.g. "meta" -> "Meta Ads".
+
+    Collisions arrive from the audit as raw keys while the subject integration is already rendered
+    through `display_name_for_key`, so without this one sentence mixes both vocabularies. Falls back
+    to the raw key rather than dropping a platform we can't resolve.
+    """
+    native = native_for_primary_source(source_name)
+    return display_name_for_key(NATIVE_TO_KEY[native]) if native is not None else source_name
+
+
 def _collision_reason(
     display_name: str,
     colliding: list[str],
@@ -351,7 +370,7 @@ def _collision_reason(
     # This read `not in` before, which counted the campaigns receiving no traffic at all and so
     # reported "0 campaign(s) worth $0.00" in precisely the collision case it exists to describe.
     affected = [c for c in group if _candidate_value(c, DEFAULT_MATCH_FIELD) in utm_campaign_values]
-    others = ", ".join(colliding) or "another integration"
+    others = ", ".join(_display_name_for_source(source) for source in colliding) or "another integration"
     return (
         f"{display_name} shares campaign names with {others}, so name matching can't tell them "
         f"apart — {len(affected)} campaign(s) worth {_money(sum(c.spend for c in affected))} are "
