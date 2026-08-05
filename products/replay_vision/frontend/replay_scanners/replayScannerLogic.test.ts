@@ -297,13 +297,20 @@ describe('replayScannerLogic', () => {
 
         it.each([
             ['scannerSaved', () => logic.actions.scannerSaved(logic.values.scanner!)],
-            ['resetScanner', () => logic.actions.resetScanner()],
+            ['startFromTemplate', () => logic.actions.startFromTemplate(null)],
         ])('clears the draft on %s', async (_label, act) => {
             const teamId = teamLogic.values.currentTeamId!
             logic.actions.setScannerValues({ name: 'Drafted' })
-            expect(readScannerDraft(teamId)?.name).toBe('Drafted')
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
             act()
             expect(readScannerDraft(teamId)).toBeNull()
+        })
+
+        it('keeps the draft on resetScanner, so leaving the editor stays resumable', async () => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.actions.resetScanner()
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
         })
     })
 

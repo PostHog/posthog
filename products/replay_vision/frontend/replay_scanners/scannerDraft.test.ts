@@ -25,6 +25,6 @@ describe('scannerDraft', () => {
         const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
         const tampered = tamper(stored)
         localStorage.setItem(STORAGE_KEY, typeof tampered === 'string' ? tampered : JSON.stringify(tampered))
-        expect(readScannerDraft(readTeamId)?.name ?? null).toBe(expectRestored ? 'Drafted scanner' : null)
+        expect(readScannerDraft(readTeamId)?.scanner.name ?? null).toBe(expectRestored ? 'Drafted scanner' : null)
     })
 })

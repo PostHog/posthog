@@ -11,6 +11,11 @@ interface StoredScannerDraft {
     scanner: ReplayScanner
 }
 
+export interface ScannerDraft {
+    scanner: ReplayScanner
+    savedAt: number
+}
+
 export function writeScannerDraft(teamId: number, scanner: ReplayScanner): void {
     const draft: StoredScannerDraft = { version: DRAFT_VERSION, teamId, savedAt: Date.now(), scanner }
     try {
@@ -20,7 +25,7 @@ export function writeScannerDraft(teamId: number, scanner: ReplayScanner): void 
     }
 }
 
-export function readScannerDraft(teamId: number): ReplayScanner | null {
+export function readScannerDraft(teamId: number): ScannerDraft | null {
     try {
         const raw = localStorage.getItem(DRAFT_STORAGE_KEY)
         if (!raw) {
@@ -36,7 +41,7 @@ export function readScannerDraft(teamId: number): ReplayScanner | null {
         ) {
             return null
         }
-        return draft.scanner
+        return { scanner: draft.scanner, savedAt: draft.savedAt }
     } catch {
         return null
     }
