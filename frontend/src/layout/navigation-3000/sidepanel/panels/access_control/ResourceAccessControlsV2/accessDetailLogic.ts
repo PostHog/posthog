@@ -5,8 +5,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { resourceToApiRoute } from 'lib/utils/accessControlUtils'
+import { urls } from 'scenes/urls'
 
-import { APIScopeObject, AccessControlLevel } from '~/types'
+import { APIScopeObject, AccessControlLevel, InsightShortId } from '~/types'
 
 import {
     propertyAccessControlsCreate,
@@ -55,17 +56,53 @@ export function parseAccessDetailOptions(options: string | null): AccessDetailSu
     return { scopeType: scope === 'role' ? 'role' : 'member', subjectId }
 }
 
-// Object resource types offered in the "Add rule" picker — ones whose list `id` maps directly to
-// their `/{route}/{id}/access_controls` endpoint (route via resourceToApiRoute).
-export const OBJECT_RULE_RESOURCES: APIScopeObject[] = [
-    'dashboard',
-    'insight',
-    'feature_flag',
-    'experiment',
-    'survey',
-    'warehouse_table',
-    'warehouse_view',
-]
+interface ObjectRuleResourceConfig {
+    /**
+     * Offered in the "Add rule" picker: the list route's `id` addresses
+     * `/{route}/{id}/access_controls` (route via resourceToApiRoute) and the modal's search
+     * renders sensible labels for the type.
+     */
+    pickable: boolean
+    /** A link to open the object from a stored rule, for types addressable from it. */
+    url: (rule: AccessObjectRule) => string | null
+}
+
+/**
+ * Everything the one-off overrides UI knows per resource type, in one place. Which resources
+ * *support* object rules comes from the backend (`object_rule_resources` on the defaults
+ * endpoint, derived from viewset registration) — the picker offers the intersection. Types
+ * missing here still render by name, just unlinked.
+ */
+export const OBJECT_RULE_RESOURCE_CONFIG: Partial<Record<APIScopeObject, ObjectRuleResourceConfig>> = {
+    dashboard: { pickable: true, url: (rule) => urls.dashboard(rule.resource_id) },
+    insight: {
+        pickable: true,
+        url: (rule) => (rule.short_id ? urls.insightView(rule.short_id as InsightShortId) : null),
+    },
+    feature_flag: { pickable: true, url: (rule) => urls.featureFlag(rule.resource_id) },
+    experiment: { pickable: true, url: (rule) => urls.experiment(rule.resource_id) },
+    survey: { pickable: true, url: (rule) => urls.survey(rule.resource_id) },
+    warehouse_table: {
+        pickable: true,
+        // Tables have no page of their own, so open them the way the warehouse UI does — querying them
+        url: (rule) => urls.sqlEditor({ query: `SELECT * FROM ${rule.name} LIMIT 100` }),
+    },
+    warehouse_view: { pickable: true, url: (rule) => urls.sqlEditor({ view_id: rule.resource_id }) },
+    // Linkable, but the picker doesn't offer them: their list labels come out wrong or the type is niche
+    action: { pickable: false, url: (rule) => urls.action(rule.resource_id) },
+    external_data_source: { pickable: false, url: (rule) => urls.dataWarehouseSource(`managed-${rule.resource_id}`) },
+}
+
+export const PICKABLE_OBJECT_RULE_RESOURCES: APIScopeObject[] = (
+    Object.entries(OBJECT_RULE_RESOURCE_CONFIG) as [APIScopeObject, ObjectRuleResourceConfig][]
+)
+    .filter(([, config]) => config.pickable)
+    .map(([resource]) => resource)
+
+/** A link to open the object, null for types we can't address (e.g. notebooks need a short_id). */
+export function objectRuleUrl(rule: AccessObjectRule): string | null {
+    return OBJECT_RULE_RESOURCE_CONFIG[rule.resource]?.url(rule) ?? null
+}
 
 function endpoint(props: AccessDetailLogicProps, kind: 'objects' | 'properties'): string {
     const base = `api/projects/${props.projectId}`

@@ -5926,6 +5926,8 @@ export interface AccessControlDefaultsResponse {
     can_edit: boolean
     project_access_level: AccessControlLevel
     resource_access_levels: Record<string, EffectiveAccessControlEntry>
+    /** Resources supporting object-level rules, derived server-side from viewset registration. */
+    object_rule_resources: APIScopeObject[]
 }
 
 export interface AccessControlRolesResponse {

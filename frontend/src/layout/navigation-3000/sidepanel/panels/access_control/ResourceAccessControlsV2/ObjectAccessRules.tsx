@@ -5,12 +5,12 @@ import { LemonButton, LemonInputSelect, LemonLabel, LemonModal, LemonSelect, Lem
 
 import { resourceTypeToString } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType, InsightShortId } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { AccessLevelSelect } from '../AccessLevelSelect'
-import { AccessObjectRule, OBJECT_RULE_RESOURCES, accessDetailLogic } from './accessDetailLogic'
+import { accessControlsLogic } from './accessControlsLogic'
+import { AccessObjectRule, accessDetailLogic, objectRuleUrl } from './accessDetailLogic'
 import { AccessDetailSection } from './AccessDetailSection'
 import { addObjectOverrideModalLogic } from './addObjectOverrideModalLogic'
 import { ScopeIcon } from './ScopeIcon'
@@ -30,34 +30,6 @@ export interface ObjectAccessRulesProps {
     /** How the subject is called in copy, e.g. "member" or "role". */
     subjectNoun: string
     canEdit: boolean
-}
-
-/** A link to open the object, for resource types we can address from the stored resource_id. */
-function objectUrl(o: AccessObjectRule): string | null {
-    switch (o.resource) {
-        case 'dashboard':
-            return urls.dashboard(o.resource_id)
-        case 'feature_flag':
-            return urls.featureFlag(o.resource_id)
-        case 'experiment':
-            return urls.experiment(o.resource_id)
-        case 'survey':
-            return urls.survey(o.resource_id)
-        case 'action':
-            return urls.action(o.resource_id)
-        case 'insight':
-            return o.short_id ? urls.insightView(o.short_id as InsightShortId) : null
-        case 'warehouse_view':
-            return urls.sqlEditor({ view_id: o.resource_id })
-        case 'external_data_source':
-            return urls.dataWarehouseSource(`managed-${o.resource_id}`)
-        case 'warehouse_table':
-            // Tables have no page of their own, so open them the way the warehouse UI does — querying them
-            return urls.sqlEditor({ query: `SELECT * FROM ${o.name} LIMIT 100` })
-        default:
-            // notebook pages need a short_id we don't have here — show as plain text
-            return null
-    }
 }
 
 /** The subject's own object-level rules, editable in place. */
@@ -91,7 +63,7 @@ export function ObjectAccessRules({
                         title: 'Object',
                         key: 'object',
                         render: (_, o: AccessObjectRule) => {
-                            const href = objectUrl(o)
+                            const href = objectRuleUrl(o)
                             const label = href ? <Link to={href}>{o.name}</Link> : o.name
                             return (
                                 <div className="flex items-center gap-2">
@@ -176,6 +148,7 @@ function AddObjectRuleModal({
 }): JSX.Element {
     const logic = addObjectOverrideModalLogic({ projectId, scopeType, subjectId })
     const { isOpen, resource, objectId, level, displayObjectOptions, objectOptionsLoading } = useValues(logic)
+    const { objectRuleResourceOptions } = useValues(accessControlsLogic({ projectId }))
     const { closeModal, setResource, setSearch, setObjectId, setLevel, submitRule } = useActions(logic)
 
     return (
@@ -209,7 +182,7 @@ function AddObjectRuleModal({
                     <LemonSelect
                         value={resource}
                         onChange={setResource}
-                        options={OBJECT_RULE_RESOURCES.map((r) => ({
+                        options={objectRuleResourceOptions.map((r) => ({
                             value: r,
                             label: toSentenceCase(resourceTypeToString(r as AccessControlResourceType)),
                         }))}

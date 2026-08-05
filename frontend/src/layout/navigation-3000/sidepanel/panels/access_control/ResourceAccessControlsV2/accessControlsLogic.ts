@@ -43,7 +43,12 @@ import type { AccessControlResponseType, AccessControlUpdateType, RoleType } fro
 import { accessControlLogic } from '../accessControlLogic'
 import { isResourceRolledOut, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
-import { AccessDetailSubject, AccessDetailSubjectScope, parseAccessDetailOptions } from './accessDetailLogic'
+import {
+    AccessDetailSubject,
+    AccessDetailSubjectScope,
+    PICKABLE_OBJECT_RULE_RESOURCES,
+    parseAccessDetailOptions,
+} from './accessDetailLogic'
 import {
     AccessControlFilters,
     AccessControlMemberEntry,
@@ -129,6 +134,7 @@ export interface accessControlsLogicValues {
     loading: boolean
     membersData: AccessControlMembersResponse | null
     membersDataLoading: boolean
+    objectRuleResourceOptions: APIScopeObject[]
     panelEntry: AccessControlSettingsEntry | null
     panelEntryLoading: boolean
     panelOptionsSubject: AccessDetailSubject | null
@@ -510,6 +516,7 @@ export interface accessControlsLogicMeta {
             selectedTab: SidePanelTab | null,
             selectedTabOptions: string | null
         ) => AccessDetailSubject | null
+        objectRuleResourceOptions: (defaults: AccessControlDefaultsResponse | null) => APIScopeObject[]
         activePanelSubject: (
             panelOptionsSubject: AccessDetailSubject | null,
             panelSubject: AccessDetailSubject | null
@@ -1080,6 +1087,18 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (s) => [s.selectedTab, s.selectedTabOptions],
             (selectedTab: SidePanelTab | null, selectedTabOptions: string | null): AccessDetailSubject | null =>
                 selectedTab === SidePanelTab.AccessDetail ? parseAccessDetailOptions(selectedTabOptions) : null,
+        ],
+
+        /** Picker options for object rules: what the backend supports and the UI can present. */
+        objectRuleResourceOptions: [
+            (s) => [s.defaults],
+            (defaults: AccessControlDefaultsResponse | null): APIScopeObject[] => {
+                const supported = defaults?.object_rule_resources
+                // Until the defaults load, the registry's pickable set stands in; the backend list only shrinks it
+                return supported
+                    ? PICKABLE_OBJECT_RULE_RESOURCES.filter((resource) => supported.includes(resource))
+                    : PICKABLE_OBJECT_RULE_RESOURCES
+            },
         ],
 
         /** Who the access detail panel shows: fresh options win, the stored selection covers tab switches. */

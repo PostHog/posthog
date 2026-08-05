@@ -1,9 +1,11 @@
 from collections import defaultdict
 from dataclasses import dataclass
+from functools import cache
 from typing import TYPE_CHECKING, Any, cast
 
 from django.apps import apps
 from django.db.models import Q
+from django.urls import URLResolver, get_resolver
 
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -190,15 +192,28 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
-# Object-level access-control `resource` -> (app_label, model_name, display-name field) for resolving
-# a `resource_id` to a human-readable name. Unknown resources fall back to showing the raw id.
-# Resources with object-level rules that universal search doesn't index, so they're absent
-# from its ENTITY_MAP: (app_label, model_name, display-name field).
-_EXTRA_RESOURCE_MODELS: dict[str, tuple[str, str, str]] = {
-    "warehouse_view": ("data_modeling", "datawarehousesavedquery", "name"),
-    "warehouse_table": ("warehouse_sources", "datawarehousetable", "name"),
-    "external_data_source": ("warehouse_sources", "externaldatasource", "source_type"),
-    "session_recording": ("posthog", "sessionrecording", "session_id"),
+@dataclass(frozen=True, kw_only=True)
+class _FallbackResourceModel:
+    app_label: str
+    model_name: str
+    name_field: str
+
+
+# Resources with object-level rules that universal search doesn't index, so they're absent from its
+# ENTITY_MAP. Unknown resources fall back to showing the raw id.
+_EXTRA_RESOURCE_MODELS: dict[str, _FallbackResourceModel] = {
+    "warehouse_view": _FallbackResourceModel(
+        app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
+    ),
+    "warehouse_table": _FallbackResourceModel(
+        app_label="warehouse_sources", model_name="datawarehousetable", name_field="name"
+    ),
+    "external_data_source": _FallbackResourceModel(
+        app_label="warehouse_sources", model_name="externaldatasource", name_field="source_type"
+    ),
+    "session_recording": _FallbackResourceModel(
+        app_label="posthog", model_name="sessionrecording", name_field="session_id"
+    ),
 }
 
 
@@ -257,6 +272,42 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
         # Type mismatch on pk (e.g. non-numeric id for an int pk), missing model, or missing team_id column
         capture_exception(e, {"resource": resource})
         return {}
+
+
+# Project-level access is its own control (the "Project access" dropdown), never an object rule —
+# every rules endpoint filters resource="project" out as well
+_OBJECT_RULE_EXCLUDED_SCOPES: frozenset[str] = frozenset({"project"})
+
+
+@cache
+def resources_with_object_access_controls() -> frozenset[APIScopeObject]:
+    """Resources whose viewsets expose per-object access controls, derived from the registered routes.
+
+    A viewset opts into object-level access control by mixing in AccessControlViewSetMixin, so the
+    routes are the source of truth and this set cannot drift from the code. The snapshot test in
+    test_access_control.py makes additions show up in review.
+    """
+    found: set[APIScopeObject] = set()
+
+    def walk(resolver: URLResolver) -> None:
+        for pattern in resolver.url_patterns:
+            if isinstance(pattern, URLResolver):
+                walk(pattern)
+                continue
+            cls = getattr(pattern.callback, "cls", None)
+            if cls is None or not issubclass(cls, AccessControlViewSetMixin):
+                continue
+            scope = getattr(cls, "scope_object", None)
+            if (
+                scope
+                and scope != "INTERNAL"
+                and scope not in INTERNAL_API_SCOPE_OBJECTS
+                and scope not in _OBJECT_RULE_EXCLUDED_SCOPES
+            ):
+                found.add(scope)
+
+    walk(get_resolver())
+    return frozenset(found)
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
@@ -605,6 +656,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
                 "project_access_level": project_access_level,
                 "resource_access_levels": resource_access_levels,
+                "object_rule_resources": sorted(resources_with_object_access_controls()),
             }
         )
 

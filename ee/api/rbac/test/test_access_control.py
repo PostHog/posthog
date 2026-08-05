@@ -2,6 +2,8 @@ import json
 
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -21,6 +23,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 
+from ee.api.rbac.access_control import resources_with_object_access_controls
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role, RoleMembership
@@ -2125,6 +2128,49 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         res = self.client.get("/api/projects/@current/access_control_members")
         member_data = self._find_member(res.json()["results"], self.user2_membership.id)
         assert member_data["project"]["access_level"] == "member"
+
+
+class TestObjectAccessControlResourceDerivation(SimpleTestCase):
+    def test_derived_resources_snapshot(self):
+        assert set(resources_with_object_access_controls()) == {
+            "account",
+            "action",
+            "ai_observability_clusters",
+            "customer_journey",
+            "dashboard",
+            "dataset",
+            "early_access_feature",
+            "endpoint",
+            "evaluation",
+            "experiment",
+            "experiment_saved_metric",
+            "export",
+            "external_data_source",
+            "feature_flag",
+            "heatmap",
+            "hog_flow",
+            "insight",
+            "llm_analytics",
+            "llm_prompt",
+            "llm_provider_key",
+            "llm_skill",
+            "notebook",
+            "product_tour",
+            "replay_scanner",
+            "session_recording",
+            "session_recording_playlist",
+            "sharing_configuration",
+            "survey",
+            "tagger",
+            "ticket",
+            "warehouse_table",
+            "warehouse_view",
+        }, (
+            "AccessControlViewSetMixin coverage changed. If a resource gained or lost object-level "
+            "access controls on purpose, update this snapshot and check the settings UI: the "
+            "one-off overrides picker and link registry in "
+            "frontend/.../ResourceAccessControlsV2/accessDetailLogic.ts."
+        )
 
 
 class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
