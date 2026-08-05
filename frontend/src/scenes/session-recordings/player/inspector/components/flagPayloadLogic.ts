@@ -12,8 +12,8 @@ export interface FlagPayloadLogicProps {
     /** From the event's `$feature_flag_version` property. */
     version: number
     /**
-     * Key into the flag's `payloads` map — the served variant, or `'true'` for a boolean
-     * or remote config flag. Derived from `$feature_flag_response`.
+     * Key into the flag's `payloads` map, derived from `$feature_flag_response`. This is the
+     * served variant, or `'true'` for a boolean or remote config flag.
      */
     payloadKey: string
 }
@@ -68,12 +68,16 @@ export const flagPayloadLogic: LogicWrapper<flagPayloadLogicType> = kea<flagPayl
             null as string | null,
             {
                 loadFlagPayload: async (): Promise<string | null> => {
+                    const projectId = values.currentProjectId
+                    if (projectId === null) {
+                        return null
+                    }
                     // Reconstruction is best-effort: encrypted payloads are refused, deleted flags
                     // 404, and gaps in the activity log 422. None of those are worth surfacing on a
                     // replay event, so fall back to showing nothing.
                     try {
                         const version = await featureFlagsVersionsRetrieve(
-                            String(values.currentProjectId),
+                            String(projectId),
                             props.flagId,
                             props.version
                         )
