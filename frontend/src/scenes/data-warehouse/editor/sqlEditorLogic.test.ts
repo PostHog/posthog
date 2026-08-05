@@ -1488,6 +1488,13 @@ describe('sqlEditorLogic', () => {
             type: 'string',
             source: { table: 'events' },
         }
+        const timestampField: BIField = {
+            id: 'warehouse:events:timestamp',
+            name: 'timestamp',
+            expression: 'timestamp',
+            type: 'datetime',
+            source: { table: 'events' },
+        }
         const config: BIConfig = {
             source: { table: 'events' },
             chartType: ChartDisplayType.ActionsBar,
@@ -1566,6 +1573,39 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.bi).toEqual({
                 ...config,
                 filters: [{ ...config.filters[0], value: 'purchase' }],
+            })
+
+            biLogic.unmount()
+        })
+
+        it('regenerates the query and URL when a date bucket changes', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            const dateConfig: BIConfig = { ...config, rows: [timestampField], filters: [] }
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: 'SELECT timestamp, count(*) FROM events GROUP BY timestamp',
+                mode: BIEditorView.BI,
+                bi: dateConfig,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            await expectLogic(biLogic, () => biLogic.actions.setFieldDateBucket('rows', 0, 'day'))
+                .toFinishAllListeners()
+                .toMatchValues({
+                    config: partial({ rows: [{ ...timestampField, dateBucket: 'day' }] }),
+                })
+
+            expect(logic.values.queryInput).toContain('toStartOfDay(timestamp)')
+            expect(router.values.hashParams.bi).toEqual({
+                ...dateConfig,
+                rows: [{ ...timestampField, dateBucket: 'day' }],
             })
 
             biLogic.unmount()

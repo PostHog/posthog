@@ -182,6 +182,28 @@ describe('BI editor query generation', () => {
     })
 
     test.each([
+        ['minute', 'toStartOfMinute'],
+        ['hour', 'toStartOfHour'],
+        ['day', 'toStartOfDay'],
+        ['week', 'toStartOfWeek'],
+        ['month', 'toStartOfMonth'],
+        ['quarter', 'toStartOfQuarter'],
+        ['year', 'toStartOfYear'],
+    ] as const)('groups date-time fields by %s', (dateBucket, dateBucketFunction) => {
+        const result = buildBIQuery({
+            source: { table: 'events' },
+            chartType: ChartDisplayType.ActionsLineGraph,
+            rows: [{ ...timestampField, dateBucket }],
+            columns: [],
+            values: [],
+            filters: [],
+            limit: 100,
+        })
+
+        expect(result?.query).toContain(`${dateBucketFunction}(timestamp)`)
+    })
+
+    test.each([
         ['id', 'integer', 'count'],
         ['uuid', 'string', 'count'],
         ['events_id', 'integer', 'count'],

@@ -30,6 +30,7 @@ import { queryDatabaseLogic } from '../sidebar/queryDatabaseLogic'
 import { biEditorLogic } from './biEditorLogic'
 import {
     BIAggregation,
+    BIDateBucket,
     BI_FIELD_DRAG_MIME_TYPE,
     BIFilterOperator,
     BIShelf,
@@ -73,6 +74,17 @@ const FILTER_OPERATOR_OPTIONS: { value: BIFilterOperator; label: string }[] = [
     { value: 'custom', label: 'SQL condition' },
 ]
 
+const DATE_BUCKET_OPTIONS: { value: BIDateBucket | null; label: string }[] = [
+    { value: null, label: 'Exact' },
+    { value: 'minute', label: 'Minute' },
+    { value: 'hour', label: 'Hour' },
+    { value: 'day', label: 'Day' },
+    { value: 'week', label: 'Week' },
+    { value: 'month', label: 'Month' },
+    { value: 'quarter', label: 'Quarter' },
+    { value: 'year', label: 'Year' },
+]
+
 export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const logic = biEditorLogic({ tabId })
     const {
@@ -96,6 +108,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
         setActiveExpressionEditorId,
         setChartType,
         setDataSource,
+        setFieldDateBucket,
         setFieldExpression,
         setFilterCustomExpression,
         setFilterOperator,
@@ -210,6 +223,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                             autoOpen={activeExpressionEditorId === field.id}
                             onAutoOpenClose={() => setActiveExpressionEditorId(null)}
                             onChange={(expression) => setFieldExpression('rows', index, expression)}
+                            onDateBucketChange={(dateBucket) => setFieldDateBucket('rows', index, dateBucket)}
                             onRemove={() => removeFieldFromShelf('rows', index)}
                         />
                     ))}
@@ -236,6 +250,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                             autoOpen={activeExpressionEditorId === field.id}
                             onAutoOpenClose={() => setActiveExpressionEditorId(null)}
                             onChange={(expression) => setFieldExpression('columns', index, expression)}
+                            onDateBucketChange={(dateBucket) => setFieldDateBucket('columns', index, dateBucket)}
                             onRemove={() => removeFieldFromShelf('columns', index)}
                         />
                     ))}
@@ -286,6 +301,10 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                     }
                                 }}
                                 onChange={(expression) => setFieldExpression('values', index, expression)}
+                            />
+                            <DateBucketSelect
+                                field={value.field}
+                                onChange={(dateBucket) => setFieldDateBucket('values', index, dateBucket)}
                             />
                             {value.aggregation === 'custom' ? (
                                 <ExpressionEditorButton
@@ -340,6 +359,10 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                         }
                                     }}
                                     onChange={(expression) => setFieldExpression('filters', index, expression)}
+                                />
+                                <DateBucketSelect
+                                    field={filter.field}
+                                    onChange={(dateBucket) => setFieldDateBucket('filters', index, dateBucket)}
                                 />
                                 <LemonSelect
                                     value={filter.operator}
@@ -404,12 +427,14 @@ function FieldExpressionEditor({
     autoOpen,
     onAutoOpenClose,
     onChange,
+    onDateBucketChange,
     onRemove,
 }: {
     field: BIField
     autoOpen: boolean
     onAutoOpenClose: () => void
     onChange: (expression: string) => void
+    onDateBucketChange: (dateBucket: BIDateBucket | null) => void
     onRemove: () => void
 }): JSX.Element {
     return (
@@ -427,8 +452,32 @@ function FieldExpressionEditor({
                 }}
                 onChange={onChange}
             />
+            <DateBucketSelect field={field} onChange={onDateBucketChange} />
             <RemoveFieldButton field={field} onClick={onRemove} />
         </div>
+    )
+}
+
+function DateBucketSelect({
+    field,
+    onChange,
+}: {
+    field: BIField
+    onChange: (dateBucket: BIDateBucket | null) => void
+}): JSX.Element | null {
+    if (!isDateTimeBIField(field)) {
+        return null
+    }
+
+    return (
+        <LemonSelect
+            value={field.dateBucket ?? null}
+            options={DATE_BUCKET_OPTIONS}
+            onChange={onChange}
+            size="xsmall"
+            dropdownMatchSelectWidth={false}
+            data-attr="bi-editor-date-bucket"
+        />
     )
 }
 

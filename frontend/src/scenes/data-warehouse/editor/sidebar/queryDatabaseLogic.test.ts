@@ -236,7 +236,10 @@ describe('queryDatabaseLogic', () => {
             },
         })
 
-        expect(focusItem).toHaveBeenCalledWith('table-events')
+        expect(focusItem).toHaveBeenCalledWith('table-events', {
+            scrollPosition: 'top-third',
+            behavior: 'smooth',
+        })
         expect(logic.values.tableToLocate).toBeNull()
 
         logic.unmount()

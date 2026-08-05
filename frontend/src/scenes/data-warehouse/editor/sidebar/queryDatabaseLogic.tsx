@@ -2095,7 +2095,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             )
 
             if (values.treeRef?.current) {
-                values.treeRef.current.focusItem(tableId)
+                values.treeRef.current.focusItem(tableId, {
+                    scrollPosition: 'top-third',
+                    behavior: 'smooth',
+                })
                 actions.clearTableToLocate()
             }
         }

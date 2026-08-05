@@ -11,6 +11,8 @@ export type BIShelf = 'rows' | 'columns' | 'values' | 'filters'
 
 export type BIAggregation = 'count' | 'count_distinct' | 'sum' | 'average' | 'minimum' | 'maximum' | 'custom'
 
+export type BIDateBucket = 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
+
 export type BIFilterOperator =
     | 'equals'
     | 'not_equals'
@@ -33,6 +35,7 @@ export interface BIField {
     expression: string
     type: DatabaseSerializedFieldType
     source: BIDataSource
+    dateBucket?: BIDateBucket
 }
 
 export interface BIValue {
@@ -100,6 +103,17 @@ const BI_FILTER_OPERATORS = new Set<BIFilterOperator>([
     'is_not_set',
     'custom',
 ])
+const BI_DATE_BUCKETS = new Set<BIDateBucket>(['minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
+
+const DATE_BUCKET_FUNCTIONS: Record<BIDateBucket, string> = {
+    minute: 'toStartOfMinute',
+    hour: 'toStartOfHour',
+    day: 'toStartOfDay',
+    week: 'toStartOfWeek',
+    month: 'toStartOfMonth',
+    quarter: 'toStartOfQuarter',
+    year: 'toStartOfYear',
+}
 
 const DEFAULT_DATE_FIELD_BY_TABLE: Record<string, string> = {
     events: 'timestamp',
@@ -173,6 +187,9 @@ function parseBIFieldValue(value: unknown): BIField | null {
         typeof candidate.name !== 'string' ||
         typeof candidate.expression !== 'string' ||
         typeof candidate.type !== 'string' ||
+        (candidate.dateBucket !== undefined &&
+            (!BI_DATE_BUCKETS.has(candidate.dateBucket) ||
+                (candidate.type !== 'date' && candidate.type !== 'datetime'))) ||
         !candidate.source ||
         typeof candidate.source.table !== 'string' ||
         (candidate.source.connectionId !== undefined && typeof candidate.source.connectionId !== 'string')
@@ -326,7 +343,11 @@ const DOTTED_IDENTIFIER_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z
 
 function fieldExpression(field: BIField): string {
     const expression = field.expression.trim() || field.name
-    return DOTTED_IDENTIFIER_REGEX.test(expression) ? escapeDottedHogQLIdentifier(expression) : expression
+    const escapedExpression = DOTTED_IDENTIFIER_REGEX.test(expression)
+        ? escapeDottedHogQLIdentifier(expression)
+        : expression
+
+    return field.dateBucket ? `${DATE_BUCKET_FUNCTIONS[field.dateBucket]}(${escapedExpression})` : escapedExpression
 }
 
 function aggregationExpression(value: BIValue): string {
