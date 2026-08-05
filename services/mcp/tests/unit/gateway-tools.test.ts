@@ -13,7 +13,11 @@ const INPUT_SCHEMA = {
     required: ['title'],
 }
 
-function payload(overrides: Partial<Schemas.AvailableTool> = {}, serverName = 'Linear', slug = 'linear') {
+function payload(
+    overrides: Partial<Schemas.AvailableTool> = {},
+    serverName = 'Linear',
+    slug = 'linear'
+): Schemas.AvailableToolsResponse {
     return {
         servers: [
             {
@@ -51,7 +55,10 @@ function posthogTool(): Tool<ZodObjectAny> {
     }
 }
 
-function createExec(gatewayTools: Tool<ZodObjectAny>[], provider = vi.fn(async () => gatewayTools)): {
+function createExec(
+    gatewayTools: Tool<ZodObjectAny>[],
+    provider = vi.fn(async () => gatewayTools)
+): {
     exec: Tool<any>
     provider: ReturnType<typeof vi.fn>
 } {
