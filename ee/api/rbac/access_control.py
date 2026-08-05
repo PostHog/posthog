@@ -646,6 +646,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         # Build results for each role
         roles = Role.objects.filter(organization=team.organization)
+        # An optional role_id narrows the walk to one role, so the detail panel doesn't pay for the whole list
+        if request.query_params.get("role_id"):
+            roles = roles.filter(id=self._get_role(request, team).id)
         results = []
 
         for role in roles:
@@ -753,6 +756,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
             .select_related("user")
             .prefetch_related("role_memberships")
         )
+        # An optional member_id narrows the walk to one member, so the detail panel doesn't pay for the whole list
+        if request.query_params.get("member_id"):
+            memberships = memberships.filter(id=self._get_membership(request, team).id)
 
         can_edit = user_access_control.check_can_modify_access_levels_for_object(team)
         hide_non_project_members = (

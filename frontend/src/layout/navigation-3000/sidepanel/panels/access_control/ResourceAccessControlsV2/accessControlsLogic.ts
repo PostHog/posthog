@@ -129,6 +129,8 @@ export interface accessControlsLogicValues {
     loading: boolean
     membersData: AccessControlMembersResponse | null
     membersDataLoading: boolean
+    panelEntry: AccessControlSettingsEntry | null
+    panelEntryLoading: boolean
     panelOptionsSubject: AccessDetailSubject | null
     panelSubject: AccessDetailSubject | null
     resourceKeys: {
@@ -318,6 +320,27 @@ export interface accessControlsLogicActions {
     ) => {
         membersData: AccessControlMembersResponse
         payload?: any
+    }
+    loadPanelEntry: (subject: AccessDetailSubject) => {
+        subject: AccessDetailSubject
+    }
+    loadPanelEntryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPanelEntrySuccess: (
+        panelEntry: AccessControlSettingsEntry | null,
+        payload?: {
+            subject: AccessDetailSubject
+        }
+    ) => {
+        panelEntry: AccessControlSettingsEntry | null
+        payload?: {
+            subject: AccessDetailSubject
+        }
     }
     loadRoles: () => any
     loadRolesFailure: (
@@ -937,6 +960,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => ({ state }),
         closeRuleModal: true,
         openAccessDetailPanel: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
+        loadPanelEntry: (subject: AccessDetailSubject) => ({ subject }),
         saveGroupedRules: (params: {
             scopeType: ScopeType
             scopeId: string
@@ -965,6 +989,27 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             {
                 loadMembers: async () =>
                     api.get<AccessControlMembersResponse>(`api/projects/${props.projectId}/access_control_members`),
+            },
+        ],
+        /** The subject shown in the side panel, fetched alone so opening it never pays for the whole list. */
+        panelEntry: [
+            null as AccessControlSettingsEntry | null,
+            {
+                loadPanelEntry: async ({ subject }) => {
+                    const query =
+                        subject.scopeType === 'role'
+                            ? `access_control_roles?role_id=${subject.subjectId}`
+                            : `access_control_members?member_id=${subject.subjectId}`
+                    try {
+                        const response = await api.get<{ results: AccessControlSettingsEntry[] }>(
+                            `api/projects/${props.projectId}/${query}`
+                        )
+                        return response.results[0] ?? null
+                    } catch {
+                        // 404 (deleted subject, bad deep link) renders as "not found" rather than an error state
+                        return null
+                    }
+                },
             },
         ],
     })),
@@ -1003,6 +1048,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
          * `selectedTabOptions`, which is cleared whenever any other panel tab is opened — switching to
          * Support and back would otherwise lose the selection.
          */
+        // A fresh subject invalidates the previous subject's entry while the new one loads
+        panelEntry: {
+            openAccessDetailPanel: () => null,
+        },
         panelSubject: [
             null as AccessDetailSubject | null,
             {
@@ -1347,6 +1396,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             if (values.membersData) {
                 actions.loadMembers()
             }
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
+            }
         },
         updateAccessControlRolesSuccess: () => {
             actions.loadRoles()
@@ -1354,9 +1406,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             if (values.membersData) {
                 actions.loadMembers()
             }
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
+            }
         },
         updateAccessControlMembersSuccess: () => {
             actions.loadMembers()
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
+            }
         },
         roleMembershipsChanged: () => {
             // A member's roles decide what they inherit, so both lists go stale at once
@@ -1366,6 +1424,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             if (values.rolesData) {
                 actions.loadRoles()
             }
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
+            }
         },
         deleteRoleSuccess: () => {
             if (values.membersData) {
@@ -1373,6 +1434,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             }
             if (values.rolesData) {
                 actions.loadRoles()
+            }
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
             }
         },
         updateResourceAccessControlsSuccess: () => {
@@ -1383,6 +1447,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             }
             if (values.membersData) {
                 actions.loadMembers()
+            }
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
             }
         },
     })),
@@ -1399,17 +1466,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 actions.openAccessDetailPanel(subject.scopeType, subject.subjectId)
             }
         },
-        // The panel can open before (or outlive) the settings page, so load the list it reads from.
+        // The panel fetches its one subject, so opening it never pays for the whole member list
         activePanelSubject: (subject: AccessDetailSubject | null) => {
-            if (!subject) {
-                return
-            }
-            if (subject.scopeType === 'role') {
-                if (!values.rolesData && !values.rolesDataLoading) {
-                    actions.loadRoles()
-                }
-            } else if (!values.membersData && !values.membersDataLoading) {
-                actions.loadMembers()
+            if (subject) {
+                actions.loadPanelEntry(subject)
             }
         },
     })),

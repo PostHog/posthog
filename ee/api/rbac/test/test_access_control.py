@@ -2138,6 +2138,8 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
             ("member_properties", "access_control_member_properties", "member_id"),
             ("role_objects", "access_control_role_objects", "role_id"),
             ("role_properties", "access_control_role_properties", "role_id"),
+            ("members_list", "access_control_members", "member_id"),
+            ("roles_list", "access_control_roles", "role_id"),
         ]
     )
     def test_subject_from_another_organization_is_404(self, _name, endpoint, param):
@@ -2149,6 +2151,23 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         subject_id = other_membership.id if param == "member_id" else other_role.id
         res = self.client.get(f"/api/projects/@current/{endpoint}?{param}={subject_id}")
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+    def test_member_filter_narrows_the_members_list_to_one_row(self):
+        User.objects.create_and_join(self.organization, "second-member@posthog.com", None)
+        res = self.client.get(
+            f"/api/projects/@current/access_control_members?member_id={self.organization_membership.id}"
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        results = res.json()["results"]
+        assert [r["organization_membership_id"] for r in results] == [str(self.organization_membership.id)]
+
+    def test_role_filter_narrows_the_roles_list_to_one_row(self):
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+        Role.objects.create(name="Support", organization=self.organization)
+        res = self.client.get(f"/api/projects/@current/access_control_roles?role_id={role.id}")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        results = res.json()["results"]
+        assert [r["role_id"] for r in results] == [str(role.id)]
 
     def test_default_objects_returns_only_rows_without_a_subject(self):
         shared = Dashboard.objects.create(team=self.team, name="Shared dashboard", created_by=self.user)

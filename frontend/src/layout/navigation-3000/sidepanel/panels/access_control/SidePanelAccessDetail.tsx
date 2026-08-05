@@ -22,16 +22,13 @@ export const SidePanelAccessDetail = (): JSX.Element => {
     const projectId = `${currentTeam?.id}`
 
     const logic = accessControlsLogic({ projectId })
-    const { membersData, rolesData, membersDataLoading, rolesDataLoading, activePanelSubject } = useValues(logic)
+    const { panelEntry, panelEntryLoading, activePanelSubject } = useValues(logic)
 
     const scopeType: AccessDetailSubjectScope = activePanelSubject?.scopeType ?? 'member'
     const subjectId = activePanelSubject?.subjectId
 
-    const entry =
-        scopeType === 'role'
-            ? (rolesData?.results.find((r) => r.role_id === subjectId) ?? null)
-            : (membersData?.results.find((m) => m.organization_membership_id === subjectId) ?? null)
-    const loading = scopeType === 'role' ? rolesDataLoading : membersDataLoading
+    const entry = panelEntry
+    const loading = panelEntryLoading
 
     return (
         <div className="flex flex-col overflow-hidden grow">
