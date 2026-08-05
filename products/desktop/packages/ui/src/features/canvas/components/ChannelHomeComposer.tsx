@@ -1,10 +1,8 @@
-import { FolderOpenIcon, GithubLogoIcon } from "@phosphor-icons/react";
 import type {
   PiModelSelection,
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
 import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
-import { Button } from "@posthog/quill";
 import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useQueryClient } from "@tanstack/react-query";
@@ -46,7 +44,10 @@ import { channelFeedQueryKey } from "../hooks/useChannelFeed";
 import { useGenerateFreeformCanvas } from "../hooks/useGenerateFreeformCanvas";
 import { useUpdateTaskChannelRepositories } from "../hooks/useTaskChannels";
 import type { PendingKickoff } from "./ChannelFeedView";
-import { TaskRepositoryDialog } from "./TaskRepositoryDialog";
+import {
+  TaskRepositoryChip,
+  TaskRepositoryDialog,
+} from "./TaskRepositoryDialog";
 
 export interface ChannelHomeComposerHandle {
   /** Drop a starter prompt into the editor and apply its mode, if any. */
@@ -70,10 +71,10 @@ interface ChannelHomeComposerProps {
 
 // The prompt box at the bottom of a channel's homepage. A trimmed-down sibling
 // of TaskInput: it reuses the same task-creation pipeline (model/mode/reasoning
-// preview config + useTaskCreation) but drops the repo/branch pickers — channel
-// tasks run repo-less and the agent attaches a repo lazily if it needs one. The
-// starter-prompt suggestions render in the parent above the box; this owns the
-// local/cloud selector.
+// preview config + useTaskCreation) but drops the branch picker. Tasks default
+// to the space's repositories; the chip beside the local/cloud selector swaps
+// in a task-specific repository or folder selection. The starter-prompt
+// suggestions render in the parent above the box; this owns the selector row.
 export const ChannelHomeComposer = forwardRef<
   ChannelHomeComposerHandle,
   ChannelHomeComposerProps
@@ -501,25 +502,13 @@ export const ChannelHomeComposer = forwardRef<
             size="1"
             disabled={isBusy}
           />
-          <Button
-            variant="outline"
-            size="sm"
+          <TaskRepositoryChip
+            cloud={workspaceMode === "cloud"}
+            repositoryCount={taskRepositories.length}
+            hasFolder={!!taskFolder}
             disabled={isBusy}
-            onClick={() => setRepositoryDialogOpen(true)}
-          >
-            {workspaceMode === "cloud" ? (
-              <GithubLogoIcon size={14} />
-            ) : (
-              <FolderOpenIcon size={14} />
-            )}
-            {workspaceMode === "cloud"
-              ? taskRepositories.length > 0
-                ? `${taskRepositories.length} ${taskRepositories.length === 1 ? "repository" : "repositories"}`
-                : "Add repository…"
-              : taskFolder
-                ? "Folder selected"
-                : "Select folder…"}
-          </Button>
+            onOpen={() => setRepositoryDialogOpen(true)}
+          />
         </div>
       )}
 

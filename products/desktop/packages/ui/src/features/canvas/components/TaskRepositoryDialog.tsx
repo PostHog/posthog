@@ -29,6 +29,49 @@ interface TaskRepositoryDialogProps {
   }) => void;
 }
 
+/**
+ * The task's repository (cloud) or folder (local) selection — a chip for the
+ * composer's selector row, drawn like the WorkspaceModeSelect beside it.
+ * Clicking it opens the TaskRepositoryDialog.
+ */
+export function TaskRepositoryChip({
+  cloud,
+  repositoryCount,
+  hasFolder,
+  disabled,
+  onOpen,
+}: {
+  cloud: boolean;
+  repositoryCount: number;
+  hasFolder: boolean;
+  disabled: boolean;
+  onOpen: () => void;
+}) {
+  const label = cloud
+    ? repositoryCount > 0
+      ? `${repositoryCount} ${repositoryCount === 1 ? "repository" : "repositories"}`
+      : "Add repositories…"
+    : hasFolder
+      ? "Folder selected"
+      : "Select folder…";
+
+  return (
+    <Button
+      type="button"
+      variant="default"
+      size="sm"
+      disabled={disabled}
+      aria-label={cloud ? "Task repositories" : "Task folder"}
+      onClick={onOpen}
+    >
+      <span className="text-muted-foreground">
+        {cloud ? <GithubLogoIcon size={14} /> : <FolderOpenIcon size={14} />}
+      </span>
+      {label}
+    </Button>
+  );
+}
+
 export function TaskRepositoryDialog({
   open,
   onOpenChange,
