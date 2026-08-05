@@ -8,6 +8,7 @@ from unittest import mock
 from unittest.mock import AsyncMock, patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -27,6 +28,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.data_warehouse.backend.presentation.views.saved_query import SavedQueryMaterializeSerializer
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -275,6 +277,53 @@ class TestSavedQuery(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
         assert saved_query.is_materialized is False
         assert saved_query.sync_frequency_interval is None
+
+    def test_materialize_honors_a_requested_sync_frequency(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        assert response.status_code == 201
+        saved_query_id = response.data["id"]
+
+        with (
+            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
+            patch(
+                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
+                {"sync_frequency": "1hour"},
+            )
+
+        assert response.status_code == 200
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        assert saved_query.sync_frequency_interval == timedelta(hours=1)
+
+    def test_materialize_rejects_an_unusable_sync_frequency(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="event_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/materialize",
+            {"sync_frequency": "every other tuesday"},
+        )
+
+        assert response.status_code == 400
+        saved_query.refresh_from_db()
+        assert saved_query.is_materialized is False
 
     def test_materialize_action_with_managed_viewset_fails(self):
         """Test that materializing a managed viewset query fails"""
@@ -2073,6 +2122,30 @@ class TestSavedQuery(APIBaseTest):
                 from django.core.cache import cache
 
                 cache.clear()
+
+
+class TestMaterializeRequestBody(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # an omitted frequency keeps the pre-request-body behavior
+            ("omitted_defaults_to_daily", {}, "24hour"),
+            ("explicit_frequency_passes_through", {"sync_frequency": "1hour"}, "1hour"),
+            # the deprecated sub-15min cadences the writable field clamps for legacy callers
+            ("deprecated_fast_cadence_clamps_up", {"sync_frequency": "1min"}, "15min"),
+        ]
+    )
+    def test_accepted_frequency(self, _name, payload, expected):
+        serializer = SavedQueryMaterializeSerializer(data=payload)
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["sync_frequency"] == expected
+
+    def test_never_is_rejected(self):
+        # Materializing is what starts the refreshes, so "no resync" is only reachable afterwards.
+        serializer = SavedQueryMaterializeSerializer(data={"sync_frequency": "never"})
+
+        assert not serializer.is_valid()
+        assert "sync_frequency" in serializer.errors
 
 
 class TestSavedQueryRunV2Aware(APIBaseTest):

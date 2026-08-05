@@ -268,10 +268,11 @@ class TestRepartitionOOMHistoryTrigger:
         with tempfile.TemporaryDirectory() as d:
             delta = _write_partitioned_delta(f"{d}/t", ["0", "1"])
             with (
-                # Within the size budget, but close enough that the amplified working set exceeds it —
-                # a bigger budget would (correctly) hit the tiny-partition guard instead.
                 patch.object(ctrl, "target_partition_bytes", return_value=10_000),
                 patch.object(ctrl, "repartition_oom_threshold", return_value=3),
+                # The split floor is exercised by its own test below; neutralize it here so this one
+                # fails only if the OOM trigger itself stops working.
+                patch.object(ctrl, "min_splittable_partition_bytes", return_value=1),
                 patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
                 patch.object(ctrl, "capture_repartition_event"),
             ):
@@ -318,10 +319,12 @@ class TestRepartitionOOMHistoryTrigger:
         assert schema.repartition_pending is None
 
     def test_tiny_partitions_do_not_flag_on_oom_history(self, team):
-        # deals/contacts loop from prod: heartbeat timeouts recorded as OOMs on a table whose largest
-        # partition is KBs against a 500 MB budget. Without the amplification guard the trigger steps
-        # the scheme finer until it bottoms out at hour, then emits skipped + capture_exception daily
-        # forever. The guard must be a quiet no-op: nothing pending, no events at all.
+        # The loop this guard exists for: timeouts recorded as OOMs on a table whose largest partition
+        # is KBs against a 500 MB budget. Splitting it would produce partitions far under the size the
+        # coarsening path treats as over-fragmented, so partitioning cannot be the cause. Without the
+        # floor the trigger steps the scheme finer until it bottoms out at hour, then emits skipped
+        # plus capture_exception daily forever. The guard must be a quiet no-op: nothing pending, no
+        # events at all.
         schema = _make_schema(
             team,
             {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
@@ -345,6 +348,163 @@ class TestRepartitionOOMHistoryTrigger:
         assert schema.repartition_pending is None
         assert schema.max_partition_bytes is not None  # observability measurement still recorded
         assert capture.call_args_list == []
+
+
+class TestCoarsenTrigger:
+    def _detect(self, team, schema: ExternalDataSchema, delta: deltalake.DeltaTable) -> None:
+        async_to_sync(ctrl.maybe_flag_for_repartition)(schema, schema.source, _make_job(team, schema), delta, logger)
+
+    def _fragmented_schema(self, team, **overrides) -> ExternalDataSchema:
+        return _make_schema(
+            team,
+            {
+                "partitioning_enabled": True,
+                "partition_mode": "md5",
+                "partition_count": 16,
+                "partitioning_keys": ["id"],
+                "last_repartition_at": (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=30)).isoformat(),
+                **overrides,
+            },
+        )
+
+    def test_flags_an_over_fragmented_table_for_coarsening(self, team):
+        # The reverse direction: a table split far below what memory safety needs pays for every one of
+        # those pieces on each merge. Most tables in this state were put there by the finer path
+        # reacting to failures that were never about size, and nothing else brings them back.
+        schema = self._fragmented_schema(team)
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(16)])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=True),
+                patch.object(ctrl, "capture_repartition_event") as capture,
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        pending = schema.repartition_pending
+        assert pending is not None
+        assert pending["trigger_reason"] == "coarsening"
+        assert pending["partition_mode"] == "md5"
+        assert pending["partition_count"] < 16
+        assert capture.call_args.args[0] == "warehouse_repartition_flagged"
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            # Any memory-attributed OOM means bigger partitions are the wrong direction for this table.
+            "recent_oom",
+            # A layout that was just rewritten hasn't had a chance to prove itself; undoing it within
+            # the day is how the two directions would start handing the table back and forth.
+            "fresh_layout",
+            # Enrolment is per-schema, like the finer path's.
+            "flag_disabled",
+        ],
+    )
+    def test_does_not_coarsen_when_a_guard_applies(self, team, case):
+        overrides = (
+            {"last_repartition_at": datetime.datetime.now(datetime.UTC).isoformat()} if case == "fresh_layout" else {}
+        )
+        schema = self._fragmented_schema(team, **overrides)
+        if case == "recent_oom":
+            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
+                team_id=schema.team_id, schema=schema, run_id="run-1"
+            )
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(16)])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=case != "flag_disabled"),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+
+    def test_operator_nomination_overrides_the_policy_gates(self, team):
+        # The backlog of already-over-split tables is blocked by the OOM-free gate, because the signal
+        # that over-split them keeps firing. A nomination is how an operator gets past that, so it has
+        # to work with OOM history present, the flag off, and a layout younger than the age gate.
+        schema = self._fragmented_schema(
+            team,
+            last_repartition_at=datetime.datetime.now(datetime.UTC).isoformat(),
+            coarsen_requested={"requested_at": "2026-08-03T00:00:00+00:00", "requested_by": "danielc"},
+        )
+        ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
+            team_id=schema.team_id, schema=schema, run_id="run-1"
+        )
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(16)])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=False),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        pending = schema.repartition_pending
+        assert pending is not None
+        assert pending["trigger_reason"] == "coarsening_requested"
+        # Consumed either way, so a table the selector keeps refusing isn't re-measured every sync.
+        assert schema.coarsen_requested is None
+
+    def test_nomination_survives_a_failed_staging_write(self, team):
+        # The clear and the pending write are separate commits. If the marker were consumed first, a
+        # crash or DB failure between the two would silently drop the operator's nomination with
+        # nothing left to restore it, so the marker must still be there after a failed staging.
+        schema = self._fragmented_schema(
+            team,
+            coarsen_requested={"requested_at": "2026-08-03T00:00:00+00:00", "requested_by": "danielc"},
+        )
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(16)])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=False),
+                patch.object(ctrl, "capture_repartition_event"),
+                patch.object(ExternalDataSchema, "set_repartition_pending", side_effect=RuntimeError("pooler dropped")),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+        assert schema.coarsen_requested is not None, "a failed staging must not consume the nomination"
+
+    def test_operator_nomination_does_not_override_the_selector(self, team):
+        # The one thing a nomination must never do. This table carries the unknown-date sentinel among
+        # its hour keys, so the merged layout can't be derived and coarsening it would be a guess about
+        # where those bytes land. An operator asking nicely does not make the guess safe.
+        schema = self._fragmented_schema(
+            team,
+            partition_mode="datetime",
+            partition_format="hour",
+            partitioning_keys=["created_at"],
+            coarsen_requested={"requested_at": "2026-08-03T00:00:00+00:00", "requested_by": "danielc"},
+        )
+
+        with tempfile.TemporaryDirectory() as d:
+            buckets = [f"2024-01-01T{hour:02d}" for hour in range(15)] + ["1970-01"]
+            delta = _write_partitioned_delta(f"{d}/t", buckets)
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=False),
+                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=False),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+        assert schema.coarsen_requested is None
 
 
 # An Exception-derived cancellation, named exactly `CancelledError`: models how `async_to_sync` can
