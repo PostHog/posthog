@@ -1754,8 +1754,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        # 16 as above, plus the include_total counting queries (was 20).
-        with self.assertNumQueries(20):
+        # 16 as above, plus the include_total counting queries (was 20); the count runs a second
+        # HogQL database build, which pays the saved-expressions fetch again.
+        with self.assertNumQueries(21):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
