@@ -375,7 +375,7 @@ export interface searchLogicMeta {
             unifiedSearchResultsLoading: boolean,
             groupSearchResultsLoading: boolean,
             personSearchResultsLoading: boolean,
-            accountSearchResultsLoading: any,
+            accountSearchResultsLoading: boolean,
             playlistSearchResultsLoading: boolean,
             searchPending: boolean,
             search: string
@@ -410,7 +410,7 @@ export interface searchLogicMeta {
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => SearchItem[]
         personItems: (personSearchResults: PersonType[]) => SearchItem[]
-        accountItems: (accountSearchResults: any) => SearchItem[]
+        accountItems: (accountSearchResults: AccountApi[]) => SearchItem[]
         playlistItems: (playlistSearchResults: FileSystemEntry[]) => SearchItem[]
         healthItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         miscItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
@@ -427,7 +427,7 @@ export interface searchLogicMeta {
             sceneLogViewsHasLoaded: boolean,
             personSearchResultsLoading: boolean,
             groupSearchResultsLoading: boolean,
-            accountSearchResultsLoading: any,
+            accountSearchResultsLoading: boolean,
             playlistSearchResultsLoading: boolean
         ) => {
             accountSearchResultsLoading: boolean
@@ -453,10 +453,11 @@ export interface searchLogicMeta {
             newItems: SearchItem[],
             personItems: SearchItem[],
             groupItems: SearchItem[],
-            accountItems: any,
+            accountItems: SearchItem[],
             playlistItems: SearchItem[],
             unifiedSearchItems: Record<string, SearchItem[]>,
             loadingStates: {
+                accountSearchResultsLoading: boolean
                 groupSearchResultsLoading: boolean
                 isToolsLoading: boolean
                 personSearchResultsLoading: boolean
