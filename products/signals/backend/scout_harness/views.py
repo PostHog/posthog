@@ -22,11 +22,10 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -61,7 +60,6 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutNote,
     SignalScoutRun,
-    SignalScoutStructuredOutput,
 )
 from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.report_charts import ChartSize
@@ -88,8 +86,6 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RecentEmissionsQuerySerializer,
-    RecentStructuredOutputsQuerySerializer,
-    RecentStructuredOutputsResponseSerializer,
     RecordStructuredOutputRequestSerializer,
     RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
@@ -113,7 +109,6 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
-    SignalScoutStructuredOutputSerializer,
 )
 from products.signals.backend.scout_harness.skill_loader import (
     REPORT_CHANNEL_TOOLS,
@@ -163,8 +158,8 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     search_scratchpad,
 )
 from products.signals.backend.scout_harness.tools.structured_output import (
-    MAX_RECORDS_PER_RUN,
     InvalidStructuredOutputError,
+    StructuredOutputDeliveryError,
     StructuredOutputRecord,
     record_structured_output_sync,
 )
@@ -191,29 +186,13 @@ MAX_EMISSIONS_PER_BATCH = 5000
 DEFAULT_RECENT_EMISSIONS_LIMIT = 50
 MAX_RECENT_EMISSIONS_LIMIT = 200
 
-# Page size for the cross-run `structured-outputs/recent` action. Higher than the emissions
-# default because a measuring scout legitimately produces ~100 records per run (one per judged
-# entity), and a one-run window should fit in one call; walk back via `cursor`.
-DEFAULT_RECENT_STRUCTURED_OUTPUTS_LIMIT = 100
-MAX_RECENT_STRUCTURED_OUTPUTS_LIMIT = 500
 
+class _StructuredOutputDeliveryFailed(exceptions.APIException):
+    """503 for a failed structured-output event forward: transient and safe to retry
+    (deterministic event ids), unlike a 400 the agent would read as "fix the batch"."""
 
-def _encode_structured_output_cursor(row: SignalScoutStructuredOutput) -> str:
-    return f"{row.created_at.isoformat()}|{row.id}"
-
-
-def _decode_structured_output_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
-    """Parse a `created_at|id` cursor. Compound on purpose: a timestamp-only cursor skips
-    rows sharing the boundary `created_at` (possible within a bulk-inserted batch)."""
-    timestamp_part, _, id_part = cursor.rpartition("|")
-    try:
-        parsed_at = datetime.fromisoformat(timestamp_part)
-        parsed_id = uuid.UUID(id_part)
-    except ValueError:
-        raise exceptions.ValidationError({"cursor": "Malformed cursor; pass a prior response's next_cursor verbatim."})
-    if parsed_at.tzinfo is None:
-        raise exceptions.ValidationError({"cursor": "Malformed cursor; pass a prior response's next_cursor verbatim."})
-    return parsed_at, parsed_id
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "structured_output_delivery_failed"
 
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
@@ -1065,25 +1044,33 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(
                 response=RecordStructuredOutputResponseSerializer,
-                description="All records validated against the configured schema and persisted.",
+                description="All records validated against the configured schema and recorded as events.",
             ),
             400: OpenApiResponse(
                 description=(
-                    "No structured_output_schema configured for this scout, a record failed schema "
-                    "validation (nothing written), or a batch/size cap was exceeded."
+                    "No structured_output_schema configured for this scout, the channel is off (dry-run "
+                    "scout, or the signals_scout source disabled), a record failed schema validation "
+                    "(nothing written), or a batch/size cap was exceeded."
                 )
             ),
             404: OpenApiResponse(description="Run not found for this project."),
+            503: OpenApiResponse(
+                description=(
+                    "The records validated but event delivery failed; nothing was recorded. Retry the "
+                    "same call — delivery is idempotent, so a retry cannot double-count."
+                )
+            ),
         },
         summary="Record structured output for a run",
         description=(
-            "The structured-output channel: persist schema-validated records this run produced. Opt-in via "
+            "The structured-output channel: record schema-validated records this run produced. Opt-in via "
             "the scout config's `structured_output_schema` (a JSON Schema describing one record) — without "
-            "it the call fails closed. All-or-nothing: any invalid record fails the whole call with nothing "
-            "written, so fix and resubmit the batch. Each accepted record lands as a queryable row (see "
-            "`structured-outputs`) and is mirrored into the project's event stream as a "
-            "`$scout_structured_output` event (suppressed for dry-run scouts). Rows are NOT deduplicated on "
-            "resubmission — record each batch exactly once."
+            "it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any "
+            "invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each "
+            "accepted record lands in the project's event stream as a `$scout_structured_output` event — "
+            "query them like any event (insights, SQL over `events`). Recording is idempotent: event ids "
+            "are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot "
+            "double-count."
         ),
         operation_id="signals_scout_record_output",
     )
@@ -1122,106 +1109,14 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             result = record_structured_output_sync(team=run.team, run=run, records=records)
         except InvalidStructuredOutputError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
+        except StructuredOutputDeliveryError as exc:
+            raise _StructuredOutputDeliveryFailed(detail=str(exc))
         return Response(
             RecordStructuredOutputResponseSerializer(
                 {"recorded_count": result.recorded_count, "record_ids": result.record_ids}
             ).data,
             status=status.HTTP_200_OK,
         )
-
-    @extend_schema(
-        parameters=[_RUN_ID_PATH_PARAMETER],
-        responses={
-            200: OpenApiResponse(
-                response=SignalScoutStructuredOutputSerializer(many=True),
-                description="Structured-output records this run persisted, in submission order.",
-            ),
-            404: OpenApiResponse(description="Run not found or not visible to this project."),
-        },
-        summary="List a run's structured-output records",
-        description=(
-            "Return the schema-validated records a `SignalScoutRun` persisted via `record-output`, in "
-            "submission order — one row per record with its `subject` and `payload`. The queryable view of "
-            "a measuring scout's output (judgments, scores, classifications) without parsing the run "
-            "`summary`. Strictly team-scoped — a run UUID belonging to another team returns 404."
-        ),
-        operation_id="signals_scout_runs_structured_outputs",
-    )
-    @action(
-        detail=True,
-        methods=["get"],
-        url_path="structured-outputs",
-        required_scopes=["signal_scout:read"],
-        pagination_class=None,
-    )
-    def structured_outputs(self, request: Request, **kwargs) -> Response:
-        run_id = _parse_run_id_or_404(kwargs)
-        team_id = _canonical_team_id(self)
-        # Team-scope the run lookup first so a foreign-team UUID is a clean 404, not an empty list.
-        if not SignalScoutRun.objects.filter(id=run_id, team_id=team_id).exists():
-            raise exceptions.NotFound()
-        # Submission order (the PK is a time-ordered uuid7). The write path caps rows per run at
-        # `MAX_RECORDS_PER_RUN`, so the same cap here means the response is never truncated.
-        rows = SignalScoutStructuredOutput.objects.filter(scout_run_id=run_id, team_id=team_id).order_by(
-            "created_at", "id"
-        )[:MAX_RECORDS_PER_RUN]
-        return Response(SignalScoutStructuredOutputSerializer(rows, many=True).data)
-
-    @validated_request(
-        query_serializer=RecentStructuredOutputsQuerySerializer,
-        responses={
-            200: OpenApiResponse(
-                response=RecentStructuredOutputsResponseSerializer,
-                description="One page of recent structured-output records, newest first, with `next_cursor`.",
-            ),
-            400: OpenApiResponse(description="Malformed `cursor`."),
-        },
-        summary="List recent structured-output records across all runs",
-        description=(
-            "Return the team's recent structured-output records across *every* run, newest first — the "
-            "cross-run counterpart to the per-run `structured-outputs` action. Each row carries its "
-            "`run_id` and `skill_name`, so a scout's measurement series ('all grouping-quality judgments "
-            "this week') is one call. Pass `skill_name` to scope to one scout, `subject` to follow one "
-            "judged entity across runs, and `date_from` / `date_to` (a half-open window on `created_at`) "
-            "to bound the window. To page past the cap, pass the response's `next_cursor` back as "
-            "`cursor` with the same filters — the cursor is compound (`created_at` + row id), so records "
-            "sharing a boundary timestamp are never skipped. Pure Postgres. Capped at "
-            f"{MAX_RECENT_STRUCTURED_OUTPUTS_LIMIT} rows per page (default "
-            f"{DEFAULT_RECENT_STRUCTURED_OUTPUTS_LIMIT})."
-        ),
-        operation_id="signals_scout_runs_recent_structured_outputs",
-    )
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="structured-outputs/recent",
-        required_scopes=["signal_scout:read"],
-        pagination_class=None,
-    )
-    def recent_structured_outputs(self, request: Request, **kwargs) -> Response:
-        validated = getattr(request, "validated_query_data", {}) or {}
-        team_id = _canonical_team_id(self)
-        limit = validated.get("limit") or DEFAULT_RECENT_STRUCTURED_OUTPUTS_LIMIT
-
-        qs = SignalScoutStructuredOutput.objects.filter(team_id=team_id)
-        if validated.get("date_from"):
-            qs = qs.filter(created_at__gte=validated["date_from"])
-        if validated.get("date_to"):
-            qs = qs.filter(created_at__lt=validated["date_to"])
-        if validated.get("skill_name"):
-            qs = qs.filter(skill_name=validated["skill_name"])
-        if validated.get("subject"):
-            qs = qs.filter(subject=validated["subject"])
-        if validated.get("cursor"):
-            cursor_created_at, cursor_id = _decode_structured_output_cursor(validated["cursor"])
-            qs = qs.filter(Q(created_at__lt=cursor_created_at) | Q(created_at=cursor_created_at, id__lt=cursor_id))
-
-        # Fetch one extra row to know whether a next page exists without a second COUNT query.
-        rows = list(qs.order_by("-created_at", "-id")[: limit + 1])
-        has_more = len(rows) > limit
-        rows = rows[:limit]
-        next_cursor = _encode_structured_output_cursor(rows[-1]) if has_more else None
-        return Response(RecentStructuredOutputsResponseSerializer({"results": rows, "next_cursor": next_cursor}).data)
 
     # `EvidenceEntrySerializer` is referenced for OpenAPI nested-schema discovery; keep
     # the import live so drf-spectacular registers it even if the runtime never imports

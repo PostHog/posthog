@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 42 enabled ops
+ * PostHog API - MCP 40 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -532,7 +532,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .record(zod.string(), zod.unknown())
                     .nullish()
                     .describe(
-                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
                     ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
@@ -643,7 +643,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .record(zod.string(), zod.unknown())
             .nullish()
             .describe(
-                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
             ),
         skill_name: zod
             .string()
@@ -737,7 +737,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .record(zod.string(), zod.unknown())
             .nullish()
             .describe(
-                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
             ),
         network_access: zod
             .enum(['trusted', 'full'])
@@ -1484,7 +1484,7 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
 
 /**
- * The structured-output channel: persist schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed. All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands as a queryable row (see `structured-outputs`) and is mirrored into the project's event stream as a `$scout_structured_output` event (suppressed for dry-run scouts). Rows are NOT deduplicated on resubmission — record each batch exactly once.
+ * The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.
  * @summary Record structured output for a run
  */
 export const SignalsScoutRecordOutputParams = /* @__PURE__ */ zod.object({
@@ -1524,23 +1524,10 @@ export const SignalsScoutRecordOutputBody = /* @__PURE__ */ zod
             .min(1)
             .max(signalsScoutRecordOutputBodyRecordsMax)
             .describe(
-                "Records to persist, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record."
+                "Records to record, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record."
             ),
     })
     .describe('Request body for `scout-record-output`: a batch of schema-validated records.')
-
-/**
- * Return the schema-validated records a `SignalScoutRun` persisted via `record-output`, in submission order — one row per record with its `subject` and `payload`. The queryable view of a measuring scout's output (judgments, scores, classifications) without parsing the run `summary`. Strictly team-scoped — a run UUID belonging to another team returns 404.
- * @summary List a run's structured-output records
- */
-export const SignalsScoutRunsStructuredOutputsParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
-})
 
 /**
  * Return the team's recently emitted scout findings across *every* run, newest first — the cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so you can regroup by run without first listing runs and fanning out one `emissions` call each. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at 200 rows (default 50).
@@ -1580,61 +1567,6 @@ export const SignalsScoutRunsRecentEmissionsQueryParams = /* @__PURE__ */ zod.ob
         .describe(
             "Exact-match filter on the emitting scout's skill (e.g. `signals-scout-errors`). Narrows to findings one specialist surfaced; omit to span every scout on the team."
         ),
-})
-
-/**
- * Return the team's recent structured-output records across *every* run, newest first — the cross-run counterpart to the per-run `structured-outputs` action. Each row carries its `run_id` and `skill_name`, so a scout's measurement series ('all grouping-quality judgments this week') is one call. Pass `skill_name` to scope to one scout, `subject` to follow one judged entity across runs, and `date_from` / `date_to` (a half-open window on `created_at`) to bound the window. To page past the cap, pass the response's `next_cursor` back as `cursor` with the same filters — the cursor is compound (`created_at` + row id), so records sharing a boundary timestamp are never skipped. Pure Postgres. Capped at 500 rows per page (default 100).
- * @summary List recent structured-output records across all runs
- */
-export const SignalsScoutRunsRecentStructuredOutputsParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const signalsScoutRunsRecentStructuredOutputsQueryLimitMax = 500
-
-export const signalsScoutRunsRecentStructuredOutputsQuerySubjectMax = 200
-
-export const SignalsScoutRunsRecentStructuredOutputsQueryParams = /* @__PURE__ */ zod.object({
-    cursor: zod
-        .string()
-        .min(1)
-        .optional()
-        .describe(
-            "Opaque pagination cursor from the prior response's `next_cursor`. Pass it back verbatim (with the same filters) to fetch the next page; records sharing a boundary `created_at` are never skipped. Omit for the first page."
-        ),
-    date_from: zod.iso
-        .datetime({ offset: true })
-        .optional()
-        .describe('ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.'),
-    date_to: zod.iso
-        .datetime({ offset: true })
-        .optional()
-        .describe(
-            'ISO-8601 exclusive upper bound on `created_at`. Bounds the window; to paginate losslessly use `cursor` instead — a timestamp-only walk can skip records sharing the boundary timestamp.'
-        ),
-    limit: zod
-        .number()
-        .min(1)
-        .max(signalsScoutRunsRecentStructuredOutputsQueryLimitMax)
-        .optional()
-        .describe('Max rows to return (default 100, hard cap 500).'),
-    skill_name: zod
-        .string()
-        .min(1)
-        .optional()
-        .describe(
-            "Exact-match filter on the recording scout's skill (e.g. `signals-scout-grouping-judge`). Omit to span every scout on the team."
-        ),
-    subject: zod
-        .string()
-        .min(1)
-        .max(signalsScoutRunsRecentStructuredOutputsQuerySubjectMax)
-        .optional()
-        .describe('Exact-match filter on `subject` — every record about one entity, across runs.'),
 })
 
 /**

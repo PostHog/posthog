@@ -611,8 +611,9 @@ def _structured_output_section(schema: dict | None) -> str:
     Per-run composed (like the follow-ups section) because the schema is per-team config data,
     not a template: the section renders the exact schema the record endpoint will enforce, so
     the prompt and the validator can never describe two different contracts. The section only
-    exists when the channel is on — naming `scout-record-output` on a schema-less scout would
-    steer it at a tool that fails closed.
+    exists when the channel is on — naming `scout-record-output` on a scout whose channel is
+    off (no schema, or dry-run: the runner passes None for both) would steer it at a tool
+    that fails closed.
     """
     if not schema:
         return ""
@@ -628,8 +629,9 @@ This scout's config carries a structured output schema, so producing records is 
 - Record via `scout-record-output`, passing your `run_id` and a `records` list; each entry is `{{"payload": <object matching the schema>, "subject": "<optional key naming what the record is about, e.g. a report id>"}}`.
 - Set `subject` whenever a record is about one specific entity, so that entity's records can be followed across runs without parsing payloads.
 - Batch: submit many records per call (up to 100) rather than one call per record.
-- Validation is all-or-nothing per call: if any record fails the schema, nothing is written and the error names the failing records – fix them and resubmit the whole batch.
-- Recording is NOT idempotent: a resubmitted batch writes duplicate rows, so never retry a call that may have already succeeded.
+- Validation is all-or-nothing per call: if any record fails the schema, nothing is recorded and the error names the failing records – fix them and resubmit the whole batch.
+- Each record lands in this project as a `$scout_structured_output` event – past records are queryable like any event (your payload's scalar keys are flattened to `output_<key>` properties, `subject` and `run_id` ride alongside).
+- Recording is idempotent: resubmitting an identical batch cannot double-count, so if a call fails with a delivery error, retry the same call.
 - Records complement your other outputs, they don't replace them: still write your scratchpad entries and close-out summary, and mention how many records you produced."""
 
 

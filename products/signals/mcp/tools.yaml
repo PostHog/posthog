@@ -652,16 +652,16 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: false
+            idempotent: true
         title: Record structured output for a run
         description: >
-            Persist schema-validated structured records for a `SignalScoutRun` — the structured-output channel next to
+            Record schema-validated structured records for a `SignalScoutRun` — the structured-output channel next to
             findings and reports. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one
-            record); without it the call fails closed. Pass the `run_id` and a `records` list of `{payload, subject}`
-            entries. All-or-nothing: any record failing the schema fails the whole call with nothing written — fix and
-            resubmit the batch. Each accepted record persists as a queryable row and mirrors into the project's event
-            stream as a `$scout_structured_output` event. NOT idempotent — a resubmitted batch writes duplicate rows, so
-            record each batch exactly once.
+            record); without it the call fails closed, as it does for a dry-run scout (emit off). Pass the `run_id` and
+            a `records` list of `{payload, subject}` entries. All-or-nothing: any record failing the schema fails the
+            whole call with nothing written — fix and resubmit the batch. Each accepted record lands in the project's
+            event stream as a `$scout_structured_output` event, queryable like any event. Idempotent — event ids are
+            deterministic, so retrying a call that failed with a delivery error (503) cannot double-count.
     scout-run-now:
         operation: signals_scout_config_run
         enabled: true
@@ -771,25 +771,6 @@ tools:
             `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive
             upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to
             walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.
-    scout-runs-recent-structured-outputs:
-        operation: signals_scout_runs_recent_structured_outputs
-        enabled: true
-        scopes:
-            - signal_scout:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List recent structured-output records across all scout runs
-        description: >
-            Return the team's recent structured-output records across *every* `SignalScoutRun`, newest first — the
-            cross-run counterpart to `scout-runs-structured-outputs-list`. Each row carries its `run_id`, `skill_name`,
-            `subject`, and schema-validated `payload`, so a measuring scout's series ("all grouping-quality judgments
-            this week") is one call. Pass `skill_name` to scope to one scout, `subject` to follow one judged entity
-            across runs, and `date_from` / `date_to` (half-open window on `created_at`) to bound the window. To page
-            past the cap, pass the response's `next_cursor` back as `cursor` with the same filters — lossless even
-            when records share a boundary timestamp. Capped at 500 rows per page (default 100). Strictly team-scoped.
     scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
@@ -806,23 +787,6 @@ tools:
             the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows
             queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly
             team-scoped — a UUID belonging to another team returns 404.
-    scout-runs-structured-outputs-list:
-        operation: signals_scout_runs_structured_outputs
-        enabled: true
-        scopes:
-            - signal_scout:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List a scout run's structured-output records
-        description: >
-            Return the schema-validated records a `SignalScoutRun` persisted via `scout-record-output`, in submission
-            order — one row per record with its `subject` (what the record is about) and `payload` (validated against
-            the scout config's `structured_output_schema` at submission time). The queryable view of a measuring scout's
-            output (judgments, scores, classifications) without parsing the run `summary`. Strictly team-scoped — a run
-            UUID belonging to another team returns 404.
     scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true

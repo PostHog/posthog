@@ -41,9 +41,7 @@ import {
     SignalsScoutRunsEmissionsParams,
     SignalsScoutRunsListQueryParams,
     SignalsScoutRunsRecentEmissionsQueryParams,
-    SignalsScoutRunsRecentStructuredOutputsQueryParams,
     SignalsScoutRunsRetrieveParams,
-    SignalsScoutRunsStructuredOutputsParams,
     SignalsScoutScratchpadForgetBody,
     SignalsScoutScratchpadRememberBody,
     SignalsScoutScratchpadSearchQueryParams,
@@ -1100,32 +1098,6 @@ const scoutRunsRecentEmissions = (): ToolBase<
     },
 })
 
-const ScoutRunsRecentStructuredOutputsSchema = SignalsScoutRunsRecentStructuredOutputsQueryParams
-
-const scoutRunsRecentStructuredOutputs = (): ToolBase<
-    typeof ScoutRunsRecentStructuredOutputsSchema,
-    WithPostHogUrl<Schemas.RecentStructuredOutputsResponse>
-> => ({
-    name: 'scout-runs-recent-structured-outputs',
-    schema: ScoutRunsRecentStructuredOutputsSchema,
-    handler: async (context: Context, params: z.infer<typeof ScoutRunsRecentStructuredOutputsSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.RecentStructuredOutputsResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/structured-outputs/recent/`,
-            query: {
-                cursor: params.cursor,
-                date_from: params.date_from,
-                date_to: params.date_to,
-                limit: params.limit,
-                skill_name: params.skill_name,
-                subject: params.subject,
-            },
-        })
-        return await withPostHogUrl(context, result, '/inbox')
-    },
-})
-
 const ScoutRunsRetrieveSchema = SignalsScoutRunsRetrieveParams.omit({ project_id: true })
 
 const scoutRunsRetrieve = (): ToolBase<typeof ScoutRunsRetrieveSchema, Schemas.SignalScoutRunDetail> => ({
@@ -1138,24 +1110,6 @@ const scoutRunsRetrieve = (): ToolBase<typeof ScoutRunsRetrieveSchema, Schemas.S
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/`,
         })
         return result
-    },
-})
-
-const ScoutRunsStructuredOutputsListSchema = SignalsScoutRunsStructuredOutputsParams.omit({ project_id: true })
-
-const scoutRunsStructuredOutputsList = (): ToolBase<
-    typeof ScoutRunsStructuredOutputsListSchema,
-    WithPostHogUrl<Schemas.SignalScoutStructuredOutput[]>
-> => ({
-    name: 'scout-runs-structured-outputs-list',
-    schema: ScoutRunsStructuredOutputsListSchema,
-    handler: async (context: Context, params: z.infer<typeof ScoutRunsStructuredOutputsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SignalScoutStructuredOutput[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/structured-outputs/`,
-        })
-        return await withPostHogUrl(context, result, '/inbox')
     },
 })
 
@@ -1789,9 +1743,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-runs-emissions-list': scoutRunsEmissionsList,
     'scout-runs-list': scoutRunsList,
     'scout-runs-recent-emissions': scoutRunsRecentEmissions,
-    'scout-runs-recent-structured-outputs': scoutRunsRecentStructuredOutputs,
     'scout-runs-retrieve': scoutRunsRetrieve,
-    'scout-runs-structured-outputs-list': scoutRunsStructuredOutputsList,
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,

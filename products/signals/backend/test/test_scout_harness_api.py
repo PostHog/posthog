@@ -35,7 +35,6 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutNote,
     SignalScoutRun,
-    SignalScoutStructuredOutput,
     SignalScratchpad,
 )
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
@@ -729,12 +728,6 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
     def _record_url(self, run_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/record-output/"
 
-    def _run_outputs_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/structured-outputs/"
-
-    def _recent_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/structured-outputs/recent/"
-
     def _make_run_with_schema(self, team: Team | None = None, **config_overrides) -> SignalScoutRun:
         run = _make_run(team or self.team)
         assert run.scout_config is not None
@@ -744,7 +737,7 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         run.scout_config.save()
         return run
 
-    def test_record_output_persists_rows_and_forwards_events(self) -> None:
+    def test_record_output_forwards_events_and_counts_on_the_run(self) -> None:
         run = self._make_run_with_schema()
         records = [
             {"payload": {"verdict": "good", "reason": "coherent grouping"}, "subject": "report-1"},
@@ -758,13 +751,9 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["recorded_count"] == 3
-        assert len(body["record_ids"]) == 3
-        rows = list(SignalScoutStructuredOutput.objects.filter(scout_run=run).order_by("created_at", "id"))
-        assert [row.subject for row in rows] == ["report-1", "report-2", ""]
-        assert rows[0].payload == {"verdict": "good", "reason": "coherent grouping"}
-        assert rows[0].skill_name == run.skill_name
         # One batch POST carrying one event per record, person processing off, scalar payload
-        # keys flattened for breakdowns, and distinct deterministic uuids per record.
+        # keys flattened for breakdowns, and distinct deterministic uuids per record. The
+        # response's record_ids ARE those event uuids — the events are the record.
         assert mock_capture.call_count == 1
         kwargs = mock_capture.call_args.kwargs
         events = kwargs["events"]
@@ -775,6 +764,10 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         assert events[0]["properties"]["subject"] == "report-1"
         assert events[0]["properties"]["run_id"] == str(run.id)
         assert len({event["event_uuid"] for event in events}) == 3
+        assert body["record_ids"] == [event["event_uuid"] for event in events]
+        # The per-run cap counter is the only Postgres trace, on the run row itself.
+        run.refresh_from_db()
+        assert (run.metadata or {}).get("structured_output_count") == 3
 
     def test_record_output_is_all_or_nothing_on_invalid_record(self) -> None:
         run = self._make_run_with_schema()
@@ -788,8 +781,9 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
             response = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "records[1]" in str(response.json())
-        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 0
         mock_capture.assert_not_called()
+        run.refresh_from_db()
+        assert (run.metadata or {}).get("structured_output_count") is None
 
     def test_record_output_fails_closed_without_configured_schema(self) -> None:
         run = _make_run(self.team)
@@ -800,7 +794,6 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "structured_output_schema" in str(response.json())
-        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 0
 
     def test_record_output_rejects_non_in_progress_run(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -823,10 +816,10 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_record_output_disabled_source_persists_rows_but_forwards_no_events(self) -> None:
-        # Same inactive-skip rule as the emit/report channels: a project that disabled the
-        # signals_scout source must see no customer-facing event, while the rows still
-        # record as internal run data.
+    def test_record_output_fails_closed_for_disabled_source(self) -> None:
+        # Same inactive-skip rule as the emit/report channels — but with events as the only
+        # record, suppressing them quietly would silently lose the batch, so the call fails
+        # loudly instead.
         from products.signals.backend.models import SignalSourceConfig
 
         run = self._make_run_with_schema()
@@ -844,13 +837,13 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
                 data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
                 format="json",
             )
-        assert response.status_code == status.HTTP_200_OK
-        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 1
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "disabled" in str(response.json())
         mock_capture.assert_not_called()
 
-    def test_record_output_dry_run_persists_rows_but_forwards_no_events(self) -> None:
-        # A dry-run scout is being validated: its rows must record (that's the validation
-        # evidence) but nothing may drive customer-visible automation.
+    def test_record_output_fails_closed_for_dry_run_scout(self) -> None:
+        # The runner also withholds the prompt section for a dry-run scout; this guards the
+        # backstop for a mid-run emit flip.
         run = self._make_run_with_schema(emit=False)
         with patch(
             "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
@@ -860,9 +853,33 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
                 data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
                 format="json",
             )
-        assert response.status_code == status.HTTP_200_OK
-        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 1
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "dry-run" in str(response.json())
         mock_capture.assert_not_called()
+
+    def test_record_output_delivery_failure_is_retryable_with_stable_event_ids(self) -> None:
+        # The forward is the only write, so a failed batch POST must fail the call (a
+        # swallowed failure silently loses the run's output — the regression this guards),
+        # and a retry of the same batch must produce identical event uuids so it collapses
+        # at ingestion instead of double-counting.
+        run = self._make_run_with_schema()
+        records = [{"payload": {"verdict": "good", "reason": "x"}, "subject": "report-1"}]
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal",
+            side_effect=RuntimeError("capture down"),
+        ) as failing_capture:
+            failed = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
+        assert failed.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "etry" in str(failed.json())
+        failed_uuids = [event["event_uuid"] for event in failing_capture.call_args.kwargs["events"]]
+
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
+            retried = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
+        assert retried.status_code == status.HTTP_200_OK
+        assert retried.json()["record_ids"] == failed_uuids
+        assert [event["event_uuid"] for event in mock_capture.call_args.kwargs["events"]] == failed_uuids
 
     def test_record_output_validates_against_dispatch_time_schema_snapshot(self) -> None:
         # The prompt renders the dispatch-time schema, so a mid-run config edit must not
@@ -898,8 +915,8 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         assert cleared.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_record_output_fails_closed_when_schema_cleared_mid_request(self) -> None:
-        # Simulates a clear committing between the schema read and the row write — the
-        # in-transaction recheck must fail the call closed with nothing written.
+        # Simulates a clear committing between the schema read and the capacity reservation —
+        # the in-transaction recheck must fail the call closed with nothing forwarded.
         run = self._make_run_with_schema()
         assert run.scout_config_id is not None
         config_id = run.scout_config_id
@@ -919,103 +936,29 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
                 format="json",
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 0
         mock_capture.assert_not_called()
 
-    def test_record_output_enforces_per_run_cap(self) -> None:
+    def test_record_output_enforces_per_run_cap_across_calls(self) -> None:
+        # The cap counter lives on the run row, so it must accumulate across calls — a
+        # reservation that doesn't persist would let a looping agent flood events.
         run = self._make_run_with_schema()
-        records = [{"payload": {"verdict": "good", "reason": f"r{i}"}} for i in range(3)]
-        with patch("products.signals.backend.scout_harness.tools.structured_output.MAX_RECORDS_PER_RUN", 2):
-            response = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert SignalScoutStructuredOutput.objects.filter(scout_run=run).count() == 0
-
-    def test_run_outputs_listed_in_submission_order(self) -> None:
-        run = self._make_run_with_schema()
-        for index in range(3):
-            SignalScoutStructuredOutput.objects.create(
-                team=self.team,
-                scout_run=run,
-                skill_name=run.skill_name,
-                subject=f"report-{index}",
-                payload={"verdict": "good", "reason": str(index)},
+        with (
+            patch("products.signals.backend.scout_harness.tools.structured_output.MAX_RECORDS_PER_RUN", 2),
+            patch("products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"),
+        ):
+            first = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": f"r{i}"}} for i in range(2)]},
+                format="json",
             )
-        response = self.client.get(self._run_outputs_url(str(run.id)))
-        assert response.status_code == status.HTTP_200_OK
-        assert [row["subject"] for row in response.json()] == ["report-0", "report-1", "report-2"]
-
-    def test_run_outputs_other_teams_run_returns_404(self) -> None:
-        other = Team.objects.create(organization=self.organization, name="Other")
-        run = self._make_run_with_schema(team=other)
-        response = self.client.get(self._run_outputs_url(str(run.id)))
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_recent_outputs_scoped_to_team_with_filters(self) -> None:
-        run = self._make_run_with_schema()
-        other_org = Organization.objects.create(name="other org")
-        other_team = Team.objects.create(organization=other_org, name="Other")
-        foreign_run = self._make_run_with_schema(team=other_team)
-        SignalScoutStructuredOutput.objects.create(
-            team=other_team,
-            scout_run=foreign_run,
-            skill_name="signals-scout-general",
-            subject="foreign",
-            payload={"verdict": "bad", "reason": "leak"},
-        )
-        for subject, skill in (("report-1", "signals-scout-general"), ("report-2", "signals-scout-judge")):
-            SignalScoutStructuredOutput.objects.create(
-                team=self.team,
-                scout_run=run,
-                skill_name=skill,
-                subject=subject,
-                payload={"verdict": "good", "reason": subject},
+            second = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "one too many"}}]},
+                format="json",
             )
-        response = self.client.get(self._recent_url())
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert {row["subject"] for row in body["results"]} == {"report-1", "report-2"}
-        assert body["next_cursor"] is None
-
-        filtered = self.client.get(self._recent_url(), {"skill_name": "signals-scout-judge"})
-        assert [row["subject"] for row in filtered.json()["results"]] == ["report-2"]
-
-        by_subject = self.client.get(self._recent_url(), {"subject": "report-1"})
-        assert [row["subject"] for row in by_subject.json()["results"]] == ["report-1"]
-
-    def test_recent_outputs_cursor_walk_is_lossless_across_shared_timestamps(self) -> None:
-        # A timestamp-only cursor (walking `date_to` from the last row's `created_at`) skips
-        # rows sharing the boundary timestamp. The compound cursor must return all rows
-        # exactly once even when a page boundary lands inside a same-timestamp group.
-        run = self._make_run_with_schema()
-        shared_at = timezone.now()
-        for index in range(5):
-            row = SignalScoutStructuredOutput.objects.create(
-                team=self.team,
-                scout_run=run,
-                skill_name=run.skill_name,
-                subject=f"report-{index}",
-                payload={"verdict": "good", "reason": str(index)},
-            )
-            # auto_now_add ignores a passed value; force every row onto one timestamp so a
-            # limit=2 walk puts two page boundaries inside the shared-timestamp group.
-            SignalScoutStructuredOutput.objects.filter(pk=row.pk).update(created_at=shared_at)
-
-        seen: list[str] = []
-        cursor: str | None = None
-        for _ in range(4):
-            params = {"limit": "2", **({"cursor": cursor} if cursor else {})}
-            page = self.client.get(self._recent_url(), params)
-            assert page.status_code == status.HTTP_200_OK
-            body = page.json()
-            seen.extend(row["id"] for row in body["results"])
-            cursor = body["next_cursor"]
-            if cursor is None:
-                break
-        assert cursor is None
-        assert len(seen) == len(set(seen)) == 5
-
-        malformed = self.client.get(self._recent_url(), {"cursor": "not-a-cursor"})
-        assert malformed.status_code == status.HTTP_400_BAD_REQUEST
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "per-run cap" in str(second.json())
 
 
 class TestStructuredOutputSchemaValidation(SimpleTestCase):

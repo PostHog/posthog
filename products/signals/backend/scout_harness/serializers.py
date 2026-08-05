@@ -26,7 +26,7 @@ from posthog.models.integration import Integration
 from posthog.permissions import get_authenticator_scopes
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutStructuredOutput
+from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -416,7 +416,7 @@ class RecordStructuredOutputRequestSerializer(serializers.Serializer):
         min_length=1,
         max_length=MAX_RECORDS_PER_CALL,
         help_text=(
-            "Records to persist, each validated against the scout config's `structured_output_schema`. "
+            "Records to record, each validated against the scout config's `structured_output_schema`. "
             "All-or-nothing: if any record fails validation, nothing is written and the error names the "
             f"failing records. Capped at {MAX_RECORDS_PER_CALL} per call; batch per-entity judgments "
             "rather than calling once per record."
@@ -427,102 +427,13 @@ class RecordStructuredOutputRequestSerializer(serializers.Serializer):
 class RecordStructuredOutputResponseSerializer(serializers.Serializer):
     """Outcome of an accepted `scout-record-output` call."""
 
-    recorded_count = serializers.IntegerField(help_text="How many records were persisted (all of them, or none).")
+    recorded_count = serializers.IntegerField(help_text="How many records were recorded (all of them, or none).")
     record_ids = serializers.ListField(
         child=serializers.UUIDField(),
-        help_text="Row ids of the persisted records, in submission order.",
-    )
-
-
-class SignalScoutStructuredOutputSerializer(serializers.ModelSerializer):
-    """One persisted structured-output record, returned by the structured-output read endpoints."""
-
-    run_id = serializers.CharField(
-        source="scout_run_id",
-        help_text="UUID of the `SignalScoutRun` that recorded this record.",
-    )
-    skill_name = serializers.CharField(
-        help_text="The scout (`signals-scout-*` skill) whose run recorded this record.",
-    )
-    subject = serializers.CharField(
         help_text=(
-            "Scout-chosen key naming what the record is about (a report id, URL, account key). "
-            "Empty string for a run-level record."
-        ),
-    )
-    payload = StructuredOutputPayloadField(
-        help_text=(
-            "The record, validated at submission time against the `structured_output_schema` the scout's "
-            "config carried then. Editing the schema later does not rewrite historical rows."
-        ),
-    )
-    created_at = serializers.DateTimeField(help_text="ISO-8601 timestamp the record was persisted.")
-
-    class Meta:
-        model = SignalScoutStructuredOutput
-        fields = ["id", "run_id", "skill_name", "subject", "payload", "created_at"]
-        read_only_fields = fields
-
-
-class RecentStructuredOutputsQuerySerializer(serializers.Serializer):
-    """Query parameters for `recent-structured-outputs` — records across every run on the team.
-
-    The cross-run counterpart to the per-run `structured-outputs` action, mirroring
-    `recent-emissions`: newest-first, optionally scoped to one scout, one subject, or a
-    time window. Pure Postgres.
-    """
-
-    date_from = serializers.DateTimeField(
-        required=False,
-        help_text="ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.",
-    )
-    date_to = serializers.DateTimeField(
-        required=False,
-        help_text=(
-            "ISO-8601 exclusive upper bound on `created_at`. Bounds the window; to paginate losslessly "
-            "use `cursor` instead — a timestamp-only walk can skip records sharing the boundary timestamp."
-        ),
-    )
-    cursor = serializers.CharField(
-        required=False,
-        help_text=(
-            "Opaque pagination cursor from the prior response's `next_cursor`. Pass it back verbatim "
-            "(with the same filters) to fetch the next page; records sharing a boundary `created_at` "
-            "are never skipped. Omit for the first page."
-        ),
-    )
-    skill_name = serializers.CharField(
-        required=False,
-        help_text=(
-            "Exact-match filter on the recording scout's skill (e.g. `signals-scout-grouping-judge`). "
-            "Omit to span every scout on the team."
-        ),
-    )
-    subject = serializers.CharField(
-        required=False,
-        max_length=MAX_SUBJECT_LENGTH,
-        help_text="Exact-match filter on `subject` — every record about one entity, across runs.",
-    )
-    limit = serializers.IntegerField(
-        required=False,
-        min_value=1,
-        max_value=500,
-        help_text="Max rows to return (default 100, hard cap 500).",
-    )
-
-
-class RecentStructuredOutputsResponseSerializer(serializers.Serializer):
-    """One page of cross-run structured-output records, with the cursor to the next page."""
-
-    results = SignalScoutStructuredOutputSerializer(
-        many=True,
-        help_text="Structured-output records, newest first.",
-    )
-    next_cursor = serializers.CharField(
-        allow_null=True,
-        help_text=(
-            "Opaque cursor for the next page — pass it back as `cursor` with the same filters. "
-            "Null when this page exhausts the matching records."
+            "Deterministic event ids of the recorded `$scout_structured_output` events, in submission "
+            "order. Stable across a resubmission of the identical batch, which is what makes retrying "
+            "a failed delivery safe."
         ),
     )
 
@@ -2048,8 +1959,9 @@ _STRUCTURED_OUTPUT_SCHEMA_HELP = (
     '(`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, '
     '"reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). '
     'The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: '
-    "the run prompt renders the schema and every submitted record is validated against it, persisted "
-    "as a queryable row, and mirrored into the project as a `$scout_structured_output` event. "
+    "the run prompt renders the schema and every submitted record is validated against it and recorded "
+    "in the project as a `$scout_structured_output` event, queryable like any event. The channel also "
+    "requires emit — a dry-run scout has nowhere to record to. "
     "Cardinality is the scout's call (one record per run, one per judged entity, ...). "
     "Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` "
     "scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs "

@@ -37,7 +37,6 @@ import type {
     PullRequestReviewCommentCreateResponseApi,
     PullRequestReviewCommentReactionCreateApi,
     PullRequestReviewCommentReactionCreateResponseApi,
-    RecentStructuredOutputsResponseApi,
     RecordStructuredOutputRequestApi,
     RecordStructuredOutputResponseApi,
     RememberRequestApi,
@@ -69,7 +68,6 @@ import type {
     SignalScoutManualRunApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
-    SignalScoutStructuredOutputApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
@@ -81,7 +79,6 @@ import type {
     SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
     SignalsScoutRunsRecentEmissionsParams,
-    SignalsScoutRunsRecentStructuredOutputsParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
@@ -1124,7 +1121,7 @@ export const getSignalsScoutRecordOutputUrl = (projectId: string, runId: string)
 }
 
 /**
- * The structured-output channel: persist schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed. All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands as a queryable row (see `structured-outputs`) and is mirrored into the project's event stream as a `$scout_structured_output` event (suppressed for dry-run scouts). Rows are NOT deduplicated on resubmission — record each batch exactly once.
+ * The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.
  * @summary Record structured output for a run
  */
 export const signalsScoutRecordOutput = async (
@@ -1138,25 +1135,6 @@ export const signalsScoutRecordOutput = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(recordStructuredOutputRequestApi),
-    })
-}
-
-export const getSignalsScoutRunsStructuredOutputsUrl = (projectId: string, runId: string) => {
-    return `/api/projects/${projectId}/signals/scout/runs/${runId}/structured-outputs/`
-}
-
-/**
- * Return the schema-validated records a `SignalScoutRun` persisted via `record-output`, in submission order — one row per record with its `subject` and `payload`. The queryable view of a measuring scout's output (judgments, scores, classifications) without parsing the run `summary`. Strictly team-scoped — a run UUID belonging to another team returns 404.
- * @summary List a run's structured-output records
- */
-export const signalsScoutRunsStructuredOutputs = async (
-    projectId: string,
-    runId: string,
-    options?: RequestInit
-): Promise<SignalScoutStructuredOutputApi[]> => {
-    return apiMutator<SignalScoutStructuredOutputApi[]>(getSignalsScoutRunsStructuredOutputsUrl(projectId, runId), {
-        ...options,
-        method: 'GET',
     })
 }
 
@@ -1268,43 +1246,6 @@ export const signalsScoutRunsFindingsSummary = async (
         ...options,
         method: 'GET',
     })
-}
-
-export const getSignalsScoutRunsRecentStructuredOutputsUrl = (
-    projectId: string,
-    params?: SignalsScoutRunsRecentStructuredOutputsParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/scout/runs/structured-outputs/recent/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/scout/runs/structured-outputs/recent/`
-}
-
-/**
- * Return the team's recent structured-output records across *every* run, newest first — the cross-run counterpart to the per-run `structured-outputs` action. Each row carries its `run_id` and `skill_name`, so a scout's measurement series ('all grouping-quality judgments this week') is one call. Pass `skill_name` to scope to one scout, `subject` to follow one judged entity across runs, and `date_from` / `date_to` (a half-open window on `created_at`) to bound the window. To page past the cap, pass the response's `next_cursor` back as `cursor` with the same filters — the cursor is compound (`created_at` + row id), so records sharing a boundary timestamp are never skipped. Pure Postgres. Capped at 500 rows per page (default 100).
- * @summary List recent structured-output records across all runs
- */
-export const signalsScoutRunsRecentStructuredOutputs = async (
-    projectId: string,
-    params?: SignalsScoutRunsRecentStructuredOutputsParams,
-    options?: RequestInit
-): Promise<RecentStructuredOutputsResponseApi> => {
-    return apiMutator<RecentStructuredOutputsResponseApi>(
-        getSignalsScoutRunsRecentStructuredOutputsUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
 }
 
 export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: SignalsScoutScratchpadSearchParams) => {

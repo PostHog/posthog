@@ -1854,7 +1854,7 @@ export const ScoutConfigNetworkAccessEnumApi = {
 } as const
 
 /**
- * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+ * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
  * @nullable
  */
 export type SignalScoutConfigOptionsApiStructuredOutputSchema = { [key: string]: unknown } | null
@@ -1889,7 +1889,7 @@ export interface SignalScoutConfigOptionsApi {
      */
     run_cron_schedule?: string | null
     /**
-     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
      */
     structured_output_schema?: SignalScoutConfigOptionsApiStructuredOutputSchema
@@ -1963,7 +1963,7 @@ export const ScoutConfigPauseReasonEnumApi = {
 } as const
 
 /**
- * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+ * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
  * @nullable
  */
 export type SignalScoutConfigApiStructuredOutputSchema = { [key: string]: unknown } | null
@@ -2013,7 +2013,7 @@ export interface SignalScoutConfigApi {
     /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
     readonly output_destinations: SignalScoutOutputDestinationsApi
     /**
-     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
      */
     readonly structured_output_schema: SignalScoutConfigApiStructuredOutputSchema
@@ -2047,7 +2047,7 @@ export interface SignalScoutCreateResponseApi {
 }
 
 /**
- * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+ * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
  * @nullable
  */
 export type SignalScoutConfigCreateApiStructuredOutputSchema = { [key: string]: unknown } | null
@@ -2085,7 +2085,7 @@ export interface SignalScoutConfigCreateApi {
      */
     run_cron_schedule?: string | null
     /**
-     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
      */
     structured_output_schema?: SignalScoutConfigCreateApiStructuredOutputSchema
@@ -2097,7 +2097,7 @@ export interface SignalScoutConfigCreateApi {
 }
 
 /**
- * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+ * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
  * @nullable
  */
 export type PatchedSignalScoutConfigUpdateApiStructuredOutputSchema = { [key: string]: unknown } | null
@@ -2125,7 +2125,7 @@ export interface PatchedSignalScoutConfigUpdateApi {
     /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
     output_destinations?: SignalScoutOutputDestinationsApi
     /**
-     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it, persisted as a queryable row, and mirrored into the project as a `$scout_structured_output` event. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
      */
     structured_output_schema?: PatchedSignalScoutConfigUpdateApiStructuredOutputSchema
@@ -3535,7 +3535,7 @@ export interface StructuredOutputRecordApi {
  */
 export interface RecordStructuredOutputRequestApi {
     /**
-     * Records to persist, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record.
+     * Records to record, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record.
      * @minItems 1
      * @maxItems 100
      */
@@ -3546,32 +3546,10 @@ export interface RecordStructuredOutputRequestApi {
  * Outcome of an accepted `scout-record-output` call.
  */
 export interface RecordStructuredOutputResponseApi {
-    /** How many records were persisted (all of them, or none). */
+    /** How many records were recorded (all of them, or none). */
     recorded_count: number
-    /** Row ids of the persisted records, in submission order. */
+    /** Deterministic event ids of the recorded `$scout_structured_output` events, in submission order. Stable across a resubmission of the identical batch, which is what makes retrying a failed delivery safe. */
     record_ids: string[]
-}
-
-/**
- * The record, validated at submission time against the `structured_output_schema` the scout's config carried then. Editing the schema later does not rewrite historical rows.
- */
-export type SignalScoutStructuredOutputApiPayload = { [key: string]: unknown }
-
-/**
- * One persisted structured-output record, returned by the structured-output read endpoints.
- */
-export interface SignalScoutStructuredOutputApi {
-    readonly id: string
-    /** UUID of the `SignalScoutRun` that recorded this record. */
-    run_id: string
-    /** The scout (`signals-scout-*` skill) whose run recorded this record. */
-    skill_name: string
-    /** Scout-chosen key naming what the record is about (a report id, URL, account key). Empty string for a run-level record. */
-    subject: string
-    /** The record, validated at submission time against the `structured_output_schema` the scout's config carried then. Editing the schema later does not rewrite historical rows. */
-    payload: SignalScoutStructuredOutputApiPayload
-    /** ISO-8601 timestamp the record was persisted. */
-    created_at: string
 }
 
 /**
@@ -3606,19 +3584,6 @@ export interface FleetFindingsSummaryApi {
      * @nullable
      */
     latest_at: string | null
-}
-
-/**
- * One page of cross-run structured-output records, with the cursor to the next page.
- */
-export interface RecentStructuredOutputsResponseApi {
-    /** Structured-output records, newest first. */
-    results: SignalScoutStructuredOutputApi[]
-    /**
-     * Opaque cursor for the next page — pass it back as `cursor` with the same filters. Null when this page exhausts the matching records.
-     * @nullable
-     */
-    next_cursor: string | null
 }
 
 /**
@@ -4106,39 +4071,6 @@ export type SignalsScoutRunsFindingsSummaryParams = {
      * @maximum 168
      */
     window_hours?: number
-}
-
-export type SignalsScoutRunsRecentStructuredOutputsParams = {
-    /**
-     * Opaque pagination cursor from the prior response's `next_cursor`. Pass it back verbatim (with the same filters) to fetch the next page; records sharing a boundary `created_at` are never skipped. Omit for the first page.
-     * @minLength 1
-     */
-    cursor?: string
-    /**
-     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
-     */
-    date_from?: string
-    /**
-     * ISO-8601 exclusive upper bound on `created_at`. Bounds the window; to paginate losslessly use `cursor` instead — a timestamp-only walk can skip records sharing the boundary timestamp.
-     */
-    date_to?: string
-    /**
-     * Max rows to return (default 100, hard cap 500).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number
-    /**
-     * Exact-match filter on the recording scout's skill (e.g. `signals-scout-grouping-judge`). Omit to span every scout on the team.
-     * @minLength 1
-     */
-    skill_name?: string
-    /**
-     * Exact-match filter on `subject` — every record about one entity, across runs.
-     * @minLength 1
-     * @maxLength 200
-     */
-    subject?: string
 }
 
 export type SignalsScoutScratchpadSearchParams = {

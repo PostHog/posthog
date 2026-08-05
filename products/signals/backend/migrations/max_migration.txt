@@ -1,1 +1,1 @@
-0086_signalscoutconfig_structured_output_schema_and_more
+0086_signalscoutconfig_structured_output_schema

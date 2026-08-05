@@ -5,26 +5,27 @@ whose job is a recurring *measurement* — judging, scoring, classifying entitie
 schedule — produces data, not prose: its output only becomes useful when it can be
 filtered and charted per record. This channel gives that shape a contract: the scout's
 `SignalScoutConfig.structured_output_schema` (a JSON Schema describing ONE record) is the
-opt-in, every submitted record is validated against it, and each accepted record lands in
-two places:
-
-- a `SignalScoutStructuredOutput` row (Postgres, queryable via the `scout-*` MCP tools),
-- a customer-facing `$scout_structured_output` event in the team's own project (via
-  `capture_internal`), so the records are chartable in PostHog — trend a `verdict`
-  breakdown, alert on a rate — with no export step.
+opt-in, every submitted record is validated against it, and each accepted record becomes a
+customer-facing `$scout_structured_output` event in the team's own project, so the records
+are chartable in PostHog — trend a `verdict` breakdown, alert on a rate — with no export
+step. The events ARE the record: there is no parallel Postgres copy, so past records are
+read back the way any event is (insights, HogQL over `events`), and retention follows the
+project's event retention.
 
 Validation is all-or-nothing per call: if any record fails the schema, nothing is written
 and the error names the failing records, so the agent can fix and resubmit the batch
-without deduping a partial write. Accepted calls are NOT idempotent at the row layer (a
-resubmitted batch writes new rows), but the customer-facing events carry a deterministic
-uuid derived from `(run, batch index, subject, payload)`, so an identical resubmission
-collapses at ingestion instead of double-firing downstream automation while in-batch
-duplicate records still count separately. Events for a batch go out as ONE
-`capture_batch_internal` POST, never one HTTP call per record.
+without deduping a partial write. Each event carries a deterministic uuid derived from
+`(run, batch index, subject, payload)`, so resubmitting an identical batch collapses at
+ingestion instead of double-firing downstream automation, while in-batch duplicate records
+still count separately — which is what makes "retry on delivery failure" safe to instruct.
+Events for a batch go out as ONE `capture_batch_internal` POST, never one HTTP call per
+record, and a failed POST fails the call: the events are the only write, so a swallowed
+delivery failure would silently lose the run's output.
 
 Cardinality is deliberately the scout's call, not a config mode: the schema describes one
 record, and the scout may submit one per run, one per judged entity, or a batch per call
-(`MAX_RECORDS_PER_CALL`), bounded per run by `MAX_RECORDS_PER_RUN`.
+(`MAX_RECORDS_PER_CALL`), bounded per run by `MAX_RECORDS_PER_RUN` via a counter on the
+run row.
 """
 
 from __future__ import annotations
@@ -47,12 +48,7 @@ from posthog.api.capture import capture_batch_internal
 from posthog.event_usage import groups
 from posthog.models import Team
 
-from products.signals.backend.models import (
-    SignalScoutConfig,
-    SignalScoutRun,
-    SignalScoutStructuredOutput,
-    SignalSourceConfig,
-)
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 
 logger = logging.getLogger(__name__)
@@ -61,12 +57,12 @@ logger = logging.getLogger(__name__)
 # enough that a single request body stays well-bounded.
 MAX_RECORDS_PER_CALL = 100
 # Per-run ceiling across calls — a circuit breaker against a looping agent flooding the
-# table, far above any sane per-run record count.
+# project's event stream, far above any sane per-run record count.
 MAX_RECORDS_PER_RUN = 1000
 # Serialized size cap per record. Records are data points, not documents; a judgment with
 # a reason fits in a fraction of this.
 MAX_RECORD_BYTES = 16_384
-# Mirrors the `subject` column width on `SignalScoutStructuredOutput`.
+# Cap on the scout-chosen `subject` key, sized like a name column, not a document.
 MAX_SUBJECT_LENGTH = 200
 # Serialized size cap on the configured schema, enforced by the config serializers. Kept
 # here so the schema validator and the write path agree on one constant.
@@ -76,6 +72,13 @@ MAX_SCHEMA_BYTES = 20_000
 # a PostHog-generated event kept out of the customer's own custom-event namespace).
 CUSTOMER_STRUCTURED_OUTPUT_EVENT = "$scout_structured_output"
 _STRUCTURED_OUTPUT_EVENT_SOURCE = "signals_scout_structured_output"
+
+# `SignalScoutRun.metadata` key holding how many records this run has had accepted, bumped
+# under the run-row lock so concurrent calls can't overshoot `MAX_RECORDS_PER_RUN`. Counts
+# accepted batches, not delivered events: it's the flood breaker (and the source of the
+# `derived.has_structured_output` flag), not an accounting ledger, so a batch whose forward
+# then fails — or is retried — still spends cap.
+STRUCTURED_OUTPUT_COUNT_KEY = "structured_output_count"
 
 
 def _refuse_retrieval(uri: str) -> Any:
@@ -106,12 +109,21 @@ _DATA_KEYS = ("default", "const", "enum", "examples")
 
 
 class InvalidStructuredOutputError(ValueError):
-    """The submission is malformed: no schema configured, batch/record caps exceeded, or a
-    record failed validation against the configured schema."""
+    """The submission is malformed: no schema configured, the channel is off for this scout
+    (dry-run, or the signals_scout source disabled), batch/record caps exceeded, or a record
+    failed validation against the configured schema."""
 
 
 class StructuredOutputSchemaError(ValueError):
     """The supplied JSON Schema itself is invalid (raised at config-write time)."""
+
+
+class StructuredOutputDeliveryError(RuntimeError):
+    """The records validated but the event forward failed, so nothing was recorded.
+
+    Transient by nature (the capture endpoint was unreachable or rejected the batch), and
+    safe to retry: event uuids are deterministic per `(run, batch index, subject, payload)`,
+    so resubmitting the same batch cannot double-count."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -126,7 +138,9 @@ class StructuredOutputRecord:
 @dataclass(frozen=True, kw_only=True)
 class RecordStructuredOutputResult:
     """Outcome of an accepted `record_structured_output` call — validation failures raise
-    `InvalidStructuredOutputError` instead, so an instance always means rows were written."""
+    `InvalidStructuredOutputError` and delivery failures raise `StructuredOutputDeliveryError`
+    instead, so an instance always means the batch's events were accepted by capture.
+    `record_ids` are the deterministic event uuids, in submission order."""
 
     recorded_count: int
     record_ids: list[str]
@@ -197,25 +211,26 @@ def record_structured_output_sync(
     run: SignalScoutRun,
     records: list[StructuredOutputRecord],
 ) -> RecordStructuredOutputResult:
-    """Validate `records` against the run's configured schema and persist them.
+    """Validate `records` against the run's configured schema and forward them as events.
 
     All-or-nothing: any invalid record fails the whole call with nothing written, so the
-    agent never has to dedupe a partial batch. Rows are written in one transaction; the
-    per-record customer-facing events and the internal telemetry event are fired
-    best-effort after commit and never fail the call.
+    agent never has to dedupe a partial batch. The event forward is the write — capacity is
+    reserved on the run row first (under lock, re-checking the channel gates), then the
+    batch POSTs to capture, and a delivery failure fails the call so the agent retries
+    (deterministic event uuids make the retry collapse at ingestion). Only the internal
+    telemetry event is best-effort.
     """
     _assert_team_owns_run(team, run)
     schema = _resolve_schema(team, run)
     _validate_records(records, schema)
-
-    rows = _write_rows(team=team, run=run, records=records)
-    result = RecordStructuredOutputResult(
-        recorded_count=len(rows),
-        record_ids=[str(row.id) for row in rows],
+    _reserve_capacity(run=run, count=len(records))
+    forwards = _build_forwards(run=run, records=records)
+    _forward_structured_output_events(team=team, run=run, forwards=forwards)
+    _capture_recorded(team=team, run=run, recorded_count=len(records))
+    return RecordStructuredOutputResult(
+        recorded_count=len(records),
+        record_ids=[forward.event_uuid for forward in forwards],
     )
-    _capture_recorded(team=team, run=run, recorded_count=len(rows))
-    _forward_structured_output_events(team=team, run=run, records=records)
-    return result
 
 
 async def record_structured_output(
@@ -224,26 +239,25 @@ async def record_structured_output(
     run: SignalScoutRun,
     records: list[StructuredOutputRecord],
 ) -> RecordStructuredOutputResult:
-    """Async entry mirroring `record_structured_output_sync`, offloading DB writes to the
-    sync thread pool and the blocking event forwards to a worker thread."""
+    """Async entry mirroring `record_structured_output_sync`, offloading DB work to the
+    sync thread pool and the blocking event forward to a worker thread."""
     from posthog.sync import database_sync_to_async
 
     _assert_team_owns_run(team, run)
     schema = await database_sync_to_async(_resolve_schema, thread_sensitive=False)(team, run)
     _validate_records(records, schema)
-    rows = await database_sync_to_async(_write_rows, thread_sensitive=False)(team=team, run=run, records=records)
-    result = RecordStructuredOutputResult(
-        recorded_count=len(rows),
-        record_ids=[str(row.id) for row in rows],
-    )
+    await database_sync_to_async(_reserve_capacity, thread_sensitive=False)(run=run, count=len(records))
+    forwards = _build_forwards(run=run, records=records)
+    # One blocking batch HTTP POST; `to_thread` keeps it off the event loop without
+    # occupying the DB-thread pool for the HTTP leg.
+    await asyncio.to_thread(_forward_structured_output_events, team=team, run=run, forwards=forwards)
     await database_sync_to_async(_capture_recorded, thread_sensitive=False)(
-        team=team, run=run, recorded_count=len(rows)
+        team=team, run=run, recorded_count=len(records)
     )
-    # The forward helper does one DB read (`_build_forwards`) plus one blocking batch HTTP
-    # POST; `to_thread` keeps both off the event loop without occupying the DB-thread pool
-    # for the HTTP leg.
-    await asyncio.to_thread(_forward_structured_output_events, team=team, run=run, records=records)
-    return result
+    return RecordStructuredOutputResult(
+        recorded_count=len(records),
+        record_ids=[forward.event_uuid for forward in forwards],
+    )
 
 
 def _assert_team_owns_run(team: Team, run: SignalScoutRun) -> None:
@@ -330,48 +344,60 @@ def _validate_records(records: list[StructuredOutputRecord], schema: dict[str, A
         )
 
 
-def _write_rows(
-    *, team: Team, run: SignalScoutRun, records: list[StructuredOutputRecord]
-) -> list[SignalScoutStructuredOutput]:
-    """Persist the batch in one transaction, enforcing the per-run ceiling under the same
-    lock the row count is read at so concurrent calls can't overshoot it. Uses the
-    unscoped manager because ownership was already validated by the caller.
+def _reserve_capacity(*, run: SignalScoutRun, count: int) -> None:
+    """Reserve `count` records against the per-run ceiling and re-check the channel gates,
+    in one transaction on the locked run row. Uses the unscoped manager because ownership
+    was already validated by the caller.
 
     The kill switch is re-checked here with the config row locked: `_resolve_schema`'s
-    earlier read and this insert are separate operations, so without this a clear
-    committing between them would let rows land after the channel was switched off. The
-    lock serializes a concurrent clear against the insert — whichever commits first wins
-    cleanly."""
+    earlier read and this reservation are separate operations, so without this a clear
+    committing between them would let events fire after the channel was switched off. The
+    lock serializes a concurrent clear against the reservation — whichever commits first
+    wins cleanly. The gates that make forwarding permissible at all are checked under the
+    same lock: a dry-run scout (`emit=False`) has no row store to fall back on anymore, so
+    the call fails loudly rather than silently dropping the batch, and a project that
+    disabled the signals_scout source has opted out of scout output entirely (the same
+    inactive-skip rule as the emit/report channels).
+
+    The counter lives on `run.metadata` (`STRUCTURED_OUTPUT_COUNT_KEY`) and is bumped
+    before the forward: it's a flood breaker counting accepted batches, so a forward that
+    then fails (or is retried) still spends cap — see the key's comment."""
     with transaction.atomic():
         locked_run = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run.pk).first()
         if locked_run is None:
             raise InvalidStructuredOutputError("The run row is gone; nothing was recorded.")
-        live_schema = (
+        config = (
             SignalScoutConfig.all_teams.select_for_update()
             .filter(pk=locked_run.scout_config_id)
-            .values_list("structured_output_schema", flat=True)
+            .only("structured_output_schema", "emit")
             .first()
             if locked_run.scout_config_id
             else None
         )
-        if not live_schema:
+        if config is None or not config.structured_output_schema:
             raise _no_schema_error()
-        existing = SignalScoutStructuredOutput.all_teams.filter(scout_run_id=run.pk).count()
-        if existing + len(records) > MAX_RECORDS_PER_RUN:
+        if not config.emit:
             raise InvalidStructuredOutputError(
-                f"Recording {len(records)} more records would exceed the per-run cap of "
+                "This scout is in dry-run (emit off), so structured-output records — which land as "
+                "events in the project — cannot be recorded. Enable emit on the scout's config "
+                "(scout-config-update) to turn the channel on."
+            )
+        if not SignalSourceConfig.is_source_enabled(run.team_id, SOURCE_PRODUCT, SOURCE_TYPE):
+            raise InvalidStructuredOutputError(
+                "This project has disabled the signals_scout source, so scout output — including "
+                "structured-output records — cannot be recorded."
+            )
+        metadata = dict(locked_run.metadata or {})
+        existing = metadata.get(STRUCTURED_OUTPUT_COUNT_KEY)
+        existing = existing if isinstance(existing, int) else 0
+        if existing + count > MAX_RECORDS_PER_RUN:
+            raise InvalidStructuredOutputError(
+                f"Recording {count} more records would exceed the per-run cap of "
                 f"{MAX_RECORDS_PER_RUN} (already recorded: {existing})."
             )
-        return SignalScoutStructuredOutput.all_teams.bulk_create(
-            SignalScoutStructuredOutput(
-                team_id=run.team_id,
-                scout_run_id=run.pk,
-                skill_name=run.skill_name,
-                subject=record.subject or "",
-                payload=record.payload,
-            )
-            for record in records
-        )
+        metadata[STRUCTURED_OUTPUT_COUNT_KEY] = existing + count
+        locked_run.metadata = metadata
+        locked_run.save(update_fields=["metadata"])
 
 
 def _capture_recorded(*, team: Team, run: SignalScoutRun, recorded_count: int) -> None:
@@ -405,24 +431,13 @@ class _StructuredOutputForward:
     properties: dict[str, Any]
 
 
-def _build_forwards(
-    *, team: Team, run: SignalScoutRun, records: list[StructuredOutputRecord]
-) -> list[_StructuredOutputForward]:
+def _build_forwards(*, run: SignalScoutRun, records: list[StructuredOutputRecord]) -> list[_StructuredOutputForward]:
     """One customer-facing event per record, into the team's own project. Scalar top-level
     payload keys are flattened to `output_<key>` properties so trends can break down on
     them directly (nested access works too; the flat copy is the ergonomic path), and the
-    full record rides under `output`. Suppressed entirely for a dry-run scout
-    (`config.emit=False`): rows still record — that's how a scout is validated — but a
-    dry-run must not drive customer-visible automation, matching the report channel's
-    inactive-skip rule."""
-    config = SignalScoutConfig.all_teams.filter(pk=run.scout_config_id).first() if run.scout_config_id else None
-    if config is None or not config.emit:
-        return []
-    # Same inactive-skip rule as the emit/report channels: a project that disabled the
-    # signals_scout source has opted out of scout output, so no customer-facing,
-    # automation-driving event may fire — rows still persist as internal run data.
-    if not SignalSourceConfig.is_source_enabled(run.team_id, SOURCE_PRODUCT, SOURCE_TYPE):
-        return []
+    full record rides under `output`. Pure assembly — the channel gates (dry-run, source
+    disabled) were already enforced under lock in `_reserve_capacity`, which keeps this
+    callable from the event loop in the async path."""
     forwards: list[_StructuredOutputForward] = []
     base = {
         "skill_name": run.skill_name,
@@ -460,18 +475,16 @@ def _build_forwards(
 
 
 def _forward_structured_output_events(
-    *, team: Team, run: SignalScoutRun, records: list[StructuredOutputRecord]
+    *, team: Team, run: SignalScoutRun, forwards: list[_StructuredOutputForward]
 ) -> None:
-    """Mirror the accepted batch into the team's own event stream through the sanctioned
+    """Write the accepted batch into the team's own event stream through the sanctioned
     `capture_batch_internal` path — one batch POST (auto-chunked with bounded concurrency
     above 200 events), never one HTTP call per record, so a slow capture endpoint costs one
-    bounded round-trip instead of a timeout per record after the rows already committed.
-    Person processing is OFF with a synthetic per-scout `distinct_id` — a record is the
-    scout's output, not an end-user action. Best-effort: a forward failure must never fail
-    the record call (the rows are the durable record either way)."""
-    forwards = _build_forwards(team=team, run=run, records=records)
-    if not forwards:
-        return
+    bounded round-trip instead of a timeout per record. Person processing is OFF with a
+    synthetic per-scout `distinct_id` — a record is the scout's output, not an end-user
+    action. This is the primary (and only) write: a failure raises
+    `StructuredOutputDeliveryError` so the caller retries, which the deterministic event
+    uuids make safe."""
     try:
         # `raise_for_status` matters: capture can accept the POST yet drop or exhaust
         # retries on individual events, returning a result instead of raising — without it
@@ -490,8 +503,12 @@ def _forward_structured_output_events(
             event_source=_STRUCTURED_OUTPUT_EVENT_SOURCE,
             process_person_profile=False,
         ).raise_for_status()
-    except Exception:
+    except Exception as exc:
         logger.warning(
             "signals_scout: failed to forward structured-output events to team project",
             extra={"team_id": team.id, "run_id": str(run.id), "event_count": len(forwards)},
         )
+        raise StructuredOutputDeliveryError(
+            f"Delivering the batch of {len(forwards)} records failed; nothing was recorded. "
+            "Retry the same call — delivery is idempotent, so a retry cannot double-count."
+        ) from exc

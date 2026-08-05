@@ -24,9 +24,10 @@ from typing import Any
 
 from django.db import transaction
 
-from products.signals.backend.models import SignalReport, SignalScoutRun, SignalScoutStructuredOutput, SignalScratchpad
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalScratchpad
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +70,11 @@ def build_derived_flags(*, run: SignalScoutRun, team_id: int) -> dict[str, bool]
         "has_self_improvement": any(is_self_improvement_title(title) for title in authored_titles),
         "has_chart": any(charts for charts in authored_charts),
         "has_self_validation": _touched_followup_queue(run=run, team_id=team_id),
-        # Rows are written by the record endpoint with run attribution, so existence is the
-        # direct observation — no scout self-report involved.
-        "has_structured_output": SignalScoutStructuredOutput.objects.for_team(team_id)
-        .filter(scout_run_id=run.pk)
-        .exists(),
+        # The record endpoint bumps this counter on the run row under lock, so it's a
+        # server-side observation, not a scout self-report. It counts accepted batches —
+        # a batch whose event delivery then failed still registers here, which the
+        # flood-breaker semantics of the counter accept (see STRUCTURED_OUTPUT_COUNT_KEY).
+        "has_structured_output": bool((run.metadata or {}).get(STRUCTURED_OUTPUT_COUNT_KEY)),
     }
 
 

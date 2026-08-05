@@ -9,18 +9,18 @@ One row per `(team, skill_name)`.
 Returned by `scout-config-list`.
 This is the scout's control surface, separate from its instruction body (the `LLMSkill`).
 
-| Field                      | Meaning                                                                                                                                                                                                                                                                                                              |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                       | Config id — the handle `scout-config-update` takes to tune it.                                                                                                                                                                                                                                                       |
-| `skill_name`               | The `signals-scout-*` skill this config controls. Fixed; one config per skill per team.                                                                                                                                                                                                                              |
-| `enabled`                  | `false` = paused. The coordinator skips disabled scouts entirely. Derived from `status`.                                                                                                                                                                                                                             |
-| `status`                   | Who owns the pause: `active`, `pending_pause` (still runs, flagged to pause soon; any config edit clears it), `paused_by_system` (automatic — resumable with `enabled: true`), `paused_by_user` (a person switched it off; the system never overrides it).                                                           |
-| `pause_reason`             | Why the system paused or warned: `no_output`, `ignored`, or `repeated_failures`. Null outside `pending_pause` / `paused_by_system`.                                                                                                                                                                                  |
-| `emit`                     | `false` = **dry-run**: the scout runs and reasons every tick but writes nothing to the inbox.                                                                                                                                                                                                                        |
-| `run_interval_minutes`     | Cadence, 30–43200. Default 1440 (daily). The coordinator dispatches when due.                                                                                                                                                                                                                                        |
-| `network_access`           | What the run's sandbox can reach: `trusted` (default — the platform's trusted-domain allowlist: PostHog, GitHub, package registries) or `full` (any site, for skills that read external docs/papers).                                                                                                                |
-| `structured_output_schema` | Optional JSON Schema (object-rooted) describing one structured record the scout produces via `scout-record-output`. Null = the structured-output channel is off. When set, each run is shown the schema and its records are validated against it, stored as rows, and mirrored as `$scout_structured_output` events. |
-| `last_run_at`              | When it last fired. `null` = never run. Drives the due-check.                                                                                                                                                                                                                                                        |
+| Field                      | Meaning                                                                                                                                                                                                                                                                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                       | Config id — the handle `scout-config-update` takes to tune it.                                                                                                                                                                                                                                                                |
+| `skill_name`               | The `signals-scout-*` skill this config controls. Fixed; one config per skill per team.                                                                                                                                                                                                                                       |
+| `enabled`                  | `false` = paused. The coordinator skips disabled scouts entirely. Derived from `status`.                                                                                                                                                                                                                                      |
+| `status`                   | Who owns the pause: `active`, `pending_pause` (still runs, flagged to pause soon; any config edit clears it), `paused_by_system` (automatic — resumable with `enabled: true`), `paused_by_user` (a person switched it off; the system never overrides it).                                                                    |
+| `pause_reason`             | Why the system paused or warned: `no_output`, `ignored`, or `repeated_failures`. Null outside `pending_pause` / `paused_by_system`.                                                                                                                                                                                           |
+| `emit`                     | `false` = **dry-run**: the scout runs and reasons every tick but writes nothing to the inbox.                                                                                                                                                                                                                                 |
+| `run_interval_minutes`     | Cadence, 30–43200. Default 1440 (daily). The coordinator dispatches when due.                                                                                                                                                                                                                                                 |
+| `network_access`           | What the run's sandbox can reach: `trusted` (default — the platform's trusted-domain allowlist: PostHog, GitHub, package registries) or `full` (any site, for skills that read external docs/papers).                                                                                                                         |
+| `structured_output_schema` | Optional JSON Schema (object-rooted) describing one structured record the scout produces via `scout-record-output`. Null = the structured-output channel is off (it also needs `emit` on). When set, each run is shown the schema and its records are validated against it and recorded as `$scout_structured_output` events. |
+| `last_run_at`              | When it last fired. `null` = never run. Drives the due-check.                                                                                                                                                                                                                                                                 |
 
 A scout that is `enabled: true, emit: false` is alive and working — it just can't post reports.
 This is the intended posture for a new or freshly-edited scout, and the most common cause of "my scout does nothing" reports.
@@ -83,21 +83,21 @@ Grouping generated its own `document_id` and deduped on that — never on `sourc
 For these runs only, `scout-runs-emission-reports` maps each emitted finding to the inbox report its signal grouped into (or `null`).
 On report-channel scouts both fields are always `0` / empty.
 
-## SignalScoutStructuredOutput — schema-validated records (structured-output channel)
+## `$scout_structured_output` events — schema-validated records (structured-output channel)
 
-One row per record a run submitted via `scout-record-output`, written only when the scout's config carries a `structured_output_schema`.
-The queryable view of a _measuring_ scout's output (judgments, scores, classifications) — read per run via `scout-runs-structured-outputs-list`, or across runs via `scout-runs-recent-structured-outputs` (filter by `skill_name`, `subject`, or a `created_at` window; page past the cap by passing the response's `next_cursor` back as `cursor`).
+One event per record a run submitted via `scout-record-output`, recorded only when the scout's config carries a `structured_output_schema` (and `emit` is on — a dry-run scout has no channel).
+The queryable view of a _measuring_ scout's output (judgments, scores, classifications), read like any events — trend them in insights or query the `events` table, filtering on the properties below.
 
-| Field        | Meaning                                                                                                         |
-| ------------ | --------------------------------------------------------------------------------------------------------------- |
-| `run_id`     | The run that recorded it.                                                                                       |
-| `skill_name` | Which scout produced it (denormalized for cross-run listing).                                                   |
-| `subject`    | Optional scout-chosen key naming what the record is about (a report id, URL, account key). Empty for run-level. |
-| `payload`    | The record, validated against the config's schema at submission time. A later schema edit doesn't rewrite rows. |
-| `created_at` | When it was persisted.                                                                                          |
+| Property       | Meaning                                                                                                        |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `run_id`       | The run that recorded it.                                                                                      |
+| `skill_name`   | Which scout produced it.                                                                                       |
+| `subject`      | Optional scout-chosen key naming what the record is about (a report id, URL, account key). Null for run-level. |
+| `output`       | The full record, validated against the config's schema at submission time.                                     |
+| `output_<key>` | Each scalar top-level payload key, flattened for direct breakdowns (e.g. `output_verdict`).                    |
 
-Each accepted record is also mirrored into the project's own event stream as a `$scout_structured_output` event (scalar payload keys flattened to `output_<key>` properties for breakdowns), so the series is chartable in insights with no export.
-A run's `metadata.derived.has_structured_output` flag says whether the run recorded anything, without listing rows.
+Event uuids are deterministic per `(run, batch index, subject, payload)`, so a retried batch collapses at ingestion rather than double-counting.
+A run's `metadata.derived.has_structured_output` flag says whether the run recorded anything, without querying events.
 
 ## SignalScratchpad — durable fleet memory
 
