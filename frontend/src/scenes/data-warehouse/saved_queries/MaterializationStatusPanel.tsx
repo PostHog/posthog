@@ -165,7 +165,11 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     // DAG's one schedule, which the server tells us because the flag that distinguishes per-node
     // schedules is evaluated server-side and never reaches the frontend. Managed viewsets reject
     // every update regardless of team.
-    const canEditSyncFrequency = !savedQuery?.sync_frequency_managed_by_dag && !savedQuery?.managed_viewset_kind
+    const syncFrequencyDisabledReason = savedQuery?.sync_frequency_managed_by_dag
+        ? 'The schedule for this DAG controls how often this view refreshes'
+        : savedQuery?.managed_viewset_kind
+          ? "PostHog manages this view's refresh schedule"
+          : false
     const materializationAccessReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Editor
@@ -262,10 +266,12 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                               ? 'Running...'
                                               : 'Sync now'}
                                     </LemonButton>
-                                    {kind !== 'endpoint' && canEditSyncFrequency && (
+                                    {kind !== 'endpoint' && (
                                         <LemonSelect
                                             className="h-9"
-                                            disabledReason={sync || materializationAccessReason}
+                                            disabledReason={
+                                                syncFrequencyDisabledReason || sync || materializationAccessReason
+                                            }
                                             value={savedQuery.sync_frequency || 'never'}
                                             onChange={(newValue) => {
                                                 if (newValue) {
