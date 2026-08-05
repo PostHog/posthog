@@ -174,8 +174,9 @@ export interface Ticket {
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage
-    /** The effective access level the current user has for this ticket. */
-    user_access_level?: AccessControlLevel
+    merged_at?: string | null
+    merged_into_id?: string | null
+    merged_into_ticket_number?: number | null
 }
 
 export interface ConversationTicket {
