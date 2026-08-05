@@ -5,11 +5,11 @@ import { dayjs } from 'lib/dayjs'
 export const TOP_SERVICES_LIMIT = 10
 
 /**
- * Mirrors the `LIMIT 1000` in `products/logs/backend/sparkline_query_runner.py`. Rows are
+ * Must match `SPARKLINE_MAX_ROWS` in `products/logs/backend/sparkline_query_runner.py`. Rows are
  * (bucket × service), and the query orders by time ascending — so once the cap is hit it's the
  * *newest* buckets that get dropped, and any total derived from the response is an undercount.
  */
-export const SPARKLINE_ROW_LIMIT = 1000
+export const SPARKLINE_ROW_LIMIT = 10000
 
 export type LogsFilterPreviewMetric = 'count' | 'bytes'
 

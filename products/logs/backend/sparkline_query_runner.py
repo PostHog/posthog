@@ -26,6 +26,15 @@ DEFAULT_BREAKDOWN = LogsSparklineBreakdownBy.SEVERITY
 # 60s default so a slow preview surfaces an error promptly instead of appearing to hang.
 SPARKLINE_PREVIEW_MAX_EXECUTION_SECONDS = 30
 
+# The result is one row per (time bucket × breakdown value present in that bucket), and the
+# breakdown is not capped to a top-N — every distinct service in the window comes back, even
+# though callers only chart the top few. With ~50 buckets (BUCKET_TARGET) the old cap of 1000
+# truncated above only ~20 distinct services, and because rows are ordered by time ascending it
+# dropped the *newest* buckets, silently understating recent volume and any total derived from it.
+# Matches ServicesQueryRunner's sparkline cap. Raising this doesn't widen the scan — the
+# aggregation reads the same rows either way; the LIMIT only bounds the returned payload.
+SPARKLINE_MAX_ROWS = 10000
+
 
 class SparklineQueryRunner(LogsQueryRunner):
     @cached_property
@@ -102,10 +111,11 @@ class SparklineQueryRunner(LogsQueryRunner):
                     GROUP BY {breakdown_field}, time
                 ) AS ac ON am.time_bucket = ac.time
                 ORDER BY time asc, {breakdown_field} asc
-                LIMIT 1000
+                LIMIT {max_rows}
         """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
+                "max_rows": ast.Constant(value=SPARKLINE_MAX_ROWS),
                 # The sparkline projection is aggregated over "toStartOfMinute(timestamp)"
                 # so if we use `timestamp` we don't use the projection (even if we're calling toStartOfInterval on it)
                 # explicitly use toStartOfMinute(timestamp) as the time field unless we're using a sub-minute interval

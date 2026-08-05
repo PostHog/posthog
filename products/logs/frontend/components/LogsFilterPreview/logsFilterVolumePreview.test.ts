@@ -1,4 +1,12 @@
-import { LogsFilterPreviewPoint, buildSparklineSeries, formatBytes } from './logsFilterVolumePreview'
+import fs from 'fs'
+import path from 'path'
+
+import {
+    LogsFilterPreviewPoint,
+    SPARKLINE_ROW_LIMIT,
+    buildSparklineSeries,
+    formatBytes,
+} from './logsFilterVolumePreview'
 
 const point = (time: string, service: string, count: number, bytes?: number): LogsFilterPreviewPoint => ({
     time,
@@ -9,6 +17,18 @@ const point = (time: string, service: string, count: number, bytes?: number): Lo
 
 const T1 = '2026-08-04T11:00:00Z'
 const T2 = '2026-08-04T11:30:00Z'
+
+describe('SPARKLINE_ROW_LIMIT', () => {
+    it('matches the backend cap it is used to detect', () => {
+        // The truncation caveat in the UI is driven by `points.length >= SPARKLINE_ROW_LIMIT`, so if
+        // these drift the preview either stops warning about truncated data or warns when there is
+        // none. Read the backend constant rather than restate it.
+        const runner = fs.readFileSync(path.join(__dirname, '../../../backend/sparkline_query_runner.py'), 'utf-8')
+        const match = runner.match(/^SPARKLINE_MAX_ROWS = (\d+)$/m)
+        expect(match).not.toBeNull()
+        expect(Number(match![1])).toEqual(SPARKLINE_ROW_LIMIT)
+    })
+})
 
 describe('buildSparklineSeries', () => {
     it('stacks one series per service in bucket order', () => {

@@ -1,4 +1,7 @@
-import { LogsFilterPreviewPoint } from 'products/logs/frontend/components/LogsFilterPreview/logsFilterVolumePreview'
+import {
+    LogsFilterPreviewPoint,
+    SPARKLINE_ROW_LIMIT,
+} from 'products/logs/frontend/components/LogsFilterPreview/logsFilterVolumePreview'
 
 import { buildRetentionProjection, retentionProjectionText } from './retentionStorageProjection'
 
@@ -46,11 +49,13 @@ describe('buildRetentionProjection', () => {
         // Row cap hit, so `now` is hours past the newest bucket we got back — using it would
         // stretch the window and understate the daily rate.
         const nowMs = Date.UTC(2026, 7, 4, 12, 0, 0)
-        const points = buckets(lastBucketMs, 10 * GB, 1000)
+        // Derived from the cap rather than restated, so raising the backend limit can't silently
+        // stop this from exercising the truncated path.
+        const points = buckets(lastBucketMs, 10 * GB, SPARKLINE_ROW_LIMIT)
         const projection = buildRetentionProjection(points, 14, nowMs)!
 
         expect(projection.truncated).toBe(true)
-        expect(projection.windowSeconds).toEqual(1000 * 1800)
+        expect(projection.windowSeconds).toEqual(SPARKLINE_ROW_LIMIT * 1800)
         expect(retentionProjectionText(projection, 14)).toContain('actual volume may be higher')
     })
 
