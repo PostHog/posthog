@@ -1138,11 +1138,14 @@ and the sink:
 
    `WrappedEvent::ordering` gives up the guarantee only on the lanes that
    exist to absorb hot keys (`AnalyticsMain`, `Overflow`,
-   `AiEventsOverflow`), and only when either `spread_partitions` or
-   `force_disable_person_processing` is set. It is computed at prepare
-   time rather than stamped during processing because it depends on the
-   final destination, which `apply_historical_rerouting` can still change
-   after `apply_restrictions` has disabled person processing.
+   `AiEventsOverflow`). On the person-writing lanes (`AnalyticsMain`,
+   `Overflow`) that takes `force_disable_person_processing`; a
+   `spread_partitions` stamp alone takes effect only on the read-only
+   `AiEventsOverflow` lane (`Destination::writes_persons`). It is computed
+   at prepare time rather than stamped during processing because it
+   depends on the final destination, which `apply_historical_rerouting`
+   can still change after `apply_restrictions` has disabled person
+   processing.
 
 Key design choices:
 
@@ -1153,9 +1156,12 @@ Key design choices:
   request partition spreading silently disabled person processing for
   every rate-limited overflow event.
 - **`spread_partitions` is separate from person processing.** The overflow
-  limiter sets it alone when a key merely exceeds its burst budget, which
-  spreads the key while leaving person processing on. A `ForceLimited`
-  verdict sets both, matching v0.
+  limiter sets it alone when a key merely exceeds its burst budget, leaving
+  person processing on. The sink realizes the spread only where the
+  consumer does not write persons (the AI overflow lane); on the analytics
+  lanes the key holds until person processing is off, because spreading one
+  distinct id across partitions contends the consumer's person updates. A
+  `ForceLimited` verdict sets both flags, matching v0.
 - **`None` = round-robin.** `None` is passed to rdkafka, which
   round-robins across partitions. Passing `Some("")` would hash to a
   single deterministic partition via murmur2, creating a hot spot.

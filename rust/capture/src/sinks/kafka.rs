@@ -257,23 +257,19 @@ fn route(
                         target: Output::AnalyticsOverflow,
                         ordering: OrderingGuarantee::None,
                     },
-                    Some(OverflowReason::RateLimited {
-                        preserve_locality: true,
-                    }) => Route {
+                    // The person flag alone decides the key here, in both
+                    // directions. A burst keeps its key while person processing
+                    // is on — the overflow consumer updates persons keyed on
+                    // distinct id, so spreading one distinct id across
+                    // partitions turns a hot key into contended person-row
+                    // updates — which makes the locality preference irrelevant
+                    // on this lane. And a key whose person processing is
+                    // already off (the global rate limiter stamps its verdict
+                    // before the overflow limiter overwrites the reason) must
+                    // not get its partition back.
+                    Some(OverflowReason::RateLimited { .. }) => Route {
                         target: Output::AnalyticsOverflow,
-                        // The locality preference does not outrank a stage that
-                        // already took person processing away. The global rate
-                        // limiter stamps its verdict before the overflow
-                        // limiter, which then overwrites the reason, so without
-                        // this a key the rate limiter declared too hot would go
-                        // back to hashing onto one partition.
                         ordering: person_ordering(metadata.skip_person_processing),
-                    },
-                    Some(OverflowReason::RateLimited {
-                        preserve_locality: false,
-                    }) => Route {
-                        target: Output::AnalyticsOverflow,
-                        ordering: OrderingGuarantee::None,
                     },
                     // ReplayLimited is stamped only by the recordings pipeline,
                     // so an analytics event cannot carry it — the shared
@@ -287,8 +283,11 @@ fn route(
             }
         }
         DataType::AiEvents => {
-            // Valve armed: mirror the analytics main lane's overflow handling
-            // onto the AI lanes. Valve unarmed: AI events never overflow —
+            // Valve armed: the AI lanes route overflow like analytics, except
+            // that a burst may spread while person processing is on — the AI
+            // consumer reads persons without writing them, so keyless
+            // person-on records cause no person-update contention there.
+            // Valve unarmed: AI events never overflow —
             // force_overflow and stamped reasons are deliberately ignored
             // (the pipeline never stamps a reason on this lane anyway). The
             // default route keeps the event key regardless of
@@ -482,17 +481,25 @@ mod route_tests {
             Output::AnalyticsOverflow
         );
 
+        // The locality preference is irrelevant on the analytics lane: a
+        // person-on burst keeps its key either way, because the overflow
+        // consumer writes persons keyed on distinct id.
         let mut no_preserve = base.clone();
         no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
             preserve_locality: false,
         });
         assert_eq!(
             route(&no_preserve, false).unwrap().ordering,
-            OrderingGuarantee::None
+            OrderingGuarantee::PerDistinctId
         );
         assert_eq!(
             route(&no_preserve, false).unwrap().target,
             Output::AnalyticsOverflow
+        );
+        no_preserve.skip_person_processing = true;
+        assert_eq!(
+            route(&no_preserve, false).unwrap().ordering,
+            OrderingGuarantee::None
         );
 
         // ReplayLimited cannot be stamped on analytics events (only the
@@ -509,11 +516,11 @@ mod route_tests {
     /// would go back to hashing onto a single overflow partition whenever the
     /// limiter preserves locality, which is how prod-US is configured.
     #[rstest]
-    #[case::analytics(DataType::AnalyticsMain, Outputs::AnalyticsOverflow)]
-    #[case::ai(DataType::AiEvents, Outputs::AiOverflow)]
+    #[case::analytics(DataType::AnalyticsMain, Output::AnalyticsOverflow)]
+    #[case::ai(DataType::AiEvents, Output::AiOverflow)]
     fn person_processing_off_outranks_preserve_locality(
         #[case] data_type: DataType,
-        #[case] expected_target: Outputs<'static>,
+        #[case] expected_target: Output,
     ) {
         let armed = data_type == DataType::AiEvents;
         let mut m = meta(data_type);
@@ -522,14 +529,14 @@ mod route_tests {
         });
 
         assert_eq!(
-            route(&m, armed).ordering,
+            route(&m, armed).unwrap().ordering,
             OrderingGuarantee::PerDistinctId,
             "locality is preserved while person processing is on"
         );
 
         m.skip_person_processing = true;
         assert_eq!(
-            route(&m, armed),
+            route(&m, armed).unwrap(),
             Route {
                 target: expected_target,
                 ordering: OrderingGuarantee::None,
@@ -2689,9 +2696,11 @@ mod tests {
             .await;
         }
 
-        /// Stamped overflow reasons on the AI lane route exactly like the
-        /// analytics main lane, including the preserve-partition-locality
-        /// key handling mirrored from the limiter config.
+        /// Stamped overflow reasons on the AI lane, where — unlike the
+        /// analytics lane — a burst without locality preservation spreads
+        /// while person processing is on: the AI consumer reads persons
+        /// without writing them, so keyless person-on records contend
+        /// nothing downstream.
         #[rstest]
         #[case::force_limited(OverflowReason::ForceLimited, false, None)]
         #[case::rate_limited_preserving(
@@ -2709,7 +2718,7 @@ mod tests {
             None
         )]
         #[tokio::test]
-        async fn ai_events_stamped_overflow_mirrors_analytics(
+        async fn ai_events_stamped_overflow_routing(
             #[case] reason: OverflowReason,
             #[case] has_key: bool,
             #[case] force_disable_person_processing: Option<bool>,
@@ -3060,14 +3069,21 @@ mod tests {
             .await;
         }
 
+        /// A person-on burst keeps its key on the analytics lane regardless of
+        /// the locality preference: the overflow consumer updates persons
+        /// keyed on distinct id, and spreading one distinct id across
+        /// partitions contends those updates.
+        #[rstest]
+        #[case::preserving_locality(true)]
+        #[case::spreading(false)]
         #[tokio::test]
-        async fn overflow_reason_rate_limited_preserves_key_when_preserve_locality() {
+        async fn overflow_reason_rate_limited_keeps_key_while_person_processing_on(
+            #[case] preserve_locality: bool,
+        ) {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
-                    overflow_reason: Some(OverflowReason::RateLimited {
-                        preserve_locality: true,
-                    }),
+                    overflow_reason: Some(OverflowReason::RateLimited { preserve_locality }),
                     ..Default::default()
                 },
                 ExpectedRouting {
@@ -3080,45 +3096,26 @@ mod tests {
             .await;
         }
 
-        #[tokio::test]
-        async fn overflow_reason_rate_limited_drops_key_when_not_preserve_locality() {
-            assert_routing(
-                EventInput {
-                    data_type: DataType::AnalyticsMain,
-                    overflow_reason: Some(OverflowReason::RateLimited {
-                        preserve_locality: false,
-                    }),
-                    ..Default::default()
-                },
-                ExpectedRouting {
-                    topic: OVERFLOW_TOPIC,
-                    has_key: false,
-                    force_disable_person_processing: None,
-                    ..Default::default()
-                },
-            )
-            .await;
-        }
-
         /// The wire outcome for the combination the global rate limiter and the
-        /// overflow limiter produce together on prod-US, where locality
-        /// preservation is on: the record keeps the person-processing header and
-        /// loses the partition key.
+        /// overflow limiter produce together (the GRL stamps the person flag,
+        /// the burst limiter overwrites the reason): the record keeps the
+        /// person-processing header and loses the partition key, on either
+        /// locality setting.
         #[rstest]
-        #[case::analytics(DataType::AnalyticsMain, OVERFLOW_TOPIC)]
-        #[case::ai(DataType::AiEvents, AI_EVENTS_OVERFLOW_TOPIC)]
+        #[case::analytics_preserving(DataType::AnalyticsMain, true, OVERFLOW_TOPIC)]
+        #[case::analytics_spreading(DataType::AnalyticsMain, false, OVERFLOW_TOPIC)]
+        #[case::ai_preserving(DataType::AiEvents, true, AI_EVENTS_OVERFLOW_TOPIC)]
         #[tokio::test]
-        async fn overflow_reason_rate_limited_preserving_drops_key_when_person_off(
+        async fn overflow_reason_rate_limited_drops_key_when_person_off(
             #[case] data_type: DataType,
+            #[case] preserve_locality: bool,
             #[case] expected_topic: &str,
         ) {
             assert_routing(
                 EventInput {
                     data_type,
                     skip_person_processing: true,
-                    overflow_reason: Some(OverflowReason::RateLimited {
-                        preserve_locality: true,
-                    }),
+                    overflow_reason: Some(OverflowReason::RateLimited { preserve_locality }),
                     ..Default::default()
                 },
                 ExpectedRouting {

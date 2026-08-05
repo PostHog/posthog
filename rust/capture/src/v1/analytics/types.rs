@@ -218,12 +218,14 @@ pub struct WrappedEvent {
     pub details: Option<&'static str>,
     pub destination: Destination,
     pub force_disable_person_processing: bool,
-    /// Set when the overflow limiter decided this key is bursting and must be
-    /// spread across the overflow topic's partitions. Deliberately separate
+    /// Set when the overflow limiter decided this key is bursting and should
+    /// be spread across the overflow topic's partitions. Deliberately separate
     /// from `force_disable_person_processing`: spreading a hot key is a
     /// partitioning decision, while disabling person processing is a
     /// customer-visible instruction to skip identity resolution, and the
-    /// overflow limiter only means the former. Consumed by `ordering()`.
+    /// overflow limiter only means the former. Consumed by `ordering()`,
+    /// which realizes it only on lanes whose consumers do not write persons —
+    /// elsewhere the key holds until person processing is off.
     pub spread_partitions: bool,
     /// Set by the gateway-provenance step when a valid signature was verified;
     /// read by the quota shim to exempt the event from the llm_events limiter.
@@ -337,11 +339,11 @@ impl SinkEvent for WrappedEvent {
         if !self.destination.absorbs_hot_keys() {
             return OrderingGuarantee::PerDistinctId;
         }
-        // Two independent reasons to give the guarantee up on a lane that can:
-        // the overflow limiter found the key bursting, or a stage took person
-        // processing away and with it the ordering that person processing is
-        // what needs.
-        if self.spread_partitions {
+        // A spread decision takes effect on its own only where the consumer
+        // does not write persons; on person-writing lanes the key holds until
+        // person processing is off, so the person flag alone decides there
+        // (see `Destination::writes_persons`).
+        if self.spread_partitions && !self.destination.writes_persons() {
             return OrderingGuarantee::None;
         }
         person_ordering(self.force_disable_person_processing)
@@ -1054,8 +1056,10 @@ mod tests {
 
     /// The ordering rule, per lane and per reason for giving ordering up. The
     /// `spread`-without-`force_disable` rows are the ones that matter most:
-    /// a bursting key must lose its partition key without also losing person
-    /// processing, which is a customer-visible instruction.
+    /// on the person-writing analytics lanes a bursting key must keep its
+    /// partition key while person processing is on (spreading one distinct id
+    /// across partitions contends the consumer's person updates), while the
+    /// read-only AI overflow lane spreads it immediately.
     #[rstest::rstest]
     #[case::main_untouched(
         Destination::AnalyticsMain,
@@ -1064,7 +1068,12 @@ mod tests {
         OrderingGuarantee::PerDistinctId
     )]
     #[case::main_person_off(Destination::AnalyticsMain, true, false, OrderingGuarantee::None)]
-    #[case::main_spread(Destination::AnalyticsMain, false, true, OrderingGuarantee::None)]
+    #[case::main_spread(
+        Destination::AnalyticsMain,
+        false,
+        true,
+        OrderingGuarantee::PerDistinctId
+    )]
     #[case::overflow_untouched(
         Destination::Overflow,
         false,
@@ -1072,7 +1081,8 @@ mod tests {
         OrderingGuarantee::PerDistinctId
     )]
     #[case::overflow_person_off(Destination::Overflow, true, false, OrderingGuarantee::None)]
-    #[case::overflow_spread(Destination::Overflow, false, true, OrderingGuarantee::None)]
+    #[case::overflow_spread(Destination::Overflow, false, true, OrderingGuarantee::PerDistinctId)]
+    #[case::overflow_spread_person_off(Destination::Overflow, true, true, OrderingGuarantee::None)]
     #[case::ai_overflow_spread(Destination::AiEventsOverflow, false, true, OrderingGuarantee::None)]
     #[case::ai_overflow_person_off(
         Destination::AiEventsOverflow,

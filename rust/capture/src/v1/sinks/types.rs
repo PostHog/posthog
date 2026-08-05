@@ -83,6 +83,34 @@ impl Destination {
         }
     }
 
+    /// Whether this lane's consumer runs person processing with writes. On
+    /// such a lane one distinct id must stay on one partition while person
+    /// processing is on — spreading it turns a hot key into contended
+    /// person-row updates — so a spread decision only takes effect once the
+    /// person-processing flag is set. Read-only consumers (the AI lanes,
+    /// error tracking) and lanes with no person processing at all (heatmaps,
+    /// client warnings) can take keyless records at any time. The dlq and
+    /// custom redirects replay into analytics ingestion, so they count as
+    /// person-writing.
+    ///
+    /// Exhaustive for the same reason as [`Self::absorbs_hot_keys`].
+    pub fn writes_persons(&self) -> bool {
+        match self {
+            Self::AnalyticsMain
+            | Self::AnalyticsHistorical
+            | Self::Overflow
+            | Self::Dlq
+            | Self::Custom(_) => true,
+            Self::AiEvents
+            | Self::AiEventsOverflow
+            | Self::ExceptionErrorTracking
+            | Self::HeatmapMain
+            | Self::ClientIngestionWarning => false,
+            // Never published, so it never reaches a consumer.
+            Self::Drop => false,
+        }
+    }
+
     /// Stable, low-cardinality metric tag. `Custom(_)` collapses to "custom"
     /// so admin-configured topic names never become label values.
     pub fn as_tag(&self) -> &'static str {

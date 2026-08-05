@@ -733,7 +733,10 @@ fn apply_overflow_stamping(
                 if !limiter.should_preserve_locality() {
                     // Spread only. Person processing stays on, because a burst
                     // over the per-second budget says nothing about whether the
-                    // customer wants identity resolution for this event.
+                    // customer wants identity resolution for this event. On the
+                    // person-writing analytics lane the sink holds the key
+                    // until person processing is off (`WrappedEvent::ordering`);
+                    // the read-only AI overflow lane spreads immediately.
                     event.spread_partitions = true;
                 }
                 metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "rate_limited")
@@ -2494,9 +2497,9 @@ mod tests {
     /// The legacy path always warns here (its global limiter runs first), so
     /// swallowing it would drop a customer-visible warning on v1 only.
     ///
-    /// Spreading itself is covered by
-    /// `overflow_rate_limited_spreads_without_disabling_person_processing`; this
-    /// case exists for the warning and the tally.
+    /// The spread stamp itself is covered by
+    /// `overflow_rate_limited_stamps_spread_without_disabling_person_processing`;
+    /// this case exists for the warning and the tally.
     #[tokio::test]
     async fn burst_overflow_then_global_limit_still_warns() {
         let mut ctx = test_utils::test_context();
@@ -3138,7 +3141,7 @@ mod tests {
     }
 
     #[test]
-    fn overflow_rate_limited_spreads_without_disabling_person_processing() {
+    fn overflow_rate_limited_stamps_spread_without_disabling_person_processing() {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_tok".to_string();
         // burst=1 means only 1 event allowed, the second will be limited
@@ -3157,7 +3160,7 @@ mod tests {
         assert_eq!(events[1].destination, Destination::Overflow);
         assert!(
             events[1].spread_partitions,
-            "a bursting key must be spread across the overflow partitions"
+            "a bursting key must carry the spread stamp"
         );
         assert!(
             !events[1].force_disable_person_processing,

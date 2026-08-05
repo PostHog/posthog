@@ -224,9 +224,13 @@ async fn run_v1(limits: Limits, batch_size: usize, observe: usize) -> Observed {
     Limits::NONE,
     Observed { lane: Lane::Main, has_key: true, person_processing_disabled: false }
 )]
+// A person-on burst keeps its key on either locality setting: the analytics
+// overflow consumer updates persons keyed on distinct id, so spreading one
+// distinct id across partitions would contend those updates. Person
+// processing stays on — a burst says nothing about identity resolution.
 #[case::burst_rate_limited(
     Limits { burst_limiter: true, ..Limits::NONE },
-    Observed { lane: Lane::Overflow, has_key: false, person_processing_disabled: false }
+    Observed { lane: Lane::Overflow, has_key: true, person_processing_disabled: false }
 )]
 #[case::burst_rate_limited_preserving_locality(
     Limits { burst_limiter: true, preserve_locality: true, ..Limits::NONE },
