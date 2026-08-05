@@ -686,6 +686,59 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertIn("cohort", resp.json()["detail"])
 
 
+class TestScannerExperimentTargeting(_VisionAPITestCase):
+    _TARGETING = {
+        "experiment_id": 9,
+        "variant_keys": ["test"],
+        "use_exposure_fallback": False,
+    }
+
+    def _create_payload(self, name: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "name": name,
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_6_FLASH,
+            **extra,
+        }
+
+    def test_experiment_targeting_round_trips_and_clears(self) -> None:
+        resp = self.client.post(
+            self.scanners_url, data=self._create_payload("ctx", experiment_targeting=self._TARGETING), format="json"
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.json()["experiment_targeting"], self._TARGETING)
+
+        scanner_id = resp.json()["id"]
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner_id}/", data={"experiment_targeting": None}, format="json"
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertIsNone(resp.json()["experiment_targeting"])
+
+    @parameterized.expand(
+        [
+            ("missing_experiment", {"variant_keys": [], "use_exposure_fallback": False}),
+            ("bad_experiment_id", {"experiment_id": 0, "variant_keys": [], "use_exposure_fallback": False}),
+            ("bad_variant_keys", {"experiment_id": 9, "variant_keys": "not-a-list", "use_exposure_fallback": False}),
+        ]
+    )
+    def test_experiment_targeting_rejects_malformed(self, _name: str, targeting: dict[str, Any]) -> None:
+        resp = self.client.post(
+            self.scanners_url, data=self._create_payload("bad-ctx", experiment_targeting=targeting), format="json"
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_list_filters_by_experiment_id(self) -> None:
+        self._create_scanner(name="for-exp-9", experiment_targeting=self._TARGETING)
+        self._create_scanner(name="for-exp-4", experiment_targeting={**self._TARGETING, "experiment_id": 4})
+        self._create_scanner(name="no-context")
+
+        resp = self.client.get(f"{self.scanners_url}?experiment_id=9")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([row["name"] for row in resp.json()["results"]], ["for-exp-9"])
+
+
 class TestScannerLifecycleTelemetry(_VisionAPITestCase):
     def test_create_reports_config_choices(self) -> None:
         # Launch dashboards read these config choices, so a dropped property or a silent non-fire

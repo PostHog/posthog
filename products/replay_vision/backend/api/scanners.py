@@ -172,9 +172,37 @@ class FeedbackThemesSerializer(serializers.Serializer):
     generated_at = serializers.DateTimeField(help_text="When the summary was generated.")
 
 
+class ScannerExperimentTargetingSerializer(serializers.Serializer):
+    """The experiment a scanner's targeting watches. Metadata only; scanning never reads it."""
+
+    experiment_id = serializers.IntegerField(
+        min_value=1,
+        help_text="The experiment the scanner watches.",
+    )
+    variant_keys = serializers.ListField(
+        child=serializers.CharField(max_length=400),
+        allow_empty=True,
+        help_text="Targeted experiment variants. Empty means every variant.",
+    )
+    use_exposure_fallback = serializers.BooleanField(
+        help_text=(
+            "True when the exposure event is captured server-side and the query filters on the "
+            "`$feature/<flag_key>` property instead."
+        ),
+    )
+
+
 class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A Replay Vision scanner: its type, targeting query, and AI configuration."""
 
+    experiment_targeting = ScannerExperimentTargetingSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The experiment this scanner's targeting watches, if any. "
+            "Set null when the experiment targeting is removed."
+        ),
+    )
     name = serializers.CharField(
         max_length=255,
         help_text="Human-readable scanner name. Unique within the team.",
@@ -303,6 +331,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "model",
             "enabled",
             "emits_signals",
+            "experiment_targeting",
             "scanner_version",
             "estimated_monthly_observations",
             "credits_per_observation",
@@ -577,13 +606,17 @@ class ReplayScannerFilter(django_filters.FilterSet):
         method="_filter_search",
         help_text="Case-insensitive substring match across name, description, and the prompt in scanner_config.",
     )
+    experiment_id = django_filters.CharFilter(
+        method="_filter_experiment_id",
+        help_text="Filter to scanners whose targeting watches the given experiment.",
+    )
     order_by = _ScannerOrderByFilter(
         help_text=f"Sort scanners by {', '.join(SCANNER_ORDER_FIELDS)}. Prefix with `-` for descending.",
     )
 
     class Meta:
         model = ReplayScanner
-        fields = ["enabled", "scanner_type", "emits_signals", "created_by", "search"]
+        fields = ["enabled", "scanner_type", "emits_signals", "created_by", "search", "experiment_id"]
 
     @staticmethod
     def _filter_enabled(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
@@ -603,6 +636,13 @@ class ReplayScannerFilter(django_filters.FilterSet):
         if invalid:
             raise ValidationError({"created_by": f"Non-numeric value(s) {invalid}; user IDs must be integers."})
         return queryset.filter(created_by_id__in=tokens)
+
+    @staticmethod
+    def _filter_experiment_id(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
+        # An int, not NumberFilter's Decimal, which the JSONField lookup can't serialize to JSON.
+        if not value.strip().isdigit():
+            raise ValidationError({"experiment_id": "Must be a positive integer."})
+        return queryset.filter(experiment_targeting__experiment_id=int(value))
 
     @staticmethod
     def _filter_search(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
