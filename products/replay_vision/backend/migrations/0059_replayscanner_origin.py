@@ -1,12 +1,12 @@
 import django.db.models.manager
 from django.db import migrations, models
 
-from posthog.migration_helpers import AddConstraintNotValid, CreateIndexConcurrently, ValidateConstraint
+from posthog.migration_helpers import AddConstraintNotValid
 
 
 class Migration(migrations.Migration):
-    # CREATE INDEX CONCURRENTLY and ADD CONSTRAINT ... NOT VALID / VALIDATE can't share a transaction.
-    atomic = False
+    """Columns and state. Transactional: the concurrent index builds live in 0060 so this part keeps
+    its rollback safety."""
 
     dependencies = [
         ("replay_vision", "0058_delete_replayquotagrant"),
@@ -50,6 +50,7 @@ class Migration(migrations.Migration):
                 max_length=64,
             ),
         ),
+        # `blank` is a validation flag, so this alteration emits no SQL.
         migrations.AlterField(
             model_name="replayscanner",
             name="name",
@@ -59,79 +60,8 @@ class Migration(migrations.Migration):
                 max_length=255,
             ),
         ),
-        # A conditional UniqueConstraint is a partial unique index in Postgres, which has no NOT VALID
-        # form — so build the index concurrently (lock-free) and record the constraint state-only, the
-        # same shape as 0030. Django's RemoveConstraint emits DROP INDEX for a conditional constraint,
-        # so state and database agree about what this object is.
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.AddConstraint(
-                    model_name="replayscanner",
-                    constraint=models.UniqueConstraint(
-                        condition=models.Q(("origin", "configured")),
-                        fields=("team", "name"),
-                        name="replay_scanner_unique_configured_team_name",
-                    ),
-                ),
-            ],
-            database_operations=[
-                CreateIndexConcurrently(
-                    index_name="replay_scanner_unique_configured_team_name",
-                    table_name="replay_vision_replayscanner",
-                    columns='("team_id", "name")',
-                    unique=True,
-                    where="WHERE \"origin\" = 'configured'",
-                ),
-            ],
-        ),
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.AddConstraint(
-                    model_name="replayscanner",
-                    constraint=models.UniqueConstraint(
-                        condition=models.Q(("origin", "inline")),
-                        fields=("team", "inline_key"),
-                        name="replay_scanner_unique_team_inline_key",
-                    ),
-                ),
-            ],
-            database_operations=[
-                CreateIndexConcurrently(
-                    index_name="replay_scanner_unique_team_inline_key",
-                    table_name="replay_vision_replayscanner",
-                    columns='("team_id", "inline_key")',
-                    unique=True,
-                    where="WHERE \"origin\" = 'inline'",
-                ),
-            ],
-        ),
-        # Replaced by the partial index above. Dropped only once its replacement exists, so team name
-        # uniqueness is never unenforced.
-        migrations.RemoveConstraint(
-            model_name="replayscanner",
-            name="replay_scanner_unique_team_name",
-        ),
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.AddIndex(
-                    model_name="replayscanner",
-                    index=models.Index(
-                        condition=models.Q(("origin", "inline")),
-                        fields=["created_at"],
-                        name="rl_inline_created_idx",
-                    ),
-                ),
-            ],
-            database_operations=[
-                CreateIndexConcurrently(
-                    index_name="rl_inline_created_idx",
-                    table_name="replay_vision_replayscanner",
-                    columns='("created_at")',
-                    where="WHERE \"origin\" = 'inline'",
-                ),
-            ],
-        ),
-        # Every existing row already satisfies this, but NOT VALID keeps the ADD off the full-table scan.
+        # Every row added above already satisfies this; NOT VALID keeps the ADD off a full-table scan
+        # and 0061 validates it once the rest of the schema is in place.
         AddConstraintNotValid(
             model_name="replayscanner",
             constraint=models.CheckConstraint(
@@ -141,9 +71,5 @@ class Migration(migrations.Migration):
                 ),
                 name="replay_scanner_inline_key_matches_origin",
             ),
-        ),
-        ValidateConstraint(
-            model_name="replayscanner",
-            name="replay_scanner_inline_key_matches_origin",
         ),
     ]
