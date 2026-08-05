@@ -12,6 +12,7 @@ import { resolveOnboardingFlowVariant } from './onboardingVariants'
 export type SelfDrivingOnboardingStepId =
     | 'welcome'
     | 'goals'
+    | 'tools'
     | 'install'
     | 'authorized-urls'
     | 'ai-observability'

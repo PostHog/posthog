@@ -49,6 +49,7 @@ function registerEnablementIntent(product: EnablementProduct, goal: SelfDrivingG
 export interface productEnablementStepLogicValues {
     selectedGoal: SelfDrivingGoal | null // goalSelectionLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    autoEnabling: boolean
     enablingProduct: EnablementProduct | null
     isErrorTrackingEnabled: boolean
     isSessionReplayEnabled: boolean
@@ -72,6 +73,9 @@ export interface productEnablementStepLogicActions {
     }
     autoEnableForGoal: (goal: SelfDrivingGoal | null) => {
         goal: SelfDrivingGoal | null
+    }
+    autoEnableFinished: () => {
+        value: true
     }
     registerAnalyticsIntent: () => {
         value: true
@@ -112,6 +116,7 @@ export const productEnablementStepLogic = kea<productEnablementStepLogicType>([
         enableProductSuccess: (product: EnablementProduct) => ({ product }),
         enableProductFailure: (product: EnablementProduct) => ({ product }),
         autoEnableForGoal: (goal: SelfDrivingGoal | null) => ({ goal }),
+        autoEnableFinished: true,
         registerAnalyticsIntent: true,
     }),
 
@@ -122,6 +127,15 @@ export const productEnablementStepLogic = kea<productEnablementStepLogicType>([
                 enableProduct: (_, { product }) => product,
                 enableProductSuccess: () => null,
                 enableProductFailure: () => null,
+            },
+        ],
+        // The tools screen shows up while the goal's auto-enable calls are still in flight - this
+        // keeps its rows in a loading state instead of flashing "Turn on".
+        autoEnabling: [
+            false,
+            {
+                autoEnableForGoal: () => true,
+                autoEnableFinished: () => false,
             },
         ],
     }),
@@ -175,6 +189,7 @@ export const productEnablementStepLogic = kea<productEnablementStepLogicType>([
             if (enabledAny) {
                 actions.loadCurrentTeam()
             }
+            actions.autoEnableFinished()
         },
         registerAnalyticsIntent: () => {
             // The step remounts freely (back navigation, refresh) - register once per pageload.

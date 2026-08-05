@@ -22,6 +22,7 @@ import { AuthorizedUrlsStep } from './steps/AuthorizedUrlsStep'
 import { BillingStep } from './steps/BillingStep'
 import { GoalsStep } from './steps/GoalsStep'
 import { InstallStep } from './steps/InstallStep'
+import { ToolsStep } from './steps/ToolsStep'
 import { WelcomeStep } from './steps/WelcomeStep'
 
 /**
@@ -95,6 +96,15 @@ function buildSteps(goal: SelfDrivingGoal | null): StepDef[] {
             id: 'goals',
             title: 'What do you want to get done first?',
             Content: GoalsStep,
+            hideContinue: true,
+            maxWidth: 'max-w-2xl',
+        },
+        // The goal's tool collection, already turned on by the goal click - shown before install so
+        // the user knows what they're getting before the ten-minute wizard run.
+        {
+            id: 'tools',
+            title: 'Your tools',
+            Content: ToolsStep,
             hideContinue: true,
             maxWidth: 'max-w-2xl',
         },
