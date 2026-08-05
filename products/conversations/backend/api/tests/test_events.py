@@ -61,6 +61,18 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
 
     @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_ticket_created_stamps_current_assignment(self, mock_capture):
+        role = Role.objects.create(name="Team Warehouse Sources", organization=self.organization)
+        TicketAssignment.objects.create(ticket=self.ticket, role=role)
+
+        capture_ticket_created(self.ticket)
+
+        properties = mock_capture.call_args.kwargs["properties"]
+        assert properties["assignee_type"] == "role"
+        assert properties["assignee_id"] == str(role.id)
+        assert properties["assignee_role_name"] == "Team Warehouse Sources"
+
+    @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_status_changed_uses_team_token(self, mock_capture):
         capture_ticket_status_changed(self.ticket, "new", "pending", actor=self.user, actor_type="user")
 

@@ -426,6 +426,7 @@ def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
 def capture_ticket_created(ticket: Ticket) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties.update(_get_customer_properties(ticket))
+    properties.update(_get_assignment_properties(ticket))
 
     team = ticket.team
     team_id = team.id
