@@ -313,6 +313,8 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             team_id=team.id,
             distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
             target_type=subscription.target_type,
+            available_insight_count=resolved_insights.available_insight_count,
+            selected_insight_count=resolved_insights.selected_insight_count,
             status=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
             failure_context=failure_context,
         )
@@ -382,6 +384,8 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         team_id=team.id,
         distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
         target_type=subscription.target_type,
+        available_insight_count=resolved_insights.available_insight_count,
+        selected_insight_count=resolved_insights.selected_insight_count,
     )
 
 
