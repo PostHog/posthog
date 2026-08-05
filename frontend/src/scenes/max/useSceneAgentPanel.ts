@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
-import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { useAttachedContext, useWelcomeOverride } from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { sceneAgentPanelLogic } from './sceneAgentPanelLogic'
@@ -11,6 +11,8 @@ export interface SceneAgentPanelOptions {
     sceneKey: string
     /** Context attached while the scene is mounted — the entity ref, live state, skill and tool guidance. */
     contextItems: AttachedContextItem[] | null
+    /** Contextual welcome headlines for the composer's empty state; defaults apply when omitted. */
+    headlines?: string[]
     /** When false, nothing is attached or opened (e.g. while the entity is still loading). Defaults to true. */
     active?: boolean
     /** Set false to attach context without auto-opening the panel. Defaults to true. */
@@ -25,10 +27,12 @@ export interface SceneAgentPanelOptions {
 export function useSceneAgentPanel({
     sceneKey,
     contextItems,
+    headlines,
     active = true,
     autoOpen = true,
 }: SceneAgentPanelOptions): void {
     useAttachedContext(contextItems, { active })
+    useWelcomeOverride(headlines ?? null, { active })
     const { sceneEntered, sceneLeft } = useActions(sceneAgentPanelLogic)
 
     useEffect(() => {

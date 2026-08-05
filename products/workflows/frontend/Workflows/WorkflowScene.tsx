@@ -23,7 +23,7 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
-import { buildWorkflowAgentContext } from './workflowAgentContext'
+import { WORKFLOW_AGENT_HEADLINES, buildWorkflowAgentContext } from './workflowAgentContext'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
@@ -74,6 +74,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     useSceneAgentPanel({
         sceneKey: 'workflow',
         contextItems: agentContextItems,
+        headlines: WORKFLOW_AGENT_HEADLINES,
         active: !!originalWorkflow || workflowSceneProps.id === 'new',
     })
 

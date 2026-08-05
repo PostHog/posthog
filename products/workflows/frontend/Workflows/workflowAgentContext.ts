@@ -44,6 +44,11 @@ const SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
     label: 'Building workflows skill',
 }
 
+export const WORKFLOW_AGENT_HEADLINES: string[] = [
+    'How can I help with this workflow?',
+    'What should this workflow do?',
+]
+
 /**
  * The default agent context for the workflow editor scene: the embedded building-workflows skill,
  * the workflows MCP tool catalog, and the current workflow (a visible ref for saved workflows plus
