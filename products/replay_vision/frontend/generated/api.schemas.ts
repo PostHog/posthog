@@ -770,7 +770,6 @@ export interface ScannerExperimentTargetingApi {
     experiment_id: number
     /**
      * Targeted experiment variants. Empty means every variant.
-     * @maxItems 50
      * @items.maxLength 400
      */
     variant_keys: string[]
