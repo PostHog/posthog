@@ -368,6 +368,60 @@ def execute_task_processing_workflow(
         )
 
 
+def execute_repository_detection_workflow(task_id: str, run_id: str, team_id: int) -> None:
+    """Start the detect-repository workflow synchronously. Fire-and-forget.
+
+    The detection sibling of ``execute_task_processing_workflow``: same terminalization
+    contract (a failed start must not orphan the run in QUEUED), none of the agent-run
+    plumbing (Slack context, prewarm, initial message).
+    """
+    from products.tasks.backend.temporal.detect_repository import (
+        DetectRepositoryInput,  # noqa: PLC0415 — avoid an import cycle via temporal/__init__
+    )
+
+    task_run_for_metrics: TaskRun | None = None
+    try:
+        task_run_for_metrics = _get_task_run_for_metrics(run_id)
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
+        Team.objects.get(id=team_id)
+
+        workflow_id = f"detect-repository-{task_id}-{run_id}"
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "detect-repository",
+                DetectRepositoryInput(run_id=run_id),
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        )
+        logger.info("repository_detection_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
+
+    except Team.DoesNotExist as e:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="permission_validation")
+        logger.exception(
+            "repository_detection_permission_validation_failed",
+            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+        )
+        _terminalize_unstarted_task_run(
+            run_id,
+            f"Failed to start detection workflow: permission validation failed: {e}",
+        )
+    except Exception as e:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
+        logger.exception(
+            "repository_detection_workflow_start_failed",
+            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+        )
+        _terminalize_unstarted_task_run(
+            run_id,
+            f"Failed to start detection workflow: {e}",
+        )
+
+
 def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
     """Best-effort scope posture for the reconciler when ``pending_dispatch`` didn't carry
     ``posthog_mcp_scopes`` (pre-reconciler rows, or the bootstrap/start path). Mirrors

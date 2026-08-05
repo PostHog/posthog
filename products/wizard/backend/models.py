@@ -63,3 +63,50 @@ class WizardSession(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
                 name="wizard_sess_team_wf_start_idx",
             ),
         ]
+
+
+class RepositoryDetection(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
+    """What a wizard detection agent found in a repository.
+
+    One row per (team, repository, kind) — each detection run replaces the
+    previous result for that key. `kind` is a free-form discriminator (e.g.
+    'error-tracking-source-maps') so new detection flavors need no migration.
+    """
+
+    # db_constraint=False: posthog_team is a hot table — adding a real FK constraint
+    # takes a parent lock that has blocked deploys. App-level enforcement only.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+
+    # db_constraint=False because posthog_user is a hot table (a constrained FK would lock it).
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+    )
+
+    repository = models.CharField(max_length=255)
+    kind = models.CharField(max_length=64)
+
+    # Exactly one of report/error is set per push: `report` when detection
+    # succeeded, `error` ({type, message}) when it failed. No status column —
+    # `error is null` is the success signal.
+    report = models.JSONField(null=True, blank=True)
+    error = models.JSONField(null=True, blank=True)
+
+    # TaskRun UUID of the cloud run that produced this result. Plain UUID, not an
+    # FK — TaskRun lives in products/tasks and models must not cross the app boundary.
+    task_run_id = models.UUIDField(null=True, blank=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(TeamScopedRootMixin.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["team", "repository", "kind"], name="unique_repo_detection_per_team")
+        ]
+        indexes = [
+            # the UI lists a kind's detections newest-first
+            models.Index(fields=["team", "kind", "-updated_at"], name="wizard_repo_det_team_kind_idx"),
+        ]

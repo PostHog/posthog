@@ -82,3 +82,39 @@ class UpsertWizardSessionInput:
     handoff_text: str | None = None
     # Set on create only, never overwritten on later pushes for the same run.
     created_by_id: int | None = None
+
+
+@dataclass(frozen=True)
+class RepositoryDetectionDTO:
+    id: str
+    team_id: int
+    repository: str
+    kind: str
+    report: dict[str, Any] | None
+    error: dict[str, Any] | None
+    task_run_id: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class UpsertRepositoryDetectionRequest:
+    """What a detection agent POSTs. team_id is derived from the URL, not the body."""
+
+    repository: str
+    kind: str
+    report: dict[str, Any] | None = None
+    error: dict[str, Any] | None = None
+    task_run_id: str | None = None
+
+
+@dataclass(frozen=True)
+class UpsertRepositoryDetectionInput:
+    team_id: int
+    repository: str
+    kind: str
+    report: dict[str, Any] | None
+    error: dict[str, Any] | None
+    task_run_id: str | None
+    # Set on create only, never overwritten on later pushes for the same key.
+    created_by_id: int | None = None

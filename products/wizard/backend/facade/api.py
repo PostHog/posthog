@@ -13,13 +13,23 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from products.wizard.backend import metrics
-from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO
-from products.wizard.backend.logic import pubsub, sessions
+from products.wizard.backend.facade.contracts import (
+    RepositoryDetectionDTO,
+    UpsertRepositoryDetectionInput,
+    UpsertWizardSessionInput,
+    WizardSessionDTO,
+)
+from products.wizard.backend.logic import pubsub, repository_detections, sessions
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
     """Returns `(dto, created)` so callers can pick 201 vs 200."""
     return sessions.upsert_session(params)
+
+
+def upsert_repository_detection(params: UpsertRepositoryDetectionInput) -> tuple[RepositoryDetectionDTO, bool]:
+    """Returns `(dto, created)` so callers can pick 201 vs 200."""
+    return repository_detections.upsert_detection(params)
 
 
 def get(team_id: int, session_id: str) -> WizardSessionDTO | None:

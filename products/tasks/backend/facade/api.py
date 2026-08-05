@@ -22,6 +22,7 @@ from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
@@ -46,6 +47,7 @@ from products.tasks.backend.constants import (
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_SESSION_MAX_SIZE_BYTES,
+    WIZARD_DETECTION_PROGRAMS,
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
@@ -1040,6 +1042,59 @@ def create_wizard_cloud_run(
         # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
         pending_user_message=prompt,
     )
+
+
+def create_detection_run(
+    *,
+    team,
+    user_id: int,
+    repository: str,
+    kind: str,
+) -> contracts.CreatedTaskDTO:
+    """Create a task and start the dedicated detect-repository workflow for it.
+
+    ``kind`` selects the wizard detection program (see ``WIZARD_DETECTION_PROGRAMS``) and is
+    the same identifier the wizard posts its report under to the wizard product's
+    repository-detections API, using its scoped cloud-run token — so nothing flows back
+    through this task except run status. The detection workflow is a sibling of
+    process-task with none of its agent machinery: no agent boots, no PR is opened.
+
+    ``wizard_config`` carries the kind for the detection activity, and its presence is what
+    makes provisioning inject the wizard's own OAuth token into the sandbox.
+    """
+    if kind not in WIZARD_DETECTION_PROGRAMS:
+        raise ValueError(f"Unknown detection kind: {kind}")
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        execute_repository_detection_workflow,
+    )
+
+    created = create_and_run_task(
+        team=team,
+        title=f"Repository detection: {kind}",
+        description=f"Scan the repository ({kind} detection).",
+        origin_product=Task.OriginProduct.ERROR_TRACKING,
+        user_id=user_id,
+        repository=repository,
+        create_pr=False,
+        mode="background",
+        start_workflow=False,
+        wizard_config={"kind": kind},
+        posthog_mcp_scopes="read_only",
+    )
+    latest_run = created.latest_run
+    assert latest_run is not None  # create_and_run_task always creates the run row
+    # Same commit-then-dispatch discipline as Task.create_and_run: started before the creating
+    # transaction commits, the workflow's first activity could read the TaskRun row before it
+    # exists. On autocommit the callback fires immediately.
+    transaction.on_commit(
+        partial(
+            execute_repository_detection_workflow,
+            str(created.task_id),
+            str(latest_run.id),
+            created.team_id,
+        )
+    )
+    return created
 
 
 def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetime]:

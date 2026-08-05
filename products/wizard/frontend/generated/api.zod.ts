@@ -10,6 +10,123 @@
 import * as zod from 'zod'
 
 /**
+ * Upsert a repository detection. The `(repository, kind)` pair is the idempotency anchor — reposting the same pair replaces the existing row. Returns 201 on create, 200 on update.
+ */
+export const wizardRepositoryDetectionsCreateBodyReportOneProjectsItemPathMax = 512
+
+export const wizardRepositoryDetectionsCreateBodyReportOneProjectsItemFrameworkMax = 100
+
+export const wizardRepositoryDetectionsCreateBodyReportOneProjectsItemVariantMax = 64
+
+export const wizardRepositoryDetectionsCreateBodyReportOneProjectsItemReasonMax = 300
+
+export const wizardRepositoryDetectionsCreateBodyErrorOneTypeMax = 100
+
+export const wizardRepositoryDetectionsCreateBodyErrorOneMessageMax = 2000
+
+export const wizardRepositoryDetectionsCreateBodyRepositoryMax = 255
+
+export const wizardRepositoryDetectionsCreateBodyKindMax = 64
+
+export const WizardRepositoryDetectionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        report: zod
+            .union([
+                zod
+                    .object({
+                        repo_type: zod
+                            .enum(['monorepo', 'single'])
+                            .describe('\* `monorepo` - monorepo\n\* `single` - single')
+                            .describe(
+                                'Whether the repository is a multi-project workspace or a single project.\n\n\* `monorepo` - monorepo\n\* `single` - single'
+                            ),
+                        projects: zod
+                            .array(
+                                zod
+                                    .object({
+                                        path: zod
+                                            .string()
+                                            .max(wizardRepositoryDetectionsCreateBodyReportOneProjectsItemPathMax)
+                                            .describe(
+                                                "Repo-relative path of the project ('.' for the repository root)."
+                                            ),
+                                        framework: zod
+                                            .string()
+                                            .max(wizardRepositoryDetectionsCreateBodyReportOneProjectsItemFrameworkMax)
+                                            .describe(
+                                                "Human-readable framework name the agent classified, e.g. 'Next.js'."
+                                            ),
+                                        variant: zod
+                                            .string()
+                                            .max(wizardRepositoryDetectionsCreateBodyReportOneProjectsItemVariantMax)
+                                            .nullish()
+                                            .describe(
+                                                "Detection-kind-specific target the project matched (e.g. the source-map skill variant 'nextjs'), or null when the stack isn't supported."
+                                            ),
+                                        has_posthog: zod
+                                            .boolean()
+                                            .describe('Whether a PostHog SDK is already installed in this project.'),
+                                        instrumentable: zod
+                                            .boolean()
+                                            .describe(
+                                                'Whether the detection kind can act on this project (supported variant + SDK present).'
+                                            ),
+                                        reason: zod
+                                            .string()
+                                            .max(wizardRepositoryDetectionsCreateBodyReportOneProjectsItemReasonMax)
+                                            .nullish()
+                                            .describe(
+                                                "Why the project is not instrumentable, when it isn't. Human-readable."
+                                            ),
+                                    })
+                                    .describe('One project the detection agent found in the repository.')
+                            )
+                            .describe('Projects found in the repository, one entry per project manifest.'),
+                    })
+                    .describe(
+                        'The structured result of one detection run. Typed rather than a free-form dict so the\nshape the app renders is enforced at the edge instead of trusted from the producer.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe('The detection result. Exactly one of `report` \/ `error` must be set.'),
+        error: zod
+            .union([
+                zod
+                    .object({
+                        type: zod
+                            .string()
+                            .max(wizardRepositoryDetectionsCreateBodyErrorOneTypeMax)
+                            .nullish()
+                            .describe("Machine-readable failure category, e.g. 'no-manifests', 'agent-error'."),
+                        message: zod
+                            .string()
+                            .max(wizardRepositoryDetectionsCreateBodyErrorOneMessageMax)
+                            .describe('Human-readable failure description.'),
+                    })
+                    .describe('Why a detection run failed. Populated instead of `report`.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Why the run failed. Exactly one of `report` \/ `error` must be set.'),
+        task_run_id: zod
+            .uuid()
+            .nullish()
+            .describe('TaskRun UUID of the cloud run producing this result. Omit for local runs.'),
+        repository: zod
+            .string()
+            .max(wizardRepositoryDetectionsCreateBodyRepositoryMax)
+            .describe(
+                "Repository the detection ran against, in 'org\/repo' form. Together with `kind` this is the idempotency anchor — reposting the same pair replaces the existing row."
+            ),
+        kind: zod
+            .string()
+            .max(wizardRepositoryDetectionsCreateBodyKindMax)
+            .describe("Detection flavor, e.g. 'error-tracking-source-maps'."),
+    })
+    .describe('Input: validates the JSON a detection agent posts. team_id is derived from URL.')
+
+/**
  * Upsert a wizard session. The `session_id` key is the idempotency anchor — reposting the same `session_id` replaces the existing row. Returns 201 on create, 200 on update.
  */
 export const wizardSessionsCreateBodyPendingInputOneIdMax = 255

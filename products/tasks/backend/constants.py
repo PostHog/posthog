@@ -3,6 +3,16 @@ from typing import Literal, get_args
 
 import posthoganalytics
 
+# Detection kinds a cloud wizard run can execute, mapped to the wizard CLI invocation that
+# runs them. The kind string is the one identifier used end to end: the trigger request,
+# wizard_config, and the RepositoryDetection row the wizard posts its report under. These
+# subcommands are natively non-interactive and don't declare the headless flag (yargs
+# rejects flags a command doesn't declare). Adding a detection flavor = one entry here
+# plus a wizard program that posts under the same kind.
+WIZARD_DETECTION_PROGRAMS: dict[str, list[str]] = {
+    "error-tracking-source-maps": ["upload-source-maps", "--detect-only"],
+}
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"

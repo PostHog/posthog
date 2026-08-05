@@ -139,6 +139,32 @@ class SetupWizardCloudRunResponseSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Initial status of the run (e.g. 'queued').")
 
 
+class SetupWizardDetectionSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        help_text="ID of the PostHog project the detection result belongs to. The authenticated user must have access to it."
+    )
+    repository = serializers.CharField(
+        help_text=(
+            "GitHub repository to scan, as 'owner/repo' (e.g. 'posthog/posthog-js'). The team "
+            "must have a connected GitHub integration with access to it."
+        )
+    )
+    # CharField rather than ChoiceField: the supported set lives in the tasks facade (the
+    # creation call rejects unknown kinds), and 'kind' as a ChoiceField would mint a
+    # collision-prone KindEnum in the OpenAPI schema.
+    kind = serializers.CharField(
+        max_length=64,
+        help_text="Detection flavor to run, e.g. 'error-tracking-source-maps'. Unsupported kinds are rejected.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        repository = value.strip()
+        parts = repository.split("/")
+        if len(parts) != 2 or not all(parts):
+            raise serializers.ValidationError("Repository must be in 'owner/repo' format.")
+        return repository
+
+
 class SetupWizardViewSet(viewsets.ViewSet):
     permission_classes = ()
     lookup_field = "hash"
@@ -496,6 +522,18 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if count > WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP:
             raise exceptions.Throttled(detail="You've reached today's limit for cloud setup runs. Try again tomorrow.")
 
+    @staticmethod
+    def _resolve_visible_project(request: Request, project_id: int) -> Project:
+        visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
+        try:
+            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
+            project = Project.objects.get(id=project_id)
+        except Project.DoesNotExist:
+            raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
+        if project.id not in visible_project_ids:
+            raise exceptions.PermissionDenied("You don't have access to this project.")
+        return project
+
     def _cloud_run(self, request: Request) -> Response:
         if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
             raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")
@@ -506,14 +544,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         repository = serializer.validated_data["repository"]
         branch = serializer.validated_data.get("branch") or None
 
-        visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
-        try:
-            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
-            project = Project.objects.get(id=project_id)
-        except Project.DoesNotExist:
-            raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
-        if project.id not in visible_project_ids:
-            raise exceptions.PermissionDenied("You don't have access to this project.")
+        project = self._resolve_visible_project(request, project_id)
 
         self._reserve_cloud_run_attempt(cast(User, request.user).id)
 
@@ -526,6 +557,59 @@ class SetupWizardViewSet(viewsets.ViewSet):
             )
         except ValueError as e:
             # e.g. the team/user has no GitHub integration with access to the repository.
+            raise exceptions.ValidationError(str(e))
+
+        latest_run = result.latest_run
+        return Response(
+            {
+                "task_id": str(result.task_id),
+                "run_id": str(latest_run.id) if latest_run else "",
+                "status": latest_run.status if latest_run else "queued",
+            }
+        )
+
+    @extend_schema(
+        request=SetupWizardDetectionSerializer,
+        responses={200: SetupWizardCloudRunResponseSerializer},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="detection",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated],
+        throttle_classes=[
+            SetupWizardCloudRunBurstRateThrottle,
+            SetupWizardCloudRunSustainedRateThrottle,
+        ],
+    )
+    def detection(self, request: Request) -> Response:
+        """Run a repository detection scan of the given kind, in the cloud.
+
+        Provisions a task-run sandbox that clones the repository and runs the wizard detection
+        program the kind selects. The wizard posts the resulting report to the wizard product's
+        repository-detections API under the same kind; the app reads it from there later. No
+        agent runs and no pull request is opened. Shares the cloud wizard run's per-user daily
+        attempt budget because each run starts a sandbox.
+        """
+        if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
+            raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")
+
+        serializer = SetupWizardDetectionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        project = self._resolve_visible_project(request, serializer.validated_data["project_id"])
+
+        self._reserve_cloud_run_attempt(cast(User, request.user).id)
+
+        try:
+            result = tasks_facade.create_detection_run(
+                team=project.passthrough_team,
+                user_id=cast(User, request.user).id,
+                repository=serializer.validated_data["repository"],
+                kind=serializer.validated_data["kind"],
+            )
+        except ValueError as e:
+            # e.g. unknown kind, or no GitHub integration with access to the repository.
             raise exceptions.ValidationError(str(e))
 
         latest_run = result.latest_run

@@ -732,6 +732,41 @@ class TestFacadeReadsAndMappers(TestCase):
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
 
+    @patch("products.tasks.backend.temporal.client.execute_repository_detection_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_detection_run_dispatches_the_detection_workflow(self, mock_process_task, mock_detection):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self.captureOnCommitCallbacks(execute=True):
+            created = facade.create_detection_run(
+                team=self.team,
+                user_id=self.user.id,
+                repository="acme-co/web",
+                kind="error-tracking-source-maps",
+            )
+        # Detection runs its own workflow — never process-task, whose agent would boot with no
+        # pending message and idle until the 2h inactivity timeout.
+        mock_process_task.assert_not_called()
+        run = TaskRun.objects.get(task_id=created.task_id)
+        mock_detection.assert_called_once_with(str(created.task_id), str(run.id), self.team.id)
+        # The kind drives the detection activity's command; wizard_config's presence is what
+        # makes provisioning inject the wizard's own OAuth token into the sandbox.
+        self.assertEqual(run.state.get("wizard_config"), {"kind": "error-tracking-source-maps"})
+        # No agent, no PR: seeding either of these would re-enter the integrate-flow machinery.
+        self.assertIsNone(run.state.get("pending_user_message"))
+        self.assertIsNone(run.state.get("wizard_head_branch"))
+        task = Task.objects.get(id=created.task_id)
+        self.assertEqual(task.origin_product, Task.OriginProduct.ERROR_TRACKING)
+
+    def test_create_detection_run_rejects_unknown_kind(self):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self.assertRaises(ValueError):
+            facade.create_detection_run(
+                team=self.team,
+                user_id=self.user.id,
+                repository="acme-co/web",
+                kind="no-such-kind",
+            )
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_wizard_cloud_run_pins_its_model(self, _mock_workflow):
         Integration.objects.create(team=self.team, kind="github", config={})

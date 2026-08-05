@@ -5,7 +5,12 @@ from typing import Any
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from products.wizard.backend.facade.contracts import UpsertWizardSessionRequest, WizardSessionDTO
+from products.wizard.backend.facade.contracts import (
+    RepositoryDetectionDTO,
+    UpsertRepositoryDetectionRequest,
+    UpsertWizardSessionRequest,
+    WizardSessionDTO,
+)
 
 # Bounds on the pending question. A prompt is a terminal question, not a document, and the wizard
 # asks one thing at a time; the caps keep a malformed or hostile push from growing the row that the
@@ -85,6 +90,153 @@ class WizardSessionSerializer(DataclassSerializer):
                 ),
             },
         }
+
+
+# Bounds on a detection report. A detection is a shallow repo classification (one row per
+# project manifest found), not a document — the caps keep a malformed or hostile push from
+# growing a row the app reads when rendering setup recommendations.
+MAX_DETECTED_PROJECTS = 200
+MAX_DETECTION_ERROR_MESSAGE_LENGTH = 2000
+
+
+class DetectedProjectSerializer(serializers.Serializer):
+    """One project the detection agent found in the repository."""
+
+    path = serializers.CharField(
+        max_length=512,
+        help_text="Repo-relative path of the project ('.' for the repository root).",
+    )
+    framework = serializers.CharField(
+        max_length=100,
+        help_text="Human-readable framework name the agent classified, e.g. 'Next.js'.",
+    )
+    variant = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Detection-kind-specific target the project matched (e.g. the source-map skill "
+            "variant 'nextjs'), or null when the stack isn't supported."
+        ),
+    )
+    has_posthog = serializers.BooleanField(
+        help_text="Whether a PostHog SDK is already installed in this project.",
+    )
+    instrumentable = serializers.BooleanField(
+        help_text="Whether the detection kind can act on this project (supported variant + SDK present).",
+    )
+    reason = serializers.CharField(
+        max_length=300,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Why the project is not instrumentable, when it isn't. Human-readable.",
+    )
+
+
+class DetectionReportSerializer(serializers.Serializer):
+    """The structured result of one detection run. Typed rather than a free-form dict so the
+    shape the app renders is enforced at the edge instead of trusted from the producer."""
+
+    repo_type = serializers.ChoiceField(
+        choices=["monorepo", "single"],
+        help_text="Whether the repository is a multi-project workspace or a single project.",
+    )
+    projects = DetectedProjectSerializer(
+        many=True,
+        # many_init forwards this to the ListSerializer; the stubs don't model that.
+        max_length=MAX_DETECTED_PROJECTS,  # type: ignore[call-arg]
+        help_text="Projects found in the repository, one entry per project manifest.",
+    )
+
+
+class DetectionErrorSerializer(serializers.Serializer):
+    """Why a detection run failed. Populated instead of `report`."""
+
+    type = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_null=True,
+        help_text="Machine-readable failure category, e.g. 'no-manifests', 'agent-error'.",
+    )
+    message = serializers.CharField(
+        max_length=MAX_DETECTION_ERROR_MESSAGE_LENGTH,
+        help_text="Human-readable failure description.",
+    )
+
+
+class RepositoryDetectionSerializer(DataclassSerializer):
+    """Output: serialises a RepositoryDetectionDTO returned by the facade."""
+
+    report = DetectionReportSerializer(
+        allow_null=True,
+        help_text="The detection result, or null when the run failed (see `error`).",
+    )
+    error = DetectionErrorSerializer(
+        allow_null=True,
+        help_text="Why the run failed, or null when it succeeded (see `report`).",
+    )
+
+    class Meta:
+        dataclass = RepositoryDetectionDTO
+        extra_kwargs = {
+            "repository": {
+                "help_text": "Repository the detection ran against, in 'org/repo' form.",
+            },
+            "kind": {
+                "help_text": "Detection flavor, e.g. 'error-tracking-source-maps'.",
+            },
+            "task_run_id": {
+                "help_text": "TaskRun UUID of the cloud run that produced this result, when it ran in the cloud.",
+            },
+        }
+
+
+class UpsertRepositoryDetectionRequestSerializer(DataclassSerializer):
+    """Input: validates the JSON a detection agent posts. team_id is derived from URL."""
+
+    report = DetectionReportSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The detection result. Exactly one of `report` / `error` must be set.",
+    )
+    error = DetectionErrorSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Why the run failed. Exactly one of `report` / `error` must be set.",
+    )
+    task_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="TaskRun UUID of the cloud run producing this result. Omit for local runs.",
+    )
+
+    class Meta:
+        dataclass = UpsertRepositoryDetectionRequest
+        extra_kwargs = {
+            "repository": {
+                "max_length": 255,
+                "help_text": (
+                    "Repository the detection ran against, in 'org/repo' form. Together with "
+                    "`kind` this is the idempotency anchor — reposting the same pair replaces "
+                    "the existing row."
+                ),
+            },
+            "kind": {
+                "max_length": 64,
+                "help_text": "Detection flavor, e.g. 'error-tracking-source-maps'.",
+            },
+        }
+
+    def validate_task_run_id(self, value: Any) -> str | None:
+        # The contract dataclass carries a plain string; UUIDField only validates format.
+        return str(value) if value is not None else None
+
+    def validate(self, attrs: UpsertRepositoryDetectionRequest) -> UpsertRepositoryDetectionRequest:
+        # DataclassSerializer hands validate() the built dataclass, not a dict.
+        if (attrs.report is not None) == (attrs.error is not None):
+            raise serializers.ValidationError("Exactly one of `report` or `error` must be provided.")
+        return attrs
 
 
 class UpsertWizardSessionRequestSerializer(DataclassSerializer):
