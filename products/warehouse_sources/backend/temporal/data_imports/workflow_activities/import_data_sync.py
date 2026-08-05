@@ -1,9 +1,11 @@
 import uuid
+import socket
 import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any, NoReturn, Optional
 
+from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
 from structlog.contextvars import bind_contextvars
@@ -36,12 +38,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_object_store_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ResumableSource,
+    SimpleSource,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -54,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -102,6 +112,21 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
     await asyncio.to_thread(report_heartbeat_timeout, inputs, logger)
 
+    # Async variant: teardown joins the sampler thread and talks to Redis, which must not block
+    # this activity's event loop (or its heartbeats).
+    async with aworkload_reporting(
+        team_id=inputs.team_id,
+        schema_id=str(inputs.schema_id),
+        run_id=str(inputs.run_id),
+        host=socket.gethostname(),
+        # Retries share the run_id; the attempt lets the newest reporter own the run key while a
+        # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
+        attempt=current_activity_attempt(),
+    ):
+        return await _import_data_with_reporting(inputs, logger)
+
+
+async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
     async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -115,6 +140,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     status=model.status,
                     attempt=attempt,
                 )
+                # The consumer already finalized this run (that's how it became terminal), so the
+                # workflow must not overwrite the status or release the lock — see PipelineResult.
                 return PipelineResult(
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
@@ -271,6 +298,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 except Exception:
                     await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
 
+                # This activity finalized the job itself just above, so the workflow must not
+                # write a second terminal status — see PipelineResult for the ownership contract.
                 return PipelineResult(
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
@@ -297,11 +326,23 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ImportJobModels:
+    job: ExternalDataJob
+    schema: ExternalDataSchema
+    source: ExternalDataSource
+    table: DataWarehouseTable | None
+
+
 @database_sync_to_async_pool
 def _get_models(
     job_id: str,
-) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
-    job = ExternalDataJob.objects.select_related("schema", "schema__table").get(id=job_id)
+) -> ImportJobModels:
+    # `schema__source` is prefetched so `job.folder_path()` (via `schema.source.source_type`, called
+    # repeatedly through the run by `DeltaTableRef._get_delta_table_uri`) never triggers a lazy
+    # relation load later on a pooled connection the transaction pooler may have dropped mid-sync,
+    # which raises a transient `OperationalError`/DNS failure.
+    job = ExternalDataJob.objects.select_related("schema", "schema__table", "schema__source").get(id=job_id)
     schema: ExternalDataSchema | None = job.schema
     source: ExternalDataSource | None = job.pipeline
     if schema is None:
@@ -310,7 +351,7 @@ def _get_models(
         raise Exception("No source attached to job")
 
     table: DataWarehouseTable | None = schema.table
-    return job, schema, source, table
+    return ImportJobModels(job=job, schema=schema, source=source, table=table)
 
 
 async def _handle_import_error(
@@ -332,7 +373,9 @@ async def _handle_import_error(
     (``posthog/temporal/common/posthog_client.py``) from reporting whatever exception type escapes
     the activity; only that marker type does. ``RESTClientRetryableError`` gets the same treatment
     by type, since it's already a ``NonReportableError`` subclass and every REST-based source hits
-    that condition already.
+    that condition already. A transient object-store hiccup talking to our own data-warehouse
+    bucket is re-raised as ``NonReportableError`` the same way, as is a Django
+    ``OperationalError``/``InterfaceError`` (a connection-pool blip against our own app DB).
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
@@ -378,6 +421,27 @@ async def _handle_import_error(
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         raise error
 
+    # A transient S3/object-store hiccup talking to our own data-warehouse bucket (IMDS/STS
+    # blip, SlowDown throttling) that surfaced during this run — e.g. resetting or opening the
+    # Delta table. Not a PostHog defect and not a customer credential problem (see
+    # TRANSIENT_OBJECT_STORE_ERRORS), and retrying resolves it, so it shouldn't page anyone.
+    if is_transient_object_store_error(error):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient object-store error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # A Django OperationalError/InterfaceError here comes from a lookup against PostHog's own app
+    # DB (e.g. resolving a team or CustomPropertySource for the person-property staging hook) —
+    # every source that talks to a customer's own database (Postgres, MySQL, Redshift) does so over
+    # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
+    # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
+    # customer data or config problem. Same classification already used for app-DB blips in
+    # delta_table_ref.is_transient_maintenance_error.
+    if isinstance(error, OperationalError | InterfaceError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
     # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel
     # auth, a widened column type) are raised from shared pipeline code, not any one source. The
     # finalization activity already consults this shared dict; this in-activity handler decides whether
@@ -388,13 +452,13 @@ async def _handle_import_error(
     )
 
     non_retryable_errors = {**Any_Source_Errors, **source_cls.get_non_retryable_errors()}
-    if any(match in error_msg for match in non_retryable_errors):
+    if error_message_matches(error_msg, non_retryable_errors):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
     retryable_errors = source_cls.get_retryable_errors()
-    if any(match in error_msg for match in retryable_errors):
+    if error_message_matches(error_msg, retryable_errors):
         await logger.awarning(error_msg)
         await logger.adebug("Source-classified retryable error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
@@ -413,25 +477,22 @@ async def _run(
     resumable_source_manager: ResumableSourceManager | None,
 ) -> PipelineResult:
     try:
-        job, schema, source, table = await _get_models(job_inputs.run_id)
+        models = await _get_models(job_inputs.run_id)
 
-        use_v3 = job.pipeline_version == ExternalDataJob.PipelineVersion.V3
+        use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
 
         if use_v3:
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
-            logger.info("Running V3 pipeline (feature flag enabled)")
+            logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
             pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
                 source_response,
                 logger,
                 job_inputs.run_id,
                 reset_pipeline,
                 shutdown_monitor,
-                job,
-                schema,
-                source,
-                table,
                 resumable_source_manager,
+                models=models,
             )
         else:
             pipeline = PipelineNonDLT(
@@ -440,11 +501,8 @@ async def _run(
                 job_inputs.run_id,
                 reset_pipeline,
                 shutdown_monitor,
-                job,
-                schema,
-                source,
-                table,
                 resumable_source_manager,
+                models=models,
             )
 
         result = await pipeline.run()

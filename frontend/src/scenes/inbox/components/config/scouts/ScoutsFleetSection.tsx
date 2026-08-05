@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconCompass, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -10,6 +10,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
+import { captureScoutAction, captureScoutFleetViewed } from '../../../inboxAnalytics'
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import {
@@ -26,6 +27,7 @@ import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutRowCard } from './ScoutRowCard'
 import { ScoutSuggestButton } from './ScoutSuggestButton'
+import { ScoutTagsFilter } from './ScoutTagsFilter'
 
 /**
  * Scout troop manager, hosted in the Scout troop setup modal (and the Agents settings tab). Both
@@ -34,7 +36,7 @@ import { ScoutSuggestButton } from './ScoutSuggestButton'
  * Cloud port of desktop's `ScoutsFleetSection`.
  */
 export function ScoutsFleetSection(): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
     const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
@@ -45,6 +47,22 @@ export function ScoutsFleetSection(): JSX.Element {
         startRunsPolling()
         return () => stopRunsPolling()
     }, [startRunsPolling, stopRunsPolling])
+
+    // Roster shape once per opening, the first time the fleet resolves. A failed load stays `null`
+    // and reports nothing — an unreachable scout API isn't an empty troop.
+    const fleetViewedFiredRef = useRef(false)
+    useEffect(() => {
+        if (scoutConfigs === null || fleetViewedFiredRef.current) {
+            return
+        }
+        fleetViewedFiredRef.current = true
+        captureScoutFleetViewed({
+            scoutCount: scoutConfigs.length,
+            enabledCount,
+            customCount: customScoutCount,
+            dryRunCount: scoutConfigs.filter((config) => !config.emit).length,
+        })
+    }, [scoutConfigs, enabledCount, customScoutCount])
 
     if (scoutConfigsLoading && scoutConfigs === null) {
         return <LemonSkeleton className="h-12 w-full rounded" />
@@ -81,6 +99,7 @@ export function ScoutsFleetSection(): JSX.Element {
             <FleetStatsHeader />
             <FleetFindingsCallout
                 onOpen={() => {
+                    captureScoutAction({ actionType: 'open_findings', surface: 'fleet_list' })
                     // This section can render inside the scout-troop setup modal; dismiss it so the
                     // findings view isn't left hidden behind the portal'd modal. No-op outside a modal.
                     closeSetupModal()
@@ -89,6 +108,7 @@ export function ScoutsFleetSection(): JSX.Element {
             />
             <FleetMemoryCallout
                 onOpen={() => {
+                    captureScoutAction({ actionType: 'open_memory', surface: 'fleet_list' })
                     // This section can render inside the scout-troop setup modal; dismiss it so the
                     // memory view isn't left hidden behind the portal'd modal. No-op outside a modal.
                     closeSetupModal()
@@ -131,7 +151,7 @@ function summarize(summary: FleetSummary | null): string {
     // definition of output (`emitRate`), so the count and the percentage always agree.
     const outputParts: string[] = []
     if (summary.emittedCount > 0) {
-        outputParts.push(pluralize(summary.emittedCount, 'finding'))
+        outputParts.push(pluralize(summary.emittedCount, 'signal'))
     }
     if (summary.touchedReportCount > 0) {
         outputParts.push(`${pluralize(summary.touchedReportCount, 'report')} touched`)
@@ -174,8 +194,17 @@ function FleetStatsHeader(): JSX.Element {
 }
 
 function ScoutsFleetList(): JSX.Element {
-    const { visibleConfigs, rollups, hideDisabled, deletingScoutIds, updatingScoutIds } = useValues(scoutFleetLogic)
-    const { setHideDisabled, updateScoutConfig, deleteScout, loadScoutConfigs } = useActions(scoutFleetLogic)
+    const {
+        visibleConfigs,
+        rollups,
+        hideDisabled,
+        deletingScoutIds,
+        updatingScoutIds,
+        activeScoutTags,
+        scoutTagOptions,
+    } = useValues(scoutFleetLogic)
+    const { setHideDisabled, setScoutTagFilter, updateScoutConfig, deleteScout, loadScoutConfigs } =
+        useActions(scoutFleetLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -185,7 +214,35 @@ function ScoutsFleetList(): JSX.Element {
                 <ScoutChatCta label="How is my scout troop performing?" prompt={SCOUT_FLEET_OVERVIEW_PROMPT} />
                 <ScoutChatCta label="What signals were emitted recently?" prompt={SCOUT_RECENT_SIGNALS_PROMPT} />
                 <span className="flex-1" />
-                <LemonButton size="xsmall" type="tertiary" onClick={() => setHideDisabled(!hideDisabled)}>
+                {scoutTagOptions.length > 0 ? (
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted">Tagged</span>
+                        <ScoutTagsFilter
+                            options={scoutTagOptions}
+                            selected={activeScoutTags}
+                            onToggle={(tag) =>
+                                setScoutTagFilter(
+                                    activeScoutTags.includes(tag)
+                                        ? activeScoutTags.filter((candidate) => candidate !== tag)
+                                        : [...activeScoutTags, tag]
+                                )
+                            }
+                            onClear={() => setScoutTagFilter([])}
+                        />
+                    </div>
+                ) : null}
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    onClick={() => {
+                        captureScoutAction({
+                            actionType: 'toggle_hide_disabled',
+                            surface: 'fleet_list',
+                            extra: { hide_disabled: !hideDisabled },
+                        })
+                        setHideDisabled(!hideDisabled)
+                    }}
+                >
                     {hideDisabled ? 'Show disabled' : 'Hide disabled'}
                 </LemonButton>
             </div>
@@ -193,17 +250,21 @@ function ScoutsFleetList(): JSX.Element {
             {/* The enclosing modal owns the scroll, so the list stays flat here — a nested
                 overflow container would create a scroll-area-within-a-scroll-area. */}
             <div className="flex flex-col gap-2">
-                {visibleConfigs.map((config: SignalScoutConfig) => (
-                    <ScoutRowCard
-                        key={config.id}
-                        config={config}
-                        rollup={rollups.get(config.skill_name)}
-                        onUpdate={updateScoutConfig}
-                        onDelete={deleteScout}
-                        deleting={deletingScoutIds.includes(config.id)}
-                        updating={updatingScoutIds.includes(config.id)}
-                    />
-                ))}
+                {visibleConfigs.length === 0 ? (
+                    <span className="px-1 py-2 text-xs text-muted">No scouts match the current filters.</span>
+                ) : (
+                    visibleConfigs.map((config: SignalScoutConfig) => (
+                        <ScoutRowCard
+                            key={config.id}
+                            config={config}
+                            rollup={rollups.get(config.skill_name)}
+                            onUpdate={updateScoutConfig}
+                            onDelete={deleteScout}
+                            deleting={deletingScoutIds.includes(config.id)}
+                            updating={updatingScoutIds.includes(config.id)}
+                        />
+                    ))
+                )}
             </div>
 
             <div className="flex flex-col gap-1">

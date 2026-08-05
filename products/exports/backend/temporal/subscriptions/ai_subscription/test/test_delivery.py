@@ -270,8 +270,8 @@ class TestFeedbackFooter:
         assert "Was this report useful?" in text
         assert f"<{_feedback_url(feedback, 'slack')}|{label}>" in text
 
-    @pytest.mark.parametrize("feedback", ["positive", "negative"])
-    def test_email_context_carries_feedback_urls(self, feedback: str) -> None:
+    @staticmethod
+    def _send_email_and_get_context() -> dict:
         with (
             patch(
                 "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
@@ -279,6 +279,11 @@ class TestFeedbackFooter:
             patch(
                 "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.get_unsubscribe_token",
                 return_value="tok",
+            ),
+            # Mocking EmailMessage means no real send + no MessagingRecord, so the
+            # post-send acceptance check would hit the DB; delivery is covered separately.
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.raise_if_delivery_rejected"
             ),
         ):
             send_email_ai_subscription_report(
@@ -288,8 +293,18 @@ class TestFeedbackFooter:
                 delivery_run_id="run-1",
                 delivery_id=_DELIVERY_ID,
             )
-        context = email_message.call_args.kwargs["template_context"]
+        return email_message.call_args.kwargs["template_context"]
+
+    @pytest.mark.parametrize("feedback", ["positive", "negative"])
+    def test_email_context_carries_feedback_urls(self, feedback: str) -> None:
+        context = self._send_email_and_get_context()
         assert context[f"feedback_{feedback}_url"] == _feedback_url(feedback, "email")
+
+    def test_email_cta_carries_delivery_id(self) -> None:
+        # Dropping this param silently kills click attribution: the frontend captures
+        # `ai_report_clicked` from it, the report-engagement signal.
+        context = self._send_email_and_get_context()
+        assert f"&delivery={_DELIVERY_ID}" in context["subscription_url"]
 
 
 class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
@@ -357,7 +372,7 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
             SubscriptionTriggerType.MANUAL, SubscriptionDelivery.Status.COMPLETED, scheduled_at + timedelta(days=1)
         )
         self._delivery(
-            SubscriptionTriggerType.TARGET_CHANGE,
+            SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
             SubscriptionDelivery.Status.COMPLETED,
             scheduled_at + timedelta(days=2),
         )

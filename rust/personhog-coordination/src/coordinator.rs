@@ -36,12 +36,11 @@ pub struct CoordinatorConfig {
     /// rapid pod registrations into a single rebalance.
     pub rebalance_debounce_interval: Duration,
     /// How often to re-evaluate in-flight handoffs regardless of watch
-    /// events. Phase advancement is normally event-driven, but some state
-    /// changes produce no watched event at all — a router departing
-    /// (nothing watches router registrations) can newly satisfy a freeze
-    /// quorum. The tick backstops those so handoffs cannot stall
-    /// indefinitely, and doubles as defense-in-depth for anything else
-    /// that slips through the event-driven paths.
+    /// events. Phase advancement is event-driven — acks, handoff writes,
+    /// and router departures are all watched — so the tick is pure
+    /// defense-in-depth: it catches a dropped stream or an event lost in
+    /// a coordinator failover window, keeping a handoff from stalling
+    /// indefinitely on a missed delivery.
     pub reconcile_interval: Duration,
     /// How long a handoff may sit in Freezing or Draining before the
     /// coordinator cancels it — by atomic replacement with whatever
@@ -123,6 +122,16 @@ pub struct Coordinator {
     k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
+/// What prompted a phase-advance evaluation. Only ack-triggered
+/// evaluations record the ack-to-advance span: a departure or tick can
+/// legitimately advance a handoff on acks that arrived long before, and
+/// that elapsed time measures the blocker, not coordinator reaction.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AdvanceTrigger {
+    Ack,
+    Other,
+}
+
 impl Coordinator {
     pub fn new(
         store: Arc<PersonhogStore>,
@@ -142,6 +151,7 @@ impl Coordinator {
     /// when elected, runs the coordination loop until leadership is lost
     /// or cancellation is requested.
     pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
+        util::preregister_coordinator_metrics();
         loop {
             if cancel.is_cancelled() {
                 return Ok(());
@@ -275,6 +285,7 @@ impl Coordinator {
         let freeze_acks_stream = self.store.watch_freeze_acks_from(anchor).await?;
         let drained_acks_stream = self.store.watch_drained_acks_from(anchor).await?;
         let warmed_acks_stream = self.store.watch_warmed_acks_from(anchor).await?;
+        let routers_stream = self.store.watch_routers_from(anchor).await?;
 
         let mut tasks = tokio::task::JoinSet::new();
 
@@ -350,6 +361,14 @@ impl Coordinator {
             let token = cancel.child_token();
             tasks.spawn(async move {
                 Self::run_ack_watch("warmed", warmed_acks_stream, &store, token).await
+            });
+        }
+
+        {
+            let store = Arc::clone(&self.store);
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                Self::run_router_departure_watch(routers_stream, &store, token).await
             });
         }
 
@@ -464,7 +483,7 @@ impl Coordinator {
                                     // Nudge advancement here so they don't
                                     // stall waiting for an ack event that
                                     // will never arrive.
-                                    Self::check_phase_advance(&store, handoff.partition).await?;
+                                    Self::check_phase_advance(&store, handoff.partition, AdvanceTrigger::Other).await?;
                                 }
                                 Err(e) => {
                                     tracing::error!(error = %e, "failed to parse handoff event");
@@ -513,7 +532,7 @@ impl Coordinator {
                             });
 
                             if let Some(partition) = partition {
-                                Self::check_phase_advance(store, partition).await?;
+                                Self::check_phase_advance(store, partition, AdvanceTrigger::Ack).await?;
                             }
                         }
                     }
@@ -522,13 +541,47 @@ impl Coordinator {
         }
     }
 
+    /// React to router departures. The freeze quorum's required set is
+    /// the handoff's creation snapshot intersected with the live
+    /// registry, so a router leaving — deregistering at shutdown, or its
+    /// lease expiring after a crash — can newly satisfy the quorum of
+    /// every in-flight freeze. Nothing else fires an event for that:
+    /// without this watch, such handoffs wait for the reconcile tick.
+    /// Registrations (Put events) are ignored — a router that joins
+    /// after a handoff's creation is never added to its quorum, so a Put
+    /// can't change any evaluation.
+    async fn run_router_departure_watch(
+        mut stream: WatchStream,
+        store: &PersonhogStore,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                msg = stream.message() => {
+                    let resp = msg?.ok_or_else(|| {
+                        Error::invalid_state("router watch stream ended".to_string())
+                    })?;
+                    let departed = resp
+                        .events()
+                        .iter()
+                        .any(|e| e.event_type() == EventType::Delete);
+                    if departed {
+                        for handoff in store.list_handoffs().await? {
+                            Self::check_phase_advance(store, handoff.partition, AdvanceTrigger::Other).await?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Periodically re-evaluate every in-flight handoff, mirroring what
-    /// the ack watches do on events. This is the liveness backstop for
-    /// state changes that fire no watched event — a router departing
-    /// (nothing watches router registrations) can newly satisfy a freeze
-    /// quorum. All the work it drives is idempotent: phase transitions
-    /// use CAS and completed-handoff cleanup tolerates already-deleted
-    /// records.
+    /// the ack and router-departure watches do on events. This is the
+    /// liveness backstop for anything the watches miss — a dropped
+    /// stream, an event lost in a coordinator failover window. All the
+    /// work it drives is idempotent: phase transitions use CAS and
+    /// completed-handoff cleanup tolerates already-deleted records.
     async fn reconcile_tick_loop(
         store: Arc<PersonhogStore>,
         interval: Duration,
@@ -543,7 +596,7 @@ impl Coordinator {
                     let handoffs = store.list_handoffs().await?;
                     for handoff in &handoffs {
                         Self::handle_handoff_update_static(&store, handoff).await?;
-                        Self::check_phase_advance(&store, handoff.partition).await?;
+                        Self::check_phase_advance(&store, handoff.partition, AdvanceTrigger::Other).await?;
                     }
                     // Advancement first, planning second: a handoff that
                     // can still progress gets every chance to before the
@@ -591,7 +644,11 @@ impl Coordinator {
     ///
     /// Called whenever an ack key is observed. Safe to call spuriously: reads
     /// are idempotent and transitions use CAS.
-    async fn check_phase_advance(store: &PersonhogStore, partition: u32) -> Result<()> {
+    async fn check_phase_advance(
+        store: &PersonhogStore,
+        partition: u32,
+        trigger: AdvanceTrigger,
+    ) -> Result<()> {
         let handoff = match store.get_handoff(partition).await? {
             Some(h) => h,
             None => return Ok(()),
@@ -617,6 +674,12 @@ impl Coordinator {
                         .await?;
                     if advanced {
                         record_phase_advance(&handoff, target);
+                        if trigger == AdvanceTrigger::Ack {
+                            util::record_ack_to_advance(
+                                "freezing",
+                                freeze_acks.iter().map(|a| a.acked_at_ms),
+                            );
+                        }
                         tracing::info!(
                             partition,
                             freeze_acks = freeze_acks.len(),
@@ -626,6 +689,18 @@ impl Coordinator {
                             "freeze quorum reached, advanced from Freezing"
                         );
                     }
+                } else {
+                    // Evaluations are event-driven (acks, router
+                    // departures, the reconcile tick), so this names the
+                    // blocker a handful of times per stalled handoff
+                    // rather than spamming.
+                    tracing::info!(
+                        partition,
+                        handoff_id = %handoff.handoff_id,
+                        missing_freeze_ackers =
+                            ?missing_freeze_ackers(&routers, &freeze_acks, &handoff),
+                        "freeze quorum not yet met"
+                    );
                 }
             }
             HandoffPhase::Draining => {
@@ -639,6 +714,12 @@ impl Coordinator {
                         .await?;
                     if advanced {
                         record_phase_advance(&handoff, HandoffPhase::Warming);
+                        if trigger == AdvanceTrigger::Ack {
+                            util::record_ack_to_advance(
+                                "draining",
+                                drained_acks.iter().map(|a| a.acked_at_ms),
+                            );
+                        }
                         tracing::info!(
                             partition,
                             old_owner = ?handoff.old_owner,
@@ -658,6 +739,12 @@ impl Coordinator {
                     match store.complete_handoff(partition).await {
                         Ok(true) => {
                             record_phase_advance(&handoff, HandoffPhase::Complete);
+                            if trigger == AdvanceTrigger::Ack {
+                                util::record_ack_to_advance(
+                                    "warming",
+                                    warmed.iter().map(|a| a.acked_at_ms),
+                                );
+                            }
                         }
                         Ok(false) => {
                             tracing::warn!(partition, "handoff modified concurrently, skipping");
@@ -700,7 +787,8 @@ impl Coordinator {
             // watch_handoffs_loop's Put-driven path won't replay them.
             Self::handle_handoff_update_static(&self.store, handoff).await?;
             // Non-terminal handoffs may have their preconditions already met.
-            Self::check_phase_advance(&self.store, handoff.partition).await?;
+            Self::check_phase_advance(&self.store, handoff.partition, AdvanceTrigger::Other)
+                .await?;
         }
 
         Ok(())
@@ -950,6 +1038,19 @@ impl Coordinator {
             tracing::info!("concurrent plan won handoff creation; standing down");
             return Ok(());
         }
+        for handoff in creations
+            .iter()
+            .chain(replacements.iter().map(|r| &r.handoff))
+        {
+            tracing::info!(
+                partition = handoff.partition,
+                handoff_id = %handoff.handoff_id,
+                old_owner = ?handoff.old_owner,
+                new_owner = %handoff.new_owner,
+                phase = ?handoff.phase,
+                "handoff created"
+            );
+        }
         for disposition in &replaced_dispositions {
             counter!(
                 "personhog_coordination_handoffs_replaced_total",
@@ -990,7 +1091,7 @@ impl Coordinator {
             .iter()
             .chain(replacements.iter().map(|r| &r.handoff))
         {
-            Self::check_phase_advance(store, handoff.partition).await?;
+            Self::check_phase_advance(store, handoff.partition, AdvanceTrigger::Other).await?;
         }
 
         Ok(())
@@ -1054,7 +1155,7 @@ impl Coordinator {
         handoff: &HandoffState,
     ) -> Result<()> {
         if handoff.phase == HandoffPhase::Complete {
-            // Same guarded-delete discipline as `cleanup_stale_handoffs`:
+            // Same guarded-delete discipline as the dead-new-owner cancellation:
             // the Complete observation may be stale by the time we act on
             // it, and the record at this key may already be a successor
             // handoff.
@@ -1252,6 +1353,22 @@ async fn filter_pods_for_k8s(
         };
 
         if generation.is_empty() {
+            continue;
+        }
+
+        // Lazily start the controller watch from the registration's own
+        // ref — the coordinator has no pod of its own to discover from,
+        // and without a watch `classify_departure` has no intent to
+        // consult. Idempotent, so calling per evaluation is cheap; the
+        // first evaluation after a watch starts may still classify
+        // Unknown, which safely leaves the pod active until intent
+        // arrives.
+        if let Err(e) = k8s.watch_controller(controller).await {
+            tracing::warn!(
+                controller = %controller,
+                error = %e,
+                "failed to start controller watch; treating pod as active"
+            );
             continue;
         }
 

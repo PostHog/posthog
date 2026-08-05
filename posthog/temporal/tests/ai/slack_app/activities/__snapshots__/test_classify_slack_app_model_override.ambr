@@ -1,0 +1,32 @@
+# serializer version: 1
+# name: TestClassifySlackAppModelOverride.test_prompt_snapshot_matches
+  '''
+  You are routing a Slack message addressed to the PostHog agent. Decide whether the author asked for THIS task to run on a particular model or reasoning effort.
+  
+  Only these models can be selected — copy the id exactly as written:
+  - claude-opus-5 — Claude Opus 5 (efforts: low, medium, high, max)
+  - claude-fable-5 — Claude Fable 5 (efforts: low, medium, high)
+  - gpt-5.6-sol — gpt-5.6-sol (efforts: low, medium, high, max)
+  
+  Name a model or effort only when the message instructs how to run this task:
+    - "use fable for this one", "run this on opus 5", "do this with max effort".
+    - The instruction can sit alongside the actual request: 'use sonnet and fix the flaky checkout test'.
+  
+  Answer with nulls when a model or effort is merely part of the subject matter — this is the common mistake, so check for it:
+    - "add claude-fable-5 to our model picker" (a code change that names a model).
+    - "why is gpt-5 slower than opus in our evals?" (a question about models).
+    - "the opus rollout broke the dashboard" (a topic).
+    - "reasoning about this is hard" (the word, not a setting).
+  
+  Rules for the fields:
+    - model: an id from the list above, or null if the author named no model (or named one that isn't listed).
+    - reasoning_effort: only when the author explicitly asks for an effort level, and only a value listed for that model. Otherwise null.
+    - An effort can be requested without a model, and a model without an effort.
+  
+  When you are unsure, answer with nulls — the author's saved default is the right thing to run.
+  
+  Message: use fable for this one and fix the checkout test
+  
+  Answer with the two fields, e.g. {"model": "claude-fable-5", "reasoning_effort": "high"} or {"model": null, "reasoning_effort": null}
+  '''
+# ---

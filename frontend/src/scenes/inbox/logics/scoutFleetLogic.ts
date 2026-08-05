@@ -28,6 +28,12 @@ import type {
 import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
 import { RunSourceEnumApi, TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import {
+    captureScoutAction,
+    captureScoutChatStarted,
+    captureScoutConfigChanged,
+    ScoutChatType,
+} from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
 import {
@@ -37,13 +43,47 @@ import {
     isSettledRun,
     prettifyScoutSkillName,
     reconcileById,
+    SCOUT_AUTHOR_PROMPT,
+    SCOUT_FLEET_OVERVIEW_PROMPT,
+    SCOUT_RECENT_SIGNALS_PROMPT,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
 } from '../utils/scoutRunsWindow'
+import { configMatchesScoutTags, listScoutTagOptions } from '../utils/scoutTags'
+import type { ScoutTagOption } from '../utils/scoutTags'
 
 type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
+
+// Which CTA a chat task came from, keyed off the templated prompt so the callers stay untouched.
+const SCOUT_CHAT_TYPES: Record<string, ScoutChatType> = {
+    [SCOUT_AUTHOR_PROMPT]: 'author_scout',
+    [SCOUT_FLEET_OVERVIEW_PROMPT]: 'fleet_overview',
+    [SCOUT_RECENT_SIGNALS_PROMPT]: 'recent_signals',
+}
+
+/**
+ * One `Scout config changed` per field the request carried. A schedule switch patches both
+ * `run_interval_minutes` and `run_cron_schedule` at once, and collapsing those into a single event
+ * would make the `setting` breakdown misreport which control the user actually moved.
+ */
+function captureScoutConfigUpdates(
+    config: SignalScoutConfig | undefined,
+    updates: SignalScoutConfigUpdate,
+    success: boolean
+): void {
+    for (const [setting, newValue] of Object.entries(updates)) {
+        captureScoutConfigChanged({
+            skillName: config?.skill_name ?? '',
+            scoutOrigin: config?.scout_origin ?? null,
+            setting,
+            oldValue: config ? (config as unknown as Record<string, unknown>)[setting] : null,
+            newValue,
+            success,
+        })
+    }
+}
 
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
@@ -59,6 +99,7 @@ const MAX_RUNS_PAGES = 15
 export interface scoutFleetLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    activeScoutTags: string[]
     aiConsentDisabledReason: string | null
     customScoutCount: number
     deletingScoutIds: string[]
@@ -91,6 +132,8 @@ export interface scoutFleetLogicValues {
     scoutConfigsLoading: boolean
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    scoutTagOptions: ScoutTagOption[]
+    selectedScoutTags: string[]
     updatingScoutIds: string[]
     visibleConfigs: SignalScoutConfig[]
 }
@@ -185,6 +228,9 @@ export interface scoutFleetLogicActions {
     setHideDisabled: (hideDisabled: boolean) => {
         hideDisabled: boolean
     }
+    setScoutTagFilter: (tags: string[]) => {
+        tags: string[]
+    }
     startRunsPolling: () => {
         value: true
     }
@@ -233,7 +279,13 @@ export interface scoutFleetLogicMeta {
         ) => FleetSummary | null
         enabledCount: (scoutConfigs: SignalScoutConfigApi[] | null) => number
         lastRunAt: (scoutConfigs: SignalScoutConfigApi[] | null) => string | null
-        visibleConfigs: (scoutConfigs: SignalScoutConfigApi[] | null, hideDisabled: boolean) => SignalScoutConfig[]
+        scoutTagOptions: (scoutConfigs: SignalScoutConfigApi[] | null) => ScoutTagOption[]
+        activeScoutTags: (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]) => string[]
+        visibleConfigs: (
+            scoutConfigs: SignalScoutConfigApi[] | null,
+            hideDisabled: boolean,
+            activeScoutTags: string[]
+        ) => SignalScoutConfig[]
         runsWindowComplete: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => boolean
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
@@ -276,6 +328,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         deleteScoutFinished: (configId: string) => ({ configId }),
         removeScoutConfigLocally: (configId: string) => ({ configId }),
         setHideDisabled: (hideDisabled: boolean) => ({ hideDisabled }),
+        setScoutTagFilter: (tags: string[]) => ({ tags }),
         setExpanded: (expanded: boolean) => ({ expanded }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
         // (which only reads configs) doesn't trigger the paginated runs-window polling.
@@ -421,6 +474,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 setHideDisabled: (_, { hideDisabled }) => hideDisabled,
             },
         ],
+        selectedScoutTags: [
+            [] as string[],
+            {
+                setScoutTagFilter: (_, { tags }) => tags,
+            },
+        ],
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
@@ -508,11 +567,27 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 return latest
             },
         ],
+        scoutTagOptions: [
+            (s) => [s.scoutConfigs],
+            (scoutConfigs: SignalScoutConfig[] | null): ScoutTagOption[] => listScoutTagOptions(scoutConfigs ?? []),
+        ],
+        activeScoutTags: [
+            (s) => [s.selectedScoutTags, s.scoutTagOptions],
+            (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]): string[] =>
+                selectedScoutTags.filter((tag) => scoutTagOptions.some((option) => option.tag === tag)),
+        ],
         visibleConfigs: [
-            (s) => [s.scoutConfigs, s.hideDisabled],
-            (scoutConfigs: SignalScoutConfig[] | null, hideDisabled: boolean): SignalScoutConfig[] => {
-                const sorted = sortConfigsForDisplay(scoutConfigs ?? [])
-                return hideDisabled ? sorted.filter((config) => config.enabled) : sorted
+            (s) => [s.scoutConfigs, s.hideDisabled, s.activeScoutTags],
+            (
+                scoutConfigs: SignalScoutConfig[] | null,
+                hideDisabled: boolean,
+                activeScoutTags: string[]
+            ): SignalScoutConfig[] => {
+                let sorted = sortConfigsForDisplay(scoutConfigs ?? [])
+                if (hideDisabled) {
+                    sorted = sorted.filter((config) => config.enabled)
+                }
+                return sorted.filter((config) => configMatchesScoutTags(config, activeScoutTags))
             },
         ],
         runsWindowComplete: [
@@ -550,6 +625,18 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
+        setScoutTagFilter: ({ tags }) => {
+            captureScoutAction({
+                actionType: 'filter_tags',
+                surface: 'fleet_list',
+                extra: {
+                    tags,
+                    filter_match_count: tags.length
+                        ? (values.scoutConfigs ?? []).filter((config) => configMatchesScoutTags(config, tags)).length
+                        : undefined,
+                },
+            })
+        },
         updateScoutConfig: async ({ configId, updates }) => {
             const inFlight: Set<string> = (cache.updatingScoutIds ??= new Set())
             const pendingUpdates: Map<string, SignalScoutConfigUpdate> = (cache.pendingScoutConfigUpdates ??= new Map())
@@ -575,7 +662,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             try {
                 while (updatesToSend) {
                     const previousCronSchedule = confirmedConfig?.run_cron_schedule
+                    const previousConfig = confirmedConfig
                     const updated = await signalsScoutConfigUpdate(String(teamId), configId, updatesToSend)
+                    captureScoutConfigUpdates(previousConfig, updatesToSend, true)
                     confirmedConfig = updated
 
                     if (updatesToSend.run_cron_schedule === null && previousCronSchedule) {
@@ -596,6 +685,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 }
             } catch (error: any) {
                 queuedUpdatesAfterFailure = pendingUpdates.get(configId)
+                if (updatesToSend) {
+                    captureScoutConfigUpdates(confirmedConfig, updatesToSend, false)
+                }
                 if (confirmedConfig) {
                     actions.patchScoutConfigLocally(configId, confirmedConfig)
                 }
@@ -661,8 +753,20 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     // Remove only after the backend confirms — deletion is irreversible, so no optimistic
                     // drop that would have to be re-inserted (and re-sorted) on failure.
                     actions.removeScoutConfigLocally(configId)
+                    captureScoutAction({
+                        actionType: 'delete_scout',
+                        surface: 'fleet_list',
+                        skillName: config.skill_name,
+                        extra: { scout_origin: config.scout_origin, success: true },
+                    })
                     lemonToast.success(`Deleted ${displayName}`)
                 } catch (error: any) {
+                    captureScoutAction({
+                        actionType: 'delete_scout',
+                        surface: 'fleet_list',
+                        skillName: config.skill_name,
+                        extra: { scout_origin: config.scout_origin, success: false },
+                    })
                     lemonToast.error(error?.detail || error?.message || 'Failed to delete scout')
                     // A partial failure (skill archived but config delete failed) could desync the list
                     // from the backend — reload the truth so the row reflects reality.
@@ -682,6 +786,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 lemonToast.error(values.aiConsentDisabledReason)
                 actions.startScoutChatTaskFailure()
                 return
+            }
+            const chatType = SCOUT_CHAT_TYPES[prompt]
+            if (chatType) {
+                captureScoutChatStarted({ chatType, surface: 'fleet_list' })
             }
             try {
                 // Deliberately repo-less: these prompts read PostHog data over MCP and never touch

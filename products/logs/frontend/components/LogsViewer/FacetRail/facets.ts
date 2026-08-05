@@ -215,7 +215,7 @@ const SERVICE_FACET: FacetConfig = {
     title: 'Service',
     group: 'Standard',
     kind: 'dynamic',
-    source: { type: 'column', column: 'service_name', filterKey: 'serviceNames' },
+    source: { type: 'column', column: 'service_name', filterKey: 'serviceNames', exclusionKey: 'service_name' },
     searchable: true,
     searchPlaceholder: 'Search services…',
     emptyLabel: 'No services',
