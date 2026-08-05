@@ -964,17 +964,37 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
 
-    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: MeetingSerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @extend_schema(
+        parameters=[
+            _ACCOUNT_ID_PARAM,
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter meetings by title or attendee email/name.",
+            ),
+        ],
+        responses={200: MeetingSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=True)
     def meetings(self, request: Request, *args, **kwargs) -> Response:
-        meetings = api.get_account_meetings(
-            self.team_id,
-            self.kwargs["pk"],
-            user_access_control=self.user_access_control,
-        )
-        if meetings is None:
+        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(MeetingSerializer(instance=meetings, many=True).data)
+        search = request.query_params.get("search", "").strip() or None
+
+        def fetch(offset: int, limit: int) -> tuple[list[contracts.MeetingView], int]:
+            result = api.list_account_meetings(
+                self.team_id,
+                self.kwargs["pk"],
+                self.user_access_control,
+                offset=offset,
+                limit=limit,
+                search=search,
+            )
+            return result if result is not None else ([], 0)
+
+        return self._paginate_via_facade(request, fetch, MeetingSerializer)
 
     def dangerously_get_required_scopes(self, request: Request, view) -> builtins.list[str] | None:
         super_method = getattr(super(), "dangerously_get_required_scopes", None)

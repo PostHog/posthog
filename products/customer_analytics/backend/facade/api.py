@@ -2509,24 +2509,30 @@ def get_account_support_tickets(
     return list_account_tickets(team_id, account.external_id, limit=limit)
 
 
-def get_account_meetings(
+def list_account_meetings(
     team_id: int,
     account_id: str,
     user_access_control: "UserAccessControl",
     *,
+    offset: int = 0,
     limit: int = 100,
-) -> list[contracts.MeetingView] | None:
-    """Synced calendar meetings for an accessible account, newest first. None when the
-    account isn't accessible (→ 404)."""
+    search: str | None = None,
+) -> tuple[list[contracts.MeetingView], int] | None:
+    """Synced calendar meetings for an accessible account, newest first, optionally
+    filtered by ``search`` (title or attendee email/name). None when the account isn't
+    accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    meetings = (
-        Meeting.objects.for_team(team_id)
-        .filter(account_id=account_id)
-        .order_by("-start_time")
-        .prefetch_related("participants")[:limit]
-    )
-    return [
+    queryset = Meeting.objects.for_team(team_id).filter(account_id=account_id)
+    if search:
+        queryset = queryset.filter(
+            Q(title__icontains=search)
+            | Q(participants__email__icontains=search)
+            | Q(participants__display_name__icontains=search)
+        ).distinct()
+    count = queryset.count()
+    meetings = queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit]
+    views = [
         contracts.MeetingView(
             id=meeting.id,
             title=meeting.title,
@@ -2547,6 +2553,7 @@ def get_account_meetings(
         )
         for meeting in meetings
     ]
+    return views, count
 
 
 def list_account_notebooks(
