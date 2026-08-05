@@ -403,10 +403,13 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
         "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER", user_safe=True
     ),  # WHERE/HAVING column is not boolean-convertible
     60: ErrorCodeMeta("UNKNOWN_TABLE", user_safe=True),
-    62: ErrorCodeMeta("SYNTAX_ERROR", user_safe=True),
+    # Stays internal: HogQL validates syntax before ClickHouse, so a raw CH syntax error means
+    # PostHog generated invalid SQL — a bug we want in error tracking, not hidden as user-safe.
+    62: ErrorCodeMeta("SYNTAX_ERROR", category=QueryErrorCategory.USER_ERROR),
     63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION", user_safe=True),
     68: ErrorCodeMeta("CANNOT_GET_SIZE_OF_FIELD"),
-    69: ErrorCodeMeta("ARGUMENT_OUT_OF_BOUND", user_safe=True),
+    # Fixed message: the raw CH text formats a per-row value (e.g. geoToH3 resolution) into the error.
+    69: ErrorCodeMeta("ARGUMENT_OUT_OF_BOUND", user_safe="An argument is out of bounds."),
     # 70/72 stay internal: their CH messages embed the failing data value (see code 6 note).
     70: ErrorCodeMeta("CANNOT_CONVERT_TYPE", category=QueryErrorCategory.USER_ERROR),
     71: ErrorCodeMeta("CANNOT_WRITE_AFTER_END_OF_BUFFER"),
@@ -682,7 +685,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     403: ErrorCodeMeta("INVALID_JOIN_ON_EXPRESSION", category=QueryErrorCategory.USER_ERROR),
     404: ErrorCodeMeta("BAD_ODBC_CONNECTION_STRING"),
     406: ErrorCodeMeta("TOP_AND_LIMIT_TOGETHER"),
-    407: ErrorCodeMeta("DECIMAL_OVERFLOW", user_safe=True),
+    # Fixed message: the raw CH text can format a converted decimal value into the overflow error.
+    407: ErrorCodeMeta("DECIMAL_OVERFLOW", user_safe="Decimal overflow while executing query."),
     408: ErrorCodeMeta("BAD_REQUEST_PARAMETER"),
     410: ErrorCodeMeta("EXTERNAL_SERVER_IS_NOT_RESPONDING"),
     411: ErrorCodeMeta("PTHREAD_ERROR"),

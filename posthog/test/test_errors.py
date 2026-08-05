@@ -14,15 +14,11 @@ class TestWrapClickhouseQueryError:
     @parameterized.expand(
         [
             # These reveal only the user's own query or schema, not stored data values, so they wrap
-            # as ExposedCHQueryError (a 400 with the real message) and stay out of error tracking.
-            # Reverting any to non-user_safe reintroduces the generic "ClickHouse error while
-            # executing query." message. Data-value-embedding parse codes (6, 70, 72, 675, 676, 691)
-            # are deliberately excluded to avoid leaking source values on public shared insights.
+            # as ExposedCHQueryError and expose the real ClickHouse message. Reverting any to
+            # non-user_safe reintroduces the generic "ClickHouse error while executing query." message.
             (44, "ILLEGAL_COLUMN"),
             (50, "UNKNOWN_TYPE"),
             (59, "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER"),
-            (62, "SYNTAX_ERROR"),
-            (69, "ARGUMENT_OUT_OF_BOUND"),
             (80, "INCORRECT_QUERY"),
             (122, "INCOMPATIBLE_COLUMNS"),
             (174, "CYCLIC_ALIASES"),
@@ -31,7 +27,6 @@ class TestWrapClickhouseQueryError:
             (264, "INCOMPATIBLE_TYPE_OF_JOIN"),
             (352, "AMBIGUOUS_COLUMN_NAME"),
             (377, "ILLEGAL_SYNTAX_FOR_DATA_TYPE"),
-            (407, "DECIMAL_OVERFLOW"),
             (703, "INVALID_IDENTIFIER"),
         ]
     )
@@ -45,8 +40,28 @@ class TestWrapClickhouseQueryError:
 
     @parameterized.expand(
         [
+            # These are exposed but their raw CH message embeds a per-row data value, so they carry a
+            # fixed user_safe string. The assertion guards against a revert to user_safe=True, which
+            # would pass the raw ClickHouse text (and the source value) straight through.
+            (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
+            (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
+        ]
+    )
+    def test_fixed_message_codes_hide_raw_clickhouse_text(self, code: int, name: str, message: str) -> None:
+        err = ServerException(f"DB::Exception: {name} leaked_value=42", code=code)
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert str(wrapped) == message
+
+    @parameterized.expand(
+        [
             # NETWORK_ERROR (210) is a genuine server-side fault and must not be exposed.
             (210, "NETWORK_ERROR"),
+            # SYNTAX_ERROR (62) stays internal: HogQL validates syntax first, so a raw CH syntax error
+            # signals a PostHog SQL-generation bug that belongs in error tracking.
+            (62, "SYNTAX_ERROR"),
             # These parse/convert codes embed the failing data value in the CH message, so they stay
             # internal to avoid leaking source values on public shared insights.
             (6, "CANNOT_PARSE_TEXT"),
