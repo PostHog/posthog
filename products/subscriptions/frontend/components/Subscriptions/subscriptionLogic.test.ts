@@ -137,7 +137,7 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'daily',
             bysetpos: null,
-            byweekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
+            byweekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
         })
 
         newLogic.actions.setSubscriptionValue('byweekday', ['monday', 'tuesday'])

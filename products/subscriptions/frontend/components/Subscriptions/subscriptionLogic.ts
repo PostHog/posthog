@@ -675,7 +675,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 if (value === 'daily') {
                     actions.setSubscriptionValues({
                         bysetpos: null,
-                        byweekday: [...ALL_DAYS],
+                        byweekday: ALL_DAYS.slice(0, 5),
                     })
                 } else if (value === 'weekly') {
                     actions.setSubscriptionValues({
