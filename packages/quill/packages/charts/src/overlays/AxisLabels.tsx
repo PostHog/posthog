@@ -61,7 +61,9 @@ function dropOverlappingLabels<T extends { text: string; x: number }>(
 
     const rotation = normalizeTickLabelRotation(tickLabelRotation)
     if (rotation !== 0) {
-        const minimumGap = minimumRotatedTickLabelGap(rotation)
+        // Perpendicular separation keeps the parallel lines of text from overlapping; `padding`
+        // floors the along-axis spacing so the same caller-provided gap applies as in the flat path.
+        const minimumGap = Math.max(minimumRotatedTickLabelGap(rotation), padding)
         const visible: T[] = []
         let lastX = -Infinity
         for (const candidate of candidates) {

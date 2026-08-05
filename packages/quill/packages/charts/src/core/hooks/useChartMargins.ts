@@ -93,20 +93,29 @@ function categoryLabelWidths(
     xTickFormatter: ((value: string, index: number) => string | null) | undefined,
     maxCategoryLabelWidth = 0
 ): CategoryLabelWidths {
-    const widths: number[] = []
+    // Track first/last/widest in one pass — spreading a per-label array into `Math.max`
+    // can overflow the argument limit on a high-cardinality category axis.
+    let first = 0
+    let last = 0
+    let widest = 0
+    let seenAny = false
     for (let i = 0; i < labels.length; i++) {
         const text = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
         if (text === null) {
             continue
         }
         const measured = measureLabelWidth(text)
-        widths.push(maxCategoryLabelWidth > 0 ? Math.min(measured, maxCategoryLabelWidth) : measured)
+        const width = maxCategoryLabelWidth > 0 ? Math.min(measured, maxCategoryLabelWidth) : measured
+        if (!seenAny) {
+            first = width
+            seenAny = true
+        }
+        last = width
+        if (width > widest) {
+            widest = width
+        }
     }
-    return {
-        first: widths[0] ?? 0,
-        last: widths.at(-1) ?? 0,
-        widest: Math.max(0, ...widths),
-    }
+    return { first, last, widest }
 }
 
 function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {
