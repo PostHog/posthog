@@ -2465,6 +2465,10 @@ class ExternalDataSourceType(StrEnum):
     ODOO = "Odoo"
     AIRBRIDGE = "Airbridge"
     SNOVIO = "Snovio"
+    RAISELY = "Raisely"
+    WINDSOR_AI = "WindsorAi"
+    WIX = "Wix"
+    SEVALLA = "Sevalla"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2936,9 +2940,25 @@ class LogsSparklineBreakdownBy(StrEnum):
     SERVICE = "service"
 
 
+class LogsSparklineRankBy(StrEnum):
+    COUNT = "count"
+    BYTES = "bytes"
+
+
 class NeighborDirection(StrEnum):
     BEFORE = "before"
     AFTER = "after"
+
+
+class MarketingAnalyticsAttributionBreakdown(StrEnum):
+    CHANNEL = "channel"
+    SOURCE = "source"
+    CAMPAIGN = "campaign"
+    MEDIUM = "medium"
+    CONTENT = "content"
+    TERM = "term"
+    REFERRING_DOMAIN = "referring_domain"
+    LANDING_PAGE = "landing_page"
 
 
 class MarketingAnalyticsBaseColumns(StrEnum):
@@ -3213,6 +3233,8 @@ class NodeKind(StrEnum):
     WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
     MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
+    MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
+    MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
@@ -3684,6 +3706,11 @@ class Theme(StrEnum):
     LIGHT = "light"
     DARK = "dark"
     SYSTEM = "system"
+
+
+class SidebarDensity(StrEnum):
+    COMFORTABLE = "comfortable"
+    COMPACT = "compact"
 
 
 class SlackIntegrationScope(StrEnum):

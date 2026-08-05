@@ -191,6 +191,8 @@ export interface _ErrorResponseApi {
     detail: string
 }
 
+export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -248,108 +250,270 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-export interface DatasetItemApi {
+/**
+ * JSON object with item metadata.
+ */
+export type DatasetItemReadApiMetadata = { [key: string]: unknown }
+
+export interface DatasetItemReadApi {
+    /** Stable dataset item ID shared by every version. */
     readonly id: string
+    /** Dataset that owns the item. */
+    readonly dataset: string
+    /**
+     * Optional caller-owned stable key.
+     * @nullable
+     */
+    readonly external_id: string | null
+    readonly version: number
+    /** ID of this immutable item version. */
+    readonly version_id: string
+    /** Dataset revision that introduced this item version. */
+    readonly dataset_revision: number
+    /** ID of the dataset revision that introduced this item version. */
+    readonly dataset_revision_id: string
+    readonly archived: boolean
+    /** Input supplied to the system under test. */
+    readonly input: DatasetJSONValueApi
+    /** Optional user-authored expected output. */
+    readonly expected_output: DatasetJSONValueApi | null
+    /** Optional actual output captured from the source trace. */
+    readonly source_output: DatasetJSONValueApi | null
+    /** JSON object with item metadata. */
+    readonly metadata: DatasetItemReadApiMetadata
+    /** @nullable */
+    readonly source_trace_id: string | null
+    /** @nullable */
+    readonly source_event_id: string | null
+    /** @nullable */
+    readonly source_timestamp: string | null
+    /** When the stable item was created. */
+    readonly created_at: string
+    /**
+     * When the item last received a new version.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    readonly created_by: UserBasicApi | null
+    /** When this immutable version was created. */
+    readonly version_created_at: string
+    readonly version_created_by: UserBasicApi | null
+    /** Project that owns the item. */
+    readonly team_id: number
+}
+
+export interface PaginatedDatasetItemReadListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DatasetItemReadApi[]
+}
+
+/**
+ * Optional JSON object with item metadata.
+ */
+export type DatasetItemCreateApiMetadata = { [key: string]: unknown }
+
+export interface DatasetItemCreateApi {
+    /** Dataset that will own the item. */
     dataset: string
-    input?: unknown
-    output?: unknown
-    metadata?: unknown
     /**
+     * Optional case-sensitive stable key used for idempotent creates.
      * @maxLength 255
      * @nullable
      */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
+    external_id?: string | null
+    /** Input supplied to the system under test. Any non-null JSON value is accepted. */
+    input: DatasetJSONValueApi
+    /** Optional user-authored expected output. */
+    expected_output?: DatasetJSONValueApi | null
+    /** Optional actual output captured from the source trace. */
+    source_output?: DatasetJSONValueApi | null
+    /** Optional JSON object with item metadata. */
+    metadata?: DatasetItemCreateApiMetadata
     /**
+     * Trace ID copied from the source event.
      * @maxLength 255
      * @nullable
      */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly created_by: UserBasicApi
-    readonly team: number
+    source_trace_id?: string | null
+    /**
+     * Event ID copied from the source trace.
+     * @maxLength 255
+     * @nullable
+     */
+    source_event_id?: string | null
+    /**
+     * Timestamp needed to retrieve the event-backed source trace.
+     * @nullable
+     */
+    source_timestamp?: string | null
 }
 
-export interface PaginatedDatasetItemListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DatasetItemApi[]
-}
+/**
+ * * `dataset_archived` - dataset_archived
+ * * `dataset_name_conflict` - dataset_name_conflict
+ * * `dataset_item_archived` - dataset_item_archived
+ * * `dataset_item_active` - dataset_item_active
+ * * `external_id_conflict` - external_id_conflict
+ * * `stale_version` - stale_version
+ */
+export type CodeEnumApi = (typeof CodeEnumApi)[keyof typeof CodeEnumApi]
 
-export interface PatchedDatasetItemApi {
-    readonly id?: string
-    dataset?: string
-    input?: unknown
-    output?: unknown
-    metadata?: unknown
+export const CodeEnumApi = {
+    DatasetArchived: 'dataset_archived',
+    DatasetNameConflict: 'dataset_name_conflict',
+    DatasetItemArchived: 'dataset_item_archived',
+    DatasetItemActive: 'dataset_item_active',
+    ExternalIdConflict: 'external_id_conflict',
+    StaleVersion: 'stale_version',
+} as const
+
+export interface DatasetConflictResponseApi {
+    /** Stable code identifying why the mutation was rejected.
+     *
+     * * `dataset_archived` - dataset_archived
+     * * `dataset_name_conflict` - dataset_name_conflict
+     * * `dataset_item_archived` - dataset_item_archived
+     * * `dataset_item_active` - dataset_item_active
+     * * `external_id_conflict` - external_id_conflict
+     * * `stale_version` - stale_version */
+    code: CodeEnumApi
+    /** Explanation of how to resolve the conflict. */
+    detail: string
     /**
-     * @maxLength 255
+     * Current item version when the conflict concerns an item.
      * @nullable
      */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
+    current_version?: number | null
     /**
-     * @maxLength 255
+     * Existing item ID when the conflict concerns an external ID.
      * @nullable
      */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    readonly created_by?: UserBasicApi
-    readonly team?: number
+    current_item_id?: string | null
 }
 
-export interface DatasetApi {
+export interface DatasetItemArchiveApi {
+    /**
+     * Current item version observed by the caller.
+     * @minimum 1
+     */
+    base_version: number
+}
+
+export interface DatasetItemRestoreApi {
+    /**
+     * Current item version observed by the caller.
+     * @minimum 1
+     */
+    base_version: number
+    /**
+     * Historical version to copy. Omit to restore the archived version's content.
+     * @minimum 1
+     * @nullable
+     */
+    source_version?: number | null
+}
+
+/**
+ * JSON object with descriptive dataset metadata.
+ */
+export type DatasetReadApiMetadata = { [key: string]: unknown }
+
+export interface DatasetReadApi {
     readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    description?: string | null
-    metadata?: unknown
+    readonly name: string
+    readonly description: string
+    /** JSON object with descriptive dataset metadata. */
+    readonly metadata: DatasetReadApiMetadata
+    readonly archived: boolean
+    /**
+     * Latest dataset revision, or null before the first item is added.
+     * @nullable
+     */
+    readonly current_revision: number | null
+    /**
+     * ID of the latest committed dataset revision.
+     * @nullable
+     */
+    readonly current_revision_id: string | null
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by: UserBasicApi
-    readonly team: number
+    readonly created_by: UserBasicApi | null
+    /** Project that owns the dataset. */
+    readonly team_id: number
 }
 
-export interface PaginatedDatasetListApi {
+export interface PaginatedDatasetReadListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: DatasetApi[]
+    results: DatasetReadApi[]
 }
 
-export interface PatchedDatasetApi {
-    readonly id?: string
-    /** @maxLength 400 */
+/**
+ * Optional JSON object with descriptive dataset metadata.
+ */
+export type DatasetCreateApiMetadata = { [key: string]: unknown }
+
+export interface DatasetCreateApi {
+    /**
+     * Dataset name. Names are unique within a project.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Optional description of what the dataset contains.
+     * @maxLength 10000
+     */
+    description?: string
+    /** Optional JSON object with descriptive dataset metadata. */
+    metadata?: DatasetCreateApiMetadata
+}
+
+/**
+ * Replacement JSON object for descriptive dataset metadata.
+ */
+export type PatchedDatasetUpdateApiMetadata = { [key: string]: unknown }
+
+export interface PatchedDatasetUpdateApi {
+    /**
+     * New dataset name. Names are unique within a project.
+     * @maxLength 400
+     */
     name?: string
+    /**
+     * New dataset description.
+     * @maxLength 10000
+     */
+    description?: string
+    /** Replacement JSON object for descriptive dataset metadata. */
+    metadata?: PatchedDatasetUpdateApiMetadata
+}
+
+export interface DatasetRevisionReadApi {
+    readonly id: string
+    /** Dataset this revision belongs to. */
+    readonly dataset_id: string
+    readonly revision: number
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+    /** Project that owns the revision. */
+    readonly team_id: number
+}
+
+export interface PaginatedDatasetRevisionReadListApi {
+    count: number
     /** @nullable */
-    description?: string | null
-    metadata?: unknown
-    readonly created_at?: string
+    next?: string | null
     /** @nullable */
-    readonly updated_at?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by?: UserBasicApi
-    readonly team?: number
+    previous?: string | null
+    results: DatasetRevisionReadApi[]
 }
 
 export interface EvaluationRunRequestApi {
@@ -454,12 +618,14 @@ export interface EvaluationConditionApi {
 /**
  * * `generation` - Generation
  * * `trace` - Trace
+ * * `session` - Session
  */
 export type EvaluationTargetEnumApi = (typeof EvaluationTargetEnumApi)[keyof typeof EvaluationTargetEnumApi]
 
 export const EvaluationTargetEnumApi = {
     Generation: 'generation',
     Trace: 'trace',
+    Session: 'session',
 } as const
 
 /**
@@ -535,32 +701,32 @@ export type EvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
+ * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
  */
 export type EvaluationApiTargetConfig =
     | {
           /** Wait a fixed window after the first matching generation, then evaluate. */
-          strategy?: 'fixed_window'
+          strategy: 'fixed_window'
           /**
-           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 10
-           * @maximum 7200
+           * @maximum 604800
            */
           window_seconds?: number
       }
     | {
-          /** Evaluate once the trace has had no new activity for the quiet period. */
+          /** Evaluate once the unit has had no new activity for the quiet period. */
           strategy: 'inactivity'
           /**
-           * Seconds without new trace activity before the trace counts as settled.
+           * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 10
-           * @maximum 1800
+           * @maximum 86400
            */
           quiet_period_seconds?: number
           /**
-           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 60
-           * @maximum 7200
+           * @maximum 604800
            */
           max_age_seconds?: number
       }
@@ -600,12 +766,13 @@ export interface EvaluationApi {
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
-    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
     target_config?: EvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -657,32 +824,32 @@ export type PatchedEvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
+ * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
  */
 export type PatchedEvaluationApiTargetConfig =
     | {
           /** Wait a fixed window after the first matching generation, then evaluate. */
-          strategy?: 'fixed_window'
+          strategy: 'fixed_window'
           /**
-           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 10
-           * @maximum 7200
+           * @maximum 604800
            */
           window_seconds?: number
       }
     | {
-          /** Evaluate once the trace has had no new activity for the quiet period. */
+          /** Evaluate once the unit has had no new activity for the quiet period. */
           strategy: 'inactivity'
           /**
-           * Seconds without new trace activity before the trace counts as settled.
+           * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 10
-           * @maximum 1800
+           * @maximum 86400
            */
           quiet_period_seconds?: number
           /**
-           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 60
-           * @maximum 7200
+           * @maximum 604800
            */
           max_age_seconds?: number
       }
@@ -722,12 +889,13 @@ export interface PatchedEvaluationApi {
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
-    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
     target_config?: PatchedEvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -747,6 +915,12 @@ export interface TestHogTargetConfigApi {
      * @maximum 7200
      */
     window_seconds?: number
+    /**
+     * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.
+     * @minimum 10
+     * @maximum 86400
+     */
+    quiet_period_seconds?: number
 }
 
 export interface TestHogRequestApi {
@@ -765,25 +939,27 @@ export interface TestHogRequestApi {
     allows_na?: boolean
     /** Optional trigger conditions to filter which events are sampled. */
     conditions?: TestHogRequestApiConditionsItem[]
-    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     target?: EvaluationTargetEnumApi
     /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
     target_config?: TestHogTargetConfigApi
 }
 
 export interface TestHogResultItemApi {
-    /** Stable identifier for the sampled generation or trace. */
+    /** Stable identifier for the sampled generation, trace, or session. */
     sample_id: string
-    /** Type of sampled unit: generation or trace.
+    /** Type of sampled unit: generation, trace, or session.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     sample_type: EvaluationTargetEnumApi
     /**
-     * UUID of the sampled $ai_generation event, or null for a trace sample.
+     * UUID of the sampled $ai_generation event, or null for a trace or session sample.
      * @nullable
      */
     event_uuid: string | null
@@ -1289,6 +1465,8 @@ export interface EvaluationReportCitationApi {
     generation_id?: string
     /** Identifier of the trace cited by this report. */
     trace_id?: string
+    /** Optional session identifier for session-target report citations. */
+    session_id?: string
     /** Short explanation of why this example is cited. */
     reason?: string
 }
@@ -1370,7 +1548,8 @@ export interface EvaluationReportRunContentApi {
     /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     evaluation_target?: EvaluationTargetEnumApi
     /** Agent-generated report headline. */
     title?: string
@@ -2746,9 +2925,64 @@ export const LlmAnalyticsPersonalSpendListBucketMinutes = {
 
 export type DatasetItemsListParams = {
     /**
-     * Filter by dataset ID
+     * Return archived items instead of active items.
      */
-    dataset?: string
+    archived?: boolean
+    /**
+     * Dataset whose items should be returned.
+     */
+    dataset: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Return the exact dataset snapshot at this revision.
+     * @minimum 1
+     */
+    revision?: number
+}
+
+/**
+ * Replacement input. Omit to keep the current value.
+ */
+export type DatasetItemsPartialUpdateBodyInput = { [key: string]: unknown } | unknown[] | string | number | boolean
+
+/**
+ * Replacement expected output. Send null to clear it.
+ */
+export type DatasetItemsPartialUpdateBodyExpectedOutput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+/**
+ * Replacement metadata object. Send an empty object to clear it.
+ */
+export type DatasetItemsPartialUpdateBodyMetadata = { [key: string]: unknown }
+
+export type DatasetItemsPartialUpdateBody = {
+    /**
+     * Current item version observed by the caller.
+     * @minimum 1
+     */
+    base_version: number
+    /** Replacement input. Omit to keep the current value. */
+    input?: DatasetItemsPartialUpdateBodyInput
+    /** Replacement expected output. Send null to clear it. */
+    expected_output?: DatasetItemsPartialUpdateBodyExpectedOutput
+    /** Replacement metadata object. Send an empty object to clear it. */
+    metadata?: DatasetItemsPartialUpdateBodyMetadata
+}
+
+export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -2761,7 +2995,13 @@ export type DatasetItemsListParams = {
 
 export type DatasetsListParams = {
     /**
-     * Multiple values may be separated by commas.
+     * Return archived datasets instead of active datasets.
+     */
+    archived?: boolean
+    /**
+     * Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs.
+     * @minItems 1
+     * @maxItems 100
      */
     id__in?: string[]
     /**
@@ -2773,18 +3013,31 @@ export type DatasetsListParams = {
      */
     offset?: number
     /**
-     * Ordering
+     * Field and direction used to order results.
      *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * * `updated_at` - updated_at
+     * * `-updated_at` - -updated_at
+     * @minLength 1
      */
-    order_by?: string[]
+    order_by?: string
     /**
-     * Search in name, description, or metadata
+     * Search dataset names, descriptions, and metadata.
+     * @minLength 1
      */
     search?: string
+}
+
+export type DatasetsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type EvaluationRunsCreate200 = { [key: string]: unknown }

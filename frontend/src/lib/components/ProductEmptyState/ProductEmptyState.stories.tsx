@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 
 import type { Mocks } from '~/mocks/utils'
 
+import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
@@ -51,4 +52,10 @@ export const MCPAnalyticsWithoutWizard: ProductEmptyStateStory = productEmptySta
     mcpAnalyticsEmptyState,
     'needs-setup',
     { config: { wizard: undefined }, mocks: mcpSignalMocks(false) }
+)
+
+// AI observability detection is binary (no waiting-for-data middle state).
+export const AIObservabilityNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    aiObservabilityEmptyState,
+    'needs-setup'
 )

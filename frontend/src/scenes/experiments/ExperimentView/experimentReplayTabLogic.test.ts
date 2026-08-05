@@ -21,8 +21,8 @@ import {
 } from 'products/experiments/frontend/generated/api'
 
 import {
-    FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON,
-    FUNNEL_SERVER_SIDE_BOUNDARY_REASON,
+    FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
+    FUNNEL_SERVER_SIDE_COMPLETION_REASON,
     getViewRecordingFiltersForVariant,
 } from '../utils'
 import { RETENTION_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
@@ -594,7 +594,7 @@ describe('experimentReplayTabLogic', () => {
             logic.actions.setMetricFilterMode('funnel_dropoff')
         }).toFinishAllListeners()
 
-        // A mean metric has no steps to drop off between, and only one funnel can be compared.
+        // A mean metric isn't a funnel, and drop-off takes exactly one funnel at a time.
         expect(logic.values.effectiveMetricUuids).toEqual(['metric-funnel'])
         expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 42, {
             bucket: 'funnel_dropoff',
@@ -610,7 +610,7 @@ describe('experimentReplayTabLogic', () => {
                 { kind: NodeKind.EventsNode, event: 'client_step' },
                 { kind: NodeKind.EventsNode, event: 'server_side_step' },
             ],
-            FUNNEL_SERVER_SIDE_BOUNDARY_REASON,
+            FUNNEL_SERVER_SIDE_COMPLETION_REASON,
         ],
         [
             'data warehouse',
@@ -619,7 +619,7 @@ describe('experimentReplayTabLogic', () => {
                 { kind: NodeKind.EventsNode, event: 'purchase' },
                 { kind: NodeKind.ExperimentDataWarehouseNode, table_name: 'stripe_charges' },
             ],
-            FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON,
+            FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
         ],
     ])('refuses drop-off when the funnel finishes on a %s step', async (_name, series, expectedReason) => {
         seenTogetherSpy.mockResolvedValue({ ...ALL_LINKABLE, server_side_step: false })
@@ -637,9 +637,9 @@ describe('experimentReplayTabLogic', () => {
             unmatchableFinish.actions.setMetricFilterMode('funnel_dropoff')
         }).toFinishAllListeners()
 
-        // Both steps between the boundaries stay matchable, so the metric is selectable in every
-        // other mode. Drop-off is the one that reads the last step, and a completion no recording
-        // can show would return everyone who entered as not having finished.
+        // The other steps stay matchable, so the metric is selectable in every other mode.
+        // Drop-off is the one that reads the last step, and a completion no recording can show
+        // would return every exposed session as not having finished.
         expect(unmatchableFinish.values.metricOptions.find((option) => option.uuid === 'metric-funnel')).toMatchObject({
             unlinkable: false,
             dropoffReason: expectedReason,
@@ -649,6 +649,36 @@ describe('experimentReplayTabLogic', () => {
         expect(unmatchableFinish.values.sessionBucketRequest).toBeNull()
         expect(unmatchableFinish.values.recordingsFilters.session_ids).toBeUndefined()
         unmatchableFinish.unmount()
+    })
+
+    it('asks the endpoint for drop-off on a single-step funnel', async () => {
+        const oneStepFunnel = experimentReplayTabLogic({
+            experiment: {
+                ...EXPERIMENT,
+                id: 51,
+                metrics_secondary: [
+                    { ...FUNNEL_METRIC, series: [{ kind: NodeKind.EventsNode, event: 'client_step' }] },
+                ],
+            } as unknown as Experiment,
+        })
+        oneStepFunnel.mount()
+
+        await expectLogic(oneStepFunnel, () => {
+            oneStepFunnel.actions.setMetricSelected('metric-funnel', true)
+            oneStepFunnel.actions.setMetricFilterMode('funnel_dropoff')
+        }).toFinishAllListeners()
+
+        // The funnel's first step is the exposure, so one series step is a complete funnel. A
+        // single-event metric must not fall back to the client-side filter path other modes use.
+        expect(oneStepFunnel.values.metricOptions.find((option) => option.uuid === 'metric-funnel')).toMatchObject({
+            dropoffReason: null,
+        })
+        expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 51, {
+            bucket: 'funnel_dropoff',
+            metric_uuids: ['metric-funnel'],
+            variant: null,
+        })
+        oneStepFunnel.unmount()
     })
 
     it('keeps the list empty when the bucket fails, rather than widening it silently', async () => {

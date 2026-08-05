@@ -9,6 +9,7 @@ parser end-to-end.
 from __future__ import annotations
 
 import textwrap
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,33 @@ class TestReadWorkflows:
         [job] = wf.jobs
         assert job.is_reusable_call
         assert job.uses == "./.github/workflows/other.yml"
+
+    def test_flattens_parallel_steps(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                timeout-minutes: 5
+                runs-on: depot-ubuntu-latest
+                steps:
+                  - run: echo before
+                  - parallel:
+                      - id: cache
+                        uses: actions/cache/save@v5
+                      - run: echo nested
+            """,
+        )
+        wf = next(read_workflows(tmp_path))
+        [job] = wf.jobs
+        assert [(step.id_, step.uses, step.run) for step in job.steps] == [
+            (None, None, "echo before"),
+            ("cache", "actions/cache/save@v5", None),
+            (None, None, "echo nested"),
+        ]
 
     def test_parse_error_raises_typed(self, tmp_path: Path) -> None:
         bad = tmp_path / "wf.yml"
@@ -368,6 +396,97 @@ class TestPrConcurrencyCheck:
         )
         assert PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []
 
+    @pytest.mark.parametrize(
+        "name,triggers,group,cancel,flagged",
+        [
+            ("publish.yml", "[pull_request, push]", "${{ github.workflow }}-${{ github.ref }}", "true", True),
+            ("publish.yml", "[push]", "${{ github.workflow }}-${{ github.ref }}", "true", True),
+            ("publish.yml", "[pull_request]", "${{ github.workflow }}-${{ github.ref }}", "true", False),
+            (
+                "publish.yml",
+                "[pull_request, push]",
+                "${{ github.workflow }}-${{ github.ref }}",
+                "${{ github.event_name == 'pull_request' }}",
+                False,
+            ),
+            (
+                "publish.yml",
+                "[pull_request, push]",
+                "${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}",
+                "true",
+                False,
+            ),
+            # SKIP exempts a workflow from needing a block, never from cancelling master runs.
+            (
+                next(iter(PrConcurrencyCheck.SKIP)),
+                "[push]",
+                "${{ github.workflow }}-${{ github.ref }}",
+                "true",
+                True,
+            ),
+            # A SHA on a non-push arm still leaves every push sharing one ref.
+            (
+                "publish.yml",
+                "[pull_request, push]",
+                "${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.sha || github.ref }}",
+                "true",
+                True,
+            ),
+            ("publish.yml", "[push]", "${{ github.workflow }}-${{ github.sha }}", "true", False),
+        ],
+    )
+    def test_bare_cancel_flagged_only_when_it_can_kill_a_push_run(
+        self, tmp_path: Path, name: str, triggers: str, group: str, cancel: str, flagged: bool
+    ) -> None:
+        _write(
+            tmp_path,
+            name,
+            f"""
+            name: Publish
+            on: {triggers}
+            concurrency:
+              group: {group}
+              cancel-in-progress: {cancel}
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        issues = PrConcurrencyCheck().run(_read_all(tmp_path)).issues
+        assert bool(issues) is flagged
+
+    @pytest.mark.parametrize(
+        "marker,exempted",
+        [
+            ("# hogli-lint: allow-master-cancel -- cache warmer, latest wins", True),
+            ("# hogli-lint: allow-master-cancel", False),
+            ("# hogli-lint: allow-master-cancel --", False),
+        ],
+    )
+    def test_master_cancel_marker_needs_a_reason_to_exempt(self, tmp_path: Path, marker: str, exempted: bool) -> None:
+        _write(
+            tmp_path,
+            "publish.yml",
+            f"""
+            name: Publish
+            on: [push]
+            concurrency:
+              group: ${{{{ github.workflow }}}}-${{{{ github.ref }}}}
+              {marker}
+              cancel-in-progress: true
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert (PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []) is exempted
+
 
 # ---------------------------------------------------------------------------
 # DornyNegationCheck
@@ -526,6 +645,41 @@ class TestSemgrepServicesCoverageCheck:
         )
         [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert issue.workflow == "ci-security.yaml"
+        assert "services/worker/" in issue.message
+
+    def test_judges_tracked_services_only(self, tmp_path: Path) -> None:
+        # Build residue left by another branch (node_modules and friends, no
+        # tracked source) is not a service CI can scan, so it must not fail —
+        # while a tracked service that really is uncovered still must.
+        repo_root = tmp_path
+        for service in ("api", "worker"):
+            (repo_root / "services" / service).mkdir(parents=True)
+            (repo_root / "services" / service / "main.py").write_text("x = 1\n")
+        (repo_root / "services" / "stale" / "node_modules").mkdir(parents=True)
+        for command in (("init",), ("add", "services/api/main.py", "services/worker/main.py")):
+            subprocess.run(["git", *command], cwd=repo_root, check=True, capture_output=True)
+        workflows_dir = repo_root / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(
+            workflows_dir,
+            "ci-security.yaml",
+            """
+            name: Security
+            on: [pull_request]
+            jobs:
+              semgrep-python:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: semgrep scan services/api/
+              semgrep-js:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert "services/worker/" in issue.message
 
 

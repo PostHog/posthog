@@ -1619,6 +1619,18 @@ export interface LogsRetentionRuleReorderApi {
     ordered_ids: string[]
 }
 
+export interface LogsRetentionRuleSuggestNameApi {
+    /** Retention tier the rule would assign, in days. */
+    retention_days: number
+    /** PropertyGroupFilter tree the rule would match on. */
+    filter_group: unknown
+}
+
+export interface LogsRetentionRuleNameSuggestionApi {
+    /** Suggested rule name. Empty when no suggestion could be generated — clients hide the hint. */
+    name: string
+}
+
 /**
  * * `severity_sampling` - Severity-based reduction
  * * `path_drop` - Path exclusion
@@ -1831,6 +1843,17 @@ export const SparklineBreakdownByEnumApi = {
     Service: 'service',
 } as const
 
+/**
+ * * `count` - count
+ * * `bytes` - bytes
+ */
+export type SparklineRankByEnumApi = (typeof SparklineRankByEnumApi)[keyof typeof SparklineRankByEnumApi]
+
+export const SparklineRankByEnumApi = {
+    Count: 'count',
+    Bytes: 'bytes',
+} as const
+
 export interface _LogsSparklineBodyApi {
     /** Date range for the sparkline. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -1847,6 +1870,11 @@ export interface _LogsSparklineBodyApi {
      * * `severity` - severity
      * * `service` - service */
     sparklineBreakdownBy?: SparklineBreakdownByEnumApi
+    /** Rank breakdown values by "count" (default) or "bytes" before collapsing the tail into "other".
+     *
+     * * `count` - count
+     * * `bytes` - bytes */
+    sparklineRankBy?: SparklineRankByEnumApi
     /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
 }

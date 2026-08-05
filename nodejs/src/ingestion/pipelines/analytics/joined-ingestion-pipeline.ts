@@ -61,7 +61,6 @@ export interface JoinedIngestionPipelineConfig {
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
-    cdpHogWatcherSampleRate: number
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
@@ -128,7 +127,6 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
-        cdpHogWatcherSampleRate,
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
@@ -169,8 +167,6 @@ export function createJoinedIngestionPipeline<
         groupTypeManager,
         flagCalledPersonlessDefaultTeams: perDistinctIdOptions.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
         personlessWritesDisabledTeams: perDistinctIdOptions.PERSONLESS_WRITES_DISABLED_TEAMS,
-        hogTransformer,
-        cdpHogWatcherSampleRate,
     }
 
     const perEventConfig: PerDistinctIdPipelineConfig = {
