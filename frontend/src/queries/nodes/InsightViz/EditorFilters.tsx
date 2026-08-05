@@ -41,6 +41,7 @@ import {
 
 import { JourneysExclusions } from 'products/product_analytics/frontend/insights/journeys/JourneysExclusions'
 import { JourneysSettings } from 'products/product_analytics/frontend/insights/journeys/JourneysSettings'
+import { JourneysShapePicker } from 'products/product_analytics/frontend/insights/journeys/JourneysShapePicker'
 import { JourneysStepSourcePicker } from 'products/product_analytics/frontend/insights/journeys/JourneysStepSourcePicker'
 
 import { Breakdown } from './Breakdown'
@@ -169,6 +170,19 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         </>
                     ),
                     component: JourneysStepSourcePicker,
+                    show: isPathsV2,
+                },
+                {
+                    key: 'journey-shape',
+                    label: 'Journey shape',
+                    tooltip: (
+                        <>
+                            Open shows every journey people take, split on inactivity. Starts at and Ends at follow each
+                            person's single journey from or up to a chosen step, so any highlighted path can open as a
+                            funnel with matching numbers.
+                        </>
+                    ),
+                    component: JourneysShapePicker,
                     show: isPathsV2,
                 },
                 {

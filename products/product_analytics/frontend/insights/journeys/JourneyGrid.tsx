@@ -7,6 +7,8 @@ import { percentage } from 'lib/utils/numbers'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { midEllipsis, pluralize } from 'lib/utils/strings'
 
+import { PathsV2AnchorType } from '~/queries/schema/schema-general'
+
 import { CARD_HEIGHT, CARD_WIDTH, COLUMN_GAP, cardKey, computeJourneyGridGeometry } from './journeyGridGeometry'
 import {
     JourneyChainHighlight,
@@ -22,9 +24,19 @@ const RIBBON_OPACITY = 0.15
 const RIBBON_OPACITY_ON_CHAIN = 0.4
 const RIBBON_OPACITY_DIMMED = 0.06
 
+/** End-anchored grids read backward in time from the anchor column, so "Step n" would label the
+ * columns in the wrong direction. */
+function columnHeading(stepIndex: number, anchorType?: PathsV2AnchorType | null): string {
+    if (anchorType === PathsV2AnchorType.End) {
+        return stepIndex === 0 ? 'Last step' : `${pluralize(stepIndex, 'step')} earlier`
+    }
+    return `Step ${stepIndex + 1}`
+}
+
 export function JourneyGrid({
     model,
     isAnchored,
+    anchorType,
     nodeColor,
     chainHighlight,
     onCardClick,
@@ -35,6 +47,7 @@ export function JourneyGrid({
 }: {
     model: JourneyGridModel
     isAnchored: boolean
+    anchorType?: PathsV2AnchorType | null
     nodeColor: string
     chainHighlight?: JourneyChainHighlight | null
     onCardClick?: (stepIndex: number, row: JourneyGridRow) => void
@@ -116,7 +129,7 @@ export function JourneyGrid({
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ left: columnIndex * (CARD_WIDTH + COLUMN_GAP), top: 0, width: CARD_WIDTH }}
                     >
-                        Step {column.stepIndex + 1}
+                        {columnHeading(column.stepIndex, anchorType)}
                     </div>
                 ))}
 
