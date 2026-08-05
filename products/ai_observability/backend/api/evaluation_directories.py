@@ -95,8 +95,8 @@ class EvaluationDirectoryViewSet(
                 )
             )
             if evaluations:
-                Evaluation.objects.filter(id__in=[evaluation.id for evaluation in evaluations]).update(
-                    directory=None, updated_at=timezone.now()
-                )
+                Evaluation.objects.filter(
+                    team_id=self.team_id, id__in=[evaluation.id for evaluation in evaluations]
+                ).update(directory=None, updated_at=timezone.now())
                 log_evaluations_moved_to_top_level(evaluations)
             instance.delete()
