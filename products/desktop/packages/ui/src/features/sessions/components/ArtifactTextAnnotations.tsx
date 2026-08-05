@@ -114,11 +114,15 @@ export function ArtifactTextAnnotations({
     return first;
   }, [rects]);
 
-  const dismiss = useCallback(() => {
+  const clearOverlay = useCallback(() => {
     setSelection(null);
     setPendingAnchor(null);
-    window.getSelection()?.removeAllRanges();
   }, []);
+
+  const dismiss = useCallback(() => {
+    clearOverlay();
+    window.getSelection()?.removeAllRanges();
+  }, [clearOverlay]);
 
   const rootComments = useMemo(
     () => comments.filter((comment) => !comment.source_comment),
@@ -221,7 +225,10 @@ export function ArtifactTextAnnotations({
         ) {
           return;
         }
-        dismiss();
+        // Only reset local overlay state here: clearing the DOM selection on
+        // every collapse would steal the caret from inputs elsewhere in the
+        // app and cancel drag-selections as they start.
+        clearOverlay();
         return;
       }
       const range = domSelection.getRangeAt(0);
@@ -229,7 +236,7 @@ export function ArtifactTextAnnotations({
         !root.contains(range.startContainer) ||
         !root.contains(range.endContainer)
       ) {
-        dismiss();
+        clearOverlay();
         return;
       }
       const offsets = selectionOffsets(root, range);
@@ -260,7 +267,7 @@ export function ArtifactTextAnnotations({
       cancelAnimationFrame(frame);
       document.removeEventListener("selectionchange", handleSelectionChange);
     };
-  }, [containerRef, dismiss, rootRef]);
+  }, [clearOverlay, containerRef, rootRef]);
 
   return (
     <>

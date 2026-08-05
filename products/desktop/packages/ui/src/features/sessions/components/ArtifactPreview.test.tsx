@@ -474,6 +474,44 @@ describe("ArtifactPreview", () => {
     expect(screen.queryByRole("button", { name: "Add comment" })).toBeNull();
   });
 
+  it("keeps the DOM selection when it collapses outside the Markdown root", async () => {
+    useQuery.mockReturnValue({
+      data: "# Report",
+      isLoading: false,
+      isError: false,
+    });
+    render(
+      <TooltipProvider>
+        <ArtifactPreview
+          taskId="task-1"
+          runId="run-1"
+          artifactId="artifact-1"
+          name="report.md"
+        />
+      </TooltipProvider>,
+    );
+    const heading = screen.getByRole("heading", { name: "Report" });
+    const range = document.createRange();
+    range.selectNodeContents(heading);
+    range.getBoundingClientRect = () => ({ bottom: 20, right: 120 }) as DOMRect;
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    fireEvent.mouseUp(heading);
+    expect(
+      await screen.findByRole("button", { name: "Add comment" }),
+    ).toBeTruthy();
+
+    // A collapsed selection elsewhere (e.g. a caret placed in an input) must
+    // close the overlay without wiping the document selection — clearing it
+    // here steals the caret and cancels in-progress drag selections.
+    window.getSelection()?.collapse(document.body, 0);
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Add comment" })).toBeNull(),
+    );
+    expect(window.getSelection()?.rangeCount).toBe(1);
+  });
+
   it("does not render resolved comment highlights", () => {
     const root: ResourceComment = {
       id: "comment-1",
