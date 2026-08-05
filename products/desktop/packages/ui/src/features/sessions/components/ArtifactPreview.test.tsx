@@ -1,6 +1,8 @@
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import {
   afterEach,
   beforeEach,
@@ -23,6 +25,7 @@ const auth = vi.hoisted(() => ({ identity: "auth-1" as string | null }));
 const artifactComments = vi.hoisted(() => ({
   data: [] as ResourceComment[],
 }));
+const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
@@ -46,6 +49,30 @@ vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
   useOrgMembers: () => ({ members: [] }),
 }));
 
+vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
+  MentionComposer: ({
+    value,
+    onValueChange,
+    placeholder,
+    children,
+  }: {
+    value: string;
+    onValueChange: (value: string) => void;
+    placeholder?: string;
+    children: ReactNode;
+  }) => (
+    <div>
+      <textarea
+        aria-label="Comment text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onValueChange(event.target.value)}
+      />
+      {children}
+    </div>
+  ),
+}));
+
 vi.mock("@tanstack/react-query", () => ({
   useQuery,
 }));
@@ -55,7 +82,7 @@ vi.mock("./useComments", () => ({
     data: artifactComments.data,
     isLoading: false,
   }),
-  useCreateComment: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateComment: () => ({ mutate: createComment, isPending: false }),
 }));
 
 vi.mock("../../code-editor/components/CodeMirrorEditor", () => ({
@@ -95,6 +122,7 @@ describe("ArtifactPreview", () => {
       resolutionsByTarget: {},
     });
     artifactComments.data = [];
+    createComment.mockReset();
     useQuery.mockReset();
     useQuery.mockReturnValue({
       data: previewBlob,
@@ -362,6 +390,50 @@ describe("ArtifactPreview", () => {
     expect(
       screen.getByRole("button", { name: "View preview" }),
     ).toBeInTheDocument();
+  });
+
+  it("creates an anchored comment from rendered Markdown text", async () => {
+    useQuery.mockReturnValue({
+      data: "# Report",
+      isLoading: false,
+      isError: false,
+    });
+    render(
+      <TooltipProvider>
+        <ArtifactPreview
+          taskId="task-1"
+          runId="run-1"
+          artifactId="artifact-1"
+          name="report.md"
+        />
+      </TooltipProvider>,
+    );
+
+    const heading = screen.getByRole("heading", { name: "Report" });
+    const range = document.createRange();
+    range.selectNodeContents(heading);
+    range.getBoundingClientRect = () => ({ bottom: 20, right: 120 }) as DOMRect;
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    fireEvent.mouseUp(heading);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add comment" }));
+    fireEvent.change(
+      screen.getByPlaceholderText("Add a comment about this selection..."),
+      { target: { value: "Tighten this title" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+
+    expect(createComment).toHaveBeenCalledWith(
+      {
+        content: "Tighten this title",
+        context: {
+          anchor: expect.objectContaining({ kind: "text", quote: "Report" }),
+        },
+        mentions: [],
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
   });
 
   it("does not render resolved comment highlights", () => {
