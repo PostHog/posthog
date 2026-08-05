@@ -1,125 +1,53 @@
 import {
-    IconApps,
-    IconBug,
-    IconCursorClick,
-    IconEndpoints,
-    IconCursor,
-    IconDashboard,
-    IconDatabase,
-    IconDecisionTree,
     IconDownload,
-    IconEye,
-    IconFlask,
-    IconHome,
     IconList,
-    IconLive,
-    IconListTree,
-    IconLlmAnalytics,
-    IconMCP,
     IconLlmPromptManagement,
-    IconMessage,
-    IconNotebook,
-    IconNotification,
-    IconPeople,
-    IconPieChart,
-    IconPiggyBank,
+    IconMCP,
     IconPlaylist,
-    IconPulse,
-    IconRewindPlay,
-    IconRocket,
-    IconShare,
     IconScatter,
-    IconSpotlight,
-    IconToggle,
-    IconToolbar,
-    IconTrends,
-    IconWarning,
+    IconShare,
     IconSupport,
+    IconToolbar,
 } from '@posthog/icons'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { APIScopeObject } from '~/types'
 
-export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null {
-    switch (props.scope) {
-        case 'project':
-            return <IconHome />
-        case 'action':
-            return <IconCursor />
-        case 'customer_analytics':
-            return <IconPeople />
-        case 'activity_log':
-            return <IconNotification />
-        case 'dashboard':
-            return <IconDashboard />
-        case 'early_access_feature':
-            return <IconRocket />
-        case 'endpoint':
-            return <IconEndpoints />
-        case 'error_tracking':
-            return <IconWarning />
-        case 'event_definition':
-            return <IconApps />
-        case 'experiment':
-            return <IconFlask />
-        case 'export':
-            return <IconDownload />
-        case 'external_data_source':
-            return <IconDatabase />
-        case 'warehouse_objects':
-            return <IconDatabase />
-        case 'feature_flag':
-            return <IconToggle />
-        case 'heatmap':
-            return <IconCursorClick />
-        case 'hog_flow':
-            return <IconDecisionTree />
-        case 'insight':
-            return <IconTrends />
-        case 'llm_analytics':
-            return <IconLlmAnalytics />
-        case 'llm_skill':
-            return <IconLlmPromptManagement />
-        case 'llm_playground':
-            return <IconPlaylist />
-        case 'ai_observability_clusters':
-            return <IconScatter />
-        case 'live_debugger':
-            return <IconBug />
-        case 'logs':
-            return <IconLive />
-        case 'mcp_analytics':
-            return <IconMCP />
-        case 'metrics':
-            return <IconPulse />
-        case 'notebook':
-            return <IconNotebook />
-        case 'product_tour':
-            return <IconSpotlight />
-        case 'property_definition':
-            return <IconApps />
-        case 'replay_scanner':
-            return <IconEye />
-        case 'revenue_analytics':
-            return <IconPiggyBank />
-        case 'session_recording':
-            return <IconRewindPlay />
-        case 'sharing_configuration':
-            return <IconShare />
-        case 'survey':
-            return <IconMessage />
-        case 'ticket':
-            return <IconSupport />
-        case 'tagger':
-            return <IconList />
-        case 'task':
-            return <IconBug />
-        case 'web_analytics':
-            return <IconPieChart />
-        case 'tracing':
-            return <IconListTree />
-        case 'toolbar':
-            return <IconToolbar />
-        default:
-            return null
-    }
+/** Resources whose name differs from their icon type in the project tree manifest. */
+const SCOPE_TO_ICON_TYPE: Partial<Record<APIScopeObject, FileSystemIconType>> = {
+    activity_log: 'activity',
+    customer_analytics: 'persons',
+    endpoint: 'endpoints',
+    external_data_source: 'data_warehouse',
+    hog_flow: 'workflows',
+    insight: 'insight/trends',
+    project: 'home',
+    replay_scanner: 'replay_vision',
+    session_recording: 'session_replay',
+    session_recording_playlist: 'session_replay',
+    warehouse_objects: 'data_warehouse',
+    warehouse_table: 'data_warehouse',
+    warehouse_view: 'data_warehouse',
+}
+
+/** Resources with no project tree icon type to borrow, kept explicit. */
+const SCOPE_ICON_OVERRIDES: Partial<Record<APIScopeObject, JSX.Element>> = {
+    ai_observability_clusters: <IconScatter />,
+    export: <IconDownload />,
+    llm_playground: <IconPlaylist />,
+    llm_skill: <IconLlmPromptManagement />,
+    mcp_analytics: <IconMCP />,
+    sharing_configuration: <IconShare />,
+    tagger: <IconList />,
+    ticket: <IconSupport />,
+    toolbar: <IconToolbar />,
+}
+
+/**
+ * Icon for an access-controlled resource, borrowed from the project tree's manifest-driven map so
+ * products keep one icon everywhere. iconForType has its own default, so every scope gets an icon.
+ */
+export function ScopeIcon({ scope }: { scope: APIScopeObject }): JSX.Element {
+    return SCOPE_ICON_OVERRIDES[scope] ?? iconForType(SCOPE_TO_ICON_TYPE[scope] ?? (scope as FileSystemIconType))
 }
