@@ -1112,11 +1112,11 @@ impl RoutingTable {
                 }
 
                 // Pre-update the routing table before draining so that any
-                // new request arriving between drain and the independent
-                // assignment-watch dispatch routes to the new owner rather
-                // than to the old owner (which has already released). The
-                // assignment watch will later re-set the same value
-                // idempotently.
+                // new request arriving mid-drain routes to the new owner
+                // rather than to the old owner (which has already
+                // released). The reconcile pass converges the table
+                // against the assignment keys each tick and re-sets the
+                // same value idempotently.
                 table
                     .write()
                     .await
