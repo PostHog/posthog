@@ -2,7 +2,6 @@ import json
 import uuid
 import asyncio
 import datetime as dt
-import dataclasses
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -64,7 +63,12 @@ from products.exports.backend.temporal.subscriptions.types import (
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
     return [
-        {"recipient": r.recipient, "status": r.status, **({"error": r.error} if r.error else {})}
+        {
+            "recipient": r.recipient,
+            "status": r.status,
+            **({"error": r.error} if r.error else {}),
+            **({"human_readable_error": r.human_readable_error} if r.human_readable_error else {}),
+        }
         for r in recipient_results
     ]
 
@@ -246,7 +250,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             if abort_info is not None:
                 # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient) → SKIPPED default.
                 if abort_info.failed_recipient is not None:
-                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    delivery_recipient_results = _to_recipient_dicts([abort_info.failed_recipient])
                     final_status = DeliveryStatus.FAILED
                 return
 
@@ -529,7 +533,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient)
                 # → SKIPPED default (idempotency redispatch). Matches ProcessSubscriptionWorkflow.
                 if abort_info.failed_recipient is not None:
-                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    delivery_recipient_results = _to_recipient_dicts([abort_info.failed_recipient])
                     final_status = DeliveryStatus.FAILED
                 return
 
