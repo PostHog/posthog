@@ -26,7 +26,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS, MIN_ATTRIBUTION_WINDOW_DAYS
 
 from .attribution_weights import DAY_IN_SECONDS
-from .constants import UNKNOWN_CHANNEL
+from .constants import DIRECT_REFERRING_DOMAIN, UNKNOWN_CHANNEL
 from .conversion_goal_conditions import conversion_goal_condition
 from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRunner, ResponseType
 
@@ -43,6 +43,17 @@ BREAKDOWN_SESSION_FIELDS: dict[MarketingAnalyticsAttributionBreakdown, str] = {
     MarketingAnalyticsAttributionBreakdown.TERM: "$entry_utm_term",
     MarketingAnalyticsAttributionBreakdown.REFERRING_DOMAIN: "$entry_referring_domain",
     MarketingAnalyticsAttributionBreakdown.LANDING_PAGE: "$entry_pathname",
+}
+
+# Values a breakdown's session field takes to mean "this session names nothing here", beyond an empty
+# value. Lives next to `BREAKDOWN_SESSION_FIELDS` and `_breakdown_expr` on purpose: "is this
+# unattributed?" and "what does this render as?" are the same question, and answering them in two
+# places is how a breakdown ends up excluding a row it displays under a real-looking name.
+UNATTRIBUTED_SESSION_VALUES: dict[MarketingAnalyticsAttributionBreakdown, tuple[str, ...]] = {
+    # The classifier's own sentinel for a session it couldn't place. Its other outputs (Organic
+    # Search, Direct, Referral) are real classifications and stay.
+    MarketingAnalyticsAttributionBreakdown.CHANNEL: (UNKNOWN_CHANNEL,),
+    MarketingAnalyticsAttributionBreakdown.REFERRING_DOMAIN: (DIRECT_REFERRING_DOMAIN,),
 }
 
 # Both runners collect per-person arrays under this name before diverging.
@@ -250,20 +261,26 @@ class AttributionQueryRunnerBase(MarketingAnalyticsBaseQueryRunner[ResponseType]
                 )
             )
         if self.query.excludeUnattributed:
-            # A touchpoint is unattributed when the session carries no value for the current breakdown —
-            # the sessions that would otherwise render as the "(none)" row (or "Unknown", the channel
-            # classifier's sentinel for a session it couldn't place). Judged on the raw session field, not
-            # the display expression, so the fallback substitution can't hide an empty value.
+            # A touchpoint is unattributed when the session names nothing for the current breakdown:
+            # an empty value, or one of the sentinels that breakdown substitutes for "don't know".
+            # Judged on the raw session field rather than the display expression, so a friendly
+            # fallback label can't smuggle an empty value back in.
+            #
+            # Which is why channel and source deliberately part ways on the same untagged session:
+            # `$channel_type` runs a classifier that places it in a real bucket (Organic Search,
+            # Direct, Referral), so only the classifier's own `Unknown` counts as unattributed.
+            # `$entry_utm_source` has no classifier — an empty value there is the plain absence of a
+            # source, which `_breakdown_expr` merely *labels* `organic`, so it is excluded.
             field = ast.Field(chain=["events", "session", BREAKDOWN_SESSION_FIELDS[self.breakdown]])
             conditions.append(
                 ast.Call(name="notEmpty", args=[ast.Call(name="ifNull", args=[field, ast.Constant(value="")])])
             )
-            if self.breakdown == MarketingAnalyticsAttributionBreakdown.CHANNEL:
+            for sentinel in UNATTRIBUTED_SESSION_VALUES.get(self.breakdown, ()):
                 conditions.append(
                     ast.CompareOperation(
                         left=field,
                         op=ast.CompareOperationOp.NotEq,
-                        right=ast.Constant(value=UNKNOWN_CHANNEL),
+                        right=ast.Constant(value=sentinel),
                     )
                 )
         return ast.And(exprs=conditions)

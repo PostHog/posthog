@@ -415,6 +415,45 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self.assertNotIn("Unknown", without_unknown)
         self.assertAlmostEqual(without_unknown[paid_channel][AttributionMode.LINEAR], 1.0, places=4)
 
+    def test_excluding_unattributed_drops_the_organic_source_row(self):
+        # Source is the breakdown where "unattributed" is easiest to get wrong: an empty utm_source is
+        # *displayed* as "organic", a real-looking name, so it renders nothing like the "(none)" row the
+        # other UTM breakdowns produce. It is still the absence of a source, so it goes — and the credit
+        # it held renormalizes onto the sources that were actually tagged.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google")
+        self._session("p1", ONE_DAY_BEFORE)  # no utm_source -> displayed as "organic"
+        self._conversion("p1", CONVERSION_AT)
+
+        with_organic = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.SOURCE))
+        self.assertIn("organic", with_organic)
+        self.assertAlmostEqual(with_organic["google"][AttributionMode.LINEAR], 0.5, places=4)
+
+        without_organic = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, exclude_unattributed=True)
+        )
+        self.assertNotIn("organic", without_organic)
+        self.assertAlmostEqual(without_organic["google"][AttributionMode.LINEAR], 1.0, places=4)
+
+    def test_excluding_unattributed_drops_the_direct_referring_domain_sentinel(self):
+        # `$entry_referring_domain` holds the "$direct" sentinel rather than an empty value when a session
+        # arrived with no referrer, so an emptiness test alone would leave a raw sentinel in the results
+        # as if it were a real referrer.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, referring_domain="google.com")
+        self._session("p1", ONE_DAY_BEFORE)  # defaults to the "$direct" sentinel
+        self._conversion("p1", CONVERSION_AT)
+
+        with_direct = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.REFERRING_DOMAIN))
+        self.assertIn("$direct", with_direct)
+        self.assertAlmostEqual(with_direct["google.com"][AttributionMode.LINEAR], 0.5, places=4)
+
+        without_direct = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.REFERRING_DOMAIN, exclude_unattributed=True)
+        )
+        self.assertNotIn("$direct", without_direct)
+        self.assertAlmostEqual(without_direct["google.com"][AttributionMode.LINEAR], 1.0, places=4)
+
     def test_repeat_touches_on_one_dimension_sum_their_weight(self):
         # A dimension touched on three of four sessions should hold 0.75 of the linear credit as one row,
         # not appear three times at 0.25. Guards the weight roll-up in the same collapse as the influenced

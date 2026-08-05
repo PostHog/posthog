@@ -17,6 +17,7 @@ import {
     BREAKDOWN_LABELS,
     MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID,
     marketingAttributionLogic,
+    unattributedRowLabel,
 } from '../../logic/marketingAttributionLogic'
 import { AttributionTable } from './AttributionTable'
 import { ConversionPaths } from './ConversionPaths'
@@ -120,7 +121,9 @@ export function AttributionTab(): JSX.Element {
                 label="Exclude unattributed traffic"
                 tooltip={`Sessions with no ${BREAKDOWN_LABELS[
                     breakdownBy
-                ].toLowerCase()} — the ones shown as "(none)" or "Unknown" — stop counting as touchpoints, and their credit is shared across the remaining ones.`}
+                ].toLowerCase()} — the ones shown as ${unattributedRowLabel(
+                    breakdownBy
+                )} — stop counting as touchpoints, and their credit is shared across the remaining ones.`}
                 data-attr="marketing-attribution-exclude-unattributed"
             />
             <LemonSwitch

@@ -39,6 +39,20 @@ export const BREAKDOWN_LABELS: Record<MarketingAnalyticsAttributionBreakdown, st
     [MarketingAnalyticsAttributionBreakdown.LandingPage]: 'Landing page',
 }
 
+/**
+ * How the row that "Exclude unattributed traffic" removes is actually labelled, per breakdown. Most
+ * breakdowns leave the value empty and render as "(none)", but a few substitute a real-looking name —
+ * so naming the wrong one in the tooltip would promise the user a row that never disappears.
+ */
+const UNATTRIBUTED_ROW_LABELS: Partial<Record<MarketingAnalyticsAttributionBreakdown, string>> = {
+    [MarketingAnalyticsAttributionBreakdown.Channel]: '"Unknown"',
+    [MarketingAnalyticsAttributionBreakdown.Source]: '"organic"',
+    [MarketingAnalyticsAttributionBreakdown.ReferringDomain]: '"$direct"',
+}
+
+export const unattributedRowLabel = (breakdownBy: MarketingAnalyticsAttributionBreakdown): string =>
+    UNATTRIBUTED_ROW_LABELS[breakdownBy] ?? '"(none)"'
+
 export const MODEL_LABELS: Record<AttributionMode, string> = {
     [AttributionMode.FirstTouch]: 'First touch',
     [AttributionMode.LastTouch]: 'Last touch',

@@ -260,6 +260,23 @@ class TestMarketingAnalyticsAttributionPathsQueryRunner(ClickhouseTestMixin, Bas
         )
         self.assertEqual(without_none, {("summer",): 1})
 
+    def test_excluding_unattributed_drops_organic_steps_from_the_path(self):
+        # Source breakdown, where the untagged step renders as "organic" rather than "". The paths section
+        # has to drop exactly what the table above it drops, or a journey shown here would contradict the
+        # weights shown there — which is the whole point of both surfaces sharing one touchpoint definition.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google")
+        self._session("p1", ONE_DAY_BEFORE)  # no utm_source -> displayed as "organic"
+        self._conversion("p1", CONVERSION_AT)
+
+        with_organic = self._paths(self._run(MarketingAnalyticsAttributionBreakdown.SOURCE))
+        self.assertEqual(with_organic, {("google", "organic"): 1})
+
+        without_organic = self._paths(
+            self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, exclude_unattributed=True)
+        )
+        self.assertEqual(without_organic, {("google",): 1})
+
     def test_long_journeys_group_on_their_most_recent_steps(self):
         # 12 sessions land within the window (hourly, so each is its own touchpoint); the path keeps the
         # most recent PATH_MAX_LENGTH steps and flags the truncation.
